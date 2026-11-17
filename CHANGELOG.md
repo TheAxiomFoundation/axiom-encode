@@ -1,3 +1,46 @@
+## 0.2.2384
+
+- Evidence floor for the start date of a date-silent unit (#2227)
+
+## 0.2.2383
+
+- Reviewed alternative-list readings for the gates-collapsed check (digest-bound registry) (#2216)
+
+## 0.2.2382
+
+- Cut the evals import edge from the v6 lane path helper (prep for the stdlib guard bundle, #2257) (#2278)
+- Require code-owner review for all of .github/ (closes the unowned-workflow exposure, #2257) (#2277)
+- Quote trailing-colon source excerpts in the eval-time repair (#2266)
+
+## 0.2.2381
+
+- Fix receipt verification during native reviewed-repair staging (#2270)
+
+## 0.2.2380
+
+- Fold structure findings behind an imprecise deferral into its finding and use a U.S. retry example (#1932)
+
+## 0.2.2379
+
+- Close the follow-up findings of the #2051 version-rule review (#2151)
+- Propose guard App key protection: stdlib bundle plus owner review of .github/ (needs Max's choice, #2257) (#2267)
+
+## 0.2.2378
+
+- Name the policies/ root for manual-unit deferrals and type the target refusal (#2260)
+
+## 0.2.2377
+
+- Bind large primary review guidance to immutable producer evidence (#2140)
+
+## 0.2.2376
+
+- Preserve authenticated policy bytes during manifest refresh (#2225)
+- Fix anonymous companion row identities across CLI relations (#2107)
+- fix: replace historical root ownership receipts through verified transactions (#2078)
+- Preserve verified engine and checkout origin for registered repairs (#2243)
+- Recommended three-class lane (content / control plane / infrastructure), off (#2172) (#2231)
+
 ## 0.2.2375
 
 - Add a switched-off reader for applied-rulespec/v6 promotion manifests (inactive, #2172) (#2230)

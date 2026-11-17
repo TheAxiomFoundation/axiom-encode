@@ -85,10 +85,6 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from axiom_encode.applied_manifest_v6 import is_promotion_repository
-from axiom_encode.prepare_signed_backfill import (
-    RULESPEC_ATOMIC_ROOTS,
-    citation_rulespec_path,
-)
 from axiom_encode.reviewed_pr_admission import (
     TRUSTED_SIGNING_REVIEWERS,
     AdmissionError,
@@ -99,6 +95,10 @@ from axiom_encode.reviewed_pr_admission import (
     _pr_identity,
     _require_immutable_delta,
     github_json,
+)
+from axiom_encode.rulespec_citation_paths import (
+    RULESPEC_ATOMIC_ROOTS,
+    citation_rulespec_path,
 )
 
 # Schemas. The design (section 5) proposes the v6 manifest and its attestation

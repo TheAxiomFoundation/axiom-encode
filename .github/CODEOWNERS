@@ -7,6 +7,23 @@
 # signing job runs a separately reviewed, pinned encoder), signing keeps its
 # per-run human approval.
 
+# Everything under .github/: every workflow file (new, replaced or changed),
+# any future composite action, the pull request template and this file. A
+# workflow file names its own environment, and an environment's branch rule
+# limits the ref, not the workflow. So a workflow file that no code owner
+# reviews can select a key-bearing environment and read its key
+# (docs/merge-guard-key-protection.md, R3 and section 4, "Complement").
+# Keep this line above the more specific .github/ entries below. The last
+# matching pattern wins, so an entry below it decides the owners of its own
+# file, and this line gives an owner to every path that has no entry.
+# This line is file ownership only. "Require approval of the most recent
+# reviewable push" and environment reviewers are repository settings.
+/.github/ @PavelMakarchuk @MaxGhenis
+# Tripwire tests for the line above and for which jobs select a key
+# environment. They fail CI; they are not the control.
+/tests/test_codeowners.py @PavelMakarchuk @MaxGhenis
+/tests/test_merge_guard_key_environment.py @PavelMakarchuk @MaxGhenis
+
 # The workflow that signs with the apply key, and the reviewed-candidate
 # allowlist code and admission records it admits.
 /.github/workflows/targeted-signed-reencode.yml @PavelMakarchuk @MaxGhenis
@@ -15,6 +32,8 @@
 # bump and the re-encode workflow's early refusal. main requires no approving
 # review, so code-owner review is these files' only review.
 /.github/workflows/encoder-version-bump.yml @PavelMakarchuk @MaxGhenis
+# ci.yml holds the lint gate that refuses hand-picked version changes.
+/.github/workflows/ci.yml @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/version_provenance.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/prepare_signed_backfill.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/reviewed_pr_admission.py @PavelMakarchuk @MaxGhenis
@@ -32,6 +51,13 @@
 /tests/test_content_merge_guard_infrastructure.py @PavelMakarchuk @MaxGhenis
 /data/reviewed-rulespec-refs/ @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/corpus_artifact_transport.py @PavelMakarchuk @MaxGhenis
+
+# The citation-to-path rule that signing, the eval harness and the merge guard
+# share, and the citation helpers it imports. Both files are standard-library
+# only; the proposed guard bundle runs them without the encoder package (#2257).
+/src/axiom_encode/rulespec_citation_paths.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/statute.py @PavelMakarchuk @MaxGhenis
+/tests/test_rulespec_citation_paths.py @PavelMakarchuk @MaxGhenis
 
 # The signer, the signing supervisor, the broker and the trust bootstrap.
 /cmd/axiom-encode-apply-signer/ @PavelMakarchuk @MaxGhenis
@@ -63,3 +89,8 @@
 /src/axiom_encode/rulespec_admission_registry.py @PavelMakarchuk @MaxGhenis
 /.github/workflows/validation-effect.yml @PavelMakarchuk @MaxGhenis
 /scripts/check_validation_effect.py @PavelMakarchuk @MaxGhenis
+# Reviewed alternative-list readings: each entry loosens the gates-collapsed
+# check for one source unit (docs/reviewed-alternative-lists.md).
+/src/axiom_encode/harness/data/reviewed_alternative_lists.jsonl @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/harness/reviewed_alternative_lists.py @PavelMakarchuk @MaxGhenis
+/tests/test_reviewed_alternative_lists.py @PavelMakarchuk @MaxGhenis

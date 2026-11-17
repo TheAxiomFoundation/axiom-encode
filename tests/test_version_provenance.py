@@ -699,3 +699,140 @@ def test_cat_file_output_after_a_non_blob_is_still_read(repo: Path):
         "0.2.10",
         None,
     ]
+
+
+# --- axiom-encode#2051 approving review: the follow-up findings --------------
+
+
+def test_a_non_numeric_head_gets_one_verdict(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    _write_version(repo, "0.2.11rc1")
+    _commit(repo, "bump to a pre-release")
+    assert _verdicts(repo, monkeypatch, tmp_path / "home") == {True}
+
+
+def test_a_version_main_left_and_declared_again_needs_a_bump(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    (repo / "src/axiom_encode/x.py").write_text("X = 1\n")
+    _commit(repo, "encoder change")
+    _write_version(repo, "0.2.9")
+    _commit(repo, "lower the version")
+    _write_version(repo, "0.2.10")
+    _commit(repo, "hand bump back to 0.2.10")
+    assert _verdicts(repo, monkeypatch, tmp_path / "home") == {True}
+
+
+def test_a_merge_that_restores_an_older_bumps_files_gets_one_verdict(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    # Main: A (0.2.10), B bumps to 0.2.11, D adds a dependency. A side branch
+    # from A bumps by hand to 0.2.12 with a later date, so `git log` lists it
+    # before B. The merge keeps 0.2.11 and drops D's dependency: every copy
+    # takes B, the bump to the head's version, and sees no change.
+    a = _git(repo, "rev-parse", "HEAD")
+
+    def dated(day: int) -> None:
+        stamp = f"2030-01-0{day}T00:00:00+00:00"
+        monkeypatch.setenv("GIT_AUTHOR_DATE", stamp)
+        monkeypatch.setenv("GIT_COMMITTER_DATE", stamp)
+
+    dated(1)
+    _write_version(repo, "0.2.11")
+    b = _commit(repo, "B: bump to 0.2.11")
+    dated(2)
+    with (repo / "uv.lock").open("a") as lock:
+        lock.write('\n[[package]]\nname = "requests"\nversion = "2.32.5"\n')
+    _commit(repo, "D: add a dependency")
+    dated(3)
+    _git(repo, "checkout", "-qb", "side", a)
+    _write_version(repo, "0.2.12")
+    side = _commit(repo, "side: hand bump to 0.2.12")
+    _git(repo, "checkout", "-q", "main")
+    dated(4)
+    _git(repo, "merge", "-q", "--no-ff", "--no-commit", "-s", "ours", "side")
+    _git(repo, "checkout", b, "--", "uv.lock")
+    _commit(repo, "merge side, keep 0.2.11, drop D's dependency")
+    listed = _git(
+        repo, "log", "--format=%H", "--", *version_provenance.VERSION_FILES
+    ).split()
+    assert listed.index(side) < listed.index(b)
+    assert version_provenance.latest_version_commit(repo) == b
+    assert _verdicts(repo, monkeypatch, tmp_path / "home") == {False}
+
+
+def test_a_version_file_edit_that_keeps_the_version_is_not_the_latest_bump(
+    repo: Path,
+):
+    bump = _git(repo, "rev-parse", "HEAD")
+    _encoder_and_dependency_change(repo)
+    assert version_provenance.latest_version_commit(repo) == bump
+
+
+@pytest.mark.parametrize("base", ["HEAD^3", "f" * 40, "--all"])
+def test_a_base_that_does_not_resolve_is_refused(repo: Path, base: str):
+    _bump_workflow_on(repo)
+    head = _hand_bump(repo, _git(repo, "rev-parse", "HEAD"), "0.2.11")
+    with pytest.raises(ValueError, match="does not name a commit"):
+        _reason(repo, base, head, "someone")
+    result = _run_script(
+        "pull-request",
+        "--repo",
+        str(repo),
+        f"--base={base}",
+        "--ref",
+        head,
+        "--author",
+        "someone",
+        "--head-repository",
+        "o/r",
+        "--repository",
+        "o/r",
+    )
+    assert result.returncode == 1
+    assert "does not name a commit" in result.stderr
+
+
+def test_the_apply_guard_reads_main_history_in_its_own_environment(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(cli, "__version__", "0.2.10")
+    monkeypatch.setenv("CANARY_SECRET", "x")
+    seen: list[dict[str, str] | None] = []
+    real = version_provenance.main_history_changes
+
+    def spy(*args, environment=None, **kwargs):
+        seen.append(environment)
+        return real(*args, environment=environment, **kwargs)
+
+    monkeypatch.setattr(version_provenance, "main_history_changes", spy)
+    cli._require_axiom_encode_version_provenance(repo)
+    assert seen and seen[0] is not None
+    assert seen[0] == cli._read_only_git_environment()
+
+
+def test_signatures_stay_off_in_every_copy_of_the_rule():
+    for environment in (
+        version_provenance._git_environment(),
+        cli._read_only_git_environment(),
+    ):
+        keys = {
+            environment[f"GIT_CONFIG_KEY_{i}"]: environment[f"GIT_CONFIG_VALUE_{i}"]
+            for i in range(int(environment["GIT_CONFIG_COUNT"]))
+        }
+        assert keys["log.showSignature"] == "false"
+    assert "log.showSignature=false" in provisioner._HARDENED_GIT_FLAGS
+
+
+def test_a_git_failure_in_main_history_is_the_guards_refusal(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(cli, "__version__", "0.2.10")
+
+    def fail(*args, **kwargs):
+        raise subprocess.CalledProcessError(128, ["git", "log"])
+
+    monkeypatch.setattr(version_provenance, "main_history_changes", fail)
+    with pytest.raises(RuntimeError, match="first-parent encoder version history"):
+        cli._require_axiom_encode_version_provenance(repo)
