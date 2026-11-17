@@ -23856,23 +23856,23 @@ def _negative_local_input_clamp_test_issues(
     ) -> dict[str, Any] | None:
         """Return the case replay reads, or ``None`` for an unproven row case.
 
-        A list-valued assertion of any local rule of this rule's entity makes
-        the runner query table rows for the case, so the flat ``input`` is
-        evidence only with a proven row binding. A case without such an
-        assertion is returned unchanged. The rewritten case is cached so that
-        its identity stays stable for the per-case caches above.
+        One list-valued assertion makes the companion runner query table rows
+        for every output of the case and compare each result as a row-ordered
+        list. Such a case is evidence only when every assertion is a list and
+        the row binding is proven; a scalar assertion beside a list fails in
+        the runner. A case without a list-valued assertion is returned
+        unchanged. The rewritten case is cached so that its identity stays
+        stable for the per-case caches above.
         """
 
         name = str(rule.get("name") or "")
-        entity = str(rule.get("entity") or "Case")
         outputs = case.get("output")
         if not isinstance(outputs, dict) or not any(
-            isinstance(value, list)
-            and (asserted := str(key).rsplit("#", 1)[-1]) in principal_rules
-            and str(principal_rules[asserted].get("entity") or "Case") == entity
-            for key, value in outputs.items()
+            isinstance(value, list) for value in outputs.values()
         ):
             return case
+        if not all(isinstance(value, list) for value in outputs.values()):
+            return None
         cache_key = (id(case), name)
         if cache_key not in row_bound_cases:
             row_bound_cases[cache_key] = _sole_table_row_scalar_case(

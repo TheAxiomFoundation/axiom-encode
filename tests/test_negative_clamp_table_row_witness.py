@@ -299,3 +299,71 @@ def test_row_identity_keys_do_not_break_a_repeated_flat_input():
     negative["input"] = _facts(True, -25)
     negative["tables"]["Payment"][0].update(id="row-1", payment_id="payment-1")
     assert not _clamp_refused("Payment", [*_base_cases(_row_case), negative])
+
+
+@pytest.mark.parametrize("flat_input", [{}, None])
+def test_scalar_clamp_assertion_beside_a_row_assertion_is_refused(flat_input):
+    # One list assertion makes the runner compare every output as a list, so
+    # the scalar assertion of the clamped rule fails there.
+    negative = _row_case("negative", True, -25, 0)
+    negative["output"] = {
+        f"{MODULE}#allowable_fee": 0,
+        f"{MODULE}#fee_counts": [True],
+    }
+    if flat_input is None:
+        del negative["input"]
+    assert _clamp_refused("Payment", [*_base_cases(_row_case), negative])
+
+
+def test_row_clamp_assertion_beside_a_scalar_assertion_is_refused():
+    negative = _row_case("negative", True, -25, 0)
+    negative["output"][f"{MODULE}#fee_counts"] = True
+    assert _clamp_refused("Payment", [*_base_cases(_row_case), negative])
+
+
+def test_below_zero_flat_input_beside_another_entity_row_assertion_is_refused():
+    payload = _payload("Household")
+    payload["rules"][1]["entity"] = "Payment"
+    negative = _scalar_case("negative", True, -25, 0)
+    negative["tables"] = {"Payment": [_facts(True, 25)]}
+    negative["output"][f"{MODULE}#fee_counts"] = [True]
+    cases = [*_base_cases(_scalar_case), negative]
+    assert _clamp_refused("Household", cases, payload=payload)
+
+
+def test_below_zero_flat_input_beside_an_unknown_row_assertion_is_refused():
+    negative = _scalar_case("negative", True, -25, 0)
+    negative["output"]["us:policies/example/other#unknown"] = [1]
+    assert _clamp_refused("Household", [*_base_cases(_scalar_case), negative])
+
+
+def _no_tables(case, payload):
+    del case["tables"]
+
+
+def _second_row(case, payload):
+    case["tables"]["Payment"].append(_facts(True, 250))
+
+
+def _gate_false(case, payload):
+    case["input"] = _facts(False, -25)
+    case["tables"] = {"Payment": [_facts(False, -25)]}
+
+
+def _rules_without_entity(case, payload):
+    for rule in payload["rules"]:
+        del rule["entity"]
+
+
+@pytest.mark.parametrize(
+    "malform",
+    [_no_tables, _second_row, _gate_false, _rules_without_entity],
+)
+def test_scalar_clamp_assertion_beside_a_sibling_row_assertion_is_refused(malform):
+    payload = _payload("Payment")
+    negative = _scalar_case("negative", True, -25, 0)
+    negative["tables"] = {"Payment": [_facts(True, -25)]}
+    negative["output"][f"{MODULE}#fee_counts"] = [True]
+    malform(negative, payload)
+    cases = [*_base_cases(_row_case), negative]
+    assert _clamp_refused("Payment", cases, payload=payload)
