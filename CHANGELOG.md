@@ -1,3 +1,7 @@
+## 0.2.2383
+
+- Reviewed alternative-list readings for the gates-collapsed check (digest-bound registry) (#2216)
+
 ## 0.2.2382
 
 - Cut the evals import edge from the v6 lane path helper (prep for the stdlib guard bundle, #2257) (#2278)
