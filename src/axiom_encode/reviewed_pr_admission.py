@@ -427,12 +427,22 @@ def _enrolled_dispatcher(run: dict, selector: PromotionSelector) -> dict:
 def _refuse_changes_requested(reviews: list[dict]) -> None:
     """The blocking half of ``_approved_reviews``; no approval is required."""
 
-    decisive: dict[object, dict] = {}
-    for review in sorted(reviews, key=lambda item: item.get("id", 0)):
+    # An unknown shape refuses. A review without a numeric id has no place in
+    # the order, and reviewers without a numeric id share one key: the later
+    # review of one would replace, and so cancel, the changes another
+    # requested. ``type(...) is int`` also keeps ``True`` apart from ``1``.
+    for review in reviews:
+        if type(review.get("id")) is not int:
+            raise AdmissionError("review lacks a numeric identity")
+    decisive: dict[int, dict] = {}
+    for review in sorted(reviews, key=lambda item: item["id"]):
         reviewer = _object(review.get("user"), "reviewer")
+        identity = reviewer.get("id")
+        if type(identity) is not int:
+            raise AdmissionError("reviewer lacks a numeric identity")
         state = review.get("state")
         if state in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}:
-            decisive[reviewer.get("id")] = review
+            decisive[identity] = review
         elif state not in {"COMMENTED", "PENDING"}:
             raise AdmissionError("unknown review state")
     if any(review["state"] == "CHANGES_REQUESTED" for review in decisive.values()):

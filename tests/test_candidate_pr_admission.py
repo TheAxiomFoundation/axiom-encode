@@ -316,6 +316,24 @@ def test_interlock_refuses_every_other_protection_state(on, world, change):
         admission.verify_reviewed_pr(SELECTOR, fetch=world.__getitem__)
 
 
+def test_interlock_refuses_a_boolean_app_id(monkeypatch, world):
+    # Review round 1, P3-3. ``True == 1``: with the guard App recorded as 1,
+    # an ``app_id`` of ``true`` in the branch record is not that App.
+    monkeypatch.setattr(admission, "V6_WRITER_ENABLED", True)
+    monkeypatch.setattr(admission, "GUARD_APP_ID", 1)
+    entry = {"context": GUARD["context"], "app_id": 1}
+    world[BRANCH] = required(VALIDATE, entry)
+    assert admission.require_guard_enforced(
+        SELECTOR.repository, fetch=world.__getitem__
+    ) == {"check": admission.GUARD_CHECK_NAME, "app_id": 1}
+    assert admission.verify_reviewed_pr(SELECTOR, fetch=world.__getitem__)
+    world[BRANCH] = required(VALIDATE, entry | {"app_id": True})
+    with pytest.raises(AdmissionError, match="not a required check of main"):
+        admission.require_guard_enforced(SELECTOR.repository, fetch=world.__getitem__)
+    with pytest.raises(AdmissionError, match="not a required check of main"):
+        admission.verify_reviewed_pr(SELECTOR, fetch=world.__getitem__)
+
+
 def test_a_check_named_only_in_contexts_does_not_count(on, world):
     world[BRANCH]["protection"]["required_status_checks"]["checks"] = [VALIDATE]
     assert (
@@ -423,6 +441,135 @@ def test_on_changes_requested_still_blocks(on, world, reviewer):
     world[REVIEWS] = [{"id": 5, "state": "CHANGES_REQUESTED", "user": reviewer}]
     with pytest.raises(AdmissionError, match="unresolved changes requested"):
         admission.verify_reviewed_pr(SELECTOR, fetch=world.__getitem__)
+
+
+OUTSIDER = {"id": 555, "login": "outside", "type": "User"}
+THIRD = {"id": 777, "login": "third", "type": "User"}
+
+
+def _review(review_id, state, user):
+    return {"id": review_id, "state": state, "user": user}
+
+
+# Review round 1, P2-1. Two accounts: one requests changes, the other
+# approves, in both orders of time and of listing. One reviewer's approval
+# never cancels another reviewer's request for changes. With one review at a
+# time, "any decisive review requests changes" and "every decisive review
+# requests changes" are the same rule; these histories tell them apart.
+VETO_HISTORIES = [
+    [_review(5, "CHANGES_REQUESTED", MAX), _review(6, "APPROVED", OUTSIDER)],
+    [_review(5, "APPROVED", OUTSIDER), _review(6, "CHANGES_REQUESTED", MAX)],
+    [_review(5, "CHANGES_REQUESTED", OUTSIDER), _review(6, "APPROVED", MAX)],
+    [_review(5, "APPROVED", MAX), _review(6, "CHANGES_REQUESTED", OUTSIDER)],
+    [_review(6, "APPROVED", MAX), _review(5, "CHANGES_REQUESTED", OUTSIDER)],
+    [
+        _review(5, "CHANGES_REQUESTED", OUTSIDER),
+        _review(6, "APPROVED", MAX),
+        _review(7, "DISMISSED", THIRD),
+        _review(8, "COMMENTED", OUTSIDER),
+    ],
+    # Review round 1, P3-2: the order is the review id, not the listing. The
+    # request for changes (id 5) is newer than the same reviewer's approval
+    # (id 3) and is listed first.
+    [_review(5, "CHANGES_REQUESTED", MAX), _review(3, "APPROVED", MAX)],
+]
+
+
+@pytest.mark.parametrize("history", VETO_HISTORIES)
+def test_on_changes_requested_by_one_account_blocks_beside_any_approval(
+    on, world, history
+):
+    world[REVIEWS] = history
+    with pytest.raises(AdmissionError, match="unresolved changes requested"):
+        admission.verify_reviewed_pr(SELECTOR, fetch=world.__getitem__)
+
+
+@pytest.mark.parametrize("history", VETO_HISTORIES)
+def test_on_revalidation_refuses_changes_requested_beside_any_approval(
+    admitted, world, history
+):
+    world[REVIEWS] = history
+    with pytest.raises(AdmissionError, match="unresolved changes requested"):
+        admission.revalidate_admission(admitted, fetch=Recorder(world))
+
+
+def test_on_a_newer_approval_listed_first_supersedes_the_same_reviewers_request(
+    on, world
+):
+    # P3-2, the other direction: by id the approval (7) is the newer review
+    # of this reviewer, although the listing puts it first.
+    world[REVIEWS] = [
+        _review(7, "APPROVED", MAX),
+        _review(5, "CHANGES_REQUESTED", MAX),
+    ]
+    result = admission.verify_reviewed_pr(SELECTOR, fetch=world.__getitem__)
+    assert admission.revalidate_admission(result, fetch=Recorder(world)) == result
+
+
+def _user(**changes):
+    user = {"login": "outside", "type": "User"} | changes
+    return user
+
+
+# Review round 1, P3-1. Reviewers without a numeric id share one key, so the
+# approval would replace, and cancel, the request for changes. ``True`` is
+# equal to ``1`` as a dictionary key.
+UNKEYED_REVIEWERS = [
+    [
+        _review(1, "CHANGES_REQUESTED", _user(login="a")),
+        _review(2, "APPROVED", _user(login="b")),
+    ],
+    [
+        _review(1, "CHANGES_REQUESTED", _user(id=None, login="a")),
+        _review(2, "APPROVED", _user(id=None, login="b")),
+    ],
+    [
+        _review(1, "CHANGES_REQUESTED", _user(id="555", login="a")),
+        _review(2, "APPROVED", _user(id="555", login="b")),
+    ],
+    [
+        _review(1, "CHANGES_REQUESTED", _user(id=True, login="a")),
+        _review(2, "APPROVED", _user(id=1, login="b")),
+    ],
+    [
+        _review(1, "CHANGES_REQUESTED", _user(id=1.0, login="a")),
+        _review(2, "APPROVED", _user(id=1, login="b")),
+    ],
+    [_review(1, "COMMENTED", _user(login="a"))],
+]
+
+
+@pytest.mark.parametrize("history", UNKEYED_REVIEWERS)
+def test_on_a_reviewer_without_a_numeric_id_refuses(on, world, history):
+    world[REVIEWS] = history
+    with pytest.raises(AdmissionError, match="reviewer lacks a numeric identity"):
+        admission.verify_reviewed_pr(SELECTOR, fetch=world.__getitem__)
+    world[REVIEWS] = []
+    result = admission.verify_reviewed_pr(SELECTOR, fetch=world.__getitem__)
+    world[REVIEWS] = history
+    with pytest.raises(AdmissionError, match="reviewer lacks a numeric identity"):
+        admission.revalidate_admission(result, fetch=Recorder(world))
+
+
+def _unordered(review_id):
+    # The request for changes is the newer review of this reviewer, but its
+    # id gives it no place in the order.
+    request = {"state": "CHANGES_REQUESTED", "user": MAX}
+    if review_id is not ...:
+        request["id"] = review_id
+    return [request, _review(3, "APPROVED", MAX)]
+
+
+@pytest.mark.parametrize("review_id", [..., None, "5", True, 5.0])
+def test_on_a_review_without_a_numeric_id_refuses(on, world, review_id):
+    world[REVIEWS] = _unordered(review_id)
+    with pytest.raises(AdmissionError, match="review lacks a numeric identity"):
+        admission.verify_reviewed_pr(SELECTOR, fetch=world.__getitem__)
+    world[REVIEWS] = []
+    result = admission.verify_reviewed_pr(SELECTOR, fetch=world.__getitem__)
+    world[REVIEWS] = _unordered(review_id)
+    with pytest.raises(AdmissionError, match="review lacks a numeric identity"):
+        admission.revalidate_admission(result, fetch=Recorder(world))
 
 
 def test_on_superseded_changes_requested_and_comments_do_not_block(on, world):
@@ -666,6 +813,16 @@ def _other_author(record):
     record["candidate"]["author_id"] = 6076111
 
 
+def _selector_extra(record):
+    # Review round 1, P3-4. ``prepare_reviewed_pr_promotion.py
+    # verify-publication`` relies on this check inside the revalidation.
+    record["selector"]["extra"] = 1
+
+
+def _selector_short(record):
+    del record["selector"]["citation"]
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -685,6 +842,8 @@ def _other_author(record):
         _other_dispatcher,
         _other_base,
         _other_author,
+        _selector_extra,
+        _selector_short,
     ],
 )
 def test_on_revalidation_refuses_an_edited_record(admitted, world, change):
@@ -692,6 +851,15 @@ def test_on_revalidation_refuses_an_edited_record(admitted, world, change):
     change(record)
     with pytest.raises(AdmissionError):
         admission.revalidate_admission(record, fetch=Recorder(world))
+
+
+def test_on_revalidation_names_an_extra_selector_field(admitted, world):
+    record = copy.deepcopy(admitted)
+    _selector_extra(record)
+    fetch = Recorder(world)
+    with pytest.raises(AdmissionError, match="selector has unexpected fields"):
+        admission.revalidate_admission(record, fetch=fetch)
+    assert fetch.calls == []
 
 
 def test_on_a_reviewed_admission_record_is_still_revalidated_as_reviewed(
