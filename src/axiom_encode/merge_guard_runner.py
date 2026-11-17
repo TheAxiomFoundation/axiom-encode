@@ -1,11 +1,11 @@
-"""Runner for the content-bound merge guard: evaluate and report. SHADOW ONLY.
+"""Runner for the content-bound merge guard: evaluate and report.
 
-This is change 3 of ``docs/content-bound-merge-guard.md`` section 8: the code
-that the workflow ``.github/workflows/merge-guard-runner.yml`` calls. It runs
-``content_merge_guard.evaluate`` on pull requests of one RuleSpec repository,
-authenticated as the guard GitHub App, and reports the verdict.
+This is change 3 and change 3b of ``docs/content-bound-merge-guard.md``
+section 8. It runs ``content_merge_guard.evaluate`` on pull requests of one
+RuleSpec repository and reports the verdict. Two callers exist.
 
-What it can and cannot do:
+The shadow runner (``command``, ``axiom-encode merge-guard-run``, workflow
+``.github/workflows/merge-guard-runner.yml``) runs as the guard GitHub App:
 
 - ``dry-run`` (the default) reads and prints. It writes nothing to GitHub.
 - ``shadow`` also writes one check run per judged head, named
@@ -13,17 +13,27 @@ What it can and cannot do:
   in the title and the summary. A shadow check cannot block a merge and must
   never be made a required check: ``neutral`` satisfies a required check, so
   requiring it would require nothing.
-- There is no enforcing mode. ``GUARD_CHECK_NAME`` is the name reserved for
-  the enforcing check of a later change (3b of the design). The one writer,
-  ``check_writer``, refuses every body that is not a completed, neutral check
-  named ``SHADOW_CHECK_NAME``, so this module cannot publish the real name.
+- The one writer, ``check_writer``, refuses every body that is not a
+  completed, neutral check named ``SHADOW_CHECK_NAME``. ``GUARD_CHECK_NAME``
+  is the name reserved for the enforcing check; no code here writes it.
+
+The enforcing runner (``enforce``, ``enforce_command``, ``axiom-encode
+merge-guard-enforce``, workflow
+``.github/workflows/content-bound-merge-guard.yml``) judges the one pull
+request or merge group of the Actions event that started it. It reads with the
+job's read-only token and writes nothing: no code path of ``enforce`` builds
+``check_writer`` or sends a request with a body. Its result is the exit code
+of the process, which is the conclusion of the Actions job: 0 only for a
+``pass`` or ``not_applicable`` verdict whose bindings hold, 1 for everything
+else. It is required nowhere until an organization owner creates a ruleset
+that names the workflow.
 
 Nothing here carries authority. The list of open pull requests is only a work
 list: every verdict comes from the evaluator's own live reads. A read that
 fails, is truncated or reaches its page bound is an error of the run. It is
 never reported as "no pull requests" or "nothing to check".
 
-The App token is read from the environment variable ``TOKEN_ENV`` only. It is
+The token is read from the environment variable ``TOKEN_ENV`` only. It is
 never accepted on the command line and never printed.
 """
 
@@ -33,6 +43,7 @@ import hashlib
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -64,10 +75,54 @@ MAX_SUMMARY_CHARS: Final = 4000
 EXIT_OK: Final = 0
 EXIT_RUN_ERROR: Final = 1
 
+# --- the enforcing runner (change 3b) ----------------------------------------
+ENFORCE_REPORT_SCHEMA: Final = "axiom-encode/merge-guard-enforce-report/v1"
+EVENT_PULL_REQUEST: Final = "pull_request"
+EVENT_MERGE_GROUP: Final = "merge_group"
+INERT_SOURCE_REPOSITORY: Final = "source_repository"
+# The run's check attaches to the head of the event that started the run. A
+# verdict for another head must never satisfy it.
+R_EVENT_HEAD_STALE: Final = "event_head_is_stale"
+# The verdicts that end the job with success, by verdict AND reason. A new
+# success reason of the evaluator does not pass here until a reviewed change
+# adds it to this set.
+SUCCESS_VERDICTS: Final = frozenset(
+    {
+        (guard.PASS, guard.R_PASS),
+        (guard.PASS, guard.R_CONTROL_PLANE_PASS),
+        (guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT),
+        (guard.NOT_APPLICABLE, guard.R_EARLIER_LANE),
+        (guard.NOT_APPLICABLE, guard.R_INFRASTRUCTURE),
+    }
+)
+# The guard run starts together with ``validate / validate`` and nothing
+# starts it again when that check finishes. So a ``ci_not_green`` verdict
+# waits: poll the required check on the event head every ``CI_POLL_SECONDS``
+# until every listed run is completed, for at most ``CI_WAIT_SECONDS``, then
+# evaluate once more. The wait only delays; it never produces a verdict.
+CI_POLL_SECONDS: Final = 30
+CI_WAIT_SECONDS: Final = 3600
+MAX_CI_POLLS: Final = CI_WAIT_SECONDS // CI_POLL_SECONDS + 1
+# One event payload. GitHub documents a 25 MB cap for webhook payloads; a
+# pull_request or merge_group payload is tens of kilobytes.
+MAX_EVENT_BYTES: Final = 4 * 1024 * 1024
+# Hard cap of GitHub requests in one enforce run: two evaluations and the
+# polls of one full wait, with headroom. The largest measured evaluation is
+# 30 requests (``tests/test_merge_guard_runner.py``, "request volume"), so the
+# worst measured run is 2 * 30 + 121 = 181 requests. GitHub's limit for the
+# job token is 1,000 requests per hour per repository
+# (https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
+MAX_ENFORCE_REQUESTS: Final = 250
+
 _API: Final = "https://api.github.com"
 _REPOSITORY = re.compile(r"rulespec-[a-z]{2}(-[a-z0-9]+)*")
 _TOKEN = re.compile(r"[A-Za-z0-9_.-]{20,512}")
 _SHA = re.compile(r"[0-9a-f]{40}")
+# The temporary branch of a merge group that holds one pull request to
+# ``main``: ``refs/heads/gh-readonly-queue/main/pr-<number>-<40 hex>``.
+_QUEUE_REF = re.compile(
+    r"refs/heads/gh-readonly-queue/main/pr-([1-9][0-9]{0,8})-[0-9a-f]{40}"
+)
 _CHECK_RUNS_PATH = re.compile(
     r"/repos/TheAxiomFoundation/rulespec-[a-z]{2}(-[a-z0-9]+)*/check-runs"
 )
@@ -78,6 +133,8 @@ _UNREAD_REASONS: Final = frozenset({guard.R_READ_FAILED, guard.R_EVALUATION_ERRO
 
 Fetch = Callable[[str], object]
 Post = Callable[[str, dict], object]
+Sleep = Callable[[float], object]
+Clock = Callable[[], float]
 
 
 class RunnerError(Exception):
@@ -458,6 +515,340 @@ def command(args, *, environ=None, opener=None) -> int:
             fetch=token_reader(token, opener=opener),
             post=check_writer(token, opener=opener) if args.mode == SHADOW else None,
             app_client_id=environ.get(APP_CLIENT_ID_ENV) or None,
+        )
+    print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+    return code
+
+
+# --- the enforcing runner (change 3b) ----------------------------------------
+#
+# Why the result can never be ``neutral`` (or any conclusion other than
+# success or failure that this code chooses): the enforcing runner creates no
+# check run. GitHub derives the check from the Actions job, and the job's
+# conclusion comes from the exit code of this process: 0 is ``success``, any
+# other code is ``failure``. A cancelled or timed-out job is ``cancelled``,
+# which does not satisfy a required workflow. The workflow has no ``if`` and
+# no ``continue-on-error``, so no step can turn a non-zero code into a skip or
+# a success (``tests/test_merge_guard_enforce_workflow.py``).
+
+
+class _CountedFetch:
+    """``fetch`` with a count and a hard cap of requests for one run."""
+
+    def __init__(self, fetch: Fetch, cap: int):
+        self._fetch = fetch
+        self._cap = cap
+        self.count = 0
+
+    def __call__(self, path: str) -> object:
+        if self.count >= self._cap:
+            raise RunnerError("the run reached its request cap")
+        self.count += 1
+        return self._fetch(path)
+
+
+def _event_object(value: object, label: str) -> dict:
+    if not isinstance(value, dict):
+        raise RunnerError(f"event payload has no {label} object")
+    return value
+
+
+def _event_sha(value: object, label: str) -> str:
+    if not isinstance(value, str) or _SHA.fullmatch(value) is None:
+        raise RunnerError(f"event payload {label} is not an exact commit")
+    return value
+
+
+def read_event(path: object) -> dict:
+    """The event payload of the run: one bounded, strict JSON object."""
+    if not isinstance(path, str) or not path:
+        raise RunnerError("GITHUB_EVENT_PATH is absent")
+    try:
+        with open(path, "rb") as stream:
+            raw = stream.read(MAX_EVENT_BYTES + 1)
+    except OSError as exc:
+        raise RunnerError(
+            f"event payload is unreadable: {type(exc).__name__}"
+        ) from None
+    if len(raw) > MAX_EVENT_BYTES:
+        raise RunnerError("event payload exceeds its bound")
+    try:
+        # Refuses invalid UTF-8, a duplicate key, a non-finite number, JSON
+        # nested past the recursion limit and anything that is not an object.
+        return guard._parse_json_object(raw)
+    except Exception as exc:
+        raise RunnerError(
+            f"event payload is not strict JSON: {type(exc).__name__}"
+        ) from None
+
+
+def _ci_settled(root: str, head: str, fetch: Fetch) -> bool:
+    """Whether every required-named check run on ``head`` is completed.
+
+    At least one must exist. This decides only when to evaluate again; the
+    evaluation makes its own reads and decides the verdict.
+    """
+    name = urllib.parse.quote(guard.REQUIRED_CHECK_NAME, safe="")
+    listing = fetch(
+        f"{root}/commits/{head}/check-runs?check_name={name}&filter=latest&per_page=100"
+    )
+    runs = listing.get("check_runs") if isinstance(listing, dict) else None
+    if (
+        not isinstance(runs, list)
+        or len(runs) > 100
+        or type(listing.get("total_count")) is not int
+        or listing["total_count"] != len(runs)
+        or any(not isinstance(run, dict) for run in runs)
+    ):
+        raise RunnerError("required check listing is incomplete")
+    return bool(runs) and all(run.get("status") == "completed" for run in runs)
+
+
+def _wait_for_ci(
+    root: str, head: str, fetch: Fetch, sleep: Sleep, clock: Clock
+) -> tuple[int, int]:
+    """Poll until the required check on ``head`` settles or the wait ends.
+
+    Returns the seconds waited and the number of polls. Bounded twice: by
+    ``CI_WAIT_SECONDS`` on the injected clock and by ``MAX_CI_POLLS``.
+    """
+    start = clock()
+    polls = 0
+    while polls < MAX_CI_POLLS:
+        polls += 1
+        if _ci_settled(root, head, fetch):
+            break
+        if clock() - start >= CI_WAIT_SECONDS or polls >= MAX_CI_POLLS:
+            break
+        sleep(CI_POLL_SECONDS)
+    return max(0, int(clock() - start)), polls
+
+
+def _bind_event_head(verdict: guard.Verdict, event_head: str) -> guard.Verdict:
+    """Refuse a verdict that the evaluator reached for another head.
+
+    A ``fail`` that names no head (the evaluation stopped before it read one)
+    stays as it is. Every other verdict must name the event head: a head that
+    moved, or a re-run of the run of an older head, gets ``fail``.
+    """
+    head = verdict.evidence.get("head")
+    if head == event_head:
+        return verdict
+    if verdict.verdict == guard.FAIL and head is None:
+        return verdict
+    return guard.Verdict(
+        guard.FAIL,
+        R_EVENT_HEAD_STALE,
+        "the verdict is for another head than the head of this run's event",
+        {
+            "pull_request": verdict.evidence.get("pull_request"),
+            "event_head": event_head,
+            "evaluated_head": head,
+            "evaluated_verdict": verdict.verdict,
+            "evaluated_reason": verdict.reason,
+        },
+    )
+
+
+def _enforce_pull_request(
+    name: str, payload: dict, fetch: Fetch, sleep: Sleep, clock: Clock, report: dict
+) -> guard.Verdict:
+    pull = _event_object(payload.get("pull_request"), "pull_request")
+    number = pull.get("number")
+    if not _strict_int(number) or type(payload.get("number")) is not int:
+        raise RunnerError("event payload names no pull request number")
+    if payload["number"] != number:
+        raise RunnerError("event payload names two pull request numbers")
+    event_head = _event_sha(
+        _event_object(pull.get("head"), "pull request head").get("sha"), "head"
+    )
+    report["pull_request"] = number
+    report["event_head"] = event_head
+    report["evaluations"] = 1
+    verdict = _bind_event_head(guard.evaluate(name, number, fetch=fetch), event_head)
+    if verdict.verdict == guard.FAIL and verdict.reason == guard.R_CI:
+        root = f"/repos/{guard.ORGANISATION}/{name}"
+        try:
+            waited, polls = _wait_for_ci(root, event_head, fetch, sleep, clock)
+        except RunnerError as exc:
+            # The verdict stays ``fail`` and the run says why it stopped.
+            report["error"] = "waiting for the required check failed: " + str(exc)
+            return verdict
+        report["waited_seconds"] = waited
+        report["ci_polls"] = polls
+        # Exactly one more evaluation, after the wait ended either way. Its
+        # verdict is final; a second ``ci_not_green`` does not wait again.
+        report["evaluations"] = 2
+        verdict = _bind_event_head(
+            guard.evaluate(name, number, fetch=fetch), event_head
+        )
+    return verdict
+
+
+def _enforce_merge_group(name: str, payload: dict, fetch: Fetch, report: dict):
+    group = _event_object(payload.get("merge_group"), "merge_group")
+    group_head = _event_sha(group.get("head_sha"), "merge group head")
+    group_base = _event_sha(group.get("base_sha"), "merge group base")
+    head_ref = group.get("head_ref")
+    match = _QUEUE_REF.fullmatch(head_ref) if isinstance(head_ref, str) else None
+    if match is None:
+        raise RunnerError(
+            "merge group head_ref is not the queue branch of one pull request to main"
+        )
+    if group.get("base_ref") != "refs/heads/main":
+        raise RunnerError("merge group base_ref is not refs/heads/main")
+    number = int(match.group(1))
+    report["pull_request"] = number
+    report["event_head"] = group_head
+    report["evaluations"] = 1
+    verdict = guard.evaluate_merge_group(
+        name, group_head, group_base, number, fetch=fetch
+    )
+    bound = verdict.evidence.get("merge_group")
+    if (verdict.verdict, verdict.reason) in SUCCESS_VERDICTS and (
+        not isinstance(bound, dict)
+        or bound.get("head") != group_head
+        or bound.get("base") != group_base
+        or verdict.evidence.get("pull_request") != number
+    ):
+        return guard.Verdict(
+            guard.FAIL,
+            R_EVENT_HEAD_STALE,
+            "the verdict is not bound to the merge group of this run's event",
+            {"pull_request": number, "event_head": group_head},
+        )
+    return verdict
+
+
+def enforce(
+    event_name: object,
+    repository: object,
+    payload: dict,
+    *,
+    fetch: Fetch,
+    sleep: Sleep = time.sleep,
+    clock: Clock = time.monotonic,
+) -> tuple[dict, int]:
+    """Judge the pull request or merge group of one Actions event.
+
+    ``repository`` is ``GITHUB_REPOSITORY`` (``TheAxiomFoundation/rulespec-us``)
+    and ``payload`` the parsed event. Returns the report and the exit code:
+    ``EXIT_OK`` only for a verdict of ``SUCCESS_VERDICTS`` that is bound to
+    the event's head, in a run with no error. Every other outcome, every read
+    error included, is ``EXIT_RUN_ERROR``. Reads only; there is no writer.
+    """
+    counted = _CountedFetch(fetch, MAX_ENFORCE_REQUESTS)
+    report: dict = {
+        "schema": ENFORCE_REPORT_SCHEMA,
+        "event": event_name if isinstance(event_name, str) else None,
+        "repository": repository if isinstance(repository, str) else None,
+        "verdict": None,
+        "requests": 0,
+        "evaluations": 0,
+        "ci_polls": 0,
+        "waited_seconds": 0,
+    }
+    verdict = None
+    try:
+        prefix = guard.ORGANISATION + "/"
+        name = (
+            repository.removeprefix(prefix)
+            if isinstance(repository, str) and repository.startswith(prefix)
+            else None
+        )
+        if name is None or _REPOSITORY.fullmatch(name) is None:
+            raise RunnerError("the repository is not a RuleSpec repository")
+        if not isinstance(payload, dict):
+            raise RunnerError("event payload is not an object")
+        named = _event_object(payload.get("repository"), "repository")
+        if named.get("full_name") != repository:
+            raise RunnerError("event payload names another repository")
+        if event_name == EVENT_PULL_REQUEST:
+            verdict = _enforce_pull_request(
+                name, payload, counted, sleep, clock, report
+            )
+        elif event_name == EVENT_MERGE_GROUP:
+            verdict = _enforce_merge_group(name, payload, counted, report)
+        else:
+            raise RunnerError("the event is not pull_request or merge_group")
+    except RunnerError as exc:
+        report["error"] = str(exc)
+    except Exception as exc:  # fail closed on anything unforeseen
+        report["error"] = "unforeseen error: " + type(exc).__name__
+    report["requests"] = counted.count
+    if verdict is not None:
+        report["verdict"] = verdict.as_dict()
+        if verdict.reason in _UNREAD_REASONS and "error" not in report:
+            report["error"] = "an evaluation could not read GitHub"
+    if (
+        verdict is not None
+        and "error" not in report
+        and (verdict.verdict, verdict.reason) in SUCCESS_VERDICTS
+    ):
+        return report, EXIT_OK
+    return report, EXIT_RUN_ERROR
+
+
+def enforce_command(
+    *,
+    environ=None,
+    opener=None,
+    sleep: Sleep = time.sleep,
+    clock: Clock = time.monotonic,
+) -> int:
+    """``axiom-encode merge-guard-enforce``: the required workflow's command.
+
+    Every input comes from the Actions runner environment:
+    ``GITHUB_REPOSITORY``, ``GITHUB_EVENT_NAME``, ``GITHUB_EVENT_PATH`` and the
+    job token in ``TOKEN_ENV``. No argument selects a pull request, a
+    repository or a mode. Prints one JSON report line. Exit 0 only when the
+    verdict lets the head merge; 1 otherwise.
+
+    In ``TheAxiomFoundation/axiom-encode`` itself, where the workflow's
+    triggers also fire on the encoder's own pull requests, the command is
+    inert: it reads neither the event nor the network and exits 0.
+    """
+    environ = os.environ if environ is None else environ
+    repository = environ.get("GITHUB_REPOSITORY")
+    event_name = environ.get("GITHUB_EVENT_NAME")
+    if repository == guard.ENCODER_REPOSITORY:
+        report = {
+            "schema": ENFORCE_REPORT_SCHEMA,
+            "event": event_name if isinstance(event_name, str) else None,
+            "repository": repository,
+            "verdict": None,
+            "requests": 0,
+            "inert": INERT_SOURCE_REPOSITORY,
+        }
+        print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+        return EXIT_OK
+    token = environ.get(TOKEN_ENV, "")
+    try:
+        if not isinstance(token, str) or _TOKEN.fullmatch(token) is None:
+            # Fail closed and say why. No anonymous fallback.
+            raise RunnerError(
+                f"{TOKEN_ENV} is absent or malformed: the enforcing runner "
+                "needs the job token"
+            )
+        payload = read_event(environ.get("GITHUB_EVENT_PATH"))
+    except RunnerError as exc:
+        report = {
+            "schema": ENFORCE_REPORT_SCHEMA,
+            "event": event_name if isinstance(event_name, str) else None,
+            "repository": repository if isinstance(repository, str) else None,
+            "verdict": None,
+            "requests": 0,
+            "error": str(exc),
+        }
+        code = EXIT_RUN_ERROR
+    else:
+        report, code = enforce(
+            event_name,
+            repository,
+            payload,
+            fetch=token_reader(token, opener=opener),
+            sleep=sleep,
+            clock=clock,
         )
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
     return code
