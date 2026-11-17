@@ -2,21 +2,22 @@
 
 This is change 2 of ``docs/content-bound-merge-guard.md`` section 8: the
 verifier side of proposed constraint D1 (agent-proposed answer 1 in
-``docs/reviewed-pr-promotion-order-proposal.md``: "the signing service may sign
+``docs/reviewed-pr-promotion-order-proposal.md``: "The signing service may sign
 validated, unreviewed candidate bytes when a versioned signed manifest
-explicitly records that scope; verifiers must distinguish validation from
-owner approval"). Tracking issue: #2172.
+explicitly records that scope. Verifiers must distinguish validation from
+owner approval."). Tracking issue: #2172.
 
 Nothing here is active:
 
 - ``V6_READER_ENABLED`` is ``False``. While it is ``False`` every verifier
   refuses a manifest labelled v6. The nested and historical readers now check
   this label too.
-- The one writer, ``as_v6_candidate_payload``, is switched off by its own
-  constant (``reviewed_pr_admission.V6_WRITER_ENABLED``) and by two further
-  locks there, so no signed v6 manifest exists. The reader switch is an
-  independent lock, and only a reviewed change to this file on encoder main
-  can turn it.
+- The one writer in this checkout, ``as_v6_candidate_payload``, is switched
+  off by its own constant (``reviewed_pr_admission.V6_WRITER_ENABLED``) and by
+  two further locks there, so the code of this checkout writes no v6
+  manifest. That is a statement about this writer only, not an inventory of
+  manifests signed elsewhere. The reader switch is an independent lock, and
+  only a reviewed change to this file on encoder main can turn it.
 
 Boundary (do not widen without a maintainer decision): this contract concerns
 one lane only, a PR that adds generated RuleSpec through
@@ -49,6 +50,10 @@ from axiom_encode import reviewed_pr_admission as _admission
 #   the guard check not required, an enrolled dispatcher lands their own
 #   unreviewed candidate with no approval, and any account with write access
 #   re-lands signed v6 bytes from a closed pull request.
+# How to read "no v6 writer exists" since change 5: the writer exists and is
+# locked (``as_v6_candidate_payload``). For this rule a locked writer counts
+# as no writer; the rule's sentences are kept as written because a test pins
+# them to the design.
 # Turning this on is a policy change on encoder main, not a runtime option:
 # there is deliberately no environment variable, CLI flag or repository
 # setting.
@@ -257,10 +262,11 @@ def as_v6_candidate_payload(
 
     The result is the v5 promotion payload with ``v5_ref_field`` renamed to
     ``candidate_rulespec_ref`` and the attestation scope added. The scope is
-    built from the field sets the reader checks (one definition), and the
-    result must pass the reader's own scope check before it is returned, so
-    the writer cannot emit a scope that the reader or the merge guard refuses.
-    Call it before the waiver fields are added and before signing.
+    written with literal keys and the reader's constants; it is not built
+    from the reader's field sets. The result must then pass the reader's own
+    scope check (``attestation_scope_issues``) before it is returned, so the
+    writer cannot emit a scope that this reader refuses. Call it before the
+    waiver fields are added and before signing.
     """
 
     require_candidate_writer()

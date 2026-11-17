@@ -884,8 +884,12 @@ del _model_contract
 # applied-rulespec/v6 (#2172): the promotion contract with the reviewed ref
 # renamed and the attestation scope added. Read only by the top-level verified
 # loader and the immutable-base claim reader, and only while
-# the reader switch of the v6 reader module is on (it is off). No writer
-# emits it. A manifest without the v6 label takes none of these paths.
+# the reader switch of the v6 reader module is on (it is off). The one writer
+# is ``as_v6_candidate_payload`` of that module, called from
+# ``cmd_promote_reviewed_candidate``. It is locked: by the writer switch and
+# the guard App ID of the admission module (off and unset), by the live read
+# that the guard check is required, and by the reader switch. A manifest
+# without the v6 label takes none of these paths.
 _REVIEWED_CANDIDATE_V6_MANIFEST_VARIANTS = _manifest_v6.v6_field_variants(
     _APPLIED_MANIFEST_SCHEMA_VARIANTS["reviewed candidate promotion"],
     v5_ref_field="reviewed_rulespec_ref",

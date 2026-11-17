@@ -3,7 +3,8 @@
 Status: **design, not decided; nothing is active.** This document and the
 evaluator in `src/axiom_encode/content_merge_guard.py` implement no gate. No
 workflow runs the evaluator, no check run is written, no GitHub App exists, no
-branch protection changes. A reader for that schema exists
+branch protection changes. A reader for the v6 manifest schema that the
+evaluator parses (`axiom-encode/applied-rulespec/v6`, §5) exists
 (`src/axiom_encode/applied_manifest_v6.py`, change 2 of §8) and is switched
 off: `V6_READER_ENABLED` is `False`, so every verifier refuses a v6
 manifest. Every promotion still uses the order in
@@ -569,7 +570,7 @@ variant) with `reviewed_rulespec_ref` replaced by `candidate_rulespec_ref`, plus
 The evaluator parses exactly this shape and treats anything else as `fail`. A
 test pins its field sets to the live v5 promotion contract in `cli.py`. The
 shape has no run attempt; adding `run_attempt` would let the guard bind one
-(open question 13).
+(open question 14).
 
 ### Reader (change 2, present and switched off)
 
@@ -612,8 +613,10 @@ waiver checks are those of the v5 promotion contract.
 
 **The switch rule.** The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
 
-So the writer and admission change (change 5), not the reader, is what waits
-for the required check. With the reader on, `validate / validate` treats an
+So opening the writer and the admission without approval (change 6), not the
+reader, is what waits for the required check. Change 5 supplies both locked
+and opens nothing; for the switch rule a locked writer counts as no writer.
+With the reader on, `validate / validate` treats an
 exact signed v6 manifest like a reviewed v5 one: it proves validation and
 nothing about review. `owner_review_state` (`none` for v6, `before-signing`
 for the earlier lane) exists for callers to tell the two apart (D1), and it
@@ -622,12 +625,13 @@ has no production caller yet. This was chosen over wiring a refusal into
 `validate`, is the control proposed in D2.
 
 Not read as v6 yet (last row of the table): they treat a v6 manifest as
-absent or foreign. They matter only after a v6 module is on `main`, and
-belong to change 5. The unreceipted-retirement scan has no v6 field class, so
+absent or foreign. They matter only after a v6 module is on `main`. Change 5
+does not change them; that work is needed before or with change 6. The
+unreceipted-retirement scan has no v6 field class, so
 it scans every string of a v6 manifest, which is the conservative reading.
 
-Still to do in later changes: turn the switch on (change 2b); the promotion
-writer emits v6. A verifier pinned before change 2b rejects v6, so no v6
+Still to do in later changes: turn the switch on (change 2b); open the
+promotion writer (change 6; change 5 supplies it locked). A verifier pinned before change 2b rejects v6, so no v6
 manifest can pass `validate / validate` until `rulespec-us` bumps its encoder
 pin. That is a built-in ordering gate.
 
@@ -637,8 +641,11 @@ The unreviewed-candidate lane is in `reviewed_pr_admission.py` (admission) and
 `applied_manifest_v6.as_v6_candidate_payload` (the one v6 writer, called from
 one place in `cmd_promote_reviewed_candidate`).
 
-**Three locks, all constants or live reads on encoder main.** None has an
-environment variable, CLI flag, dispatch input or repository setting.
+**Three locks.** Locks 1 and 2 are constants on encoder main. No
+encoder-side environment variable, CLI flag, dispatch input or setting opens
+them. Lock 3 is code on encoder main that separately reads the branch
+protection of the RuleSpec repository. It refuses unless that protection
+requires the guard check from the recorded guard App.
 
 | # | Lock | State today | Opened by |
 |---|---|---|---|
@@ -668,9 +675,11 @@ environment variable, CLI flag, dispatch input or repository setting.
   lock 1 before checklist step 4 is done and confirmed.
 - With the switch on, the lane also needs `V6_READER_ENABLED`: a v6 manifest
   that no verifier admits cannot be written.
-- **Known limit: the anonymous rate limit (availability only).** One run of
-  the candidate lane makes 45 anonymous reads (7 of them the branch record;
-  the reviewed lane makes 38), against GitHub's 60 per hour per address. A
+- **Known limit: the anonymous rate limit (availability only).** One signing
+  run of the candidate lane makes at least 45 anonymous reads (7 of them the
+  branch record), and one of the reviewed lane at least 38. The reviewer
+  counted 45 and 38 at `880238c7` with every list on one page; pagination
+  adds reads. GitHub allows 60 per hour per address. A
   second run in the same hour from the same address is refused. It fails
   closed. Follow-up, not built: send the reads with the workflow token when
   one is available. The record is public, so a token only raises the limit;
@@ -687,15 +696,18 @@ errors as before the lane existed, and the promotion writes v5.
   account still refuses, as today.
 - `triggering_actor` must be enrolled by numeric id, with the enrolled login
   and `type == "User"` (D3). The id is recorded.
-- The admission record has another schema,
+- The admission record has another outer `schema`,
   `axiom-encode/live-candidate-pr-admission/v1`, no `approvals` key, and
-  `owner_review: "none"`, so an auditor cannot mistake a scope-checked
+  `owner_review: "none"` (the nested `record.schema` stays
+  `axiom-encode/reviewed-rulespec-admission/v1` in both lanes), so an auditor cannot mistake a scope-checked
   candidate for a reviewed one. `revalidate_admission` checks it against live
   state, including lock 3.
 - `cmd_promote_reviewed_candidate` writes `applied-rulespec/v6` for such a
   record: `candidate_rulespec_ref` and the `attestation_scope` of this
-  section. The writer builds the scope from the reader's field sets and runs
-  the reader's own scope check on the result before signing.
+  section. The writer writes the scope with literal keys and the reader's
+  constants, then calls the reader's `attestation_scope_issues` on the
+  result before signing. It does not build the scope from the reader's
+  field sets.
 - A reviewed admission record (the earlier schema) still produces a v5
   manifest. With the switch on, `verify_reviewed_pr` issues candidate records
   only.
@@ -706,12 +718,17 @@ errors as before the lane existed, and the promotion writes v5.
   `reviewed_rulespec_ref`. It refuses a v6 manifest after signing and before
   publication. That workflow file is unchanged, so a v6 promotion cannot
   publish through it yet. This is a fourth, accidental stop.
-- The runtime attestation key stays `reviewed_pr_admission`; the record's
-  schema tells the lanes apart. A new key needs a change to the root
-  provisioner.
 - The preflight step still runs inside the gated `encode` job.
 - The v5-only readers of the reader table above still do not read v6.
-- `attestation_scope` has no `run_attempt` (open question 14).
+
+**Not in change 5, and not decided.**
+
+- `attestation_scope` has no `run_attempt`. Adding it before or with change 6
+  is a recommendation that still needs a decision (open question 14).
+- The runtime attestation key stays `reviewed_pr_admission`; the record's
+  outer `schema` tells the lanes apart. This is unchanged and is no
+  prerequisite of change 6. Only if maintainers later rename the key would
+  the root provisioner need a change first.
 
 ## 6. Merge queue and `notary-guard` (not implemented)
 
@@ -832,7 +849,8 @@ activation.
    checks on `rulespec-us` main, only after question 0 of §10 is decided: under
    the current classifier most maintenance PRs get `fail`.
 5. Run the current-order canary (rulespec-us#2045) to completion.
-6. Merge change 5 with the switch off, then change 5b.
+6. Merge change 5 with every lock shut, then change 5b. Change 5 supplies
+   the locked writer and opens nothing; change 6 (step 7) opens it.
 7. Confirm that `main` requires `content-bound-merge-guard` from the guard
    App for administrators too (the command is in §5: read the public branch
    record). Then merge change 6. The admission refuses while that read does
@@ -880,8 +898,8 @@ records who did. It cannot prove that a human read the bytes. Closing this would
 need approval credentials that agents cannot hold, for example a hardware-backed
 signed approval (option c in §3) or a separate approver account.
 
-**Residual risk the owners accept with activation: an enrolled owner who is
-also a repository administrator.** Lock 3 of §5 is read again, never cached,
+**Residual risk the owners would accept on activation (proposed; they have
+not accepted it): an enrolled owner who is also a repository administrator.** Lock 3 of §5 is read again, never cached,
 at five points of a signing run: the preflight (start and end), the root
 provisioner (start and end), before validation, immediately before signing,
 and before publication. After publication only the GitHub setting protects
@@ -914,7 +932,7 @@ review.
 | 11 | `candidate.head_sha` is bound to the PR's commits, so a rebase needs a new signing run. Acceptable? | Yes: the binding is worth more than rebase support |
 | 12 | The v5 lane is `not_applicable` on scope plus this PR's green CI, with no approval check. Enough? | Yes while admission checks the approval before signing |
 | 13 | A signed v5 PR that also changes a receipt, pin, ledger or test (rulespec-us#1470) has no lane. Widen the v5 lane, or split such PRs? | Split, or give the extra files the lane of question 0 |
-| 14 | Add `run_attempt` to `attestation_scope`? | Yes, in the change that defines the v6 writer |
+| 14 | Add `run_attempt` to `attestation_scope`? | Recommended: yes, before or with change 6. Not decided; change 5 defines the writer without it |
 | 15 | The approver may not be the author or committer of any commit, so the approver cannot click "Update branch". Acceptable? | Yes for the pilot |
 
 ## 11. What was not verified
