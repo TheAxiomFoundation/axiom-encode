@@ -661,6 +661,24 @@ MISSING_40 = [
 BOTH_MISSING_40 = [MISSING_40[0].replace("unit=40.", "unit=40, source unit=40.")]
 
 
+def _refusals(monkeypatch, candidate, cases, source) -> tuple[list[str], list[str]]:
+    """Issues with every guard, then with the stated-once guard switched off.
+
+    Two boundaries of 40 are refused first because the unit states the number
+    twice. The second result shows what the binding rules alone do.
+    """
+
+    issues = _issues(candidate, cases, source)
+    with monkeypatch.context() as patch:
+        patch.setattr(sc, "_boundary_value_is_stated_once", lambda *_a, **_k: True)
+        return issues, _issues(candidate, cases, source)
+
+
+# A condition value of 40 also refuses the lodging cap of 40: the binding
+# rules do not credit a cap number that any condition reads by value.
+REFUSED_BY_EACH_GUARD = (BOTH_MISSING_40, BOTH_MISSING_40)
+
+
 def _second_forty(
     threshold_sentence: str,
     *,
@@ -737,7 +755,7 @@ UNTESTED_LOWER_GATE = {49: 38, 50: 39, 51: 51}
     ],
 )
 def test_the_cap_case_does_not_witness_another_threshold_with_the_same_number(
-    threshold_sentence, gate, distances, threshold_first
+    monkeypatch, threshold_sentence, gate, distances, threshold_first
 ):
     """The wrong inclusive gate pays at 40, and no case sets the gate input to 40."""
 
@@ -750,7 +768,8 @@ def test_the_cap_case_does_not_witness_another_threshold_with_the_same_number(
     assert source.count("40") == 2
     assert 40 not in _distance_inputs(cases)
     assert _cap_case_of(cases)["input"][COST] == 40
-    assert _issues(candidate, cases, source) == MISSING_40
+    # The unit states 40 as a boundary twice, so the cap path credits neither.
+    assert _refusals(monkeypatch, candidate, cases, source) == REFUSED_BY_EACH_GUARD
 
 
 def test_the_other_threshold_is_witnessed_by_its_own_cases():
@@ -853,7 +872,7 @@ def _alternate_cap_branch(cap_name: str, candidate: str, cases: list[dict]):
     return candidate, [*cases, *alternate_cases]
 
 
-def test_a_cap_that_a_condition_also_reads_is_not_a_cap_obligation():
+def test_a_cap_that_a_condition_also_reads_is_not_a_cap_obligation(monkeypatch):
     """The gate threshold used as a second cap does not test the gate."""
 
     candidate, cases, source = _second_forty(
@@ -861,10 +880,12 @@ def test_a_cap_that_a_condition_also_reads_is_not_a_cap_obligation():
     )
     candidate, cases = _alternate_cap_branch(TRAVEL_THRESHOLD, candidate, cases)
     assert 40 not in _distance_inputs(cases)
-    assert _issues(candidate, cases, source) == MISSING_40
+    assert _refusals(monkeypatch, candidate, cases, source) == REFUSED_BY_EACH_GUARD
 
 
-def test_a_cap_whose_occurrence_another_parameter_claims_is_not_credited():
+def test_a_cap_whose_occurrence_another_parameter_claims_is_not_credited(
+    monkeypatch,
+):
     """A second parameter of 40 proved by the gate sentence is the gate's 40."""
 
     candidate, cases, source = _second_forty(
@@ -886,7 +907,7 @@ def test_a_cap_whose_occurrence_another_parameter_claims_is_not_credited():
     )
     candidate, cases = _alternate_cap_branch("alt_cap", candidate, cases)
     assert 40 not in _distance_inputs(cases)
-    assert _issues(candidate, cases, source) == MISSING_40
+    assert _refusals(monkeypatch, candidate, cases, source) == REFUSED_BY_EACH_GUARD
 
     # The gate parameter now reads `alt_cap` and has no formula proof of its
     # own. The gate still reads the cap, through that parameter.
@@ -903,7 +924,370 @@ def test_a_cap_whose_occurrence_another_parameter_claims_is_not_credited():
     aliased = candidate.replace(
         threshold_rule, threshold_rule.replace("          40\n", "          alt_cap\n")
     ).replace(threshold_atom, threshold_atom.replace(".formula", ".effective_from"))
-    assert _issues(aliased, cases, source) == MISSING_40
+    assert _refusals(monkeypatch, aliased, cases, source) == REFUSED_BY_EACH_GUARD
+
+
+def _two_forties_with_the_threshold_as_a_second_cap():
+    candidate, cases, source = _second_forty(
+        MORE_THAN_40_MILES, gate=">=", distances=UNTESTED_LOWER_GATE
+    )
+    candidate, cases = _alternate_cap_branch(TRAVEL_THRESHOLD, candidate, cases)
+    return candidate, cases, source
+
+
+GATE_COMPARISON = f"travel_distance_miles >= {TRAVEL_THRESHOLD}"
+
+
+def _helper_rule(name: str, dtype: str, formula: str) -> str:
+    return (
+        f"  - name: {name}\n    kind: derived\n    entity: Person\n"
+        f"    dtype: {dtype}\n    period: Day\n    versions:\n"
+        "      - effective_from: '2026-08-01'\n        formula: |-\n"
+        f"          {formula}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("helper", "formula", "gate", "helper_output"),
+    [
+        pytest.param(
+            "excess_miles",
+            f"travel_distance_miles - {TRAVEL_THRESHOLD}",
+            "excess_miles >= 0",
+            lambda miles: miles - 40,
+            id="difference",
+        ),
+        pytest.param(
+            "threshold_plus_zero",
+            f"{TRAVEL_THRESHOLD} + 0",
+            "travel_distance_miles >= threshold_plus_zero",
+            lambda miles: 40,
+            id="threshold-plus-zero",
+        ),
+        pytest.param(
+            "excess_miles",
+            f"max(0, travel_distance_miles - {TRAVEL_THRESHOLD} + 1)",
+            "excess_miles > 0",
+            lambda miles: max(0, miles - 39),
+            id="positive-part",
+        ),
+        pytest.param(
+            "gap",
+            f"{TRAVEL_THRESHOLD} - travel_distance_miles",
+            "not (gap > 0)",
+            lambda miles: 40 - miles,
+            id="negated-gap",
+        ),
+    ],
+)
+def test_a_threshold_behind_a_helper_rule_is_still_a_condition_value(
+    monkeypatch, helper, formula, gate, helper_output
+):
+    """The gate reads the threshold through a derived rule that computes with it."""
+
+    candidate, cases, source = _two_forties_with_the_threshold_as_a_second_cap()
+    assert candidate.count(GATE_COMPARISON) == 2
+    candidate = candidate.replace(GATE_COMPARISON, gate).replace(
+        PRINCIPAL_RULE, _helper_rule(helper, "Decimal", formula) + PRINCIPAL_RULE, 1
+    )
+    cases = copy.deepcopy(cases)
+    for case in cases:
+        if DISTANCE in case["input"]:
+            case["output"][f"{PREFIX}#{helper}"] = helper_output(
+                case["input"][DISTANCE]
+            )
+    assert _refusals(monkeypatch, candidate, cases, source) == REFUSED_BY_EACH_GUARD
+
+
+GATE_SENTENCE = MORE_THAN_40_MILES.rstrip(".")
+GATE_PARAMETER_ATOM = (
+    "          - path: versions[0].formula\n            kind: parameter\n"
+)
+
+
+def _alt_cap_parameter(excerpt: str = GATE_SENTENCE) -> str:
+    return (
+        "  - name: alt_cap\n    kind: parameter\n    dtype: Money\n"
+        "    period: Day\n    unit: USD\n    metadata:\n      proof:\n"
+        "        atoms:\n          - path: versions[0].formula\n"
+        "            kind: amount\n            source:\n"
+        f"              corpus_citation_path: {CITATION}\n"
+        f'              excerpt: "{excerpt}"\n'
+        "    versions:\n      - effective_from: '2026-08-01'\n"
+        "        formula: |-\n          40\n"
+    )
+
+
+def _gate_proof_moved_off_the_formula(candidate: str) -> str:
+    assert candidate.count(GATE_PARAMETER_ATOM) == 1
+    return candidate.replace(
+        GATE_PARAMETER_ATOM, GATE_PARAMETER_ATOM.replace(".formula", ".effective_from")
+    )
+
+
+def _gate_proof_without_the_number(candidate: str) -> str:
+    gate_excerpt = f'kind: parameter\n            source:\n              corpus_citation_path: {CITATION}\n              excerpt: "{GATE_SENTENCE}"'
+    assert candidate.count(gate_excerpt) == 1
+    return candidate.replace(
+        gate_excerpt,
+        gate_excerpt.replace(GATE_SENTENCE, "miles for lodging to be allowable"),
+    )
+
+
+@pytest.mark.parametrize(
+    "hide_the_gate_claim",
+    [_gate_proof_moved_off_the_formula, _gate_proof_without_the_number],
+)
+def test_a_condition_value_equal_to_the_cap_needs_no_proof_claim(
+    monkeypatch, hide_the_gate_claim
+):
+    """The gate parameter is 40 but its proof no longer claims the gate's number.
+
+    A second parameter `alt_cap` of 40, proved by the gate sentence, caps one
+    branch. No other parameter's proof holds that number now, so only the
+    gate parameter's value shows that the number is a comparison threshold.
+    """
+
+    candidate, cases, source = _second_forty(
+        MORE_THAN_40_MILES, gate=">=", distances=UNTESTED_LOWER_GATE
+    )
+    candidate = hide_the_gate_claim(
+        candidate.replace(PRINCIPAL_RULE, _alt_cap_parameter() + PRINCIPAL_RULE, 1)
+    )
+    candidate, cases = _alternate_cap_branch("alt_cap", candidate, cases)
+    assert _refusals(monkeypatch, candidate, cases, source) == REFUSED_BY_EACH_GUARD
+
+
+def test_a_literal_condition_value_equal_to_the_cap_is_refused(monkeypatch):
+    candidate, cases, source = _second_forty(
+        MORE_THAN_40_MILES, gate=">=", distances=UNTESTED_LOWER_GATE
+    )
+    candidate = candidate.replace(
+        PRINCIPAL_RULE, _alt_cap_parameter() + PRINCIPAL_RULE, 1
+    )
+    candidate, cases = _alternate_cap_branch("alt_cap", candidate, cases)
+    assert candidate.count(GATE_COMPARISON) == 2
+    candidate = _gate_proof_moved_off_the_formula(candidate).replace(
+        GATE_COMPARISON, "travel_distance_miles >= 40"
+    )
+    assert _refusals(monkeypatch, candidate, cases, source) == REFUSED_BY_EACH_GUARD
+
+
+def test_the_whole_sentence_as_the_proof_of_both_parameters_is_credited():
+    """The natural encoding: the cap and the threshold both quote the sentence."""
+
+    whole = f'excerpt: "{CAP_AND_GATE_SENTENCE}"'
+    candidate = CANDIDATE.replace(CAP_EXCERPT, whole).replace(
+        f'excerpt: "{THRESHOLD_EXCERPT}"', whole
+    )
+    assert candidate.count(whole) == 3
+    assert _issues(candidate) == []
+    assert _issues(candidate, _without_cap_case()) == MISSING_40
+
+
+def test_a_second_boundary_of_the_same_number_stops_the_cap_credit(monkeypatch):
+    """Only the stated-once guard refuses here: no condition reads a 40."""
+
+    parking = " Parking of up to $40 per day is not covered."
+    source = SOURCE.replace(CAP_AND_GATE_SENTENCE, CAP_AND_GATE_SENTENCE + parking)
+    candidate = CANDIDATE.replace(
+        f"{CAP_AND_GATE_SENTENCE}\n", f"{CAP_AND_GATE_SENTENCE}{parking}\n"
+    ).replace(
+        PROVENANCE["source"]["sha256"], hashlib.sha256(source.encode()).hexdigest()
+    )
+    assert source.count("$40") == 2 and candidate.count(parking) == 1
+    assert _refusals(monkeypatch, candidate, CASES, source) == (
+        BOTH_MISSING_40,
+        MISSING_40,
+    )
+
+
+# The parts of the binding, each alone.
+
+UNIT = "Up to $40 per day for lodging. Meals: $40 per day. Over 50 miles."
+LODGING_40 = (UNIT.index("$40") + 1, UNIT.index("$40") + 3)
+
+
+def _parameter(value: str, *excerpts: str, path: str = CITATION) -> dict:
+    return {
+        "kind": "parameter",
+        "versions": [{"formula": value}],
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0].formula",
+                        "source": {"corpus_citation_path": path, "excerpt": excerpt},
+                    }
+                    for excerpt in excerpts
+                ]
+            }
+        },
+    }
+
+
+def _derived(formula: str) -> dict:
+    return {"kind": "derived", "versions": [{"formula": formula}]}
+
+
+def _cap_is_bound(
+    parameters: dict[str, dict],
+    environment: dict[str, float],
+    principal: str = "if miles > limit:\n  min(cost, cap)\nelse: 0",
+    **derived: str,
+) -> bool:
+    parameters = {
+        "cap": _parameter("40", "Up to $40 per day for lodging"),
+        "limit": _parameter("50", "Over 50 miles"),
+        **parameters,
+    }
+    binding = sc._minimum_cap_source_binding(
+        parameters,
+        principal_rules={
+            "out": _derived(principal),
+            **{name: _derived(formula) for name, formula in derived.items()},
+        },
+        source_text=UNIT,
+        corpus_citation_path=CITATION,
+    )
+    return sc._minimum_cap_is_bound_to_source_span(
+        sc._parse_formula_expression("cap"),
+        40.0,
+        LODGING_40,
+        cap_binding=binding,
+        environment={"cap": 40, "limit": 50, **environment},
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_occurrences_from_text,
+            profile=_numeric_profile_for_citation_path(CITATION),
+        ),
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+
+def test_the_synthetic_cap_is_bound():
+    assert _cap_is_bound({}, {})
+
+
+def test_a_repeated_cap_excerpt_has_no_single_place():
+    assert UNIT.count("$40 per day") == 2
+    assert not _cap_is_bound({"cap": _parameter("40", "$40 per day")}, {})
+
+
+def test_a_cap_proof_that_states_the_value_twice_has_no_single_number():
+    both = "Up to $40 per day for lodging. Meals: $40 per day"
+    assert not _cap_is_bound({"cap": _parameter("40", both)}, {})
+    assert not _cap_is_bound(
+        {
+            "cap": _parameter(
+                "40", "Up to $40 per day for lodging", "Meals: $40 per day"
+            )
+        },
+        {},
+    )
+
+
+def test_a_cap_name_in_a_condition_is_refused_whatever_value_it_resolves_to():
+    gate_reads_cap = "if miles > cap:\n  min(cost, cap)\nelse: 0"
+    assert not _cap_is_bound({}, {}, principal=gate_reads_cap)
+    assert not _cap_is_bound({}, {"cap": 41}, principal=gate_reads_cap)
+    assert _cap_is_bound({}, {"cap": 41})
+
+
+def test_another_parameter_with_no_known_value_claims_the_number():
+    unused = {"unused": _parameter("50", "Up to $40 per day for lodging. Meals")}
+    assert _cap_is_bound(unused, {"unused": 50})
+    assert not _cap_is_bound(unused, {})
+    assert not _cap_is_bound(unused, {"unused": 40})
+
+
+def test_each_place_of_a_repeated_excerpt_is_a_claim():
+    assert UNIT.count("$40 per day") == 2
+    meals = {"meals": _parameter("40", "$40 per day")}
+    assert not _cap_is_bound(meals, {"meals": 40})
+    assert _cap_is_bound(
+        {"meals": _parameter("40", "Meals: $40 per day")}, {"meals": 40}
+    )
+
+
+def test_a_condition_parameter_with_no_known_value_is_a_use():
+    assert _cap_is_bound({}, {"limit": 50})
+    assert not _cap_is_bound({}, {"limit": None})
+
+
+@pytest.mark.parametrize(
+    ("principal", "derived"),
+    [
+        pytest.param(
+            "min(cost, cap)", {"allowed": "miles >= cap"}, id="comparison-line-only"
+        ),
+        pytest.param(
+            "if allowed:\n  min(cost, cap)\nelse: 0",
+            {"allowed": "holds(far)", "far": "positive(miles - cap)"},
+            id="header-with-no-operator",
+        ),
+        pytest.param(
+            "if miles > limit:\n  min(cost, cap)\nelse: 0",
+            {"gap": "max(0, miles - cap + 1)", "second": "if gap: 1\nelse: 0"},
+            id="through-a-computing-rule",
+        ),
+        pytest.param(
+            "if miles > 40:\n  min(cost, cap)\nelse: 0", {}, id="literal-in-header"
+        ),
+        pytest.param(
+            "min(cost, cap)", {"allowed": "miles >= 40.0"}, id="literal-on-line"
+        ),
+        pytest.param(
+            "if allowed:\n  min(cost, cap)\nelse: 0",
+            {"allowed": "holds(far)", "far": "positive(miles - 40)"},
+            id="literal-through-a-rule",
+        ),
+    ],
+)
+def test_each_way_a_condition_reads_the_cap_number_is_refused(principal, derived):
+    assert _cap_is_bound({}, {}, principal="min(cost, cap)")
+    assert not _cap_is_bound({}, {}, principal=principal, **derived)
+
+
+def test_a_second_boundary_with_the_same_number_is_not_stated_once():
+    profile = _numeric_profile_for_citation_path(CITATION)
+    branch = sc.SourceStructureBranch((), "source-unit", "", UNIT, 0, len(UNIT))
+    forties = [
+        occurrence
+        for occurrence in extract_typed_numeric_occurrences_from_text(
+            UNIT, profile=profile
+        )
+        if occurrence.value == 40
+    ]
+    fifty = next(
+        occurrence
+        for occurrence in extract_typed_numeric_occurrences_from_text(
+            UNIT, profile=profile
+        )
+        if occurrence.value == 50
+    )
+    assert len(forties) == 2
+
+    def stated_once(boundary, boundaries):
+        return sc._boundary_value_is_stated_once(
+            branch,
+            boundary,
+            [(branch, other) for other in boundaries],
+            source_text=UNIT,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+
+    assert stated_once(forties[0], [forties[0], fifty])
+    assert stated_once(forties[0], [forties[0], forties[0], fifty])
+    assert not stated_once(forties[0], [*forties, fifty])
+    assert not stated_once(forties[1], [*forties, fifty])
+    moved = sc.SourceStructureBranch((), "source-unit", "", UNIT, 5, len(UNIT) + 5)
+    assert not sc._boundary_value_is_stated_once(
+        moved,
+        forties[0],
+        [(moved, forties[0])],
+        source_text=UNIT,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
 
 
 def test_known_gap_a_gate_case_at_40_is_credited_for_the_cap_with_the_same_number():
@@ -925,3 +1309,32 @@ def test_known_gap_a_gate_case_at_40_is_credited_for_the_cap_with_the_same_numbe
         case["input"][COST] for case in without_cap_case if COST in case["input"]
     }
     assert _issues(candidate, without_cap_case, source) == []
+
+
+def test_known_gap_a_gate_behind_a_helper_rule_is_not_asked_for_its_boundary():
+    """Pins the older selector path, which this change leaves as it is.
+
+    Known gap of the selector path, tracked in a follow-up issue. The gate
+    `travel_distance_miles >= threshold` is in a Boolean helper rule, and the
+    principal rule reads the helper. The source says "more than 40 miles", no
+    case sets the distance to 40, and the wrong inclusive gate still passes.
+    The min-cap path credits neither 40 here, so this result comes from the
+    selector path alone. When that path binds occurrences, this result must
+    become a missing-40 finding.
+    """
+
+    candidate, cases, source = _second_forty(
+        MORE_THAN_40_MILES, gate=">=", distances=UNTESTED_LOWER_GATE
+    )
+    assert candidate.count(GATE_COMPARISON) == 1
+    candidate = candidate.replace(GATE_COMPARISON, "lodging_allowed").replace(
+        PRINCIPAL_RULE,
+        _helper_rule("lodging_allowed", "Boolean", GATE_COMPARISON) + PRINCIPAL_RULE,
+        1,
+    )
+    cases = copy.deepcopy(cases)
+    for case in cases:
+        if DISTANCE in case["input"]:
+            case["output"][f"{PREFIX}#lodging_allowed"] = case["input"][DISTANCE] >= 40
+    assert _distance_inputs(cases) == {38, 39, 51}
+    assert _issues(candidate, cases, source) == []

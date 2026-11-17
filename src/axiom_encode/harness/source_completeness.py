@@ -24238,13 +24238,14 @@ def _companion_test_issues(
         corpus_citation_path=corpus_citation_path,
     )
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
-    for branch, boundary in (
+    all_boundaries = (
         *boundary_obligations,
         *(
             (branch, boundary)
             for branch, boundary, _interval, _polarity in conjoined_thresholds
         ),
-    ):
+    )
+    for branch, boundary in all_boundaries:
         if _branch_boundary_test_witnesses(
             branch,
             boundary,
@@ -24258,7 +24259,19 @@ def _companion_test_issues(
             source_interval_and_polarity=conjoined_sources.get(
                 (id(branch), boundary.start, boundary.end)
             ),
-            minimum_cap_binding=minimum_cap_binding,
+            # The min-cap path needs the unit to state this number as a
+            # boundary once. With a second equal boundary it credits neither.
+            minimum_cap_binding=(
+                minimum_cap_binding
+                if _boundary_value_is_stated_once(
+                    branch,
+                    boundary,
+                    all_boundaries,
+                    source_text=source_text,
+                    numeric_value_is_grounded=numeric_value_is_grounded,
+                )
+                else None
+            ),
         ):
             continue
         if execution_evidence is not None and partnership_content is not None:
@@ -35644,13 +35657,17 @@ class _MinimumCapSourceBinding:
     cites this source unit and occurs exactly once in it. `claimed_spans`
     lists every place where any formula proof excerpt of a parameter occurs.
     `condition_names` holds each name that a condition of a principal or
-    parameter formula reads, directly or through a parameter.
+    parameter formula reads, directly or through any rule or parameter.
+    `condition_parameters` holds the parameters among them, and
+    `condition_literals` the numbers written in those conditions and rules.
     """
 
     source_text: str
     located_spans: Mapping[str, tuple[tuple[int, int], ...]]
     claimed_spans: Mapping[str, tuple[tuple[int, int], ...]]
     condition_names: frozenset[str]
+    condition_parameters: frozenset[str]
+    condition_literals: frozenset[float]
 
 
 def _minimum_cap_source_binding(
@@ -35692,28 +35709,41 @@ def _minimum_cap_source_binding(
             claimed_spans[str(name)] = tuple(sorted(spans))
             if located:
                 located_spans[str(name)] = tuple(sorted(spans))
+    condition_names, condition_literals = _formula_condition_names_and_literals(
+        principal_rules, parameter_rules=parameter_rules
+    )
     return _MinimumCapSourceBinding(
         source_text=source_text,
         located_spans=located_spans,
         claimed_spans=claimed_spans,
-        condition_names=_formula_condition_names(
-            principal_rules, parameter_rules=parameter_rules
+        condition_names=condition_names,
+        condition_parameters=frozenset(
+            str(name)
+            for name, rule in parameter_rules.items()
+            if str(name) in condition_names
+            and isinstance(rule, dict)
+            and rule.get("kind") == "parameter"
         ),
+        condition_literals=condition_literals,
     )
 
 
-def _formula_condition_names(
+_FORMULA_NUMERIC_LITERAL = re.compile(r"(?<![A-Za-z_0-9.])\d+(?:\.\d+)?")
+
+
+def _formula_condition_names_and_literals(
     principal_rules: Mapping[str, dict[str, Any]],
     *,
     parameter_rules: Mapping[str, dict[str, Any]],
-) -> frozenset[str]:
-    """Names that a formula condition reads, directly or through a parameter.
+) -> tuple[frozenset[str], frozenset[float]]:
+    """Names and numbers that a formula condition reads, directly or not.
 
-    This reads more than it must: every name in an ``if``, ``elif`` or
-    ``match`` header and every name on a line that has a comparison. A name
-    that only looks like a condition operand is listed too, and that is the
-    safe side for the caller. A parameter or a one-name rule in a condition
-    passes the use on to each name in its own formula.
+    This reads more than it must: every name and number in an ``if``, ``elif``
+    or ``match`` header and on a line that has a comparison. A name that only
+    looks like a condition operand is listed too, and that is the safe side
+    for the caller. Each rule or parameter in a condition passes the use on to
+    every name and number in its own formula, so a threshold stays a condition
+    value behind a helper such as ``excess = miles - limit``.
     """
 
     formulas = {
@@ -35723,30 +35753,56 @@ def _formula_condition_names(
         if isinstance(rule, dict)
     }
     names: set[str] = set()
+    literal_texts: list[str] = []
     for formula_text in formulas.values():
         for header in re.finditer(
-            r"\b(?:if|elif|match)\b(?P<condition>.*?):[ \t]*(?:\n|$)",
-            formula_text,
-            flags=re.DOTALL,
+            r"\b(?:if|elif|match)\b(?P<condition>[^:]*):", formula_text
         ):
             names.update(_FORMULA_IDENTIFIER.findall(header.group("condition")))
+            literal_texts.append(header.group("condition"))
         for line in formula_text.splitlines():
             if re.search(r"[<>]|==|!=", line):
                 names.update(_FORMULA_IDENTIFIER.findall(line))
+                literal_texts.append(line)
     pending = list(names)
     while pending:
-        name = pending.pop()
-        formula_text = formulas.get(name, "")
-        rule = parameter_rules.get(name)
-        if not (
-            isinstance(rule, dict) and rule.get("kind") == "parameter"
-        ) and not _FORMULA_IDENTIFIER.fullmatch(formula_text.strip()):
-            continue
+        formula_text = formulas.get(pending.pop(), "")
+        literal_texts.append(formula_text)
         for identifier in _FORMULA_IDENTIFIER.findall(formula_text):
             if identifier not in names:
                 names.add(identifier)
                 pending.append(identifier)
-    return frozenset(names)
+    return frozenset(names), frozenset(
+        float(literal)
+        for text in literal_texts
+        for literal in _FORMULA_NUMERIC_LITERAL.findall(text)
+    )
+
+
+def _boundary_value_is_stated_once(
+    branch: SourceStructureBranch,
+    boundary: NumericOccurrenceLike,
+    all_boundaries: Sequence[tuple[SourceStructureBranch, NumericOccurrenceLike]],
+    *,
+    source_text: str,
+    numeric_value_is_grounded: NumericGroundingPredicate,
+) -> bool:
+    """Whether no other source boundary of the unit has this boundary's number.
+
+    Two entries are one boundary only when both have the same certified
+    source position. An equal number at another place, or at a place that
+    cannot be certified, is a second boundary.
+    """
+
+    span = _boundary_source_span(branch, boundary, source_text=source_text)
+    if span is None:
+        return False
+    return all(
+        _boundary_source_span(other_branch, other, source_text=source_text) == span
+        for other_branch, other in all_boundaries
+        if numeric_value_is_grounded(float(boundary.value), (other,))
+        or numeric_value_is_grounded(float(other.value), (boundary,))
+    )
 
 
 def _boundary_source_span(
@@ -35810,20 +35866,39 @@ def _minimum_cap_is_bound_to_source_span(
     whose proof excerpt states its own value at the same number can be that
     threshold too. A case at the cap does not test either comparison, so both
     are refused. A parameter with no known value counts as such a claim.
+
+    Last, no condition value may be the cap's number. A parameter that a
+    condition reads, directly or through any rule, and a number written in a
+    condition are such values. A threshold of the same number can reach a
+    condition with no proof excerpt at that place, so the value is checked
+    itself. A condition parameter with no known value counts as a use. This
+    rule also covers a cap name in a condition; the name check stays as the
+    direct statement of that case.
     """
 
     if not isinstance(cap, ast.Name) or cap.id in cap_binding.condition_names:
         return False
     source_text = cap_binding.source_text
-    cap_occurrence_spans = {
-        (start + occurrence.start, start + occurrence.end)
+    cap_occurrences = {
+        (start + occurrence.start, start + occurrence.end): occurrence
         for start, end in cap_binding.located_spans.get(cap.id, ())
         for occurrence in extract_numeric_occurrences(source_text[start:end])
         if numeric_value_is_grounded(cap_value, (occurrence,))
     }
-    if len(cap_occurrence_spans) != 1:
+    if len(cap_occurrences) != 1:
         return False
-    ((cap_start, cap_end),) = cap_occurrence_spans
+    (((cap_start, cap_end), cap_occurrence),) = cap_occurrences.items()
+    for name in cap_binding.condition_parameters:
+        condition_value = _rulespec_runtime_decimal(environment.get(name))
+        if condition_value is None or numeric_value_is_grounded(
+            float(condition_value), (cap_occurrence,)
+        ):
+            return False
+    if any(
+        numeric_value_is_grounded(literal, (cap_occurrence,))
+        for literal in cap_binding.condition_literals
+    ):
+        return False
     for name, spans in cap_binding.claimed_spans.items():
         if name == cap.id:
             continue
