@@ -59,6 +59,37 @@ def test_formula_and_tests_protocols_are_distinct_and_populated():
     assert "Put formulas under" not in _TESTS_PROTOCOL
 
 
+def test_encoder_prompt_puts_a_gated_cap_in_its_own_rule():
+    # A cap `min` that shares a formula with a comparison gate cannot have its
+    # limit boundary credited by companion tests; the prompt steers the cap
+    # into a comparison-free helper rule and says how to test it.
+    formula = " ".join(_FORMULA_PROTOCOL.split())
+    assert (
+        'When a source limit ("up to", "no more than", "a maximum of", '
+        '"cannot exceed") applies to an amount and the same provision also has '
+        "a comparison condition" in formula
+    )
+    assert (
+        "encode the capped amount in its own `kind: derived` rule whose formula "
+        "is only the clamp, e.g. `min(max(0, amount), cap)`, with no comparison"
+        in formula
+    )
+    assert "`if gate_measure > gate_threshold: capped_amount else: 0`" in formula
+    assert (
+        "Do not put a comparison gate and the cap `min(...)` in one formula." in formula
+    )
+    # The existing cap guidance stays next to it.
+    assert "min(uncapped_amount, max(cap_a," in _FORMULA_PROTOCOL
+    tests = " ".join(_TESTS_PROTOCOL.split())
+    assert (
+        "assert that cap rule's output in every companion case that sets the "
+        "capped amount, not only in the at-limit case" in tests
+    )
+    assert "Include a case with the amount exactly at the limit" in tests
+    for block in (formula, tests):
+        assert block in " ".join(ENCODER_PROMPT.split())
+
+
 def test_assemble_strips_blocks_and_cannot_glue_or_stack():
     assembled = _assemble("- alpha statement.", "  - beta statement.  ", "", "- gamma.")
     assert assembled == "- alpha statement.\n\n- beta statement.\n\n- gamma."
