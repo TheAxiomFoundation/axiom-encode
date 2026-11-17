@@ -207,7 +207,7 @@
     {
       "category": "complete-source-unit:tests",
       "cause": "encoder_output",
-      "fix": "Add a case with the clamped input below zero that asserts the clamped rule (and the downstream principal output when one exists). A zero input does not exercise the clamp.",
+      "fix": "Add a case with the clamped input below zero that asserts the clamped rule (and the downstream principal output when one exists). A zero input does not exercise the clamp. For an entity output tested through `tables:`, write a separate case with exactly one row, an empty `input:`, and a one-item list assertion of the clamped rule.",
       "gate": "ci",
       "id": "complete-source-unit:tests/negative-clamp-unwitnessed",
       "requires": "Each direct `max(0, input)` clamp has an executed companion case with the input below zero in every distinct temporal owner context.",
@@ -1177,6 +1177,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "c7a8e136729882cb3c9572bc4ba7bb6ad7bc98c778eb212301dd915d3c9ac762",
+  "registry_sha256": "7117a15754c934df56c7310b395f6f2e833b90e30ddf1062e7ebf17214fb7104",
   "schema": "axiom-encode/check-registry/v1"
 }
