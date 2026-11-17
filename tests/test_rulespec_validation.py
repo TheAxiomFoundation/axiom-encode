@@ -38273,6 +38273,11 @@ _DAMAGED_FAILING_VERDICTS = [
     ('{"P\\u0061ssed":false}', "\n"),
     ('{"note":"\\","sc\\u006fre":1}', "\n"),
 ]
+_DAMAGED_VERDICTS_THE_LEXER_READS = {
+    '{"reasoning":"the 5" rule","passed":false,"score":1}',
+    '{"p\\u0061ssed":false,"score":1}',
+}
+_KEY_OUTSIDE_VERDICT_ERROR = "Reviewer JSON key outside the verdict object in output"
 
 
 @pytest.mark.parametrize(("failing", "separator"), _DAMAGED_FAILING_VERDICTS)
@@ -38283,8 +38288,15 @@ def test_extract_json_object_damaged_failing_verdict_cannot_be_superseded(
     values = [failing, _PASSING_VERDICT]
     if not failing_first:
         values.reverse()
+    # The lexer reads these two as a second verdict. The raw key scan
+    # refuses the others, with its own message.
+    expected = (
+        "Multiple reviewer JSON verdict objects"
+        if failing in _DAMAGED_VERDICTS_THE_LEXER_READS
+        else _KEY_OUTSIDE_VERDICT_ERROR
+    )
 
-    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+    with pytest.raises(ValueError, match=expected):
         _extract_json_object(separator.join(values))
 
 
@@ -38359,7 +38371,7 @@ def test_extract_json_object_refuses_review_keys_in_prose_outside_the_verdict(
         verdict = f"```json\n{verdict}\n```"
     values = [prose, verdict] if prose_first else [verdict, prose]
 
-    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+    with pytest.raises(ValueError, match=_KEY_OUTSIDE_VERDICT_ERROR):
         _extract_json_object("\n".join(values))
     # The same words inside the verdict's own string are string content.
     payload = {"passed": True, "score": 9, "reasoning": prose}
@@ -38379,12 +38391,18 @@ def test_extract_json_object_escaped_nested_key_cannot_absorb_a_hidden_fragment(
         passing = '{"score":9,"blocking_issues":[],"details":{"%s":1}}' % escaped
     fragment = '{"note":"\\","%s":["wrong and/or"],}' % key
     values = [fragment, passing] if fragment_first else [passing, fragment]
+    # An escaped nested `passed` is itself a second verdict for the lexer.
+    expected = (
+        "Multiple reviewer JSON verdict objects"
+        if key == "passed"
+        else _KEY_OUTSIDE_VERDICT_ERROR
+    )
 
-    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+    with pytest.raises(ValueError, match=expected):
         _extract_json_object("\n".join(values))
     # The escaped spelling is also found outside a verdict, at any key length.
     hidden = '{"note":"\\","%s":["x"],}' % escaped
-    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+    with pytest.raises(ValueError, match=_KEY_OUTSIDE_VERDICT_ERROR):
         _extract_json_object(hidden + "\n" + _PASSING_VERDICT)
 
 
@@ -38421,7 +38439,7 @@ def test_extract_json_object_refuses_a_fragment_after_a_decoded_prefix(
     )
     assert validator_pipeline._decode_json_object_candidate(output)["passed"] is True
 
-    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+    with pytest.raises(ValueError, match=_KEY_OUTSIDE_VERDICT_ERROR):
         _extract_json_object(output)
     assert _extract_json_object(verdict + " and no more.}")["passed"] is True
 
@@ -38500,7 +38518,7 @@ def test_extract_json_object_accepts_key_spelling_in_a_well_formed_wrapper():
     )
     assert _extract_json_object(output) == {"passed": True, "score": 9}
     # The same note outside any decoded object is refused.
-    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+    with pytest.raises(ValueError, match=_KEY_OUTSIDE_VERDICT_ERROR):
         _extract_json_object("model said 'passed': true\n" + _PASSING_VERDICT)
 
 

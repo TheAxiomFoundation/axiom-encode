@@ -1361,6 +1361,11 @@ _ESCAPED_KEY_TOKEN = re.compile(
 )
 
 
+_REVIEW_KEY_OUTSIDE_VERDICT_ERROR = (
+    "Reviewer JSON key outside the verdict object in output"
+)
+
+
 def _has_review_key_token(text: str) -> bool:
     if _REVIEW_KEY_TOKEN_OUTSIDE_VERDICT.search(text):
         return True
@@ -1398,7 +1403,8 @@ def _refuse_review_keys_outside_verdict(output: str, start: int, end: int) -> No
     `passed`).
     """
     if _has_review_key_token(output[:start]) or _has_review_key_token(output[end:]):
-        raise ValueError("Multiple reviewer JSON verdict objects in output")
+        # Its own message: the output may hold one object and a key in prose.
+        raise ValueError(_REVIEW_KEY_OUTSIDE_VERDICT_ERROR)
 
 
 def _extract_json_object(output: str) -> dict[str, Any]:
