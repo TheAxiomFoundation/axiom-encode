@@ -9739,6 +9739,47 @@ def _imported_named_scalar_occurrences(
     return occurrences
 
 
+_STRICT_IMPORT_SYMBOL_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _strict_symbol_import_items(content: str) -> list[tuple[str, str]]:
+    """Return exact `(target, symbol)` pairs from the parsed top-level imports.
+
+    Only the YAML top-level ``imports`` list counts, so text that merely looks
+    like an imports block (inside a block scalar or under another key) is never
+    read. Unparsable YAML, a non-list, and any item that is not exactly one
+    whitespace-free `target#symbol` reference yield nothing for that item.
+    """
+
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, TypeError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    imports = payload.get("imports")
+    if not isinstance(imports, list):
+        return []
+    items: list[tuple[str, str]] = []
+    for raw_item in imports:
+        if not isinstance(raw_item, str):
+            continue
+        if raw_item.count("#") != 1 or any(char.isspace() for char in raw_item):
+            continue
+        import_target, imported_symbol = raw_item.split("#", 1)
+        if not import_target or not _STRICT_IMPORT_SYMBOL_PATTERN.fullmatch(
+            imported_symbol
+        ):
+            continue
+        if _import_target_prefix(import_target) is not None:
+            target_ref = _parse_rulespec_target(raw_item)
+            if target_ref is None or target_ref.symbol != imported_symbol:
+                continue
+        if (import_target, imported_symbol) not in items:
+            items.append((import_target, imported_symbol))
+    return items
+
+
 def _strict_imported_named_scalar_occurrences(
     content: str,
     policy_repo_root: Path,
@@ -9746,17 +9787,13 @@ def _strict_imported_named_scalar_occurrences(
     """Count only direct scalar definitions for explicitly imported symbols."""
 
     occurrences: Counter[float] = Counter()
-    seen: set[tuple[str, str]] = set()
-    for import_item in _extract_import_items(content):
-        import_target, separator, imported_symbol = import_item.rpartition("#")
-        import_target = import_target.strip()
-        imported_symbol = imported_symbol.strip()
-        if not separator or not import_target or not imported_symbol:
+    for import_target, imported_symbol in _strict_symbol_import_items(content):
+        try:
+            paths = _candidate_import_rule_files(import_target, policy_repo_root)
+        except UnsafeRulespecContextPath:
+            # An unsafe target earns no credit; the source number stays missing.
             continue
-        if (import_target, imported_symbol) in seen:
-            continue
-        seen.add((import_target, imported_symbol))
-        for path in _candidate_import_rule_files(import_target, policy_repo_root):
+        for path in paths:
             with contextlib.suppress(OSError):
                 imported_content = path.read_text()
                 occurrences.update(
@@ -16430,16 +16467,6 @@ def _resolve_context_imports(source_path: Path, policy_root: Path) -> list[Path]
 def _extract_import_targets(content: str) -> list[str]:
     """Extract file-level import targets from RuleSpec imports blocks."""
     targets: list[str] = []
-    for item in _extract_import_items(content):
-        import_target = item.split("#", 1)[0].strip()
-        if import_target:
-            targets.append(import_target)
-    return targets
-
-
-def _extract_import_items(content: str) -> list[str]:
-    """Extract RuleSpec import items verbatim, keeping any `#symbol` suffix."""
-    items: list[str] = []
     in_imports = False
     imports_indent = 0
 
@@ -16466,10 +16493,11 @@ def _extract_import_items(content: str) -> list[str]:
             continue
 
         item = item_match.group(2).strip()
-        if item:
-            items.append(item)
+        import_target = item.split("#", 1)[0].strip()
+        if import_target:
+            targets.append(import_target)
 
-    return items
+    return targets
 
 
 def _import_target_to_path(import_target: str) -> Path:
