@@ -695,7 +695,7 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
 | Item | Value |
 |---|---|
 | Trigger | `workflow_dispatch` only (inputs `country`, `pr`, `mode`). No `schedule`: the sweep on a timer is a later reviewed change to the workflow file |
-| Switch | The gate job requires `vars.MERGE_GUARD_RUNNER_ENABLED` to equal `true`, and `github.ref == refs/heads/main`. A rerun of `run` alone can reuse an earlier successful gate, so the `run` job repeats both checks in its first step, before any step names a credential (#2257 R2-P3-1). The repeat evaluates `vars.MERGE_GUARD_RUNNER_ENABLED` in the `run` job; no retained evidence shows that a rerun resolves the variable's current value **[check live]**, so the repeat alone is not the rollback. GitHub documents that a disabled workflow cannot rerun; change 3's rollback still unsets the switch and disables the workflow. Neither check governs another workflow that selects `merge-guard` (checklist step 1 of §8). [Rerun documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs) |
+| Switch | The gate job requires `vars.MERGE_GUARD_RUNNER_ENABLED` to equal `true`, and `github.ref == refs/heads/main`. A rerun of `run` alone can reuse an earlier successful gate, so the `run` job repeats both checks in its first step, before any step names a credential (#2257 R2-P3-1). The same step repeats the gate's checks of the `country` and `pr` inputs, because the token step builds the repository name from `inputs.country`; tests pin that neither job nor any step carries `continue-on-error`. The repeat evaluates `vars.MERGE_GUARD_RUNNER_ENABLED` in the `run` job; no retained evidence shows that a rerun resolves the variable's current value **[check live]**, so the repeat alone is not the rollback. GitHub documents that a disabled workflow cannot rerun; change 3's rollback still unsets the switch and disables the workflow. Neither check governs another workflow that selects `merge-guard` (checklist step 1 of §8). [Rerun documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs) |
 | Environment | The workflow names `merge-guard`; its planned deployment branch rule allows `main` only. The gate job has no environment, so a refused dispatch does not create one |
 | App client ID | Intended environment variable `MERGE_GUARD_APP_CLIENT_ID`; the workflow reads the `vars` context |
 | App private key | Intended environment secret `MERGE_GUARD_APP_KEY`; the workflow reads the `secrets` context |
@@ -755,23 +755,41 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
   make the runner write the verdict again on every run rather than suppress it.
   `_already_reported` rejects a listing it did not read whole. GitHub's
   [List check runs for a Git reference](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference)
-  (read 2026-11-17) documents `check_name`, `app_id`, `filter` with default
-  `latest` ("returns the most recent check runs"), `per_page` with a maximum
-  of 100, `page`, and a response of `total_count` and `check_runs`. It also
-  limits the listing to the 1,000 most recent check suites of a reference. It
-  does not say how `latest` groups runs, or that `total_count` counts the runs
-  after that filter **[check live]**. The runner therefore assumes that more
-  than 100 shadow-named checks on one head can be listed, and reads up to 10
-  pages of 100 (#2257 R2-P3-8). Past 1,000 listed checks, or when the pages do
-  not add up to one stable `total_count`, it writes no check for that head and
-  the run exits 1; it never treats a partial listing as "already reported".
-  Any workflow of the RuleSpec repository with `checks: write` can create
-  checks with the shadow name, so if `latest` does not collapse them
-  **[check live]**, more than 1,000 on one head would withhold that head's
-  shadow check until someone changes the bound. The runner holds the App's
-  client ID, not its numeric `app_id`; whether the `app_id` filter would bound
-  the listing to the guard App's own checks also needs a live App
-  **[check live]**.
+  (read 2026-11-17) documents `check_name`, `app_id`, `filter` with the
+  values `latest` (the default, "returns the most recent check runs") and
+  `all`, `per_page` with a maximum of 100, `page`, and a response of
+  `total_count` and `check_runs`. It also limits the listing to the 1,000
+  most recent check suites of a reference. It does not say how `latest`
+  groups runs. The runner asks for `filter=all`: every shadow-named run of
+  the head is listed, `total_count` is the number of listed runs, and the
+  App's newest check is its listed run with the highest id. With `latest`
+  the page arithmetic would depend on whether `total_count` counts the runs
+  before or after the filter. Observed on 2026-11-17 for the check
+  `validate / validate` on two commits of `rulespec-us` whose run was rerun
+  (`9be9d91e5`, three attempts; `f3ac29bfe`, two): `latest` returned one run
+  with `total_count` 1, `all` returned three and two runs with `total_count`
+  3 and 2. Those are attempts of one Actions job. No observation covers
+  several check runs that an App creates with one name on one head
+  **[check live]**, so the runner does not rely on `latest` for them.
+  The runner reads up to 10 pages of 100 (#2257 R2-P3-8). Past 1,000 listed
+  checks, or when the pages do not add up to one stable `total_count`, it
+  writes no check for that head and the run exits 1; it never treats a
+  partial listing as "already reported". **Limit that `filter=all` brings:**
+  every shadow-named check on a head counts toward the 1,000, the App's own
+  earlier ones included (one per changed verdict, reason or detail on that
+  head). Any workflow of the RuleSpec repository with `checks: write` can
+  create checks with the shadow name, so more than 1,000 on one head
+  withhold that head's shadow check until someone changes the bound; the
+  run reports the error and exits 1. The runner holds the App's client ID,
+  not its numeric `app_id`; whether the `app_id` filter would bound the
+  listing to the guard App's own checks needs a live App **[check live]**.
+  The identity of a shadow check is the digest of verdict, reason and
+  detail. The evidence is not hashed: it names the `main` tip, so hashing it
+  would write a new check on every open pull request each time `main` moves.
+  When only the evidence changes on one head (another approving owner, a
+  rerun of CI), the runner skips the write and the newest shadow check's
+  summary still shows the earlier evidence; the printed report carries the
+  current evidence.
 - **Known limit of the sweep, acceptable for shadow only.** The runner reads
   the list by page number. A pull request that opens or closes during the read shifts
   the pages, so one sweep can miss a pull request or see one twice (twice is
