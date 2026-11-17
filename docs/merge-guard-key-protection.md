@@ -318,8 +318,8 @@ Repository (axiom-encode unless stated):
   cut: #2278 moved the path rule into `rulespec_citation_paths.py`
   [code: `tests/test_rulespec_citation_paths.py`].
 - **R8** Organization and repositories [live read 2026-11-17]: plan
-  `enterprise`; organization owners MaxGhenis, nikhilwoodruff and
-  PavelMakarchuk; axiom-encode id 1125775893 and rulespec-us id 1114692039,
+  `enterprise`; three organization owners (the two code owners and one
+  more account); axiom-encode id 1125775893 and rulespec-us id 1114692039,
   both public. `rulespec-us` `main`: required check `validate / validate`
   from app 15368, `strict`, administrators enforced, 0 approvals. No ruleset
   rule applies to `rulespec-us` `main` (the branch-rules read returned an
@@ -442,7 +442,14 @@ exist today (§5 "Now") and for the second fallback:
   standing rule: no agent session gets `admin:org`. GitHub cannot enforce
   that rule.
 - **R2. The pin edit is the high-value action.** The pinned code is only as
-  good as its review at pin time.
+  good as its review at pin time. The pin also freezes what the guard reads
+  from the bundle: the enrolled identities (`TRUSTED_SIGNING_REVIEWERS`) and
+  `INFRASTRUCTURE_LANE_ENABLED` [code: both are in files of
+  `BUNDLE_MODULES`]. Removing an enrolled identity on axiom-encode `main`
+  does not reach the guard until the pin moves [inferred]. Every change to a
+  bundle file must also set the new digest literal in the workflow, which a
+  code owner reviews [code:
+  `test_the_digest_literal_is_the_digest_of_the_working_tree_bundle`].
 - **R3. Review changes do not start a ruleset workflow** (P14) [docs D1, D2].
   - (a) After the other owner approves a green candidate, the guard run on
     that head is still red. Someone must re-run it. Whether the re-run
@@ -486,7 +493,11 @@ exist today (§5 "Now") and for the second fallback:
   0 of the design's §10 before `Active`.
 - **R10. Token-caused events.** The signed commit must reach the candidate
   branch through a person's or an App's push, as today, or no guard run
-  starts (P16). That a missing run blocks the merge: [experiment X8].
+  starts (P16). Today the signing workflow opens a draft pull request into
+  the candidate branch with a stored token, and a person merges it [code:
+  step "Push lane branch and open draft pull request" of
+  `targeted-signed-reencode.yml`]. That a missing run blocks the merge:
+  [experiment X8].
 - **R11. Throughput.** The merge-group evaluation requires the group's base
   to be the live `main` tip and the pull request's head to be ahead of it
   [code: `R_MERGE_GROUP_BASE`, `R_BASE_NOT_CURRENT`]. A queue with more than
