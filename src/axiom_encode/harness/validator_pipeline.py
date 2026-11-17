@@ -1045,11 +1045,21 @@ def _strip_trailing_json_commas(text: str) -> str:
     return re.sub(r",(\s*[}\]])", r"\1", text)
 
 
+class _DuplicateReviewerJsonKey(ValueError):
+    """A syntactically complete object in reviewer output repeats a key.
+
+    Not a ``json.JSONDecodeError``: no decode path may count it as an
+    ordinary failed decode and go on to read the text another way.
+    """
+
+
 def _unique_reviewer_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError("Duplicate JSON object key in reviewer output")
+            raise _DuplicateReviewerJsonKey(
+                "Duplicate JSON object key in reviewer output"
+            )
         result[key] = value
     return result
 
@@ -1158,13 +1168,29 @@ _JSON_OBJECT_START = re.compile(r'\{[ \t\n\r]*["}]')
 _MAX_UNDECODABLE_JSON_OBJECT_STARTS = 500
 
 
-def _well_formed_json_objects(output: str) -> list[tuple[int, int, dict[str, Any]]]:
+def _refuse_too_many_undecodable_starts(failed: int) -> None:
+    if failed > _MAX_UNDECODABLE_JSON_OBJECT_STARTS:
+        raise ValueError("Too many undecodable JSON object starts in reviewer output")
+
+
+def _scan_well_formed_json_objects(
+    output: str,
+) -> tuple[list[tuple[int, int, dict[str, Any]]], int]:
     """Decode every outermost well-formed JSON object, without the lexer.
 
-    Fails closed (ValueError) above a fixed number of failed decode attempts.
+    Also returns the number of failed decode attempts. Fails closed
+    (ValueError) above a fixed number of them.
+
+    A repeated key is refused, never decoded: the standard decoder keeps the
+    last value, so a later object under the same key would silently replace
+    an earlier one that this check exists to see. The refusal holds for any
+    syntactically complete object at a scanned start, at any depth, also in
+    an array and also when the object around it does not decode.
     """
     text = output.replace("\u3000", " ")
-    decoder = json.JSONDecoder(strict=False)
+    decoder = json.JSONDecoder(
+        strict=False, object_pairs_hook=_unique_reviewer_json_keys
+    )
     objects: list[tuple[int, int, dict[str, Any]]] = []
     failed = 0
     start = _JSON_OBJECT_START.search(text)
@@ -1172,18 +1198,22 @@ def _well_formed_json_objects(output: str) -> list[tuple[int, int, dict[str, Any
         position = start.start()
         try:
             data, end = decoder.raw_decode(text, position)
+        except _DuplicateReviewerJsonKey:
+            raise
         except (ValueError, RecursionError):
             failed += 1
-            if failed > _MAX_UNDECODABLE_JSON_OBJECT_STARTS:
-                raise ValueError(
-                    "Too many undecodable JSON object starts in reviewer output"
-                ) from None
+            _refuse_too_many_undecodable_starts(failed)
             start = _JSON_OBJECT_START.search(text, position + 1)
             continue
         if isinstance(data, dict):
             objects.append((position, end, data))
         start = _JSON_OBJECT_START.search(text, max(end, position + 1))
-    return objects
+    return objects, failed
+
+
+def _well_formed_json_objects(output: str) -> list[tuple[int, int, dict[str, Any]]]:
+    """The objects of ``_scan_well_formed_json_objects``."""
+    return _scan_well_formed_json_objects(output)[0]
 
 
 def _decoded_review_verdicts(value: Any, under_review: bool) -> list[dict[str, Any]]:
@@ -1406,7 +1436,9 @@ def _decode_review_span(
 def _select_reviewer_json_object(output: str) -> tuple[dict[str, Any], int, int]:
     """Return the verdict and the extent of the output that decoded as it."""
     spans = _review_json_object_spans(output)
-    well_formed = _well_formed_json_objects(output)
+    # Every object here decoded with unique keys (a repeated key refuses the
+    # output), so an extent below never covers text that was not fully read.
+    well_formed, _failed_starts = _scan_well_formed_json_objects(output)
 
     def extent(span: _ReviewJsonObjectSpan, end: int) -> tuple[int, int]:
         # A well-formed object around the selection is decoded JSON too, and

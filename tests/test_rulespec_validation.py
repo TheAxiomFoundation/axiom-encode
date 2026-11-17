@@ -38529,6 +38529,156 @@ def test_decoded_cross_check_reads_pretty_printed_objects(monkeypatch, hidden_fi
         _extract_json_object("\n".join(values))
 
 
+_REVIEWER_DUPLICATE_WRAPPERS = {
+    # The inputs of the review that found this, then the minimal shape.
+    "long": (
+        '{",": 0, "score": 2, "passed": false, "blocking_issues": ["wrong and/or"]}',
+        '{"score": 9, "passed": true, "blocking_issues": []}',
+    ),
+    "short": ('{",": 0, "passed": false}', '{"score": 9, "passed": true}'),
+    "score-only": ('{",": 0, "score": 2, "issues": ["x"]}', _PASSING_VERDICT),
+}
+
+
+def _hidden_duplicate_wrapper(wrapper_key, values, fenced):
+    # An unclosed string before the wrapper: the lexer reads a brace before
+    # a key that begins with a separator or a closer as string content, so
+    # it sees neither the wrapper nor the first object in it.
+    wrapper = '{"%s": 0, "a": %s, "a": %s}' % (wrapper_key, *values)
+    output = '{"x": "' + wrapper
+    return f"Review:\n```json\n{output}\n```\n" if fenced else output
+
+
+@pytest.mark.parametrize("form", sorted(_REVIEWER_DUPLICATE_WRAPPERS))
+@pytest.mark.parametrize("failing_first", [True, False])
+@pytest.mark.parametrize("fenced", [True, False])
+def test_extract_json_object_duplicate_wrapper_key_cannot_hide_a_failing_verdict(
+    form, failing_first, fenced
+):
+    # The standard decoder keeps the last value of a repeated key. Without
+    # the unique-key hook, the passing object replaced the failing one in the
+    # decoded wrapper, and the wrapper then covered the failing text.
+    values = list(_REVIEWER_DUPLICATE_WRAPPERS[form])
+    if not failing_first:
+        values.reverse()
+    output = _hidden_duplicate_wrapper(",", values, fenced)
+
+    with pytest.raises(ValueError, match="Duplicate JSON object key"):
+        _extract_json_object(output)
+
+
+@pytest.mark.parametrize("wrapper_key", [",", ":", "]", ", a", ":b", "][", "]}"])
+@pytest.mark.parametrize("hidden_key", [",", ":", "}", "]", ",a", ": b", "}]", "]}"])
+@pytest.mark.parametrize("failing_first", [True, False])
+def test_extract_json_object_duplicate_wrapper_key_refused_for_every_hidden_start(
+    wrapper_key, hidden_key, failing_first
+):
+    values = ['{"%s": 0, "passed": false}' % hidden_key, '{"score": 9, "passed": true}']
+    if not failing_first:
+        values.reverse()
+
+    with pytest.raises(ValueError, match="Duplicate JSON object key"):
+        _extract_json_object(_hidden_duplicate_wrapper(wrapper_key, values, False))
+
+
+@pytest.mark.parametrize("wrapper_key", ["}", "}}", "}]"])
+@pytest.mark.parametrize("hidden_key", [",", ":", "}", "]"])
+@pytest.mark.parametrize("failing_first", [True, False])
+def test_extract_json_object_wrapper_key_starting_with_a_brace_hides_nothing(
+    wrapper_key, hidden_key, failing_first
+):
+    # Not a regression of the duplicate-key defect: `{"x": "{"}` is a whole
+    # object, so the wrapper never forms and both verdicts stay visible.
+    values = ['{"%s": 0, "passed": false}' % hidden_key, '{"score": 9, "passed": true}']
+    if not failing_first:
+        values.reverse()
+
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object(_hidden_duplicate_wrapper(wrapper_key, values, False))
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        # Nested deep, in an array of objects, and next to the selection.
+        '{",": 0, "m": {"n": {"a": %s, "a": %s}}}',
+        '{",": 0, "list": [1, {"a": %s, "a": %s}]}',
+        '{",": 0, "list": [{"a": %s}, {"b": [{"a": 1, "c": %s, "a": 2}]}]}',
+        '[{",": 0, "a": %s, "a": %s}]',
+    ],
+)
+@pytest.mark.parametrize("failing_first", [True, False])
+def test_extract_json_object_nested_duplicate_key_cannot_hide_a_failing_verdict(
+    wrapper, failing_first
+):
+    values = ['{",": 0, "passed": false}', '{"score": 9, "passed": true}']
+    if not failing_first:
+        values.reverse()
+
+    with pytest.raises(ValueError, match="Duplicate JSON object key"):
+        _extract_json_object('{"x": "' + wrapper % tuple(values))
+
+
+def test_well_formed_scan_refuses_a_duplicate_key_instead_of_skipping_the_object():
+    scan = validator_pipeline._well_formed_json_objects
+    assert scan('x {"a": {"k": 1}, "b": [{"k": 2}]}')[0][2] == {
+        "a": {"k": 1},
+        "b": [{"k": 2}],
+    }
+    for output in [
+        'x {"a": 1, "a": 2}',
+        'x {"a": {"k": 1, "k": 2}}',
+        'x {"a": [0, {"b": [{"k": 1, "k": 2}]}]}',
+        # A complete inner object counts although the outer one is damaged.
+        'x {"a": {"k": 1, "k": 2}, oops',
+        # Escaped spellings of one key are one key.
+        'x {"k": 1, "\\u006b": 2}',
+    ]:
+        with pytest.raises(ValueError, match="Duplicate JSON object key"):
+            scan(output)
+
+
+@pytest.mark.parametrize("duplicate_first", [True, False])
+def test_extract_json_object_refuses_a_duplicate_key_outside_the_verdict(
+    duplicate_first,
+):
+    # Deliberate fail-closed policy: a repeated key in any decodable object
+    # of the output refuses it, also an object that is not the verdict.
+    values = ['{"type": "note", "id": 1, "id": 2}', _PASSING_VERDICT]
+    if not duplicate_first:
+        values.reverse()
+
+    with pytest.raises(ValueError, match="Duplicate JSON object key"):
+        _extract_json_object("\n".join(values))
+    assert _extract_json_object('{"type": "note", "id": 1}\n' + _PASSING_VERDICT) == {
+        "passed": True,
+        "score": 9,
+    }
+
+
+def test_reviewer_duplicate_wrapper_key_fails_closed_as_parse_failure(
+    monkeypatch, tmp_path
+):
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    output = _hidden_duplicate_wrapper(",", _REVIEWER_DUPLICATE_WRAPPERS["long"], False)
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *a, **k: (output, 0)
+    )
+
+    result = pipeline._run_reviewer("generalist-reviewer", rules_file)
+
+    assert result.passed is False
+    assert result.score is None
+    assert "reviewer_parse_failed" in result.issues
+    assert "Duplicate JSON object key" in result.error
+
+
 @pytest.mark.parametrize("seed", range(4))
 def test_extract_json_object_fuzzed_failing_verdict_is_never_superseded(seed):
     rng = random.Random(seed)
@@ -38553,14 +38703,44 @@ def test_extract_json_object_fuzzed_failing_verdict_is_never_superseded(seed):
         '```json\n{"passed": true, "score": 9}\n```',
     ]
     separators = ["\n", "\n\n", " ", "", "\nprose {x} here\n", "\n```\n", ","]
+    # Objects whose first key begins with a separator or a closer: after an
+    # unclosed string the lexer reads their brace as string content.
+    hidden_failing_forms = [
+        '{{"{1}":0,"passed":false,"score":1,"blocking_issues":["wrong"]}}',
+        '{{"{1}{0}":0,"passed":false}}',
+        '{{"{1}":0,"score":1,"blocking_issues":["wrong"]}}',
+        '{{"{1}":0,"note":"{0}","passed":false,"score":1,}}',
+    ]
+    duplicate_wrappers = [
+        # One key twice: the standard decoder keeps only the last value.
+        '{{"{0}":0,"{1}":{2},"{1}":{3}}}',
+        '{{"{0}":0,"m":{{"{1}":{2},"{1}":{3}}}}}',
+        '{{"{0}":0,"list":[{{"{1}":{2},"{1}":{3}}}]}}',
+        '{{"{0}":0,"{1}":{2},"k":1,"{1}":{3},}}',
+        '[{{"{0}":0,"{1}":{2},"{1}":{3}}}]',
+    ]
     superseded = []
     accepted = 0
     for _ in range(750):
         failing = rng.choice(failing_forms).format(noise(8))
         prefix = rng.choice(["", "", "Review:\n", '{"x":"' + noise(4), noise(5)])
         passing, separator = rng.choice(passing_forms), rng.choice(separators)
-        for values in ([failing, passing], [passing, failing]):
-            output = prefix + separator.join(values)
+        outputs = [
+            prefix + separator.join(values)
+            for values in ([failing, passing], [passing, failing])
+        ]
+        hidden = rng.choice(hidden_failing_forms).format(noise(3), rng.choice(",:}]"))
+        wrapper = rng.choice(duplicate_wrappers)
+        opening = rng.choice(['{"x": "', '{"x":"' + noise(2), '```json\n{"n":"'])
+        for values in ([hidden, passing_forms[0]], [passing_forms[1], hidden]):
+            outputs.append(
+                opening
+                + wrapper.format(
+                    rng.choice(",:}]"), rng.choice(["a", "passed", "x y"]), *values
+                )
+                + rng.choice(["", "\n```", separator + passing])
+            )
+        for output in outputs:
             try:
                 data = _extract_json_object(output)
             except ValueError:
