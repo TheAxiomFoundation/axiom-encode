@@ -658,6 +658,7 @@ MISSING_40 = [
     "[complete-source-unit:tests] Companion tests do not exercise every"
     f" source-stated boundary input; {BOUNDARY_FINDING}."
 ]
+BOTH_MISSING_40 = [MISSING_40[0].replace("unit=40.", "unit=40, source unit=40.")]
 
 
 def _second_forty(
@@ -769,9 +770,7 @@ def test_a_cap_excerpt_that_states_the_number_twice_binds_no_occurrence():
     assert CAP_EXCERPT not in candidate
     # Neither 40 is credited now: the cap has no single occurrence, and no
     # case sets the travel distance to 40.
-    assert _issues(candidate, cases, source) == [
-        MISSING_40[0].replace("unit=40.", "unit=40, source unit=40.")
-    ]
+    assert _issues(candidate, cases, source) == BOTH_MISSING_40
 
 
 def test_a_cap_excerpt_that_occurs_twice_in_the_source_binds_no_occurrence():
@@ -781,7 +780,8 @@ def test_a_cap_excerpt_that_occurs_twice_in_the_source_binds_no_occurrence():
         PROVENANCE["source"]["sha256"], hashlib.sha256(source.encode()).hexdigest()
     )
     assert source.count("Up to $40 per day for lodging is allowed") == 2
-    assert _boundary_refused(_issues(candidate, source=source))
+    # Binding the first place alone would credit one of the two $40 caps.
+    assert _issues(candidate, source=source) == BOTH_MISSING_40
 
 
 def test_a_cap_without_its_own_source_excerpt_binds_no_occurrence():
@@ -790,3 +790,138 @@ def test_a_cap_without_its_own_source_excerpt_binds_no_occurrence():
     candidate = CANDIDATE.replace(CAP_FORMULA, "min(max(0, daily_lodging_cost), 40)")
     assert candidate != CANDIDATE
     assert _boundary_refused(_issues(candidate))
+
+
+def test_a_cap_excerpt_from_another_source_binds_no_occurrence():
+    cap_atom = f"corpus_citation_path: {CITATION}\n              {CAP_EXCERPT}"
+    assert CANDIDATE.count(cap_atom) == 1
+    candidate = CANDIDATE.replace(
+        cap_atom, f"corpus_citation_path: {CITATION}-other\n              {CAP_EXCERPT}"
+    )
+    assert _boundary_refused(_issues(candidate))
+
+
+def test_a_computed_cap_binds_no_occurrence():
+    """A name inside a larger cap expression does not say which 40 the cap is."""
+
+    candidate = CANDIDATE.replace(
+        CAP_FORMULA, "min(max(0, daily_lodging_cost), medical_lodging_daily_cap * 1)"
+    )
+    assert candidate != CANDIDATE
+    assert _issues(candidate) == MISSING_40
+
+
+# The bound occurrence must be a cap obligation and nothing else.
+
+ALT = f"{PREFIX}#input.alt"
+INCLUSIVE_GATES = GATES.replace("> medical", ">= medical")
+TRAVEL_THRESHOLD = "medical_lodging_travel_distance_threshold"
+
+
+def _alternate_cap_branch(cap_name: str, candidate: str, cases: list[dict]):
+    """Add a branch on a Boolean input that caps the cost with `cap_name`.
+
+    The branch has its own cases below, at and above the cap. The first
+    branch keeps the lodging cap, so the lodging $40 stays witnessed.
+    """
+
+    branch = f"if {INCLUSIVE_GATES}:\n            {CAP_FORMULA}\n          else: 0"
+    assert candidate.count(branch) == 1
+    candidate = _with_input(candidate, "alt", "Boolean").replace(
+        branch,
+        f"if {INCLUSIVE_GATES} and alt:\n"
+        f"            min(max(0, daily_lodging_cost), {cap_name})\n"
+        f"          elif {INCLUSIVE_GATES}:\n            {CAP_FORMULA}\n"
+        "          else: 0",
+    )
+    cases = copy.deepcopy(cases)
+    alternate_cases = []
+    for case in cases:
+        if COST not in case["input"]:
+            continue
+        case["input"][ALT] = False
+        if case["name"] in {
+            "qualifying_lodging_below_daily_cap",
+            CAP_CASE,
+            "qualifying_lodging_above_daily_cap",
+        }:
+            alternate = copy.deepcopy(case)
+            alternate["name"] += "_alt"
+            alternate["input"][ALT] = True
+            alternate_cases.append(alternate)
+    assert len(alternate_cases) == 3
+    return candidate, [*cases, *alternate_cases]
+
+
+def test_a_cap_that_a_condition_also_reads_is_not_a_cap_obligation():
+    """The gate threshold used as a second cap does not test the gate."""
+
+    candidate, cases, source = _second_forty(
+        MORE_THAN_40_MILES, gate=">=", distances=UNTESTED_LOWER_GATE
+    )
+    candidate, cases = _alternate_cap_branch(TRAVEL_THRESHOLD, candidate, cases)
+    assert 40 not in _distance_inputs(cases)
+    assert _issues(candidate, cases, source) == MISSING_40
+
+
+def test_a_cap_whose_occurrence_another_parameter_claims_is_not_credited():
+    """A second parameter of 40 proved by the gate sentence is the gate's 40."""
+
+    candidate, cases, source = _second_forty(
+        MORE_THAN_40_MILES, gate=">=", distances=UNTESTED_LOWER_GATE
+    )
+    gate_sentence = MORE_THAN_40_MILES.rstrip(".")
+    assert candidate.count(f'excerpt: "{gate_sentence}"') == 1
+    candidate = candidate.replace(
+        PRINCIPAL_RULE,
+        "  - name: alt_cap\n    kind: parameter\n    dtype: Money\n"
+        "    period: Day\n    unit: USD\n    metadata:\n      proof:\n"
+        "        atoms:\n          - path: versions[0].formula\n"
+        "            kind: amount\n            source:\n"
+        f"              corpus_citation_path: {CITATION}\n"
+        f'              excerpt: "{gate_sentence}"\n'
+        "    versions:\n      - effective_from: '2026-08-01'\n"
+        "        formula: |-\n          40\n" + PRINCIPAL_RULE,
+        1,
+    )
+    candidate, cases = _alternate_cap_branch("alt_cap", candidate, cases)
+    assert 40 not in _distance_inputs(cases)
+    assert _issues(candidate, cases, source) == MISSING_40
+
+    # The gate parameter now reads `alt_cap` and has no formula proof of its
+    # own. The gate still reads the cap, through that parameter.
+    threshold_rule = (
+        f'excerpt: "{gate_sentence}"\n    versions:\n'
+        "      - effective_from: '2026-08-01'\n        formula: |-\n          40\n"
+        "  - name: alt_cap\n"
+    )
+    threshold_atom = (
+        "          - path: versions[0].formula\n            kind: parameter\n"
+    )
+    assert candidate.count(threshold_rule) == 1
+    assert candidate.count(threshold_atom) == 1
+    aliased = candidate.replace(
+        threshold_rule, threshold_rule.replace("          40\n", "          alt_cap\n")
+    ).replace(threshold_atom, threshold_atom.replace(".formula", ".effective_from"))
+    assert _issues(aliased, cases, source) == MISSING_40
+
+
+def test_known_gap_a_gate_case_at_40_is_credited_for_the_cap_with_the_same_number():
+    """Pins the older selector path, which this change leaves as it is.
+
+    Known gap of the selector path, tracked in a follow-up issue. That path
+    grounds a comparison case by its number only. So a travel-distance case
+    at 40 is credited for the lodging $40 cap too, and the candidate passes
+    with no case at the cap. When the selector path binds occurrences, this
+    result must become the one missing-40 finding.
+    """
+
+    candidate, cases, source = _second_forty(
+        MORE_THAN_40_MILES, gate=">", distances={49: 39, 50: 40, 51: 41}
+    )
+    without_cap_case = [case for case in cases if case["name"] != CAP_CASE]
+    assert 40 in _distance_inputs(without_cap_case)
+    assert 40 not in {
+        case["input"][COST] for case in without_cap_case if COST in case["input"]
+    }
+    assert _issues(candidate, without_cap_case, source) == []

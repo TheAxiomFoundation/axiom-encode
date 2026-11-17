@@ -24231,8 +24231,9 @@ def _companion_test_issues(
         (id(branch), boundary.start, boundary.end): (interval, polarity)
         for branch, boundary, interval, polarity in conjoined_thresholds
     }
-    minimum_cap_source_spans = _source_bound_parameter_excerpt_spans(
+    minimum_cap_binding = _minimum_cap_source_binding(
         parameter_rules,
+        principal_rules=principal_rules,
         source_text=source_text,
         corpus_citation_path=corpus_citation_path,
     )
@@ -24257,8 +24258,7 @@ def _companion_test_issues(
             source_interval_and_polarity=conjoined_sources.get(
                 (id(branch), boundary.start, boundary.end)
             ),
-            unit_source_text=source_text,
-            minimum_cap_source_spans=minimum_cap_source_spans,
+            minimum_cap_binding=minimum_cap_binding,
         ):
             continue
         if execution_evidence is not None and partnership_content is not None:
@@ -33057,16 +33057,17 @@ def _branch_boundary_test_witnesses(
     | None = None,
     extract_numeric_occurrences: NumericOccurrenceExtractor | None = None,
     source_interval_and_polarity: tuple[_NumericInterval, int] | None = None,
-    unit_source_text: str | None = None,
-    minimum_cap_source_spans: Mapping[str, tuple[tuple[int, int], ...]] | None = None,
+    minimum_cap_binding: _MinimumCapSourceBinding | None = None,
 ) -> set[tuple[str, str]]:
     witnesses: set[tuple[str, str]] = set()
     # The min-cap path credits one physical source occurrence. Without the
     # source unit and the cap proof spans it has no occurrence to credit.
     minimum_cap_boundary_span = (
-        _boundary_source_span(branch, boundary, source_text=unit_source_text)
-        if unit_source_text is not None
-        and minimum_cap_source_spans
+        _boundary_source_span(
+            branch, boundary, source_text=minimum_cap_binding.source_text
+        )
+        if minimum_cap_binding is not None
+        and minimum_cap_binding.located_spans
         and extract_numeric_occurrences is not None
         else None
     )
@@ -33119,8 +33120,7 @@ def _branch_boundary_test_witnesses(
                 if (
                     controller_rule is rule
                     and minimum_cap_boundary_span is not None
-                    and unit_source_text is not None
-                    and minimum_cap_source_spans
+                    and minimum_cap_binding is not None
                     and extract_numeric_occurrences is not None
                     and _case_reaches_minimum_cap(
                         rule,
@@ -33133,8 +33133,7 @@ def _branch_boundary_test_witnesses(
                         formula_environment=formula_environment or {},
                         numeric_value_is_grounded=numeric_value_is_grounded,
                         boundary_source_span=minimum_cap_boundary_span,
-                        source_text=unit_source_text,
-                        cap_source_spans=minimum_cap_source_spans,
+                        cap_binding=minimum_cap_binding,
                         extract_numeric_occurrences=extract_numeric_occurrences,
                     )
                 ):
@@ -35532,8 +35531,7 @@ def _case_reaches_minimum_cap(
     formula_environment: dict[str, Any],
     numeric_value_is_grounded: NumericGroundingPredicate,
     boundary_source_span: tuple[int, int],
-    source_text: str,
-    cap_source_spans: Mapping[str, tuple[tuple[int, int], ...]],
+    cap_binding: _MinimumCapSourceBinding,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> bool:
     """Witness a source cap when the executed leaf is ``min(amount, cap)``.
@@ -35563,7 +35561,9 @@ def _case_reaches_minimum_cap(
     at the lodging cap says nothing about the distance threshold. So the cap
     must be a bare parameter name, and `boundary_source_span` must be the one
     number in that parameter's own formula proof excerpts that grounds the cap
-    value. See `_minimum_cap_is_bound_to_source_span`.
+    value. That number must also be a cap obligation only: the cap parameter
+    is not read by any condition, and no other parameter claims the same
+    number. See `_minimum_cap_is_bound_to_source_span`.
     """
 
     inputs = case.get("input")
@@ -35609,8 +35609,8 @@ def _case_reaches_minimum_cap(
                 cap,
                 float(cap_value),
                 boundary_source_span,
-                source_text=source_text,
-                cap_source_spans=cap_source_spans,
+                cap_binding=cap_binding,
+                environment=environment,
                 extract_numeric_occurrences=extract_numeric_occurrences,
                 numeric_value_is_grounded=numeric_value_is_grounded,
             )
@@ -35636,22 +35636,40 @@ def _case_reaches_minimum_cap(
     return False
 
 
-def _source_bound_parameter_excerpt_spans(
+@dataclass(frozen=True)
+class _MinimumCapSourceBinding:
+    """Where each parameter's formula proof is in the source unit.
+
+    `located_spans` lists a parameter only when every formula proof excerpt
+    cites this source unit and occurs exactly once in it. `claimed_spans`
+    lists every place where any formula proof excerpt of a parameter occurs.
+    `condition_names` holds each name that a condition of a principal or
+    parameter formula reads, directly or through a parameter.
+    """
+
+    source_text: str
+    located_spans: Mapping[str, tuple[tuple[int, int], ...]]
+    claimed_spans: Mapping[str, tuple[tuple[int, int], ...]]
+    condition_names: frozenset[str]
+
+
+def _minimum_cap_source_binding(
     parameter_rules: Mapping[str, dict[str, Any]],
     *,
+    principal_rules: Mapping[str, dict[str, Any]],
     source_text: str,
     corpus_citation_path: str,
-) -> dict[str, tuple[tuple[int, int], ...]]:
+) -> _MinimumCapSourceBinding:
     """Locate each parameter's formula proof excerpts in this source unit.
 
-    A parameter is listed only when every formula proof excerpt cites this
-    source unit and occurs exactly once in it. An excerpt that is absent,
-    repeated, or from another source gives the parameter no single place in
-    this text, so the parameter is left out and binds nothing.
+    An excerpt that is absent, repeated, or from another source gives the
+    parameter no single place in this text, so the parameter has no located
+    span and binds nothing. Its repeated places are still claims.
     """
 
     authoritative_path = corpus_citation_path.strip("/").casefold()
-    bound: dict[str, tuple[tuple[int, int], ...]] = {}
+    located_spans: dict[str, tuple[tuple[int, int], ...]] = {}
+    claimed_spans: dict[str, tuple[tuple[int, int], ...]] = {}
     for name, rule in parameter_rules.items():
         if not isinstance(rule, dict) or rule.get("kind") != "parameter":
             continue
@@ -35669,11 +35687,66 @@ def _source_bound_parameter_excerpt_spans(
             )
             if len(excerpt_spans) != 1:
                 located = False
-                break
-            spans.add(excerpt_spans[0])
-        if located and spans:
-            bound[str(name)] = tuple(sorted(spans))
-    return bound
+            spans.update(excerpt_spans)
+        if spans:
+            claimed_spans[str(name)] = tuple(sorted(spans))
+            if located:
+                located_spans[str(name)] = tuple(sorted(spans))
+    return _MinimumCapSourceBinding(
+        source_text=source_text,
+        located_spans=located_spans,
+        claimed_spans=claimed_spans,
+        condition_names=_formula_condition_names(
+            principal_rules, parameter_rules=parameter_rules
+        ),
+    )
+
+
+def _formula_condition_names(
+    principal_rules: Mapping[str, dict[str, Any]],
+    *,
+    parameter_rules: Mapping[str, dict[str, Any]],
+) -> frozenset[str]:
+    """Names that a formula condition reads, directly or through a parameter.
+
+    This reads more than it must: every name in an ``if``, ``elif`` or
+    ``match`` header and every name on a line that has a comparison. A name
+    that only looks like a condition operand is listed too, and that is the
+    safe side for the caller. A parameter or a one-name rule in a condition
+    passes the use on to each name in its own formula.
+    """
+
+    formulas = {
+        str(name): _rule_formula_text(rule)
+        for rules in (parameter_rules, principal_rules)
+        for name, rule in rules.items()
+        if isinstance(rule, dict)
+    }
+    names: set[str] = set()
+    for formula_text in formulas.values():
+        for header in re.finditer(
+            r"\b(?:if|elif|match)\b(?P<condition>.*?):[ \t]*(?:\n|$)",
+            formula_text,
+            flags=re.DOTALL,
+        ):
+            names.update(_FORMULA_IDENTIFIER.findall(header.group("condition")))
+        for line in formula_text.splitlines():
+            if re.search(r"[<>]|==|!=", line):
+                names.update(_FORMULA_IDENTIFIER.findall(line))
+    pending = list(names)
+    while pending:
+        name = pending.pop()
+        formula_text = formulas.get(name, "")
+        rule = parameter_rules.get(name)
+        if not (
+            isinstance(rule, dict) and rule.get("kind") == "parameter"
+        ) and not _FORMULA_IDENTIFIER.fullmatch(formula_text.strip()):
+            continue
+        for identifier in _FORMULA_IDENTIFIER.findall(formula_text):
+            if identifier not in names:
+                names.add(identifier)
+                pending.append(identifier)
+    return frozenset(names)
 
 
 def _boundary_source_span(
@@ -35718,8 +35791,8 @@ def _minimum_cap_is_bound_to_source_span(
     cap_value: float,
     boundary_source_span: tuple[int, int],
     *,
-    source_text: str,
-    cap_source_spans: Mapping[str, tuple[tuple[int, int], ...]],
+    cap_binding: _MinimumCapSourceBinding,
+    environment: Mapping[str, Any],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
 ) -> bool:
@@ -35730,19 +35803,43 @@ def _minimum_cap_is_bound_to_source_span(
     boundary must be that number. A literal or computed cap, a parameter with
     no located proof, and an excerpt that states the value twice all leave the
     occurrence unknown, so none of them is credited.
+
+    The occurrence must also be a cap obligation and nothing else. A cap
+    parameter that a condition reads can be the source's comparison threshold,
+    as in ``if miles >= limit and alt: min(cost, limit)``. Another parameter
+    whose proof excerpt states its own value at the same number can be that
+    threshold too. A case at the cap does not test either comparison, so both
+    are refused. A parameter with no known value counts as such a claim.
     """
 
-    if not isinstance(cap, ast.Name):
+    if not isinstance(cap, ast.Name) or cap.id in cap_binding.condition_names:
         return False
+    source_text = cap_binding.source_text
     cap_occurrence_spans = {
         (start + occurrence.start, start + occurrence.end)
-        for start, end in cap_source_spans.get(cap.id, ())
+        for start, end in cap_binding.located_spans.get(cap.id, ())
         for occurrence in extract_numeric_occurrences(source_text[start:end])
         if numeric_value_is_grounded(cap_value, (occurrence,))
     }
     if len(cap_occurrence_spans) != 1:
         return False
     ((cap_start, cap_end),) = cap_occurrence_spans
+    for name, spans in cap_binding.claimed_spans.items():
+        if name == cap.id:
+            continue
+        other_value = _rulespec_runtime_decimal(environment.get(name))
+        if any(
+            start + occurrence.start < cap_end
+            and cap_start < start + occurrence.end
+            and (
+                other_value is None
+                or numeric_value_is_grounded(float(other_value), (occurrence,))
+            )
+            for start, end in spans
+            if start < cap_end and cap_start < end
+            for occurrence in extract_numeric_occurrences(source_text[start:end])
+        ):
+            return False
     boundary_start, boundary_end = boundary_source_span
     return cap_start < boundary_end and boundary_start < cap_end
 
