@@ -1011,10 +1011,11 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   boundary awkward, choose clearly below/above-boundary inputs instead of an
   exact boundary case.
 - When a cap is encoded in its own derived rule because the provision also
-  has a comparison gate, assert that cap rule's output in every companion case
-  that sets the capped amount, not only in the at-limit case. Include a case
-  with the amount exactly at the limit, and keep below-limit and above-limit
-  cases, plus a negative-amount case when the clamp floors at zero.
+  has a comparison gate, assert that cap rule's output, and the output of any
+  derived rule that computes the capped amount, in every companion case that
+  sets the capped amount, not only in the at-limit case. Include a case with
+  the amount exactly at the limit, and keep below-limit and above-limit cases,
+  plus a negative-amount case when the clamp floors at zero.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>`
   key. For example, use
   `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not
@@ -1336,7 +1337,12 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   clamp, e.g. `min(max(0, amount), cap)`, with no comparison, and reference
   that rule from the gated principal formula, e.g.
   `if gate_measure > gate_threshold: capped_amount else: 0`. Do not put a
-  comparison gate and the cap `min(...)` in one formula.
+  comparison gate and the cap `min(...)` in one formula. If the capped amount
+  is itself computed (a sum, a rate), compute it in its own derived rule first
+  so the clamp is applied to one name. Use one clamp rule per source cap
+  value, with that cap parameter as the direct second argument of `min`, and
+  select between the clamp rules in the principal formula. Each clamp rule
+  carries its own proof atom quoting the cap sentence.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.

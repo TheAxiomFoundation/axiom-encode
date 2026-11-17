@@ -15356,7 +15356,11 @@ class TestEvalPrompt:
             "Do not put a comparison gate and the cap `min(...)` in one formula."
             in formula_rule
         )
+        assert "so the clamp is applied to one name" in formula_rule
+        assert "Use one clamp rule per source cap value" in formula_rule
+        assert "carries its own proof atom quoting the cap sentence" in formula_rule
         assert "in every companion case that sets the capped amount" in tests_rule
+        assert "any derived rule that computes the capped amount" in tests_rule
         assert "exactly at the limit" in tests_rule
         assert formula_rule in prompt
         assert tests_rule in prompt

@@ -78,11 +78,25 @@ def test_encoder_prompt_puts_a_gated_cap_in_its_own_rule():
     assert (
         "Do not put a comparison gate and the cap `min(...)` in one formula." in formula
     )
+    assert (
+        "If the capped amount is itself computed (a sum, a rate), compute it in "
+        "its own derived rule first so the clamp is applied to one name." in formula
+    )
+    assert (
+        "Use one clamp rule per source cap value, with that cap parameter as the "
+        "direct second argument of `min`, and select between the clamp rules in "
+        "the principal formula." in formula
+    )
+    assert (
+        "Each clamp rule carries its own proof atom quoting the cap sentence."
+        in formula
+    )
     # The existing cap guidance stays next to it.
     assert "min(uncapped_amount, max(cap_a," in _FORMULA_PROTOCOL
     tests = " ".join(_TESTS_PROTOCOL.split())
     assert (
-        "assert that cap rule's output in every companion case that sets the "
+        "assert that cap rule's output, and the output of any derived rule that "
+        "computes the capped amount, in every companion case that sets the "
         "capped amount, not only in the at-limit case" in tests
     )
     assert "Include a case with the amount exactly at the limit" in tests
