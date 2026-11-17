@@ -1,0 +1,1 @@
+Teach the hosted signed workflow's evidence step the `applied-rulespec/v6` promotion manifest, switched off: it accepts one only while every lock of the v6 writer is open, and it refuses every v6 manifest with the committed constants.

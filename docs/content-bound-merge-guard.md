@@ -719,12 +719,20 @@ errors as before the lane existed, and the promotion writes v5.
 
 **Not in change 5; each is needed before or with change 6.**
 
-- The hosted workflow's evidence step in `targeted-signed-reencode.yml` reads
-  `reviewed_rulespec_ref`. It refuses a v6 manifest after signing and before
-  publication. That workflow file is unchanged, so a v6 promotion cannot
-  publish through it yet. This is a fourth, accidental stop.
+- The hosted workflow's evidence step in `targeted-signed-reencode.yml`
+  ("Package exact generated changes") read only `reviewed_rulespec_ref` of a
+  v5 manifest, so it refused a v6 manifest after signing and before
+  publication. Change 5b teaches it v6, switched off: see "Evidence step"
+  below.
 - The preflight step still runs inside the gated `encode` job.
 - The v5-only readers of the reader table above still do not read v6.
+- For change 6: with every lock open `verify_reviewed_pr` issues candidate
+  records only, so a live pull request promotion that reaches the evidence
+  step with a v5 manifest would be a signer fault, yet the step's v5 branch
+  does not know which lane admitted the run and still packages the
+  reviewed-candidate evidence; change 6 should make the step refuse that
+  (defence in depth: the CLI tests already pin that a candidate admission
+  never signs v5).
 
 **Not in change 5, and not decided.**
 
@@ -734,6 +742,41 @@ errors as before the lane existed, and the promotion writes v5.
   outer `schema` tells the lanes apart. This is unchanged and is no
   prerequisite of change 6. Only if maintainers later rename the key would
   the root provisioner need a change first.
+
+### Evidence step (change 5b, workflow half, present and switched off)
+
+The evidence step calls
+`candidate_promotion_evidence.require_candidate_promotion_evidence` for a
+changed top-level manifest labelled v6, and for nothing else. It decides this
+once, on the top-level manifest: the ref field and the evidence record follow
+the paths that the call admitted. A v6 label nested in a legacy-replacement
+manifest is refused by name, before any lock is read, as the reader's nested
+readers refuse it. It refuses unless every
+lock of the writer is open, checked first with the writer's own functions:
+`require_candidate_writer` (lock 1 and `V6_READER_ENABLED`), then
+`require_guard_enforced` for this run's repository (locks 2 and 3). It has no
+switch, environment variable, flag or dispatch input of its own. With the
+committed constants it refuses every v6 manifest before it reads anything else,
+and a run with no v6 manifest takes the same path as before. For one input
+the step is stricter than before, not identical: a run whose changed
+manifests hold a valid v5 promotion and one more manifest that carries the v6
+label (at the top level or nested). The earlier step ignored the extra
+manifest and packaged the v5 evidence; this step refuses the run. The
+committed writer cannot produce such a file, so only a hand-made manifest
+reaches this; tests record both outcomes.
+
+With every lock open (tests only), the manifest must pass the reader's entry
+test, its exact v6 field sets and its attestation scope check, and the scope
+must name this run: the target citation, `candidate_rulespec_ref` equal to the
+requested RuleSpec ref, `TheAxiomFoundation/rulespec-<country>` of the run
+and the `rulespec_pr` of the `reviewed-pr-promotion/v1` dispatch. The step then
+reads the ref through `CANDIDATE_REF_FIELD` and writes the evidence record
+`axiom-encode/candidate-promotion-evidence/v1`, not the reviewed-candidate
+record. Lock 3 adds one anonymous read per v6 manifest (at least 46 in a candidate
+run; §5, "Encoder", gives the count and its limits).
+
+`base_sha`, `author_id` and the dispatcher are checked for shape only here;
+the merge guard compares them with live GitHub state.
 
 ## 6. Merge queue and `notary-guard` (not implemented)
 
@@ -835,7 +878,7 @@ Implementation comes strictly before activation.
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode | disable the workflow |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch. Built with three locks: `V6_WRITER_ENABLED = False`, `GUARD_APP_ID = None`, and a live read that the guard check is required (§5, "Encoder") | revert |
-| 5b | axiom-encode | Record the guard App's numeric App ID in `GUARD_APP_ID`; teach the hosted workflow's evidence step `candidate_rulespec_ref`. After checklist step 1 | set it back to `None` |
+| 5b | axiom-encode | Record the guard App's numeric App ID in `GUARD_APP_ID`, after checklist step 1. The other half, the hosted workflow's evidence step reading `candidate_rulespec_ref` behind the writer's locks, is present and switched off (§5, "Evidence step") | set it back to `None` |
 | 6 | axiom-encode | **Activation**: turn the switch on; update `docs/reviewed-pr-promotion.md` | flip the switch back; the required check stays |
 
 ### Activation checklist
