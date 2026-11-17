@@ -38453,6 +38453,82 @@ def test_extract_json_object_raw_key_scan_does_not_backtrack(tail):
     assert time.perf_counter() - started < 1
 
 
+@pytest.mark.parametrize(
+    "output",
+    [
+        _PASSING_VERDICT + '{"a":' * 20000,
+        _PASSING_VERDICT + '{"a":' * 80000,
+        _PASSING_VERDICT + '{"' * 80000,
+        '{"a":"' + '{ "x' * 80000 + '"}' + _PASSING_VERDICT,
+    ],
+    ids=["open-objects-20k", "open-objects-80k", "brace-quotes", "in-string-starts"],
+)
+def test_extract_json_object_caps_failed_decode_attempts_and_fails_closed(output):
+    # Every failed decode attempt can cost time in proportion to the output.
+    started = time.perf_counter()
+    with pytest.raises(ValueError, match="Too many undecodable JSON object starts"):
+        _extract_json_object(output)
+    assert time.perf_counter() - started < 1
+
+
+def test_extract_json_object_decode_attempt_cap_spares_long_legitimate_output():
+    cap = validator_pipeline._MAX_UNDECODABLE_JSON_OBJECT_STARTS
+    payload = {
+        "passed": True,
+        "score": 9,
+        # Inside the decoded verdict: the scan jumps past the whole object.
+        "reasoning": 'the map {"a": 1} and {"b ' * 5000,
+        "details": [{"note": "n"}] * 2000,
+    }
+    # Prose braces cannot start a JSON object and are not attempts at all;
+    # a few hundred starts that fail to decode stay under the cap.
+    prose = "The flow map {x: 1} and {y} here.\n" * 5000 + 'see {"k": \n' * (cap // 2)
+
+    started = time.perf_counter()
+    assert _extract_json_object(prose + json.dumps(payload) + prose) == payload
+    assert time.perf_counter() - started < 2
+    with pytest.raises(ValueError, match="Too many undecodable JSON object starts"):
+        _extract_json_object('see {"k": \n' * (cap + 1) + json.dumps(payload))
+
+
+def test_extract_json_object_accepts_key_spelling_in_a_well_formed_wrapper():
+    # The well-formed object around the verdict is decoded JSON too: its
+    # other fields are string content, not text outside the verdict.
+    output = (
+        '{"type":"result","note":"model said \'passed\': true",'
+        '"result":{"passed":true,"score":9}}'
+    )
+    assert _extract_json_object(output) == {"passed": True, "score": 9}
+    # The same note outside any decoded object is refused.
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object("model said 'passed': true\n" + _PASSING_VERDICT)
+
+
+@pytest.mark.parametrize("hidden_first", [True, False])
+def test_decoded_cross_check_reads_pretty_printed_objects(monkeypatch, hidden_first):
+    # Isolate the decoded cross-check: restore the lexer that a string ending
+    # in a brace desynchronizes, and switch the raw key scan off.
+    monkeypatch.setattr(
+        validator_pipeline, "_brace_in_string_starts_object", lambda *_a: True
+    )
+    monkeypatch.setattr(
+        validator_pipeline, "_refuse_review_keys_outside_verdict", lambda *_a: None
+    )
+    hidden = '{\n  "note": "{",\n  ":": 1,\n  "passed": false,\n  "score": 1\n}'
+    assert [
+        (start, end)
+        for start, end, _data in validator_pipeline._well_formed_json_objects(
+            "x " + hidden
+        )
+    ] == [(2, 2 + len(hidden))]
+    values = [hidden, _PASSING_VERDICT]
+    if not hidden_first:
+        values.reverse()
+
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object("\n".join(values))
+
+
 @pytest.mark.parametrize("seed", range(4))
 def test_extract_json_object_fuzzed_failing_verdict_is_never_superseded(seed):
     rng = random.Random(seed)

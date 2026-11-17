@@ -1153,19 +1153,31 @@ def _brace_in_string_starts_object(output: str, quote: int) -> bool:
 # Only these can start a JSON object. A failed decode costs time in proportion
 # to its offset, so prose braces are skipped without a decode attempt.
 _JSON_OBJECT_START = re.compile(r'\{[ \t\n\r]*["}]')
+# A failed decode can still cost time in proportion to the output, so the
+# scan refuses an output with more failed starts than any review needs.
+_MAX_UNDECODABLE_JSON_OBJECT_STARTS = 500
 
 
 def _well_formed_json_objects(output: str) -> list[tuple[int, int, dict[str, Any]]]:
-    """Decode every outermost well-formed JSON object, without the lexer."""
+    """Decode every outermost well-formed JSON object, without the lexer.
+
+    Fails closed (ValueError) above a fixed number of failed decode attempts.
+    """
     text = output.replace("\u3000", " ")
     decoder = json.JSONDecoder(strict=False)
     objects: list[tuple[int, int, dict[str, Any]]] = []
+    failed = 0
     start = _JSON_OBJECT_START.search(text)
     while start is not None:
         position = start.start()
         try:
             data, end = decoder.raw_decode(text, position)
         except (ValueError, RecursionError):
+            failed += 1
+            if failed > _MAX_UNDECODABLE_JSON_OBJECT_STARTS:
+                raise ValueError(
+                    "Too many undecodable JSON object starts in reviewer output"
+                ) from None
             start = _JSON_OBJECT_START.search(text, position + 1)
             continue
         if isinstance(data, dict):
