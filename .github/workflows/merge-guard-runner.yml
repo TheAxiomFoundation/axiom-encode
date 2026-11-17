@@ -14,7 +14,9 @@ name: Merge guard runner (shadow)
 #
 # A rerun of only the run job can reuse the earlier gate result. The run job
 # therefore repeats the ref and switch checks in its own first step, before
-# any step that names a credential. The run job selects the merge-guard
+# any step that names a credential. The same step repeats the checks of the
+# country and pr inputs, so no later step of the run job depends on the gate
+# job for a validated input. The run job selects the merge-guard
 # environment, so its vars context can also carry an environment variable
 # of the same name. Whether a rerun resolves the current value of a variable
 # is not verified. Rollback still requires both unsetting
@@ -131,12 +133,16 @@ jobs:
     # allow only main.
     environment: merge-guard
     steps:
-      # The gate job's ref and switch checks again. A rerun of this job alone
-      # reuses the earlier gate result and does not run the gate again.
+      # The gate job's checks again. A rerun of this job alone reuses the
+      # earlier gate result and does not run the gate again. The input checks
+      # are repeated as well: the token step below builds a repository name
+      # from inputs.country, and this job does not rely on another job for it.
       - name: Refuse again unless on main with the switch on
         env:
           REF: ${{ github.ref }}
           ENABLED: ${{ vars.MERGE_GUARD_RUNNER_ENABLED }}
+          COUNTRY: ${{ inputs.country }}
+          PR: ${{ inputs.pr }}
         run: |
           set -euo pipefail
           if [ "$REF" != "refs/heads/main" ]; then
@@ -145,6 +151,16 @@ jobs:
           fi
           if [ "$ENABLED" != "true" ]; then
             echo "::error::The merge guard runner is switched off: MERGE_GUARD_RUNNER_ENABLED is not 'true'. See docs/content-bound-merge-guard.md section 8."
+            exit 1
+          fi
+          # Whole-string matches, as in the gate job.
+          export LC_ALL=C
+          if ! [[ "$COUNTRY" =~ ^[a-z]{2}$ ]]; then
+            echo "::error::country must be two lowercase letters."
+            exit 1
+          fi
+          if [ -n "$PR" ] && ! [[ "$PR" =~ ^[1-9][0-9]{0,8}$ ]]; then
+            echo "::error::pr must be a pull request number or empty."
             exit 1
           fi
 
