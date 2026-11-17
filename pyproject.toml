@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.2379"
+version = "0.2.2382"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -113,7 +113,10 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/axiom_encode"]
-artifacts = ["src/axiom_encode/harness/data/coverage_exemptions.jsonl"]
+artifacts = [
+    "src/axiom_encode/harness/data/coverage_exemptions.jsonl",
+    "src/axiom_encode/harness/data/reviewed_alternative_lists.jsonl",
+]
 
 [tool.hatch.build.targets.sdist]
 include = [

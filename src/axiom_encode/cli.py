@@ -51640,17 +51640,31 @@ def _remove_empty_deferred_source_values(*, rules_file: Path) -> list[str]:
 
 
 def _quote_unquoted_source_scalars(*, rules_file: Path) -> list[str]:
-    """Quote only source text at PyYAML's unexpected-mapping mark."""
+    """Quote only source text at PyYAML's unexpected-mapping mark.
+
+    The repair only adds quotes, and only to a document that does not parse.
+    It acts on a ``source:`` or ``excerpt:`` line whose one-line plain value
+    holds the ``:`` that PyYAML rejected: a ``:`` before a space, a tab or the
+    end of the line. Such a document has no valid reading, and those keys
+    hold source text, so the only reading is the line's text as a string.
+    It refuses quoted, block, flow, anchored, tagged or multi-line values, a
+    line with `` #`` (YAML would read a comment, but in source text ``#`` is
+    literal, as in "Change #02-2022") and every other parse error. It keeps
+    every other byte, line endings included. It writes nothing unless the
+    whole document then parses and each quoted line parses to the exact text
+    it had.
+    """
 
     if not rules_file.exists():
         return []
     try:
-        original = rules_file.read_text()
-    except OSError:
+        original = rules_file.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
         return []
     candidate_lines = original.splitlines(keepends=True)
     repaired: list[str] = []
     repaired_line_indexes: set[int] = set()
+    expected_values: dict[int, tuple[str, str]] = {}
     while True:
         candidate = "".join(candidate_lines)
         try:
@@ -51672,8 +51686,8 @@ def _quote_unquoted_source_scalars(*, rules_file: Path) -> list[str]:
             return []
 
         raw_line = candidate_lines[line_index]
-        newline = "\n" if raw_line.endswith("\n") else ""
-        line = raw_line[:-1] if newline else raw_line
+        line = raw_line.rstrip("\r\n")
+        newline = raw_line[len(line) :]
         match = re.match(
             r"^(?P<prefix>\s*(?P<key>source|excerpt):\s+)(?P<body>.*)$",
             line,
@@ -51683,33 +51697,85 @@ def _quote_unquoted_source_scalars(*, rules_file: Path) -> list[str]:
         prefix = match.group("prefix")
         key = match.group("key")
         body = match.group("body")
-        comment_match = re.search(r"[ \t]+#.*$", body)
-        if comment_match is not None:
-            value = body[: comment_match.start()]
-            suffix = body[comment_match.start() :]
-        else:
-            value = body.rstrip(" \t\r")
-            suffix = body[len(value) :]
+        value = body.rstrip(" \t")
+        suffix = body[len(value) :]
         if (
             not value
-            or value[0] in {"'", '"', "|", ">", "{", "[", "!", "&", "*"}
+            # Quoting would turn a YAML comment into text, or cut source text
+            # that holds a literal " #"; neither reading is safe to pick.
+            or re.search(r"[ \t]#", body) is not None
+            or value[0] in {"'", '"', "|", ">", "{", "[", "!", "&", "*", "#"}
             or not match.start("body")
             <= column_index
             < match.start("body") + len(value)
             or line[column_index] != ":"
-            or column_index + 1 >= len(line)
-            or line[column_index + 1] not in " \t"
+            # A value indicator is `:` before a space, a tab or the end of the
+            # line. A source excerpt that ends a list lead-in ("one of the
+            # following:") has its `:` at the end of the line.
+            or (column_index + 1 < len(line) and line[column_index + 1] not in " \t")
+            or _plain_scalar_may_continue(candidate_lines, line_index, line)
         ):
             return []
         quoted = value.replace("'", "''")
         candidate_lines[line_index] = f"{prefix}'{quoted}'{suffix}{newline}"
         repaired_line_indexes.add(line_index)
+        expected_values[line_index] = (key, value)
         repaired.append(f"{key}:{line_index + 1}")
 
-    if not repaired:
+    if not repaired or not _quoted_source_scalars_match(candidate, expected_values):
         return []
-    rules_file.write_text(candidate)
+    rules_file.write_bytes(candidate.encode("utf-8"))
     return repaired
+
+
+def _plain_scalar_may_continue(lines: list[str], line_index: int, line: str) -> bool:
+    """Return true when a later, deeper-indented line may continue the value."""
+
+    indent = len(line) - len(line.lstrip(" \t"))
+    for next_line in lines[line_index + 1 :]:
+        stripped = next_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        return len(next_line) - len(next_line.lstrip(" \t")) > indent
+    return False
+
+
+def _quoted_source_scalars_match(
+    candidate: str, expected_values: Mapping[int, tuple[str, str]]
+) -> bool:
+    """Check that each quoted line reads back as its key and its exact text."""
+
+    try:
+        root = yaml.compose(candidate, Loader=yaml.SafeLoader)
+    except (RecursionError, yaml.YAMLError, ValueError):
+        return False
+    found: dict[int, tuple[str, str, str | None]] = {}
+    pending = [root] if root is not None else []
+    seen: set[int] = set()
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, yaml.MappingNode):
+            for key_node, value_node in node.value:
+                if (
+                    isinstance(key_node, yaml.ScalarNode)
+                    and isinstance(value_node, yaml.ScalarNode)
+                    and value_node.start_mark.line in expected_values
+                ):
+                    found[value_node.start_mark.line] = (
+                        key_node.value,
+                        value_node.value,
+                        value_node.style,
+                    )
+                pending.extend((key_node, value_node))
+        elif isinstance(node, yaml.SequenceNode):
+            pending.extend(node.value)
+    return all(
+        found.get(line_index) == (key, value, "'")
+        for line_index, (key, value) in expected_values.items()
+    )
 
 
 def _canonicalize_or_remove_invalid_deferred_source_values(
@@ -71511,6 +71577,15 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
         "apply_error": None,
         "applied_files": [],
     }
+    quoted_source_scalars = getattr(
+        result, "auto_repaired_unquoted_source_scalars", None
+    )
+    if isinstance(quoted_source_scalars, list) and quoted_source_scalars:
+        # The eval-time repair changed the model's bytes before validation in
+        # this attempt. The record covers that attempt only: the outcome has no
+        # entry for a repair in an earlier attempt or an earlier command.
+        outcome["auto_repaired_unquoted_source_scalars"] = list(quoted_source_scalars)
+        outcome["generated_output_repaired_by_encoder"] = True
     metrics = getattr(result, "metrics", None)
     if metrics is not None and not standalone_success:
         try:

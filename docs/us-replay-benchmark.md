@@ -7,10 +7,9 @@ or corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 56 committed
-fixtures in `tests/fixtures/us_replay_benchmark/`. For each hosted fixture,
-`extract` copies a real candidate from the `targeted-reencode-failure` artifact
-of a `targeted-signed-reencode.yml` run:
+(the `[complete-source-unit:*]` rules of the CI validator) over 62 committed
+fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
+of signed runs:
 
 - `candidate.yaml` and `candidate.test.yaml`: the final candidate and its
   companion tests. For a rejected candidate, their hashes match the bundle
@@ -59,6 +58,18 @@ origins and body-export method. The separate
 `tests/test_public_retained_proof_fixture.py` checks the joint-return proof
 excerpt while retaining an unrelated ellipsis refusal. Completeness replay
 does not measure that proof check.
+The six Arizona utility fixtures (`local-az-utility-block-*`) record the
+`gates-collapsed` findings of encoder 0.2.2361 on bulleted alternative lists;
+the current analyzer no longer raises them, because each unit has a reviewed
+reading bound to its exact text (`docs/reviewed-alternative-lists.md`).
+Each of these six fixtures also carries the `source-metadata.json` that its
+local run wrote into the run workspace. The date-silent start check reads
+`source_as_of` (2026-07-17) from it; without it, the `2026-08-01` starts of the
+candidates have no supported date and four of the six fixtures are refused. The
+file is the run's own bytes with one edit: `rulespec_root`, an absolute path on
+the machine that ran the batch, is replaced by `<local-run-root>/rulespec-us/us-az`.
+Its `resolved_text_sha256` equals the hash of the fixture's `source.txt`. It is
+an unsigned local record, as the other files of these fixtures are.
 
 The `local-date-silent-merge-41088317595` fixture holds a syntax mutation of
 the public fixture `41088317595`, an Arizona manual unit that prints no date.
@@ -135,16 +146,17 @@ attestation's `source_as_of` and `expression_date` to the date-silent
 start-date check (`docs/validator-checks.md`), always without amendment
 context, because a fixture records no amendment documents.
 
-The set has 45 distinct citations: federal statutes, CFR regulations, IRS and
-FNS guidance, state statutes, manuals and guidance, eight Canadian citations
-and one Israeli statute. Its 56 fixtures include one Arizona control that passed
-validation and then failed a provenance guard. The current snapshot pins 14
-clean fixtures and 42 refused fixtures with 2,590 findings between them, and it
-records no replay error and no `allowed_regressions` entry. The date-silent
-merge and proof-alias fixtures add two clean rows; all 54 rows on main keep
-their exact findings. The child-credit and retirement-transfer diagnostics
-retain six and 19 findings; the section 219(g) diagnostic retains 33. Read
-clean counts and per-fixture changes, not only the total.
+The set has 48 distinct citations: federal statutes, CFR regulations, IRS and
+FNS guidance, state statutes, manuals and guidance, eight Canadian citations,
+three Arizona utility manual units with bulleted alternative lists (six local
+diagnostics) and one Israeli statute. Its 62 fixtures include one Arizona control that passed
+validation and then failed a provenance guard. The current snapshot has 18 clean
+fixtures and 44 refused fixtures with 2,592 findings, and it records no replay
+error and no `allowed_regressions` entry. The date-silent merge and proof-alias
+fixtures add two clean rows; all 60 rows on `main` keep their exact findings.
+The child-credit and retirement-transfer diagnostics retain six and 19 findings;
+the section 219(g) diagnostic retains 33. Read clean counts and per-fixture
+changes, not only the total.
 
 `tests/test_us_replay_benchmark.py` caps every other fixture together at
 5 MiB and each of these named cases separately at 64 KiB:
