@@ -24007,6 +24007,117 @@ rules: []
         assert run.iterations[-1].success is False
         assert [error.message for error in run.iterations[-1].errors] == [refusal]
 
+    @staticmethod
+    def _writer_record(review, pair_bytes, applied_bytes):
+        """The record the manifest writer builds for the final apply plan."""
+
+        from axiom_encode.generalist_review_record import (
+            GeneralistReviewState,
+            applied_pair,
+            build_generalist_review_record,
+            review_evidence_digests,
+        )
+
+        state = GeneralistReviewState(
+            metrics_pass=review["passed"],
+            score=review["score"],
+            issue_count=0,
+            prompt_sha256=review["prompt_sha256"],
+            evidence={
+                **review_evidence_digests(b"format: rulespec/v1\nrules: []\n", b"[]\n"),
+                "rulespec_complete": True,
+                "test_complete": True,
+                "reviewer_backend": "codex",
+                "reviewer_model": "gpt-test",
+            },
+        )
+        return build_generalist_review_record(
+            state,
+            [applied_pair(*pair_bytes)],
+            [hashlib.sha256(raw).hexdigest() for raw in applied_bytes],
+        )
+
+    @pytest.mark.parametrize("refused", [False, True])
+    def test_review_gate_outcome_reports_the_record_of_the_final_apply_plan(
+        self, tmp_path, capsys, refused
+    ):
+        from axiom_encode.generalist_review_record import ReviewRequirementRefused
+
+        # Apply replaced the main file after the gate's own record was built:
+        # the verdict is on content that is not in the final plan.
+        replaced = b"format: rulespec/v1\nrules: [replaced]\n"
+        writer_record = self._writer_record(
+            self._REVIEW_PASSED, (replaced, b"[]\n"), (replaced, b"[]\n")
+        )
+        assert writer_record["status"] == "unavailable"
+        applied_file = tmp_path / "policy" / "statutes/26/63.yaml"
+
+        def apply(result, **_kwargs):
+            # What `_write_applied_encoding_manifest` leaves on the result.
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(writer_record),
+            )
+            if refused:
+                raise ReviewRequirementRefused("refused on the final plan")
+            return [applied_file]
+
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            require_flag=refused,
+            apply_side_effect=apply,
+        )
+
+        run.apply.assert_called_once()
+        assert run.code == (1 if refused else 0)
+        assert run.outcome["status"] == (
+            "apply_blocked_review" if refused else "apply_applied"
+        )
+        assert "generalist_review_record=passed" in run.output
+        assert (
+            "generalist_review_record=unavailable:reviewed_content_not_applied"
+            " (final apply plan)"
+        ) in run.output
+        assert run.outcome["generalist_review"] == writer_record
+
+    def test_review_gate_outcome_reports_a_companion_that_apply_adds(
+        self, tmp_path, capsys
+    ):
+        # A deferred candidate without a companion: planning adds an empty
+        # one, so two files are applied where the gate's record lists one.
+        rulespec = b"format: rulespec/v1\nrules: []\n"
+        writer_record = self._writer_record(
+            self._REVIEW_PASSED, (rulespec, b"[]\n"), (rulespec, b"[]\n")
+        )
+        assert len(writer_record["files"]) == 2
+        seen = {}
+        from axiom_encode.generalist_review_record import applied_pair
+
+        def apply(result, **_kwargs):
+            seen["stale"] = vars(result).get("_axiom_generalist_review_applied_record")
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(writer_record),
+            )
+            return [tmp_path / "policy" / "statutes/26/63.yaml"]
+
+        with patch(
+            "axiom_encode.cli._review_applied_pairs",
+            side_effect=lambda files: [applied_pair(Path(files[0]).read_bytes(), None)],
+        ):
+            run = self._run_review_gate(
+                tmp_path, capsys, review=self._REVIEW_PASSED, apply_side_effect=apply
+            )
+
+        assert run.code == 0
+        assert seen == {"stale": None}
+        assert len(run.outcome["generalist_review"]["files"]) == 2
+        assert run.outcome["generalist_review"] == writer_record
+
     def test_review_gate_other_writer_refusals_stay_manifest_blocks(
         self, tmp_path, capsys
     ):

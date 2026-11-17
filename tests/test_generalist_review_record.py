@@ -1385,6 +1385,57 @@ def test_desynchronized_verdicts_cannot_satisfy_required_review(
     assert review_requirement_refusal(record) is not None
 
 
+@pytest.mark.parametrize(
+    "prefix",
+    ['{"note":"{",', '{"note":"{  ",', '{"note":"{",":":1,'],
+)
+@pytest.mark.parametrize("failure_first", [True, False])
+def test_string_ending_in_brace_cannot_hide_a_failure_from_required_review(
+    tmp_path, monkeypatch, prefix, failure_first
+):
+    rule = _candidate(tmp_path)
+    verdicts = [
+        prefix + '"passed":false,"score":1,"blocking_issues":["wrong and/or"]}',
+        '{"passed":true,"score":9}',
+    ]
+    if not failure_first:
+        verdicts.reverse()
+    output = "\n".join(verdicts)
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *_a, **_k: (output, 0)
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    record = _record_for(result, rule, required=True)
+
+    assert result.passed is False
+    assert result.score is None
+    assert "reviewer_parse_failed" in result.issues
+    assert record["required"] is True
+    assert record["status"] == "unavailable"
+    assert record["verdict"]["passed"] is None
+    assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize("prefix", ['{"note":"{",', '{"note":"{",":":1,'])
+def test_one_failure_after_a_string_ending_in_brace_fails_required_review(
+    tmp_path, monkeypatch, prefix
+):
+    rule = _candidate(tmp_path)
+    output = prefix + '"passed":false,"score":1,"blocking_issues":["wrong and/or"]}'
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *_a, **_k: (output, 0)
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    record = _record_for(result, rule, required=True)
+
+    assert result.passed is False
+    assert result.score == 1
+    assert record["status"] == "failed"
+    assert review_requirement_refusal(record) is not None
+
+
 def test_reviewer_exception_never_records_a_pass(tmp_path, monkeypatch):
     rule = _candidate(tmp_path)
 
@@ -1552,6 +1603,7 @@ def _write_manifest(
     program_bytes=b"program: us-sc/snap\nperiod: 2026-01\n",
     test_bytes=b"[]\n",
     orphan_test=False,
+    results=None,
 ):
     checkout = tmp_path / "rulespec-us"
     (checkout / "us").mkdir(parents=True)
@@ -1596,6 +1648,8 @@ def _write_manifest(
     )
     if review_state is not None:
         setattr(result, _GENERALIST_REVIEW_STATE_ATTR, review_state(applied))
+    if results is not None:
+        results.append(result)
     with (
         patch(
             "axiom_encode.cli.load_rulespec_local_corpus_release",
@@ -1734,6 +1788,44 @@ def test_manifest_pass_is_partial_when_an_applied_file_was_not_reviewed(tmp_path
             orphan_test=True,
             review_state=_bound_state(required=True),
         )
+
+
+@pytest.mark.parametrize("admits_record", [True, False])
+@pytest.mark.parametrize("required", [False, True])
+def test_writer_hands_the_record_of_the_signed_files_to_the_encode_outcome(
+    tmp_path, admits_record, required
+):
+    # The outcome record is built before apply finalizes its files. The
+    # writer's record is the one about the files that are applied, also for a
+    # target whose manifest cannot carry it and when the requirement refuses.
+    results = []
+    arguments = {
+        "per_file": True,
+        "orphan_test": True,
+        "admits_record": admits_record,
+        "review_state": _bound_state(required=required),
+        "results": results,
+    }
+    if required:
+        with pytest.raises(RuntimeError, match="unreviewed_applied_files"):
+            _write_manifest(tmp_path, **arguments)
+        applied_sha256s = None
+    else:
+        payload, applied = _write_manifest(tmp_path, **arguments)
+        assert (GENERALIST_REVIEW_FIELD in payload) is admits_record
+        applied_sha256s = [item["sha256"] for item in payload["applied_files"]]
+
+    record = vars(results[0])["_axiom_generalist_review_applied_record"]
+    assert (record["status"], record["reason"], record["required"]) == (
+        "partial",
+        "unreviewed_applied_files",
+        required,
+    )
+    assert len(record["files"]) == 3
+    if applied_sha256s is not None:
+        assert _issues(record, applied_sha256s) == []
+    if admits_record and not required:
+        assert record == payload[GENERALIST_REVIEW_FIELD]
 
 
 def test_manifest_binds_a_review_made_before_the_source_stamp(tmp_path):

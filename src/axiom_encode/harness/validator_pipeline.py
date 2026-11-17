@@ -1094,15 +1094,118 @@ class _ReviewJsonObjectSpan:
     has_passed: bool = False
 
 
+def _skip_json_whitespace(output: str, index: int) -> int:
+    while index < len(output) and output[index].isspace():
+        index += 1
+    return index
+
+
+def _brace_in_string_starts_object(output: str, quote: int) -> bool:
+    """Decide whether `{ "` met inside a string resynchronizes the lexer.
+
+    ``quote`` is the index of the quote after the brace. If valid JSON may
+    continue after that quote as after a closed string (a separator, a closer
+    or the end of the output), the quote closes the current string: the brace
+    was string content. Otherwise the current string is malformed, and the
+    brace starts an object only when the quote opens an actual key: a complete
+    string, with backslash escapes, followed by a colon.
+    """
+    after_quote = _skip_json_whitespace(output, quote + 1)
+    if after_quote >= len(output) or output[after_quote] in ",:}]":
+        return False
+    index = quote + 1
+    while index < len(output):
+        current = output[index]
+        if current == "\\":
+            index += 2
+            continue
+        if current == '"':
+            after_key = _skip_json_whitespace(output, index + 1)
+            return after_key < len(output) and output[after_key] == ":"
+        index += 1
+    return False
+
+
+def _well_formed_json_objects(output: str) -> list[tuple[int, int, dict[str, Any]]]:
+    """Decode every outermost well-formed JSON object, without the lexer."""
+    text = output.replace("\u3000", " ")
+    decoder = json.JSONDecoder(strict=False)
+    objects: list[tuple[int, int, dict[str, Any]]] = []
+    position = text.find("{")
+    while position != -1:
+        try:
+            data, end = decoder.raw_decode(text, position)
+        except (ValueError, RecursionError):
+            position = text.find("{", position + 1)
+            continue
+        if isinstance(data, dict):
+            objects.append((position, end, data))
+        position = text.find("{", max(end, position + 1))
+    return objects
+
+
+def _decoded_review_verdicts(value: Any, under_review: bool) -> list[dict[str, Any]]:
+    """List verdict objects in decoded JSON with the lexer's nesting rule."""
+    verdicts: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        review = _looks_like_review_json(value)
+        if review and (not under_review or "passed" in value):
+            verdicts.append(value)
+        for child in value.values():
+            verdicts.extend(_decoded_review_verdicts(child, under_review or review))
+    elif isinstance(value, list):
+        for child in value:
+            verdicts.extend(_decoded_review_verdicts(child, under_review))
+    return verdicts
+
+
+def _refuse_verdicts_hidden_from_lexer(
+    output: str,
+    selected: tuple[_ReviewJsonObjectSpan, dict[str, Any] | None] | None,
+) -> None:
+    """Fail closed when decoded JSON holds a verdict the lexer did not select.
+
+    The lexer tolerates malformed output, so a crafted string can desynchronize
+    it. Well-formed objects need no tolerance: decode them independently and
+    require that their verdicts are exactly the lexer's selection.
+    """
+    found: list[tuple[int, int, dict[str, Any]]] = []
+    for start, end, data in _well_formed_json_objects(output):
+        inside_selected = (
+            selected is not None
+            and selected[1] is not None
+            and selected[0].start < start < (selected[0].end or len(output))
+        )
+        found.extend(
+            (start, end, verdict)
+            for verdict in _decoded_review_verdicts(data, inside_selected)
+        )
+    if not found:
+        return
+    if len(found) == 1 and selected is not None and selected[1] is not None:
+        start, end, verdict = found[0]
+        span, data = selected
+        with contextlib.suppress(TypeError, ValueError):
+            if start <= span.start < end and json.dumps(
+                data, sort_keys=True
+            ) == json.dumps(verdict, sort_keys=True):
+                return
+    raise ValueError("Multiple reviewer JSON verdict objects in output")
+
+
 def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
     """Locate physical objects and review keys, including malformed fragments.
 
     One lexical pass gives a fenced/balanced/repaired view of the same object
     one identity. Only a plausible JSON object opens a context. A quoted key
     after a brace also resynchronizes a malformed string: valid JSON strings
-    must escape that quote. Escaped JSON examples and empty braces in strings
-    stay within their string. A recognized review key still counts if its
-    value or closing brace is malformed, so a later verdict cannot supersede it.
+    must escape that quote. Inside a string that holds only for an actual key
+    (a complete string, then a colon) whose opening quote cannot be the
+    closing quote of the current string, so a string value that ends in a
+    brace keeps its object's later keys visible. Escaped JSON examples and
+    empty braces in strings stay within their string. A recognized review key
+    still counts if its value or closing brace is malformed, so a later
+    verdict cannot supersede it.
     """
     spans: list[_ReviewJsonObjectSpan] = []
     stack: list[_ReviewJsonObjectSpan] = []
@@ -1115,6 +1218,8 @@ def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
             while following < len(output) and output[following].isspace():
                 following += 1
             quoted_key = following < len(output) and output[following] == '"'
+            if quoted_key and string_start is not None:
+                quoted_key = _brace_in_string_starts_object(output, following)
             empty_object = following < len(output) and output[following] == "}"
             if quoted_key or (empty_object and string_start is None):
                 span = _ReviewJsonObjectSpan(index)
@@ -1178,6 +1283,7 @@ def _extract_json_object(output: str) -> dict[str, Any]:
         if span.end is None:
             candidate = re.sub(r"\s*```\s*$", "", candidate.strip()).strip() + "}"
         reviews.append((span, _decode_json_object_candidate(candidate)))
+    _refuse_verdicts_hidden_from_lexer(output, reviews[0] if reviews else None)
     if reviews:
         _span, data = reviews[0]
         if data is None or not _looks_like_review_json(data):

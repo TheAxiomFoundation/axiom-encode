@@ -35964,6 +35964,8 @@ _REPLACEMENT_OVERLAY_SCOPE_ATTR = "_axiom_replacement_overlay_scope"
 _IMMUTABLE_RULESPEC_SHA256_ATTR = "_axiom_immutable_rulespec_sha256"
 _MANIFEST_ONLY_REFRESH_ATTR = "_axiom_manifest_only_refresh"
 _GENERALIST_REVIEW_STATE_ATTR = "_axiom_generalist_review_state"
+# The record the manifest writer built against the files it signs.
+_GENERALIST_REVIEW_APPLIED_RECORD_ATTR = "_axiom_generalist_review_applied_record"
 _REVIEWED_CANDIDATE_PROMOTION_ATTR = "_axiom_reviewed_candidate_promotion"
 _PRESERVED_COMPANION_TESTS_ATTR = "_axiom_preserved_companion_tests"
 _REQUIRED_TEST_CASE_CONTRACTS_ATTR = "_axiom_required_test_case_contracts"
@@ -42905,6 +42907,7 @@ def _run_encode_attempt(
                         ],
                     )
                     setattr(result, _GENERALIST_REVIEW_STATE_ATTR, review_state)
+                    vars(result).pop(_GENERALIST_REVIEW_APPLIED_RECORD_ATTR, None)
                     outcome["generalist_review"] = review_record
                     print(
                         f"  generalist_review_record={review_record['status']}"
@@ -42949,6 +42952,7 @@ def _run_encode_attempt(
                     except ReviewRequirementRefused as exc:
                         # The writer's own check of the required review, on
                         # the files it was about to sign.
+                        _record_applied_generalist_review(result, outcome)
                         outcome["status"] = "apply_blocked_review"
                         outcome["apply_error"] = str(exc)
                         outcome["final_success"] = False
@@ -42963,6 +42967,7 @@ def _run_encode_attempt(
                         print(f"  apply=blocked_manifest:{exc}")
                     else:
                         print("  apply=" + ",".join(str(path) for path in applied))
+                        _record_applied_generalist_review(result, outcome)
                         apply_passed = True
                         outcome["status"] = "apply_applied"
                         outcome["apply_success"] = True
@@ -42975,6 +42980,25 @@ def _run_encode_attempt(
         logged_run=logged_run,
         validation_issues=full_validation_issues,
         validation_retry_issues=retry_validation_issues,
+    )
+
+
+def _record_applied_generalist_review(result, outcome: dict) -> None:
+    """Report the review record of the final apply plan in the outcome.
+
+    The record built before apply covers the candidate as it was then. Apply
+    can still stamp the source, add an empty companion test or replace a file,
+    so the manifest writer rebuilds the record against the files it signs.
+    """
+
+    record = vars(result).get(_GENERALIST_REVIEW_APPLIED_RECORD_ATTR)
+    if not isinstance(record, dict) or record == outcome.get("generalist_review"):
+        return
+    outcome["generalist_review"] = copy.deepcopy(record)
+    print(
+        f"  generalist_review_record={record.get('status')}"
+        + (f":{record['reason']}" if record.get("reason") else "")
+        + " (final apply plan)"
     )
 
 
@@ -66149,6 +66173,13 @@ def _write_applied_encoding_manifest(
             review_state,
             _review_applied_pairs(unique_applied_files),
             [str(item["sha256"]) for item in payload["applied_files"]],
+        )
+        # The encode outcome reports this record, also when the target's
+        # manifest cannot carry it or the requirement refuses below.
+        setattr(
+            result,
+            _GENERALIST_REVIEW_APPLIED_RECORD_ATTR,
+            copy.deepcopy(review_record),
         )
         if review_state.required:
             refusal = review_requirement_refusal(review_record)

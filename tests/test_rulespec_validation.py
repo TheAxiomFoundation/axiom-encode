@@ -38111,6 +38111,124 @@ def test_equal_keys_in_distinct_metadata_objects_remain_valid():
     assert _extract_json_object(json.dumps(payload)) == payload
 
 
+_BRACE_STRING_FAILURE_FIELDS = '"passed":false,"score":1,"blocking_issues":["x"]}'
+_BRACE_STRING_PREFIXES = [
+    # An unknown string field that ends in a brace, before the verdict keys.
+    '{"note":"{",',
+    '{"note":"{  ",',
+    '{"note": "see {" ,',
+    '{"notes":["{"],',
+    '{"{":1,',
+    # The closing quote, a comma and the next key's quote spell a "key".
+    '{"note":"{",":":1,',
+    '{"note":"{  ",": ":1,',
+]
+
+
+@pytest.mark.parametrize("prefix", _BRACE_STRING_PREFIXES)
+@pytest.mark.parametrize("failure_first", [True, False])
+@pytest.mark.parametrize("fenced", [False, True])
+def test_extract_json_object_string_ending_in_brace_cannot_hide_a_failing_verdict(
+    prefix, failure_first, fenced
+):
+    values = [prefix + _BRACE_STRING_FAILURE_FIELDS, '{"passed":true,"score":9}']
+    if not failure_first:
+        values.reverse()
+    if fenced:
+        values = [f"```json\n{value}\n```" for value in values]
+
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object("\n".join(values))
+
+
+@pytest.mark.parametrize("prefix", _BRACE_STRING_PREFIXES)
+@pytest.mark.parametrize("fenced", [False, True])
+def test_extract_json_object_returns_one_failing_verdict_after_brace_string(
+    prefix, fenced
+):
+    output = prefix + _BRACE_STRING_FAILURE_FIELDS
+    expected = json.loads(output)
+    assert expected["passed"] is False
+    if fenced:
+        output = f"Review:\n```json\n{output}\n```\nDone."
+
+    assert _extract_json_object(output) == expected
+
+
+@pytest.mark.parametrize("prefix", _BRACE_STRING_PREFIXES)
+def test_extract_json_object_lexer_sees_verdict_keys_after_brace_string(prefix):
+    # The lexer alone, without the decoded cross-check, must keep the keys.
+    spans = validator_pipeline._review_json_object_spans(
+        prefix + '"passed":false,"score":1,}'
+    )
+
+    assert [(span.start, span.review_like, span.has_passed) for span in spans] == [
+        (0, True, True)
+    ]
+
+
+@pytest.mark.parametrize(
+    "hidden",
+    [
+        '{"note":"{",":":1,"passed":false,"score":1}',
+        '{"type":"m","note":"{",":":1,"payload":{"passed":false,"score":1}}',
+        '[{"note":"{",":":1,"score":1,"blocking_issues":["x"]}]',
+    ],
+)
+@pytest.mark.parametrize("hidden_first", [True, False])
+def test_extract_json_object_refuses_decoded_verdict_the_lexer_did_not_select(
+    monkeypatch, hidden, hidden_first
+):
+    # Defense in depth: restore the lexer that a string ending in a brace
+    # desynchronizes. The independent decode must still fail closed.
+    monkeypatch.setattr(
+        validator_pipeline, "_brace_in_string_starts_object", lambda *_a: True
+    )
+    values = [hidden, '{"passed":true,"score":9}']
+    if not hidden_first:
+        values.reverse()
+
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object("\n".join(values))
+
+
+@pytest.mark.parametrize(
+    "output,expected",
+    [
+        (
+            'Prose {x} first.\n```json\n{"passed": true, "score": 9}\n```\nEnd {}.',
+            {"passed": True, "score": 9},
+        ),
+        (
+            '{"type":"message","payload":{"passed":true,"score":9,'
+            '"details":{"score":1,"sub":[{"score":2}]}}}',
+            {
+                "passed": True,
+                "score": 9,
+                "details": {"score": 1, "sub": [{"score": 2}]},
+            },
+        ),
+        (
+            '{"passed": true, "score": 9, "metadata": {"score": 1}',
+            {"passed": True, "score": 9, "metadata": {"score": 1}},
+        ),
+        (
+            '{"passed": false, "score": 2, "reasoning": "Use '
+            '{\\"passed\\": true} and { \\"score\\": 9 } and {"}',
+            {
+                "passed": False,
+                "score": 2,
+                "reasoning": 'Use {"passed": true} and { "score": 9 } and {',
+            },
+        ),
+    ],
+)
+def test_extract_json_object_decoded_cross_check_keeps_single_verdict_shapes(
+    output, expected
+):
+    assert _extract_json_object(output) == expected
+
+
 @pytest.mark.parametrize("first", [True, False])
 def test_reviewer_multiple_verdicts_fail_closed_as_parse_failure(
     monkeypatch, tmp_path, first
