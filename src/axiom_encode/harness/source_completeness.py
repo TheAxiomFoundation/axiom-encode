@@ -23358,7 +23358,9 @@ CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED = _declare_companion_test_check(
     fix=(
         "Add a case with the clamped input below zero that asserts the clamped "
         "rule (and the downstream principal output when one exists). A zero "
-        "input does not exercise the clamp."
+        "input does not exercise the clamp. For an entity output tested through "
+        "`tables:`, write a separate case with exactly one row, an empty "
+        "`input:`, and a one-item list assertion of the clamped rule."
     ),
     site="axiom_encode/harness/source_completeness.py:_negative_local_input_clamp_test_issues",
 )
@@ -23854,15 +23856,20 @@ def _negative_local_input_clamp_test_issues(
     ) -> dict[str, Any] | None:
         """Return the case replay reads, or ``None`` for an unproven row case.
 
-        A case that does not assert this rule as a row-ordered list is
-        returned unchanged. The rewritten case is cached so that its identity
-        stays stable for the per-case caches above.
+        A list-valued assertion of any local rule of this rule's entity makes
+        the runner query table rows for the case, so the flat ``input`` is
+        evidence only with a proven row binding. A case without such an
+        assertion is returned unchanged. The rewritten case is cached so that
+        its identity stays stable for the per-case caches above.
         """
 
         name = str(rule.get("name") or "")
+        entity = str(rule.get("entity") or "Case")
         outputs = case.get("output")
         if not isinstance(outputs, dict) or not any(
-            isinstance(value, list) and str(key).rsplit("#", 1)[-1] == name
+            isinstance(value, list)
+            and (asserted := str(key).rsplit("#", 1)[-1]) in principal_rules
+            and str(principal_rules[asserted].get("entity") or "Case") == entity
             for key, value in outputs.items()
         ):
             return case
@@ -40765,8 +40772,11 @@ def _sole_table_row_inputs(
     rows = tables.get(entity) if isinstance(tables, dict) else None
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         return None
-    # Match the companion runner's metadata keys, retaining legal input IDs
-    # verbatim so same-named inputs in other modules cannot establish binding.
+    # Drop only the companion runner's row-identity keys. Every other key is
+    # kept verbatim, so a flat ``input`` repeats the row only under the same
+    # legal input IDs. Once a row is read as flat facts, replay resolves its
+    # keys by short name exactly as it does for a scalar case: a same-named
+    # input of another module is not told apart there.
     snake_entity = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", entity)
     snake_entity = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", snake_entity)
     row_id_keys = {

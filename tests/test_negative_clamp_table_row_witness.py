@@ -128,9 +128,9 @@ def _base_cases(build):
     ]
 
 
-def _clamp_refused(entity, cases):
+def _clamp_issues(entity, cases, *, payload=None):
     result = sc.analyze_complete_source_unit(
-        yaml.safe_dump(_payload(entity), sort_keys=False),
+        yaml.safe_dump(payload or _payload(entity), sort_keys=False),
         SOURCE,
         corpus_citation_path=CITATION,
         test_cases=cases,
@@ -139,7 +139,11 @@ def _clamp_refused(entity, cases):
         extract_named_scalars=extract_named_scalar_occurrences,
         numeric_value_is_grounded=numeric_value_is_grounded,
     )
-    return any("Direct nonnegative clamp" in issue for issue in result.issues)
+    return [issue for issue in result.issues if "Direct nonnegative clamp" in issue]
+
+
+def _clamp_refused(entity, cases, *, payload=None):
+    return bool(_clamp_issues(entity, cases, payload=payload))
 
 
 def test_scalar_case_control_witnesses_the_clamp():
@@ -236,3 +240,62 @@ def test_below_zero_table_row_without_an_exact_binding_is_refused(unbind):
     negative = _row_case("negative", True, -25, 0)
     unbind(negative)
     assert _clamp_refused("Payment", [*_base_cases(_row_case), negative])
+
+
+def test_below_zero_first_row_of_two_with_a_one_item_assertion_is_refused():
+    negative = _row_case("negative", True, -25, 0)
+    negative["tables"]["Payment"].append(_facts(True, 250))
+    assert _clamp_refused("Payment", [*_base_cases(_row_case), negative])
+
+
+def test_below_zero_sole_row_with_a_two_item_assertion_is_refused():
+    negative = _row_case("negative", True, -25, 0)
+    negative["output"] = {f"{MODULE}#allowable_fee": [0, 0]}
+    assert _clamp_refused("Payment", [*_base_cases(_row_case), negative])
+
+
+def test_below_zero_row_asserted_with_another_entity_output_is_refused():
+    payload = _payload("Payment")
+    payload["rules"][1]["entity"] = "Household"
+    negative = _row_case("negative", True, -25, 0)
+    negative["output"][f"{MODULE}#fee_counts"] = [True]
+    cases = [*_base_cases(_row_case), negative]
+    assert _clamp_refused("Payment", cases, payload=payload)
+    # Control: the sibling assertion binds when it has the row's entity.
+    assert not _clamp_refused("Payment", cases)
+
+
+def test_row_witnesses_only_the_clamp_on_its_selected_path():
+    payload = _payload("Payment")
+    payload["inputs"].append({**payload["inputs"][1], "name": "other_amount"})
+    payload["rules"][0]["versions"][0]["formula"] = (
+        "if fee_qualifies: max(0, fee_amount) else: max(0, other_amount)"
+    )
+    negative = _row_case("negative", True, -5, 0)
+    negative["tables"]["Payment"][0][f"{MODULE}#input.other_amount"] = -5
+    issues = _clamp_issues("Payment", [negative], payload=payload)
+    assert len(issues) == 1
+    assert "`max(0, other_amount)`" in issues[0]
+    assert "`max(0, fee_amount)`" not in issues[0]
+
+
+@pytest.mark.parametrize("flat_amount", [-25, "-25"])
+def test_below_zero_flat_input_cannot_borrow_a_row_assertion(flat_amount):
+    row_amount = 25 if flat_amount == -25 else -25
+    negative = _row_case("negative", True, row_amount, 0)
+    negative["input"] = _facts(True, flat_amount)
+    assert _clamp_refused("Payment", [*_base_cases(_row_case), negative])
+
+
+def test_below_zero_flat_input_cannot_borrow_a_sibling_row_assertion():
+    negative = _scalar_case("negative", True, -25, 0)
+    negative["tables"] = {"Payment": [_facts(True, 25)]}
+    negative["output"][f"{MODULE}#fee_counts"] = [True]
+    assert _clamp_refused("Payment", [*_base_cases(_row_case), negative])
+
+
+def test_row_identity_keys_do_not_break_a_repeated_flat_input():
+    negative = _row_case("negative", True, -25, 0)
+    negative["input"] = _facts(True, -25)
+    negative["tables"]["Payment"][0].update(id="row-1", payment_id="payment-1")
+    assert not _clamp_refused("Payment", [*_base_cases(_row_case), negative])
