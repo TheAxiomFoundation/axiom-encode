@@ -23638,6 +23638,7 @@ rules: []
         supplemental_files=None,
         apply_side_effect=None,
         environment_overrides=None,
+        stale_applied_record=None,
     ):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
@@ -23652,6 +23653,13 @@ rules: []
         test_file = output_file.with_name("63.test.yaml")
         test_file.write_text("[]\n")
         result.output_file = str(output_file)
+        if stale_applied_record is not None:
+            # What an earlier apply attempt on this result left behind.
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(stale_applied_record),
+            )
         result.metrics = EvalArtifactMetrics(
             compile_pass=True,
             compile_issues=[],
@@ -24081,6 +24089,63 @@ rules: []
             "generalist_review_record=unavailable:reviewed_content_not_applied"
             " (final apply plan)"
         ) in run.output
+        assert run.outcome["generalist_review"] == writer_record
+
+    @pytest.mark.parametrize(
+        ("side_effect", "status"),
+        [
+            (None, "apply_applied"),
+            (RuntimeError("Cannot sign: something else"), "apply_blocked_manifest"),
+        ],
+    )
+    def test_review_gate_outcome_ignores_the_record_of_an_earlier_attempt(
+        self, tmp_path, capsys, side_effect, status
+    ):
+        # This apply never reaches the writer; the record an earlier attempt
+        # left on the result is about other files.
+        stale = self._writer_record(
+            self._REVIEW_PASSED,
+            (b"format: rulespec/v1\nrules: [stale]\n", b"[]\n"),
+            (b"format: rulespec/v1\nrules: [stale]\n", b"[]\n"),
+        )
+        assert stale["status"] == "unavailable"
+
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            apply_side_effect=side_effect,
+            stale_applied_record=stale,
+        )
+
+        run.apply.assert_called_once()
+        assert run.outcome["status"] == status
+        assert run.outcome["generalist_review"]["status"] == "passed"
+        assert "(final apply plan)" not in run.output
+        assert "_axiom_generalist_review_applied_record" not in vars(run.result)
+
+    def test_review_gate_outcome_reports_the_writer_record_when_signing_fails(
+        self, tmp_path, capsys
+    ):
+        replaced = b"format: rulespec/v1\nrules: [replaced]\n"
+        writer_record = self._writer_record(
+            self._REVIEW_PASSED, (replaced, b"[]\n"), (replaced, b"[]\n")
+        )
+
+        def apply(result, **_kwargs):
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(writer_record),
+            )
+            raise RuntimeError("Cannot sign: something else")
+
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_PASSED, apply_side_effect=apply
+        )
+
+        assert run.code == 1
+        assert run.outcome["status"] == "apply_blocked_manifest"
         assert run.outcome["generalist_review"] == writer_record
 
     def test_review_gate_outcome_reports_a_companion_that_apply_adds(

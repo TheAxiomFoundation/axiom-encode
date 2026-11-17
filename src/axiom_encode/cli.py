@@ -42961,6 +42961,9 @@ def _run_encode_attempt(
                             logged_run, db_path=db_path, message=str(exc)
                         )
                     except (RuntimeError, ValueError) as exc:
+                        # If the writer ran before the refusal, its record
+                        # covers the final plan; otherwise this changes nothing.
+                        _record_applied_generalist_review(result, outcome)
                         outcome["status"] = "apply_blocked_manifest"
                         outcome["apply_error"] = str(exc)
                         outcome["final_success"] = False

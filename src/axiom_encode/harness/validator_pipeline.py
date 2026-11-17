@@ -1260,8 +1260,100 @@ def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
     return spans
 
 
+# A quote that an even number of backslashes precedes is not escaped.
+_UNESCAPED = r"(?<!\\)(?:\\\\)*"
+_PASSED_KEY_TOKEN = re.compile(
+    "|".join(
+        (
+            # A JSON key. An escaped example inside a string does not count.
+            _UNESCAPED + r'"passed"\s*:',
+            # Pseudo-JSON that neither the lexer nor the decoder reads.
+            _UNESCAPED + r"'passed'\s*:",
+            r"[\u2018\u2019\u201c\u201d]passed[\u2018\u2019\u201c\u201d]\s*:",
+            # An unquoted key: first in its object, or first on its line after
+            # a comma. A comma on the same line is left out: prose such as
+            # "2 failed, passed: 3" must not look like a key.
+            r"(?:\{\s*|,[^\S\n]*\n\s*)(?:/\*.*?\*/\s*)*passed\s*:",
+            # A comment between the brace or comma and a quoted key hides the
+            # object from the lexer; the quoted forms above still count it.
+        )
+    ),
+    re.IGNORECASE | re.DOTALL,
+)
+_REVIEW_KEY_TOKEN = re.compile(
+    _UNESCAPED + '"(' + "|".join(sorted(_REVIEW_JSON_KEYS)) + r')"\s*:'
+)
+_ESCAPED_KEY_TOKEN = re.compile(
+    _UNESCAPED + r'("(?:[^"\\\n]|\\.){0,64}")\s*:', re.DOTALL
+)
+
+
+def _raw_review_key_tokens(output: str) -> tuple[Counter[str], int]:
+    """Count review key tokens in the raw text, whatever the JSON state.
+
+    The count needs no string parity and no decoding, so damage before a
+    review key (an odd quote, a string that ends in a backslash) cannot hide
+    the key. Returns the count of each JSON review key, with backslash-escaped
+    spellings decoded, and the count of `passed` keys in spellings that are
+    not JSON: another case, single or curly quotes, or no quotes.
+    """
+    keys = Counter(match.group(1) for match in _REVIEW_KEY_TOKEN.finditer(output))
+    other_passed = len(_PASSED_KEY_TOKEN.findall(output)) - keys["passed"]
+    escaped_passed = 0
+    for match in _ESCAPED_KEY_TOKEN.finditer(output):
+        token = match.group(1)
+        if "\\" not in token:
+            continue
+        with contextlib.suppress(ValueError):
+            key = json.loads(token, strict=False)
+            if key in _REVIEW_JSON_KEYS:
+                keys[key] += 1
+            elif isinstance(key, str) and key.casefold() == "passed":
+                escaped_passed += 1
+    return keys, other_passed + escaped_passed
+
+
+def _decoded_review_key_counts(value: Any) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in _REVIEW_JSON_KEYS:
+                counts[key] += 1
+            counts.update(_decoded_review_key_counts(child))
+    elif isinstance(value, list):
+        for child in value:
+            counts.update(_decoded_review_key_counts(child))
+    return counts
+
+
+def _refuse_review_keys_outside_verdict(output: str, data: dict[str, Any]) -> None:
+    """Fail closed when the raw text has a review key the verdict lacks.
+
+    Every review key token of a single verdict is a key of its decoded object.
+    A token beyond those belongs to something else: a second verdict, or a
+    fragment that the lexer and the decoder could not read.
+    """
+    raw, other_passed = _raw_review_key_tokens(output)
+    decoded = _decoded_review_key_counts(data)
+    if raw["passed"] + other_passed > 1 or any(
+        count > decoded[key] for key, count in raw.items()
+    ):
+        raise ValueError("Multiple reviewer JSON verdict objects in output")
+
+
 def _extract_json_object(output: str) -> dict[str, Any]:
-    """Extract one physical reviewer verdict; refuse multiple occurrences."""
+    """Extract one physical reviewer verdict; refuse multiple occurrences.
+
+    Three independent checks refuse a second verdict: the tolerant lexer, the
+    decode of every well-formed object, and the count of raw review key
+    tokens. The last one holds when the others have lost the string state.
+    """
+    data = _select_reviewer_json_object(output)
+    _refuse_review_keys_outside_verdict(output, data)
+    return data
+
+
+def _select_reviewer_json_object(output: str) -> dict[str, Any]:
     spans = _review_json_object_spans(output)
     reviews: list[tuple[_ReviewJsonObjectSpan, dict[str, Any] | None]] = []
     for span in spans:
