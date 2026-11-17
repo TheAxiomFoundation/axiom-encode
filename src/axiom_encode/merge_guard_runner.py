@@ -103,14 +103,16 @@ SUCCESS_VERDICTS: Final = frozenset(
 CI_POLL_SECONDS: Final = 30
 CI_WAIT_SECONDS: Final = 3600
 MAX_CI_POLLS: Final = CI_WAIT_SECONDS // CI_POLL_SECONDS + 1
-# One event payload. GitHub documents a 25 MB cap for webhook payloads; a
-# pull_request or merge_group payload is tens of kilobytes.
+# One event payload. GitHub documents "Payloads are capped at 25 MB"
+# (https://docs.github.com/en/webhooks/webhook-events-and-payloads); a
+# pull_request or merge_group payload is far smaller. A larger file fails.
 MAX_EVENT_BYTES: Final = 4 * 1024 * 1024
 # Hard cap of GitHub requests in one enforce run: two evaluations and the
-# polls of one full wait, with headroom. The largest measured evaluation is
-# 30 requests (``tests/test_merge_guard_runner.py``, "request volume"), so the
-# worst measured run is 2 * 30 + 121 = 181 requests. GitHub's limit for the
-# job token is 1,000 requests per hour per repository
+# polls of one full wait, with headroom. The largest evaluation measured on
+# fixtures is 29 requests (``tests/test_merge_guard_runner.py``, "request
+# volume"), so two of them and every poll are 2 * 29 + 121 = 179 requests.
+# Past the cap every read fails, so the verdict is ``fail``. GitHub documents
+# the job token's limit as 1,000 requests per hour per repository
 # (https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
 MAX_ENFORCE_REQUESTS: Final = 250
 

@@ -2104,6 +2104,16 @@ def test_merge_group_commit_must_name_itself_and_one_tree(commit_object):
     group_fails(world, guard.R_MERGE_GROUP_TREE)
 
 
+@pytest.mark.parametrize("tree", [{}, {"sha": None}, {"sha": "main"}, {"sha": ""}])
+def test_merge_group_trees_that_agree_without_being_tree_ids_fail(tree):
+    # Two commit objects that both lack a tree id would otherwise compare
+    # equal.
+    world = queue(build())
+    world.api[f"{ROOT}/git/commits/{G}"] = {"sha": G, "tree": tree}
+    world.api[f"{ROOT}/git/commits/{H}"] = {"sha": H, "tree": tree}
+    group_fails(world, guard.R_MERGE_GROUP_TREE)
+
+
 def test_merge_group_head_commit_must_name_itself():
     world = queue(build())
     world.api[f"{ROOT}/git/commits/{H}"] = {"sha": C1, "tree": {"sha": TREE_H}}

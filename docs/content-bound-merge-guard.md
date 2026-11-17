@@ -855,8 +855,11 @@ ruleset; nothing here was run against a ruleset:
 - that the job token of a RuleSpec repository can read the signing run of
   `axiom-encode` (step 6 of a v6 unit) and that `actions/checkout` can fetch
   public axiom-encode with it;
-- the `merge_group` payload (`head_sha`, `base_sha`, `head_ref`, `base_ref`)
-  and the form `refs/heads/gh-readonly-queue/main/pr-<N>-<40 hex>`;
+- the `merge_group` payload (`head_sha`, `base_sha`, `head_ref`, `base_ref`,
+  and `repository.full_name`, which GitHub's webhook reference does not mark
+  as required) and the form
+  `refs/heads/gh-readonly-queue/main/pr-<N>-<40 hex>`. A payload without
+  one of them fails the job;
 - what `github.workflow_sha` is for a ruleset workflow. The digest literal
   makes a wrong value fail closed: a checkout of other bytes cannot match it;
 - that `GITHUB_REPOSITORY` and the event file describe the target repository

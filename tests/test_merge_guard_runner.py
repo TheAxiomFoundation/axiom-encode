@@ -1626,6 +1626,30 @@ def test_a_fail_for_another_head_is_reported_as_stale_and_does_not_wait():
     assert time.sleeps == [] and report["ci_polls"] == 0
 
 
+@pytest.mark.parametrize("verdict", ["pass", "not_applicable"])
+@pytest.mark.parametrize("evidence", [{}, {"pull_request": 42}, {"head": None}])
+def test_a_success_that_names_no_head_fails(monkeypatch, verdict, evidence):
+    reason = guard.R_PASS if verdict == "pass" else guard.R_NO_GUARDED_CONTENT
+    judged = guard.Verdict(verdict, reason, "", evidence)
+    monkeypatch.setattr(guard, "evaluate", lambda *_a, **_k: judged)
+    report, code = judge(build())
+    assert (reason_of(report), code) == (("fail", runner.R_EVENT_HEAD_STALE), 1)
+    assert report["verdict"]["evidence"]["evaluated_head"] is None
+
+
+def test_a_run_with_an_error_never_ends_with_success(monkeypatch):
+    # The exit rule itself: a success verdict in a run that recorded an error
+    # is a failed job.
+    def errored(name, payload, fetch, sleep, clock, report):
+        report["error"] = "a step of the run failed"
+        return guard.Verdict(guard.PASS, guard.R_PASS, "", {"head": H})
+
+    monkeypatch.setattr(runner, "_enforce_pull_request", errored)
+    report, code = judge(build())
+    assert reason_of(report) == ("pass", guard.R_PASS)
+    assert code == 1 and report["error"] == "a step of the run failed"
+
+
 def test_a_fail_before_the_evaluator_reads_a_head_keeps_its_reason():
     world = build()
     world.api[ROOT + "/pulls/42"]["state"] = "closed"
