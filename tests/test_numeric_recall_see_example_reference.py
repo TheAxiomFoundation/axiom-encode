@@ -1,0 +1,288 @@
+"""The ordinal of a `See Example N` cross-reference is not a policy value.
+
+A policy manual points at its worked examples with `(See Example 1 )`. The
+ordinal names the example. Numeric recall read it as a value of the rule and
+told the encoder to add a parameter for it, so a correct encoding could not
+pass. Only the ordinal of a closed reference is masked; every other number,
+and every other use of the word `example`, keeps its demand.
+
+All source text here is synthetic.
+"""
+
+from __future__ import annotations
+
+import functools
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+import yaml
+
+from axiom_encode.harness import source_completeness as sc
+from axiom_encode.harness.evals import evaluate_artifact
+from axiom_encode.harness.validator_pipeline import (
+    ValidationResult,
+    ValidatorPipeline,
+    extract_named_scalar_occurrences,
+    extract_typed_numeric_inventory_occurrences_from_text,
+    extract_typed_numeric_occurrences_from_text,
+    numeric_value_is_grounded,
+)
+from tests.test_evals import (
+    _canonical_rulespec_content_root,
+    _write_test_corpus_provision,
+)
+
+MANUAL = "us-zz/manual/agency/handbook/shelter-costs/block-3"
+STATUTE = "us-zz/statute/12/12-345"
+PROFILES = ("legacy", "en-US")
+
+# (source, values that stay in the recall inventory)
+MASKED = (
+    ("The cost is allowed for the whole period. (See Example 1 )", []),
+    ("The cost is allowed for the whole period. (See Example 1)", []),
+    ("The cost is allowed for the whole period. (See Example 12 )", []),
+    ("The cost is allowed for the whole period. (See Example 12)", []),
+    ("The cost is allowed for the whole period (See Example 12).", []),
+    ("The cost is allowed for the whole period. See Example 12.", []),
+    ("The cost is allowed for the whole period. (See Example 12.)", []),
+    ("The cost is allowed for the whole period; see example 3.", []),
+    ("The cost is allowed for the whole period. (SEE EXAMPLE 4)", []),
+    ("See Example 2; the cost is allowed for the whole period.", []),
+    ("See Example 2, where the cost is allowed for the whole period.", []),
+    ("The cost is allowed [See Example 7] for the whole period.", []),
+    ("The cost is allowed. (See Examples 1 and 2)", []),
+    ("The cost is allowed. See Examples 1 and 2.", []),
+    ("The cost is allowed. (See Examples 1, 2, and 3 )", []),
+    ("The cost is allowed. (see examples 4 or 15)", []),
+    ("The unit pays $50 for 3 months. (See Example 1 )", [50.0, 3.0]),
+    ("(See Example 1 ) The unit pays $1 for 1 month.", [1.0, 1.0]),
+    ("(See Example 2 ) Allow $20 when 2 persons pay.", [20.0, 2.0]),
+)
+
+# Nothing in these is a closed reference to an example: every number stays.
+KEPT = (
+    ("The unit pays $1.", [1.0]),
+    ("The cost is allowed for 1 month.", [1.0]),
+    ("Example 2: the household pays $1.", [2.0, 1.0]),
+    ("Example 2\nThe household pays $1 for 3 persons.", [2.0, 1.0, 3.0]),
+    ("Example: 3 persons share the cost.", [3.0]),
+    ("For example, 3 persons share the cost.", [3.0]),
+    ("See, for example, 3 persons who share the cost.", [3.0]),
+    ("See Example 1 and pay 2.", [1.0, 2.0]),
+    ("See Example 1 month of costs.", [1.0]),
+    ("See Example 1 and 2.", [1.0, 2.0]),
+    ("See Examples 1 and 2 months of costs.", [1.0, 2.0]),
+    ("See Examples 1, 2 and 3 persons.", [1.0, 2.0, 3.0]),
+    ("See Examples 4)", [4.0]),
+    ("See Example 4, 3 persons share the cost.", [4.0, 3.0]),
+    ("See Example 4\n3 persons share the cost.", [4.0, 3.0]),
+    ("See Example 4: 3 persons share the cost.", [4.0, 3.0]),
+    ("See Example 4 of the appendix.", [4.0]),
+    ("See Example 123)", [123.0]),
+    ("See Example 4.5)", [4.5]),
+    ("See the Example 4)", [4.0]),
+    ("See Table 4)", [4.0]),
+    ("Oversee Example 4)", [4.0]),
+    ("See Example $4.", [4.0]),
+)
+
+# The reference recognizer leaves these alone too. Other, older rules decide
+# how their numbers are read, so only the recognizer itself is checked.
+NOT_A_CLOSED_REFERENCE = (
+    "See Example\n4)",
+    "See Example 4a)",
+    "See Example 4 percent.",
+    "See Example4)",
+    "See Example 0)",
+    "See Example 04)",
+    "See Example -4)",
+    "See Example 4-5)",
+    "See Example 4/5)",
+    "See Example 4.5.",
+    "See Example 4,500.",
+    "See Example 4;5",
+    "See Examples 4 through 6)",
+    "See Examples 4, 5 6)",
+    "Example 4)",
+    "Example 4.",
+)
+
+
+def _recall(source: str, citation: str) -> str:
+    return sc.authoritative_numeric_recall_text(source, corpus_citation_path=citation)
+
+
+def _inventory(source: str, citation: str, profile: str) -> list[float]:
+    return [
+        item.value
+        for item in extract_typed_numeric_inventory_occurrences_from_text(
+            _recall(source, citation), profile=profile
+        )
+    ]
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("citation", (MANUAL, STATUTE))
+@pytest.mark.parametrize(("source", "kept"), MASKED)
+def test_closed_example_reference_ordinal_leaves_the_inventory(
+    source, kept, citation, profile
+):
+    assert _inventory(source, citation, profile) == kept
+    assert len(_recall(source, citation)) == len(source)
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("citation", (MANUAL, STATUTE))
+@pytest.mark.parametrize(("source", "kept"), KEPT)
+def test_number_outside_a_closed_example_reference_stays(
+    source, kept, citation, profile
+):
+    assert sc.mask_example_cross_references(source) == source
+    assert sorted(_inventory(source, citation, profile)) == sorted(kept)
+
+
+@pytest.mark.parametrize("source", NOT_A_CLOSED_REFERENCE)
+def test_recognizer_requires_a_closed_reference(source):
+    assert sc.mask_example_cross_references(source) == source
+
+
+def test_only_the_ordinal_is_blanked_in_place():
+    source = "Pay $1. (See Example 1 ) Pay 1 more. See Examples 2, 3 and 14."
+    assert sc.mask_example_cross_references(source) == (
+        "Pay $1. (See Example   ) Pay 1 more. See Examples  ,   and   ."
+    )
+
+
+def test_recall_view_agrees_with_the_public_mask():
+    source = "Allow $20 when 2 persons pay. (See Example 2 )"
+    assert _recall(source, MANUAL) == sc.mask_example_cross_references(source)
+
+
+def _issues(source: str, *, scalars: tuple[float, ...], profile: str = "legacy"):
+    candidate = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "module": {},
+            "rules": [
+                {"name": f"supplied_{index}", "versions": [{"formula": value}]}
+                for index, value in enumerate(scalars)
+            ],
+        }
+    )
+    return sc.analyze_complete_source_unit(
+        candidate,
+        source,
+        corpus_citation_path=MANUAL,
+        test_cases=[],
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile=profile
+        ),
+        extract_numeric_grounding_occurrences=functools.partial(
+            extract_typed_numeric_occurrences_from_text, profile=profile
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    ).issues
+
+
+def _demanded(issues) -> set[float]:
+    prefix = "[complete-source-unit:numeric-recall] Authoritative corpus numeric value "
+    return {
+        float(issue[len(prefix) :].split(" ", 1)[0])
+        for issue in issues
+        if issue.startswith(prefix)
+    }
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_complete_source_recall_does_not_demand_the_reference_ordinal(profile):
+    source = "The unit pays $50 for the whole approval period. (See Example 1 )"
+    assert _demanded(_issues(source, scalars=(50,), profile=profile)) == set()
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize(
+    ("source", "demanded"),
+    (
+        ("The unit pays $50 and then $1. (See Example 1 )", {1.0}),
+        ("The unit pays $50 for 1 month. (See Example 1 )", {1.0}),
+        ("Example 1: the household pays $50 and then $1.", {1.0}),
+        ("Example 3\nThe household pays $50.", {3.0}),
+        ("Example: 3 persons pay $50.", {3.0}),
+        ("The unit pays $50. See Example 1 and pay 2.", {1.0, 2.0}),
+        ("The unit pays $50. (See Example 1 ) Then pay 2.", {2.0}),
+    ),
+)
+def test_complete_source_recall_still_demands_real_values(source, demanded, profile):
+    assert _demanded(_issues(source, scalars=(50,), profile=profile)) == demanded
+
+
+def _eval_metrics(tmp_path: Path, source_text: str, *, complete: bool):
+    corpus_release = _write_test_corpus_provision(
+        tmp_path, citation_path=MANUAL, body=source_text
+    )
+    rulespec_file = tmp_path / "policies" / "agency" / "handbook" / "block-3.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {MANUAL}
+rules:
+  - name: monthly_cost_amount
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 50
+"""
+    )
+    passed = ValidationResult("compile", True, issues=[])
+    with (
+        patch.object(ValidatorPipeline, "_run_compile_check", return_value=passed),
+        patch.object(
+            ValidatorPipeline,
+            "_run_ci",
+            return_value=ValidationResult("ci", True, issues=[]),
+        ),
+    ):
+        return evaluate_artifact(
+            rulespec_file=rulespec_file,
+            policy_repo_root=_canonical_rulespec_content_root(tmp_path, "us-zz"),
+            axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+            source_text=source_text,
+            local_corpus_release=corpus_release,
+            source_citation_path=MANUAL,
+            require_complete_source_unit=complete,
+        )
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_eval_numeric_coverage_skips_the_reference_ordinal(tmp_path, complete):
+    metrics = _eval_metrics(
+        tmp_path,
+        "The unit pays $50 for the whole approval period. (See Example 1 )",
+        complete=complete,
+    )
+
+    assert metrics.numeric_occurrence_issues == []
+    assert metrics.source_numeric_occurrence_count == 1
+
+
+@pytest.mark.parametrize("complete", [False, True])
+@pytest.mark.parametrize(
+    "source",
+    (
+        "The unit pays $50 and then $1. (See Example 1 )",
+        "Example 1: the household pays $50.",
+        "The unit pays $50. See Example 1 and pay it.",
+    ),
+)
+def test_eval_numeric_coverage_keeps_real_values(tmp_path, source, complete):
+    metrics = _eval_metrics(tmp_path, source, complete=complete)
+
+    assert any(
+        issue.startswith("Source numeric value 1 appears 1 time(s)")
+        for issue in metrics.numeric_occurrence_issues
+    )
