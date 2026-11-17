@@ -568,7 +568,7 @@ def test_reader_refuses_dot_segments_plain_or_encoded(path):
     assert opener.requests == []
 
 
-class WorldOpener:
+class ReadWriteOpener:
     """A fake of the HTTP opener that answers from a ``World``.
 
     A fake ``fetch`` replaces ``token_reader`` and with it the path filter of
@@ -627,7 +627,7 @@ def test_the_real_reader_carries_a_whole_evaluation(make, expected):
     wanted = reference.evaluate()
     assert (wanted.verdict, wanted.reason) == expected
     world = make()
-    opener = WorldOpener(world)
+    opener = ReadWriteOpener(world)
     verdict = guard.evaluate(NAME, 42, fetch=runner.token_reader(TOKEN, opener=opener))
     assert verdict.as_dict() == wanted.as_dict()
     # Every path the evaluator asked for reached the opener, in order.
@@ -643,7 +643,7 @@ def test_the_command_evaluates_and_reports_through_the_real_reader(
     # The whole command in shadow mode: the evaluator's reads, the listing of
     # earlier shadow checks and the check-run write all pass ``_request``.
     world = shadow_world(make())
-    opener = WorldOpener(world)
+    opener = ReadWriteOpener(world)
     code = runner.command(
         arguments(mode="shadow"),
         environ={runner.TOKEN_ENV: TOKEN, runner.APP_CLIENT_ID_ENV: CLIENT},
