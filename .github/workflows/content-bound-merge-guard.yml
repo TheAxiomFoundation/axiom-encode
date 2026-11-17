@@ -1,0 +1,111 @@
+name: content-bound-merge-guard
+
+# The enforcing run of the content-bound merge guard (change 3b of
+# docs/content-bound-merge-guard.md section 8).
+#
+# What it is. One job that judges the pull request, or the merge group, of
+# the event that started it, with the repository's read-only job token. It
+# runs the standard-library guard bundle (scripts/merge_guard_launch.py and
+# the six modules it lists) under `python3 -I -S`, with no package install.
+# The job's own conclusion is the result: the launcher exits 0 only for a
+# `pass` or `not_applicable` verdict that is bound to the event's head, and 1
+# for everything else. The job writes nothing to GitHub. Its check name is
+# the job name below, `content-bound-merge-guard`.
+#
+# It is required nowhere. Nothing makes a pull request of a RuleSpec
+# repository run or need this workflow until an organization owner creates an
+# organization ruleset "Require workflows to pass before merging" that names
+# this file at a commit SHA and targets that repository. No variable, key or
+# repository setting switches it on. Merging this file creates no such
+# ruleset.
+#
+# In axiom-encode itself the triggers below fire on the encoder's own pull
+# requests and merge groups. There the launcher prints
+# {"inert":"source_repository"}, reads neither the event nor the network, and
+# exits 0. The job still builds the bundle and checks its digest, so a bundle
+# change that does not update BUNDLE_SHA256 fails here and in CI.
+#
+# Unverified, and why it fails closed. No live ruleset run has shown what
+# `github.workflow_sha` is for a workflow that a ruleset runs in another
+# repository. The checkout below asks for that commit of axiom-encode. If the
+# value is not a commit of axiom-encode the checkout fails. If it is another
+# commit, the bundle it holds either has other bytes, and then its digest
+# differs from the BUNDLE_SHA256 literal of this file and the job fails, or
+# has the same bytes, and then it is the reviewed bundle. No checkout can
+# make this file run a bundle with another digest.
+#
+# Do not add: an `if` at any level (a skipped job counts as passed for a
+# required workflow), `continue-on-error`, `environment`, a `secrets` or
+# `vars` reference, `id-token`, `concurrency` (a ruleset workflow must not
+# cancel runs in progress), another trigger, a cache or an install step.
+# tests/test_merge_guard_enforce_workflow.py fails on each of them.
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  actions: read
+
+jobs:
+  guard:
+    name: content-bound-merge-guard
+    runs-on: ubuntu-latest
+    # The launcher waits up to 60 minutes for `validate / validate`.
+    timeout-minutes: 75
+    steps:
+      - name: Check out the guard bundle
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-encode
+          ref: ${{ github.workflow_sha }}
+          path: guard-source
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/merge_guard_launch.py
+            src/axiom_encode/applied_manifest_v6.py
+            src/axiom_encode/content_merge_guard.py
+            src/axiom_encode/merge_guard_runner.py
+            src/axiom_encode/reviewed_pr_admission.py
+            src/axiom_encode/rulespec_citation_paths.py
+            src/axiom_encode/statute.py
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Build the bundle and check its digest
+        env:
+          BUNDLE_SHA256: 0000000000000000000000000000000000000000000000000000000000000000
+        run: |
+          set -euo pipefail
+          source_root="$GITHUB_WORKSPACE/guard-source"
+          bundle="$RUNNER_TEMP/guard"
+          if [ -e "$bundle" ]; then
+            echo "::error::The bundle directory already exists."
+            exit 1
+          fi
+          mkdir -p "$bundle/axiom_encode"
+          : > "$bundle/axiom_encode/__init__.py"
+          cp "$source_root/scripts/merge_guard_launch.py" "$bundle/launch.py"
+          for module in applied_manifest_v6 content_merge_guard merge_guard_runner reviewed_pr_admission rulespec_citation_paths statute; do
+            cp "$source_root/src/axiom_encode/$module.py" "$bundle/axiom_encode/$module.py"
+          done
+          cd "$bundle"
+          actual="$(sha256sum launch.py axiom_encode/__init__.py axiom_encode/applied_manifest_v6.py axiom_encode/content_merge_guard.py axiom_encode/merge_guard_runner.py axiom_encode/reviewed_pr_admission.py axiom_encode/rulespec_citation_paths.py axiom_encode/statute.py | sha256sum | cut -d ' ' -f 1)"
+          if [ "$actual" != "$BUNDLE_SHA256" ]; then
+            echo "::error::The guard bundle digest is $actual, not the BUNDLE_SHA256 of this workflow file."
+            exit 1
+          fi
+
+      - name: Evaluate
+        env:
+          MERGE_GUARD_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -I -S "$RUNNER_TEMP/guard/launch.py"

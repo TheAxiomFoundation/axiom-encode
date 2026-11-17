@@ -2005,16 +2005,228 @@ def test_case_15_imitated_check_name_from_a_pr_workflow():
     raise AssertionError("not decidable by the single-PR evaluator")
 
 
-@pytest.mark.skip(
-    reason="Case 24 needs merge-group evaluation, which is a stub in this change."
+# --- merge group (design section 6): the group holds exactly one judged PR ----
+
+G = oid("merge-group")
+TREE_H, TREE_OTHER = oid("tree-of-head"), oid("tree-of-two-units")
+
+
+def queue(world, *, head=H, base=B, group=G, group_tree=TREE_H, head_tree=TREE_H):
+    """A merge group commit ``group`` that the queue built from ``head`` on ``base``."""
+    world.api[f"{ROOT}/git/commits/{group}"] = {
+        "sha": group,
+        "tree": {"sha": group_tree},
+    }
+    world.api[f"{ROOT}/git/commits/{head}"] = {"sha": head, "tree": {"sha": head_tree}}
+    world.ancestry(base, group, base)
+    return world
+
+
+def group_verdict(world, *, group=G, base=B, number=42):
+    return guard.evaluate_merge_group(NAME, group, base, number, fetch=world.fetch)
+
+
+def group_fails(world, reason, **kwargs):
+    result = group_verdict(world, **kwargs)
+    assert (result.verdict, result.reason) == (guard.FAIL, reason), result
+    return result
+
+
+def test_merge_group_of_the_one_approved_unit_passes():
+    world = queue(build())
+    single = world.evaluate()
+    result = group_verdict(world)
+    assert (result.verdict, result.reason) == (guard.PASS, guard.R_PASS)
+    # The verdict of the pull request, plus what binds it to the group.
+    assert result.evidence == single.evidence | {
+        "merge_group": {"head": G, "base": B, "tree": TREE_H}
+    }
+
+
+@pytest.mark.parametrize(
+    ("files", "reason"),
+    [
+        ({"README.md": b"x\n"}, guard.R_NO_GUARDED_CONTENT),
+        (V5_UNIT, guard.R_EARLIER_LANE),
+    ],
 )
-def test_case_24_merge_group_with_one_unapproved_unit():
-    raise AssertionError("merge-group evaluation is not implemented")
+def test_merge_group_of_a_stand_aside_pull_request_is_not_applicable(files, reason):
+    result = group_verdict(queue(plain(files)))
+    assert (result.verdict, result.reason) == (guard.NOT_APPLICABLE, reason)
+    assert result.evidence["merge_group"] == {"head": G, "base": B, "tree": TREE_H}
 
 
-def test_merge_group_stub_fails_closed():
-    result = guard.evaluate_merge_group(NAME, "gh-readonly-queue/main/pr-42-" + B)
-    assert (result.verdict, result.reason) == (guard.FAIL, guard.R_MERGE_GROUP)
+def test_case_24_merge_group_with_a_second_unapproved_unit():
+    # The group commit holds this approved unit and a second unit: its tree
+    # is not the tree of the judged head.
+    world = queue(build(), group_tree=TREE_OTHER)
+    result = group_fails(world, guard.R_MERGE_GROUP_TREE)
+    assert "tree" not in result.evidence["merge_group"]
+
+
+def test_case_24_second_entry_of_a_group_is_built_on_the_first_not_on_main():
+    # The group of the second pull request in a queue has the first group's
+    # commit as its base, not the main tip that was judged.
+    first_group = oid("first-group")
+    world = queue(build(), base=first_group)
+    group_fails(world, guard.R_MERGE_GROUP_BASE, base=first_group)
+
+
+def test_merge_group_base_is_compared_before_any_group_read():
+    world = queue(build())
+    group_fails(world, guard.R_MERGE_GROUP_BASE, base=B2)
+    assert not any("/git/commits/" in path for path in world.calls)
+
+
+def test_merge_group_of_an_unapproved_unit_fails_with_the_pull_request_reason():
+    world = queue(build())
+    world.reviews([])
+    result = group_fails(world, guard.R_NO_APPROVAL)
+    assert result.evidence["head"] == H
+    assert not any("/git/commits/" in path for path in world.calls)
+
+
+@pytest.mark.parametrize(
+    "commit_object",
+    [
+        {"sha": G, "tree": {"sha": "not-a-tree"}},
+        {"sha": G, "tree": {}},
+        {"sha": G},
+        {"sha": oid("another-commit"), "tree": {"sha": TREE_H}},
+        {"tree": {"sha": TREE_H}},
+        [],
+        None,
+    ],
+)
+def test_merge_group_commit_must_name_itself_and_one_tree(commit_object):
+    world = queue(build())
+    world.api[f"{ROOT}/git/commits/{G}"] = commit_object
+    group_fails(world, guard.R_MERGE_GROUP_TREE)
+
+
+def test_merge_group_head_commit_must_name_itself():
+    world = queue(build())
+    world.api[f"{ROOT}/git/commits/{H}"] = {"sha": C1, "tree": {"sha": TREE_H}}
+    group_fails(world, guard.R_MERGE_GROUP_TREE)
+
+
+@pytest.mark.parametrize(
+    "comparison",
+    [
+        {"status": "diverged", "merge_base_commit": {"sha": B}},
+        {"status": "behind", "merge_base_commit": {"sha": B}},
+        {"status": "identical", "merge_base_commit": {"sha": B}},
+        {"status": "ahead", "merge_base_commit": {"sha": B2}},
+        {"status": "ahead"},
+    ],
+)
+def test_merge_group_must_be_strictly_ahead_of_its_base(comparison):
+    world = queue(build())
+    world.api[f"{ROOT}/compare/{B}...{G}"] = comparison
+    group_fails(world, guard.R_MERGE_GROUP_ANCESTRY)
+
+
+def test_merge_group_that_is_its_own_base_fails():
+    world = queue(build(), group=B)
+    group_fails(world, guard.R_MERGE_GROUP_ANCESTRY, group=B)
+
+
+def test_main_moving_after_the_pull_request_verdict_fails_the_merge_group():
+    world = queue(build())
+    main = ROOT + "/git/ref/heads/main"
+    reads = []
+
+    def tip():
+        reads.append(1)
+        # ``evaluate`` reads the tip twice for a v6 unit; the group's own
+        # re-read is the third.
+        return {"object": {"sha": B if len(reads) <= 2 else B2}}
+
+    world.api[main] = tip
+    group_fails(world, guard.R_CHANGED)
+    assert len(reads) == 3
+
+
+@pytest.mark.parametrize(
+    ("group", "base"),
+    [
+        ("gh-readonly-queue/main/pr-42-" + B, B),
+        (G, "main"),
+        (G[:39], B),
+        (G.upper(), B),
+        (None, B),
+        (G, None),
+        (42, B),
+    ],
+)
+def test_merge_group_refuses_commits_that_are_not_exact_without_a_read(group, base):
+    world = queue(build())
+    group_fails(world, guard.R_INVALID_REQUEST, group=group, base=base)
+    assert world.calls == []
+
+
+def merge_group_reads():
+    world = queue(build())
+    assert group_verdict(world).verdict == guard.PASS
+    return sorted(set(world.calls) - set(PASSING_READS))
+
+
+MERGE_GROUP_READS = merge_group_reads()
+
+
+def test_merge_group_adds_three_reads_to_the_pull_request_evaluation():
+    assert MERGE_GROUP_READS == sorted(
+        [
+            f"{ROOT}/git/commits/{G}",
+            f"{ROOT}/git/commits/{H}",
+            f"{ROOT}/compare/{B}...{G}",
+        ]
+    )
+
+
+@pytest.mark.parametrize("path", PASSING_READS + MERGE_GROUP_READS)
+def test_case_17_any_failed_read_fails_the_merge_group_closed(path):
+    world = queue(build())
+
+    def refuse():
+        raise urllib.error.HTTPError("https://api.github.com", 500, "error", {}, None)
+
+    world.api[path] = refuse
+    group_fails(world, guard.R_READ_FAILED)
+
+
+@pytest.mark.parametrize("path", MERGE_GROUP_READS)
+def test_case_17_any_missing_or_malformed_merge_group_read_fails_closed(path):
+    for value in (None, "", [], {}):
+        world = queue(build())
+        world.api[path] = value
+        assert group_verdict(world).verdict == guard.FAIL, (path, value)
+
+
+@pytest.mark.parametrize(
+    "judged",
+    [
+        guard.Verdict("neutral", guard.R_PASS, "", {"head": H, "base": B}),
+        guard.Verdict(guard.PASS, guard.R_PASS, "", {"base": B}),
+        guard.Verdict(guard.PASS, guard.R_PASS, "", {"head": H}),
+        guard.Verdict(guard.PASS, guard.R_PASS, "", {"head": "main", "base": B}),
+    ],
+)
+def test_merge_group_needs_a_known_verdict_that_names_head_and_base(
+    monkeypatch, judged
+):
+    world = queue(build())
+    monkeypatch.setattr(guard, "evaluate", lambda *_args, **_kwargs: judged)
+    assert group_verdict(world).verdict == guard.FAIL
+
+
+def test_merge_group_evaluation_never_raises(monkeypatch):
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("unforeseen")
+
+    monkeypatch.setattr(guard, "evaluate", explode)
+    result = group_fails(queue(build()), guard.R_EVALUATION_ERROR)
+    assert result.detail == "RuntimeError"
 
 
 # --- contract with the live encoder -----------------------------------------
@@ -2063,8 +2275,13 @@ def test_nothing_in_the_encoder_calls_the_guard():
     # The runner (change 3) calls the guard, in shadow only: its workflow has
     # no trigger but a manual dispatch and refuses unless a repository
     # variable is set (tests/test_merge_guard_runner.py pins both).
+    # The enforcing runner (change 3b) calls the guard from its own workflow,
+    # which no ruleset requires, through the launcher of the stdlib bundle
+    # (tests/test_merge_guard_enforce_workflow.py pins both).
     assert sorted(callers) == [
+        ".github/workflows/content-bound-merge-guard.yml",
         ".github/workflows/merge-guard-runner.yml",
+        "scripts/merge_guard_launch.py",
         "src/axiom_encode/applied_manifest_v6.py",
         "src/axiom_encode/cli.py",
         "src/axiom_encode/merge_guard_runner.py",
