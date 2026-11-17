@@ -1,16 +1,17 @@
 # Content-bound merge guard
 
 Status: **design; maintainer acceptance and activation remain pending.** At
-source head `ca39ebb26df700472380ebb63b14694504b4ea03`, the evaluator
+this branch's source, which merges `main` at
+`fad29b3ed4019fe7042552a7958542dfcb41e4e0`, the evaluator
 (`src/axiom_encode/content_merge_guard.py`) supplies verdicts, the production
 manifest writer emits v5, and the runner offers dry-run and shadow modes only.
 `INFRASTRUCTURE_LANE_ENABLED` remains `False`, so the proposed control-plane
 lane in §3 supplies no current verdicts. No enforcing runner exists. The workflow
 (`.github/workflows/merge-guard-runner.yml`, change 3 of §8) has only a manual
 dispatch trigger. Its gate job checks `main` and
-`vars.MERGE_GUARD_RUNNER_ENABLED == 'true'`; its `run` job checks for App
-credentials and relies on `needs: gate` without repeating the ref or switch
-checks. The Python runner and CLI accept a token-shaped `MERGE_GUARD_TOKEN`
+`vars.MERGE_GUARD_RUNNER_ENABLED == 'true'`; its `run` job repeats
+those two checks in its first step and then checks for App credentials. The
+Python runner and CLI accept a token-shaped `MERGE_GUARD_TOKEN`
 wherever someone starts them; they do not enforce the workflow's startup gate.
 
 Nobody may store the guard App key or enable the runner, shadow mode included,
@@ -568,9 +569,13 @@ the whole set before anyone stores the key or enables shadow execution.
   executes `src/axiom_encode/__init__.py`, `entrypoint.py`, the modules that
   these and `cli.py` import, the builds and dependencies that `pyproject.toml`
   and `uv.lock` select, and their build and start-up hooks, on the runner that
-  later holds the App's key and token. The reviewed CODEOWNERS file covers few modules in that import closure and
-  has no catch-all for new workflow files. At the 2026-11-15 protection read, a
-  write collaborator could land those changes without code-owner review. Proposed constraint D2a holds for the
+  later holds the App's key and token. The reviewed CODEOWNERS file covers few modules in that import closure.
+  Since #2277 it lists `/.github/`, so every workflow file, new ones included,
+  has a code owner in the file; that entry is file ownership only, and
+  `docs/merge-guard-key-protection.md` proposes, without a decision, the
+  settings that would enforce it. At the 2026-11-15 protection read, which
+  predates #2277, a write collaborator could land those changes without
+  code-owner review; no later protection read is retained here. Proposed constraint D2a holds for the
   runner only once one reviewed mechanism covers the key-exposure set of
   checklist step 1 of §8.
 - **Identities**: the existing `TRUSTED_SIGNING_REVIEWERS` on encoder main. A
@@ -622,8 +627,15 @@ the whole set before anyone stores the key or enables shadow execution.
 `.github/workflows/merge-guard-runner.yml` calls `axiom-encode merge-guard-run`
 (`src/axiom_encode/merge_guard_runner.py`). The workflow evaluates `vars`,
 which supports repository, organization and environment variables; it checks
-no repository-only origin. The retained evidence does not establish actual
-same-name organization variables or how a rerun resolves a changed variable.
+no repository-only origin. The `run` job selects the `merge-guard`
+environment, so the `vars` context of that job can also carry an environment
+variable of the same name; GitHub documents that "the variable at the lowest
+level takes precedence"
+([variables reference](https://docs.github.com/en/actions/reference/workflows-and-actions/variables),
+read 2026-11-17). The
+retained evidence does not establish actual same-name organization or
+environment variables, or how a rerun resolves a changed variable
+**[check live]**.
 [GitHub variables context](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#vars-context).
 
 The Python CLI accepts `MERGE_GUARD_TOKEN` from its process environment and
@@ -634,7 +646,7 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
 | Item | Value |
 |---|---|
 | Trigger | `workflow_dispatch` only (inputs `country`, `pr`, `mode`). No `schedule`: the sweep on a timer is a later reviewed change to the workflow file |
-| Switch | The gate job requires `vars.MERGE_GUARD_RUNNER_ENABLED` to equal `true`, and `github.ref == refs/heads/main`. The `run` job repeats neither check and relies on `needs: gate`. A rerun of `run` can reuse an earlier successful gate, so unsetting the variable alone does not stop it. GitHub documents that a disabled workflow cannot rerun; change 3's rollback unsets the switch and disables the workflow. Neither check governs another workflow that selects `merge-guard` (checklist step 1 of §8). [Rerun documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs) |
+| Switch | The gate job requires `vars.MERGE_GUARD_RUNNER_ENABLED` to equal `true`, and `github.ref == refs/heads/main`. A rerun of `run` alone can reuse an earlier successful gate, so the `run` job repeats both checks in its first step, before any step names a credential (#2257 R2-P3-1). The repeat evaluates `vars.MERGE_GUARD_RUNNER_ENABLED` in the `run` job; no retained evidence shows that a rerun resolves the variable's current value **[check live]**, so the repeat alone is not the rollback. GitHub documents that a disabled workflow cannot rerun; change 3's rollback still unsets the switch and disables the workflow. Neither check governs another workflow that selects `merge-guard` (checklist step 1 of §8). [Rerun documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs) |
 | Environment | The workflow names `merge-guard`; its planned deployment branch rule allows `main` only. The gate job has no environment, so a refused dispatch does not create one |
 | App client ID | Intended environment variable `MERGE_GUARD_APP_CLIENT_ID`; the workflow reads the `vars` context |
 | App private key | Intended environment secret `MERGE_GUARD_APP_KEY`; the workflow reads the `secrets` context |
@@ -654,10 +666,13 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
   reaches its page bound (10 pages of 100) counts as a run error, never as an
   empty sweep. A verdict whose reason is a failed read is `fail` and also a run
   error. The run's exit code reports execution errors; the report carries verdicts.
-  Deeply nested response JSON remains an exception: `_request` catches
-  `ValueError`, while `RecursionError` escapes `command()`. The retained R2
-  fake-opener probe exited nonzero without a JSON report; it made no
-  live network request.
+  Response JSON nested deeper than the interpreter's recursion limit raises
+  `RecursionError`, not `ValueError`; `_request` converts both to the same
+  failed read, so the command prints its JSON report and exits 1
+  (#2257 R2-P3-6). Fake-opener tests cover this; no live response exercised it.
+  The "Evaluate and report" step pipes the command into `tee` under
+  `set -euo pipefail`, so the step fails when the command fails; a test runs
+  the step's script with a failing command (#2257 R2-P3-7).
 - **No authority in the list.** The runner uses the open pull request list as a
   work list only. Each verdict comes from the evaluator's own live reads.
 - **The write filter does not isolate the key or the token.** The runner's
@@ -689,9 +704,25 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
   anyone adds the `schedule` trigger. On 2026-11-15, check runs on
   `rulespec-us` carried `app.client_id`; a guard App check without it would
   make the runner write the verdict again on every run rather than suppress it.
-  `_already_reported` rejects an incomplete listing. R2 inferred that more
-  than 100 shadow-named checks on one head could hit that refusal; confirmation
-  still needs the platform's `filter=latest` semantics or a test repository.
+  `_already_reported` rejects a listing it did not read whole. GitHub's
+  [List check runs for a Git reference](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference)
+  (read 2026-11-17) documents `check_name`, `app_id`, `filter` with default
+  `latest` ("returns the most recent check runs"), `per_page` with a maximum
+  of 100, `page`, and a response of `total_count` and `check_runs`. It also
+  limits the listing to the 1,000 most recent check suites of a reference. It
+  does not say how `latest` groups runs, or that `total_count` counts the runs
+  after that filter **[check live]**. The runner therefore assumes that more
+  than 100 shadow-named checks on one head can be listed, and reads up to 10
+  pages of 100 (#2257 R2-P3-8). Past 1,000 listed checks, or when the pages do
+  not add up to one stable `total_count`, it writes no check for that head and
+  the run exits 1; it never treats a partial listing as "already reported".
+  Any workflow of the RuleSpec repository with `checks: write` can create
+  checks with the shadow name, so if `latest` does not collapse them
+  **[check live]**, more than 1,000 on one head would withhold that head's
+  shadow check until someone changes the bound. The runner holds the App's
+  client ID, not its numeric `app_id`; whether the `app_id` filter would bound
+  the listing to the guard App's own checks also needs a live App
+  **[check live]**.
 - **Known limit of the sweep, acceptable for shadow only.** The runner reads
   the list by page number. A pull request that opens or closes during the read shifts
   the pages, so one sweep can miss a pull request or see one twice (twice is
@@ -969,8 +1000,9 @@ activation.
    `main`: environment `merge-guard`, variable `MERGE_GUARD_APP_CLIENT_ID`,
    secret `MERGE_GUARD_APP_KEY`. Only after those conditions hold may a maintainer set
    `MERGE_GUARD_RUNNER_ENABLED` to `true`. The workflow resolves the `vars`
-   context, not a repository-only origin; the actual same-name configuration
-   and rerun resolution still need verification.
+   context, not a repository-only origin, and the `run` job repeats the ref
+   and switch checks; the actual same-name configuration and rerun resolution
+   still need verification.
 2. Merge changes 1-4, including 2b. Publish the check in shadow mode: visible,
    not required.
    Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
@@ -1100,10 +1132,27 @@ The retained evidence does not establish:
 - The content layout of `rulespec-<country>-<subdivision>` repositories. The
   evaluator assumes the content roots sit at the root or one level down.
 - Whether `pr.base.sha` follows the `main` tip. The evaluator does not use it.
-- Current tree capacity and headroom. A recursive tree that GitHub truncates
-  gives `fail` for every PR of that repository. Before branch protection
-  requires the check, measure the current rulespec-us tree, confirm the
-  platform's current limits from primary documentation and record the margin.
+- Future tree capacity and how GitHub measures the size limit. A recursive
+  tree that GitHub truncates gives `fail` for every PR of that repository.
+  GitHub's [Get a tree](https://docs.github.com/en/rest/git/trees#get-a-tree)
+  (read 2026-11-17) states: "The limit for the tree array is 100,000 entries
+  with a maximum size of 7 MB when using the recursive parameter." One
+  read-only request on 2026-11-17 at 11:57 EST,
+  `GET /repos/TheAxiomFoundation/rulespec-us/git/trees/main?recursive=1` at
+  commit `ddad6d63df99a86a2dbeb60dd910f28eba1037d7`, returned
+  `truncated: false`, 18,398 entries (15,277 blobs and 3,121 trees) and a
+  response body of 5,050,452 bytes, about 275 bytes per entry. The entry
+  count uses 18.4% of the documented limit; 81,602 entries remain. If the
+  7 MB limit applies to the response body and means 7,000,000 bytes, the body
+  uses 72.1% of it and 1,949,548 bytes remain: room for about 7,100 more
+  entries of the measured mean size, 39% growth. The documentation does not say which bytes
+  the limit counts or whether MB means 10^6 or 2^20 bytes **[check live]**,
+  so the size margin is an estimate; the size limit, not the entry limit,
+  binds first. A head tree of a pull request is about the same size. This is
+  one measurement; it sets no growth rate. Before branch protection requires
+  the check, repeat the measurement, and before the body nears 7 MB change
+  the evaluator to read sub-trees (GitHub's documented fallback) in a
+  reviewed change (#2257 R1-P3-8).
 - The guard App. On 2026-11-15, read-only API reads found no guard App among
   the organisation's installations, no `merge-guard` environment and no
   `MERGE_GUARD_*` variable or secret. The installation read ran at 12:13Z. These dated responses do not

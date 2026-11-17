@@ -57,6 +57,9 @@ SHADOW: Final = "shadow"
 MODES: Final = (DRY_RUN, SHADOW)
 REPORT_SCHEMA: Final = "axiom-encode/merge-guard-runner-report/v1"
 MAX_PAGES: Final = 10
+# Pages of 100 that ``_already_reported`` reads of one head's shadow-named
+# check runs before it refuses.
+MAX_CHECK_RUN_PAGES: Final = 10
 MAX_SUMMARY_CHARS: Final = 4000
 EXIT_OK: Final = 0
 EXIT_RUN_ERROR: Final = 1
@@ -138,7 +141,10 @@ def _request(
         raise RunnerError("GitHub response exceeds its bound")
     try:
         return json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):
+        # RecursionError: JSON nested deeper than the interpreter's limit. It
+        # is not a ValueError; uncaught, it would end the command without a
+        # report.
         raise RunnerError("GitHub response is not JSON") from None
 
 
@@ -243,20 +249,54 @@ def _already_reported(
     if not isinstance(app_client_id, str) or not app_client_id:
         return False
     name = urllib.parse.quote(SHADOW_CHECK_NAME, safe="")
-    listing = fetch(
-        f"{root}/commits/{head}/check-runs?check_name={name}&filter=latest&per_page=100"
+    # "List check runs for a Git reference"
+    # (https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference):
+    # ``per_page`` is at most 100, ``page`` selects a page, the response
+    # carries ``total_count`` and ``check_runs``, and ``filter`` defaults to
+    # ``latest`` ("returns the most recent check runs"). The document does not
+    # say how ``latest`` groups runs, or that ``total_count`` counts the runs
+    # after that filter [check live], so more than 100 shadow-named runs on
+    # one head may be listed. The reader follows the pages up to
+    # ``MAX_CHECK_RUN_PAGES`` and refuses past that bound: a listing it did
+    # not read whole never suppresses a verdict and never selects the
+    # "newest" check.
+    listing_path = (
+        f"{root}/commits/{head}/check-runs"
+        f"?check_name={name}&filter=latest&per_page=100&page="
     )
-    runs = listing.get("check_runs") if isinstance(listing, dict) else None
-    if (
-        not isinstance(runs, list)
-        or type(listing.get("total_count")) is not int
-        or listing["total_count"] != len(runs)
-    ):
-        raise RunnerError("check run listing is incomplete")
+    runs: list[dict] = []
+    seen: set[int] = set()
+    expected: int | None = None
+    for page in range(1, MAX_CHECK_RUN_PAGES + 1):
+        listing = fetch(f"{listing_path}{page}")
+        page_runs = listing.get("check_runs") if isinstance(listing, dict) else None
+        if (
+            not isinstance(page_runs, list)
+            or len(page_runs) > 100
+            or type(listing.get("total_count")) is not int
+        ):
+            raise RunnerError("check run listing is incomplete")
+        if expected is None:
+            expected = listing["total_count"]
+        elif listing["total_count"] != expected:
+            raise RunnerError("check run listing changed while it was read")
+        for run in page_runs:
+            if (
+                not isinstance(run, dict)
+                or not _strict_int(run.get("id"))
+                or run["id"] in seen
+            ):
+                raise RunnerError("check run listing entry is invalid")
+            seen.add(run["id"])
+            runs.append(run)
+        if len(runs) == expected:
+            break
+        if len(runs) > expected or len(page_runs) < 100:
+            raise RunnerError("check run listing is incomplete")
+    else:
+        raise RunnerError("check run listing reached its page bound")
     ours = []
     for run in runs:
-        if not isinstance(run, dict) or not _strict_int(run.get("id")):
-            raise RunnerError("check run listing entry is invalid")
         app = run.get("app")
         if (
             run.get("name") == SHADOW_CHECK_NAME

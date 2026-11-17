@@ -58,10 +58,12 @@ def sweep(*args, **kwargs):
 
 
 PULLS = ROOT + "/pulls?state=open&base=main&per_page=100&page="
-SHADOW_LISTING = (
+SHADOW_LISTING_PAGES = (
     f"{ROOT}/commits/{H}/check-runs"
-    "?check_name=content-bound-merge-guard%20%28shadow%29&filter=latest&per_page=100"
+    "?check_name=content-bound-merge-guard%20%28shadow%29"
+    "&filter=latest&per_page=100&page="
 )
+SHADOW_LISTING = SHADOW_LISTING_PAGES + "1"
 
 
 def pulls(numbers):
@@ -757,7 +759,7 @@ def test_workflow_reads_only_the_named_app_credentials_and_fails_closed():
         "MERGE_GUARD_APP_CLIENT_ID",
     }
     steps = workflow()["jobs"]["run"]["steps"]
-    require = steps[0]
+    require = steps[1]
     assert require["name"] == "Require the guard App"
     assert "exit 1" in require["run"] and "::error::" in require["run"]
     token = next(step for step in steps if step.get("id") == "app-token")
@@ -1024,3 +1026,368 @@ def test_design_names_the_enforcing_runner_as_its_own_change_before_step_4():
     assert "WARNING" in step
     assert f"`{runner.SHADOW_CHECK_NAME}`" in step
     assert f"`{runner.GUARD_CHECK_NAME}`" in step
+
+
+# --- follow-ups of #2257 --------------------------------------------------------
+
+RUN_GATE_STEP = "Refuse again unless on main with the switch on"
+
+
+def test_run_job_repeats_the_ref_and_switch_checks_before_any_credential():
+    # R2-P3-1. A rerun of the run job alone reuses the earlier gate result, so
+    # the run job makes the two checks itself, first.
+    steps = workflow()["jobs"]["run"]["steps"]
+    first = steps[0]
+    assert first["name"] == RUN_GATE_STEP
+    assert set(first) == {"name", "env", "run"}  # no ``if``, no continue-on-error
+    assert first["env"] == {
+        "REF": "${{ github.ref }}",
+        "ENABLED": "${{ vars.MERGE_GUARD_RUNNER_ENABLED }}",
+    }
+    script = first["run"]
+    assert script.splitlines()[0] == "set -euo pipefail"
+    assert '[ "$REF" != "refs/heads/main" ]' in script
+    assert '[ "$ENABLED" != "true" ]' in script
+    assert script.count("exit 1") == 2
+    # No credential is named before the repeated checks, and no step that
+    # names one runs when they fail.
+    assert "secrets." not in json.dumps(first)
+    assert "MERGE_GUARD_APP" not in json.dumps(first)
+    for step in steps[1:]:
+        if "secrets." in json.dumps(step) or "app-token" in json.dumps(step):
+            assert "if" not in step, step.get("name")
+    assert "continue-on-error" not in workflow()["jobs"]["run"]
+
+
+def run_gate(**changes):
+    """Run the run job's repeated checks as the runner does."""
+    import subprocess
+
+    step = workflow()["jobs"]["run"]["steps"][0]
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "REF": "refs/heads/main",
+        "ENABLED": "true",
+    } | changes
+    return subprocess.run(
+        ["bash", "-c", step["run"]], env=env, capture_output=True, text=True
+    ).returncode
+
+
+def test_run_job_checks_admit_main_with_the_switch_on():
+    assert run_gate() == 0
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"ENABLED": ""},
+        {"ENABLED": "false"},
+        {"ENABLED": "True"},
+        {"ENABLED": "true\n"},
+        {"REF": "refs/heads/feature"},
+        {"REF": "refs/heads/main\nx"},
+        {"REF": ""},
+    ],
+)
+def test_run_job_checks_refuse_a_rerun_off_main_or_with_the_switch_off(changes):
+    assert run_gate(**changes) == 1
+
+
+DEEP_JSON = b"[" * 200_000 + b"]" * 200_000
+
+
+def test_deeply_nested_json_is_a_failed_read_not_a_crash():
+    # R2-P3-6. The premise first: this body is what raises RecursionError.
+    with pytest.raises(RecursionError):
+        json.loads(DEEP_JSON)
+    read = runner.token_reader(TOKEN, opener=Opener(raw=DEEP_JSON))
+    with pytest.raises(runner.RunnerError, match="not JSON"):
+        read(ROOT + "/pulls/42")
+
+
+@pytest.mark.parametrize("changes", [{"pr": None, "sweep": True}, {}])
+def test_command_reports_deeply_nested_json_as_a_run_error(capsys, changes):
+    code = runner.command(
+        arguments(**changes),
+        environ={runner.TOKEN_ENV: TOKEN},
+        opener=Opener(raw=DEEP_JSON),
+    )
+    out = capsys.readouterr()
+    assert code == runner.EXIT_RUN_ERROR
+    assert out.out.count("\n") == 1 and TOKEN not in out.out
+    report = json.loads(out.out)
+    assert report["schema"] == runner.REPORT_SCHEMA
+    assert report["complete"] is False
+    assert report["error"]
+
+
+def _evaluate_step():
+    steps = workflow()["jobs"]["run"]["steps"]
+    return next(step for step in steps if step.get("name") == "Evaluate and report")
+
+
+def test_evaluate_step_sets_pipefail_before_the_pipe_to_tee():
+    # R2-P3-7. Without pipefail the exit status of ``... | tee`` is tee's.
+    script = _evaluate_step()["run"]
+    assert script.splitlines()[0] == "set -euo pipefail"
+    assert "| tee " in script
+    assert "set +" not in script and "|| true" not in script
+    assert "continue-on-error" not in _evaluate_step()
+    assert _evaluate_step().get("shell", "bash") == "bash"
+
+
+@pytest.mark.parametrize("pr", ["", "42"])
+def test_evaluate_step_fails_when_the_runner_fails(tmp_path, pr):
+    """Run the step's script with a runner that prints a report and exits 1."""
+    import subprocess
+
+    binary = tmp_path / ".venv" / "bin" / "axiom-encode"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("#!/bin/sh\necho '{\"complete\":false}'\nexit 1\n")
+    binary.chmod(0o755)
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "COUNTRY": "us",
+        "PR": pr,
+        "MODE": "dry-run",
+        "RUNNER_TEMP": str(tmp_path),
+    }
+    done = subprocess.run(
+        ["bash", "-c", _evaluate_step()["run"]],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 1
+    # The report still reaches the file that the upload step reads.
+    report = (tmp_path / "merge-guard-report.json").read_text()
+    assert json.loads(report) == {"complete": False}
+
+
+def _shadow_run(run_id, **changes):
+    return {
+        "id": run_id,
+        "name": runner.SHADOW_CHECK_NAME,
+        "external_id": "other",
+        "status": "completed",
+        "app": {"id": 15368, "slug": "github-actions", "client_id": "Iv1.other"},
+    } | changes
+
+
+def _paged_shadow_world(world, runs, changes=None):
+    """Serve ``runs`` as GitHub pages of 100 with the whole ``total_count``."""
+    pages = [runs[i : i + 100] for i in range(0, len(runs), 100)] or [[]]
+    if len(runs) % 100 == 0 and runs:
+        pages.append([])
+    for index, page in enumerate(pages, start=1):
+        world.api[f"{SHADOW_LISTING_PAGES}{index}"] = {
+            "total_count": len(runs),
+            "check_runs": page,
+        } | (changes or {}).get(index, {})
+    return world
+
+
+def test_more_than_one_page_of_shadow_named_checks_is_read_whole():
+    # R2-P3-8. 250 checks with the shadow name on one head, ours among them on
+    # the last page: the verdict is neither withheld nor written twice.
+    world, digest = _digest_world()
+    others = [_shadow_run(run_id) for run_id in range(1000, 1249)]
+    ours = _check(digest, id=1249)
+    writer = Writer()
+    report, code = sweep(
+        NAME,
+        [42],
+        runner.SHADOW,
+        fetch=_paged_shadow_world(world, [*others, ours]).fetch,
+        post=writer,
+    )
+    assert code == 0
+    assert report["results"][0]["publication"] == "unchanged"
+    assert writer.calls == []
+    assert f"{SHADOW_LISTING_PAGES}3" in world.calls
+
+
+def test_many_foreign_shadow_named_checks_do_not_withhold_the_verdict():
+    world, _digest = _digest_world()
+    others = [_shadow_run(run_id) for run_id in range(1000, 1150)]
+    writer = Writer()
+    report, code = sweep(
+        NAME,
+        [42],
+        runner.SHADOW,
+        fetch=_paged_shadow_world(world, others).fetch,
+        post=writer,
+    )
+    assert code == 0
+    assert report["results"][0]["publication"] == "created"
+    assert len(writer.calls) == 1
+
+
+def test_our_newest_check_on_a_later_page_decides():
+    # The same verdict sits on page 1; a newer check of ours on page 2 differs.
+    world, digest = _digest_world()
+    runs = [
+        _check(digest, id=1000),
+        *[_shadow_run(run_id) for run_id in range(1001, 1100)],
+        _check("other", id=1100),
+    ]
+    entry, calls = _publication_paged(world, runs)
+    assert entry["publication"] == "created" and len(calls) == 1
+
+
+def _publication_paged(world, runs, changes=None):
+    writer = Writer()
+    report, _code = sweep(
+        NAME,
+        [42],
+        runner.SHADOW,
+        fetch=_paged_shadow_world(world, runs, changes).fetch,
+        post=writer,
+    )
+    return report["results"][0], writer.calls
+
+
+def test_check_listing_past_its_page_bound_fails_closed():
+    world, digest = _digest_world()
+    count = runner.MAX_CHECK_RUN_PAGES * 100 + 1
+    runs = [_check(digest, id=1000), *[_shadow_run(1000 + i) for i in range(1, count)]]
+    entry, calls = _publication_paged(world, runs)
+    assert entry["publication"] == "error"
+    assert "page bound" in entry["publication_error"]
+    assert calls == []
+    assert f"{SHADOW_LISTING_PAGES}{runner.MAX_CHECK_RUN_PAGES + 1}" not in world.calls
+
+
+def test_check_listing_at_its_page_bound_is_read_whole():
+    world, digest = _digest_world()
+    count = runner.MAX_CHECK_RUN_PAGES * 100
+    runs = [*[_shadow_run(1000 + i) for i in range(count - 1)], _check(digest, id=9000)]
+    entry, calls = _publication_paged(world, runs)
+    assert entry["publication"] == "unchanged" and calls == []
+
+
+@pytest.mark.parametrize(
+    ("count", "changes"),
+    [
+        pytest.param(150, {2: {"total_count": 151}}, id="total-changes-between-pages"),
+        pytest.param(150, {2: {"check_runs": []}}, id="short-page-before-the-total"),
+        # 101 runs: page 2 holds one run, and it repeats an id of page 1.
+        pytest.param(101, {2: {"check_runs": [_shadow_run(1000)]}}, id="repeated-id"),
+        pytest.param(150, {2: {"check_runs": None}}, id="page-without-a-list"),
+        # 101 runs, all on page 1: the count adds up, the page size does not.
+        pytest.param(
+            101,
+            {1: {"check_runs": [_shadow_run(i) for i in range(1, 102)]}},
+            id="page-above-the-page-size",
+        ),
+        pytest.param(150, {1: {"total_count": -1}}, id="negative-total"),
+        # One run and the total True: True == 1, but it is not a count.
+        pytest.param(1, {1: {"total_count": True}}, id="boolean-total"),
+    ],
+)
+def test_a_paged_check_listing_that_does_not_add_up_fails_closed(count, changes):
+    world, digest = _digest_world()
+    runs = [_check(digest, id=999), *[_shadow_run(i) for i in range(1000, 999 + count)]]
+    assert len(runs) == count
+    entry, calls = _publication_paged(world, runs, changes)
+    assert entry["publication"] == "error"
+    assert calls == []
+
+
+# Checklist step 1 of the design's section 8 (R2-P3-9). One place to update
+# when the maintainers revise the step. Each phrase is matched in the step's
+# text with runs of white space collapsed. This pins the wording of the
+# precondition; it is not evidence that any mechanism closes the boundary.
+STEP_1_START = "1. **M** Hard precondition"
+STEP_1_END = "2. Merge changes 1-4"
+STEP_1_REQUIRED = {
+    "hold: before the key is stored or the runner enabled, shadow included": [
+        "before anyone stores the App key",
+        "`MERGE_GUARD_RUNNER_ENABLED`",
+        "shadow mode included",
+        "Recording the precondition in this design does not meet it",
+        "The `main`-only branch rule alone does not meet this precondition",
+        "fresh independent review verifies closure over the whole key-exposure set",
+    ],
+    "scope: the private key, not only a minted token": [
+        "private key",
+        "any of the App's installations",
+        "for as long as the key stays valid",
+    ],
+    "scope: every job that can select the environment": [
+        "every job, in any workflow",
+        "select the `merge-guard` environment",
+        "new, replaced or modified workflow",
+        "dispatch input",
+        "computes it in an expression",
+        "the ability to land such a workflow on `main`",
+        "not which workflow file or job selects it",
+    ],
+    "scope: everything such a job executes or leaves behind": [
+        "the workflow steps and the actions they call",
+        "`src/axiom_encode/entrypoint.py`",
+        "`src/axiom_encode/__init__.py`",
+        "`signing_broker` start-up",
+        "directly or transitively",
+        "`pyproject.toml`",
+        "`uv.lock`",
+        "build configuration",
+        "build, install and interpreter start-up hooks",
+        "every step before the token step",
+        "anything it persists on the same runner",
+    ],
+    "mechanism and complement": [
+        "mechanism",
+        "complement",
+        "(a)",
+        "(b)",
+        "(c)",
+        "prevents other workflows from obtaining the key by selecting `merge-guard`",
+        "no agent session approving",
+    ],
+    # Update this group, in a reviewed change, when Max chooses.
+    "nothing is chosen yet": [
+        "none of them chosen",
+        "No option or complement has approval here",
+        "This design chooses neither",
+    ],
+}
+
+
+def _step_1(doc: str) -> str:
+    flat = " ".join(doc.split())
+    assert flat.count(STEP_1_START) == 1 and flat.count(STEP_1_END) == 1
+    return flat[flat.index(STEP_1_START) : flat.index(STEP_1_END)]
+
+
+def step_1_problems(step: str) -> list[str]:
+    return [
+        f"{group}: step 1 lost {phrase!r}"
+        for group, phrases in STEP_1_REQUIRED.items()
+        for phrase in phrases
+        if phrase not in step
+    ]
+
+
+def _design() -> str:
+    return (REPOSITORY_ROOT / "docs" / "content-bound-merge-guard.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_design_checklist_step_1_keeps_its_scope_mechanism_and_hold():
+    assert step_1_problems(_step_1(_design())) == []
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [phrase for phrases in STEP_1_REQUIRED.values() for phrase in phrases],
+)
+def test_the_step_1_pin_reports_each_lost_element(phrase):
+    step = _step_1(_design())
+    assert phrase in step
+    assert any(
+        repr(phrase) in problem for problem in step_1_problems(step.replace(phrase, ""))
+    )

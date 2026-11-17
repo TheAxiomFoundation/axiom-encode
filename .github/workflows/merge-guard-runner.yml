@@ -10,15 +10,17 @@ name: Merge guard runner (shadow)
 # values; the gate checks no repository-only origin. The gate has no
 # environment. The run job requires the guard App's client ID through
 # MERGE_GUARD_APP_CLIENT_ID and private key through MERGE_GUARD_APP_KEY, using
-# the merge-guard environment. It relies on needs: gate without repeating
-# the ref or switch checks.
+# the merge-guard environment.
 #
-# A rerun of only the run job can reuse the earlier gate result. Rollback
-# requires both unsetting MERGE_GUARD_RUNNER_ENABLED and disabling this
-# workflow. GitHub blocks reruns while the workflow stays disabled; unsetting
-# the switch alone does not stop a rerun that reuses a successful gate.
-# Actual same-name variable configuration and variable resolution during
-# reruns remain unverified.
+# A rerun of only the run job can reuse the earlier gate result. The run job
+# therefore repeats the ref and switch checks in its own first step, before
+# any step that names a credential. The run job selects the merge-guard
+# environment, so its vars context can also carry an environment variable
+# of the same name. Whether a rerun resolves the current value of a variable
+# is not verified. Rollback still requires both unsetting
+# MERGE_GUARD_RUNNER_ENABLED and disabling this workflow; GitHub blocks
+# reruns while the workflow stays disabled. Actual same-name variable
+# configuration also remains unverified.
 #
 # dry-run, the default, prints verdicts without publishing check runs. Its
 # token requests read access to checks. shadow can publish checks named
@@ -129,6 +131,23 @@ jobs:
     # allow only main.
     environment: merge-guard
     steps:
+      # The gate job's ref and switch checks again. A rerun of this job alone
+      # reuses the earlier gate result and does not run the gate again.
+      - name: Refuse again unless on main with the switch on
+        env:
+          REF: ${{ github.ref }}
+          ENABLED: ${{ vars.MERGE_GUARD_RUNNER_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::The merge guard runner runs from refs/heads/main only; this run is on $REF."
+            exit 1
+          fi
+          if [ "$ENABLED" != "true" ]; then
+            echo "::error::The merge guard runner is switched off: MERGE_GUARD_RUNNER_ENABLED is not 'true'. See docs/content-bound-merge-guard.md section 8."
+            exit 1
+          fi
+
       - name: Require the guard App
         env:
           APP_CLIENT_ID: ${{ vars.MERGE_GUARD_APP_CLIENT_ID }}
