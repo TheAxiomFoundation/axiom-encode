@@ -24231,6 +24231,11 @@ def _companion_test_issues(
         (id(branch), boundary.start, boundary.end): (interval, polarity)
         for branch, boundary, interval, polarity in conjoined_thresholds
     }
+    minimum_cap_source_spans = _source_bound_parameter_excerpt_spans(
+        parameter_rules,
+        source_text=source_text,
+        corpus_citation_path=corpus_citation_path,
+    )
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
     for branch, boundary in (
         *boundary_obligations,
@@ -24252,6 +24257,8 @@ def _companion_test_issues(
             source_interval_and_polarity=conjoined_sources.get(
                 (id(branch), boundary.start, boundary.end)
             ),
+            unit_source_text=source_text,
+            minimum_cap_source_spans=minimum_cap_source_spans,
         ):
             continue
         if execution_evidence is not None and partnership_content is not None:
@@ -33050,8 +33057,19 @@ def _branch_boundary_test_witnesses(
     | None = None,
     extract_numeric_occurrences: NumericOccurrenceExtractor | None = None,
     source_interval_and_polarity: tuple[_NumericInterval, int] | None = None,
+    unit_source_text: str | None = None,
+    minimum_cap_source_spans: Mapping[str, tuple[tuple[int, int], ...]] | None = None,
 ) -> set[tuple[str, str]]:
     witnesses: set[tuple[str, str]] = set()
+    # The min-cap path credits one physical source occurrence. Without the
+    # source unit and the cap proof spans it has no occurrence to credit.
+    minimum_cap_boundary_span = (
+        _boundary_source_span(branch, boundary, source_text=unit_source_text)
+        if unit_source_text is not None
+        and minimum_cap_source_spans
+        and extract_numeric_occurrences is not None
+        else None
+    )
     if source_interval_and_polarity is not None:
         source_interval, source_boolean_polarity = source_interval_and_polarity
     else:
@@ -33098,16 +33116,27 @@ def _branch_boundary_test_witnesses(
                 dependency_environment=dependency_environment,
                 formula_environment=formula_environment or {},
             ):
-                if controller_rule is rule and _case_reaches_minimum_cap(
-                    rule,
-                    case,
-                    boundary,
-                    execution=execution,
-                    execution_environment=execution_environment,
-                    principal_rules=principal_rules,
-                    dependency_names=set(dependency_environment),
-                    formula_environment=formula_environment or {},
-                    numeric_value_is_grounded=numeric_value_is_grounded,
+                if (
+                    controller_rule is rule
+                    and minimum_cap_boundary_span is not None
+                    and unit_source_text is not None
+                    and minimum_cap_source_spans
+                    and extract_numeric_occurrences is not None
+                    and _case_reaches_minimum_cap(
+                        rule,
+                        case,
+                        boundary,
+                        execution=execution,
+                        execution_environment=execution_environment,
+                        principal_rules=principal_rules,
+                        dependency_names=set(dependency_environment),
+                        formula_environment=formula_environment or {},
+                        numeric_value_is_grounded=numeric_value_is_grounded,
+                        boundary_source_span=minimum_cap_boundary_span,
+                        source_text=unit_source_text,
+                        cap_source_spans=minimum_cap_source_spans,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                    )
                 ):
                     witnesses.add((rule_name, f"case:{id(case)}"))
                     break
@@ -35502,6 +35531,10 @@ def _case_reaches_minimum_cap(
     dependency_names: set[str],
     formula_environment: dict[str, Any],
     numeric_value_is_grounded: NumericGroundingPredicate,
+    boundary_source_span: tuple[int, int],
+    source_text: str,
+    cap_source_spans: Mapping[str, tuple[tuple[int, int], ...]],
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> bool:
     """Witness a source cap when the executed leaf is ``min(amount, cap)``.
 
@@ -35523,6 +35556,14 @@ def _case_reaches_minimum_cap(
     budget)``, so such a leaf fails closed here. A leaf such as
     ``max(min(cost, cap), min(cost, cap))`` or ``min(cost, cap) * n`` is also
     not credited by this path.
+
+    The cap is also bound to one physical source occurrence, not only to the
+    boundary's number. A source can state the same number for another
+    obligation, as in ``Up to $40 per day ... more than 40 miles``, and a case
+    at the lodging cap says nothing about the distance threshold. So the cap
+    must be a bare parameter name, and `boundary_source_span` must be the one
+    number in that parameter's own formula proof excerpts that grounds the cap
+    value. See `_minimum_cap_is_bound_to_source_span`.
     """
 
     inputs = case.get("input")
@@ -35564,6 +35605,15 @@ def _case_reaches_minimum_cap(
             cap_value is None
             or amount_value != cap_value
             or not numeric_value_is_grounded(float(cap_value), (boundary,))
+            or not _minimum_cap_is_bound_to_source_span(
+                cap,
+                float(cap_value),
+                boundary_source_span,
+                source_text=source_text,
+                cap_source_spans=cap_source_spans,
+                extract_numeric_occurrences=extract_numeric_occurrences,
+                numeric_value_is_grounded=numeric_value_is_grounded,
+            )
         ):
             continue
         for key, value in numeric_inputs.items():
@@ -35584,6 +35634,117 @@ def _case_reaches_minimum_cap(
             ):
                 return True
     return False
+
+
+def _source_bound_parameter_excerpt_spans(
+    parameter_rules: Mapping[str, dict[str, Any]],
+    *,
+    source_text: str,
+    corpus_citation_path: str,
+) -> dict[str, tuple[tuple[int, int], ...]]:
+    """Locate each parameter's formula proof excerpts in this source unit.
+
+    A parameter is listed only when every formula proof excerpt cites this
+    source unit and occurs exactly once in it. An excerpt that is absent,
+    repeated, or from another source gives the parameter no single place in
+    this text, so the parameter is left out and binds nothing.
+    """
+
+    authoritative_path = corpus_citation_path.strip("/").casefold()
+    bound: dict[str, tuple[tuple[int, int], ...]] = {}
+    for name, rule in parameter_rules.items():
+        if not isinstance(rule, dict) or rule.get("kind") != "parameter":
+            continue
+        spans: set[tuple[int, int]] = set()
+        located = True
+        for path, citation_path, excerpt in _rule_source_excerpt_atoms(rule):
+            if not re.fullmatch(r"versions(?:\[\d+\])?\.formula", path):
+                continue
+            excerpt_spans = (
+                _source_proof_evidence_spans(
+                    source_text=source_text, evidence_text=excerpt
+                )
+                if citation_path.strip("/").casefold() == authoritative_path
+                else ()
+            )
+            if len(excerpt_spans) != 1:
+                located = False
+                break
+            spans.add(excerpt_spans[0])
+        if located and spans:
+            bound[str(name)] = tuple(sorted(spans))
+    return bound
+
+
+def _boundary_source_span(
+    branch: SourceStructureBranch,
+    boundary: NumericOccurrenceLike,
+    *,
+    source_text: str,
+) -> tuple[int, int] | None:
+    """Return the boundary's certified position in the source unit, if any.
+
+    Boundary offsets index the numeric recall view of the branch text. The
+    recall source map carries them back to the branch text, and the branch
+    text up to the boundary must be the source text at the branch start. Any
+    rewritten or shifted character leaves the position unknown.
+    """
+
+    if not (
+        type(branch.start) is int
+        and type(boundary.start) is int
+        and type(boundary.end) is int
+        and 0 <= branch.start <= len(source_text)
+    ):
+        return None
+    source_map = _NumericRecallSourceMap(list(range(len(branch.text))))
+    recall_text = authoritative_numeric_recall_text(branch.text, _source_map=source_map)
+    local_span = source_map.source_span(boundary.start, boundary.end)
+    if local_span is None:
+        return None
+    local_start, local_end = local_span
+    start, end = branch.start + local_start, branch.start + local_end
+    if (
+        end > len(source_text)
+        or source_text[branch.start : end] != branch.text[:local_end]
+        or source_text[start:end] != recall_text[boundary.start : boundary.end]
+    ):
+        return None
+    return start, end
+
+
+def _minimum_cap_is_bound_to_source_span(
+    cap: ast.expr,
+    cap_value: float,
+    boundary_source_span: tuple[int, int],
+    *,
+    source_text: str,
+    cap_source_spans: Mapping[str, tuple[tuple[int, int], ...]],
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+    numeric_value_is_grounded: NumericGroundingPredicate,
+) -> bool:
+    """Whether the boundary is the cap parameter's own source occurrence.
+
+    The cap must be one parameter name. Its uniquely located formula proof
+    excerpts must hold exactly one number that grounds the cap value, and the
+    boundary must be that number. A literal or computed cap, a parameter with
+    no located proof, and an excerpt that states the value twice all leave the
+    occurrence unknown, so none of them is credited.
+    """
+
+    if not isinstance(cap, ast.Name):
+        return False
+    cap_occurrence_spans = {
+        (start + occurrence.start, start + occurrence.end)
+        for start, end in cap_source_spans.get(cap.id, ())
+        for occurrence in extract_numeric_occurrences(source_text[start:end])
+        if numeric_value_is_grounded(cap_value, (occurrence,))
+    }
+    if len(cap_occurrence_spans) != 1:
+        return False
+    ((cap_start, cap_end),) = cap_occurrence_spans
+    boundary_start, boundary_end = boundary_source_span
+    return cap_start < boundary_end and boundary_start < cap_end
 
 
 def _input_step_kinks_output(

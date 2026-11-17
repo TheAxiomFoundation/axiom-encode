@@ -51,7 +51,11 @@ CASES = yaml.safe_load(_read("candidate.test.yaml", "companion"))
 SOURCE = _read("source.txt", "source")
 
 
-def _issues(candidate: str = CANDIDATE, cases: list | None = None) -> list[str]:
+def _issues(
+    candidate: str = CANDIDATE,
+    cases: list | None = None,
+    source: str | None = None,
+) -> list[str]:
     profile = _numeric_profile_for_citation_path(CITATION)
     bindings = sc.collect_artifact_numeric_bindings(
         candidate,
@@ -59,7 +63,7 @@ def _issues(candidate: str = CANDIDATE, cases: list | None = None) -> list[str]:
     )
     analysis = sc.analyze_complete_source_unit(
         candidate,
-        SOURCE,
+        SOURCE if source is None else source,
         corpus_citation_path=CITATION,
         test_cases=CASES if cases is None else cases,
         extract_numeric_occurrences=functools.partial(
@@ -638,3 +642,151 @@ def test_each_operand_is_measured_with_the_executing_arithmetic(leaf, outputs):
     )
     issues = _issues(candidate, cases)
     assert len(issues) == 1 and BOUNDARY_FINDING in issues[0]
+
+
+# The cap is bound to its own source occurrence, not only to its number.
+
+CAP_AND_GATE_SENTENCE = (
+    "Up to $40 per day for lodging is allowed when the participant "
+    "must travel over 50 miles to obtain medical treatments or services."
+)
+CAP_SENTENCE = "Up to $40 per day for lodging is allowed."
+CAP_EXCERPT = 'excerpt: "Up to $40 per day for lodging is allowed"'
+THRESHOLD_EXCERPT = "the participant must travel over 50 miles"
+DISTANCE = f"{PREFIX}#input.travel_distance_miles"
+MISSING_40 = [
+    "[complete-source-unit:tests] Companion tests do not exercise every"
+    f" source-stated boundary input; {BOUNDARY_FINDING}."
+]
+
+
+def _second_forty(
+    threshold_sentence: str,
+    *,
+    gate: str,
+    distances: dict[int, int],
+    threshold_first: bool = False,
+):
+    """Restate the fixture so a second obligation also has the number 40.
+
+    The lodging cap keeps its own sentence. `threshold_sentence` states the
+    travel gate with the value 40, `gate` is the comparison the candidate
+    uses, and `distances` moves the companion distance inputs.
+    """
+
+    sentences = (
+        f"{threshold_sentence} {CAP_SENTENCE}"
+        if threshold_first
+        else f"{CAP_SENTENCE} {threshold_sentence}"
+    )
+    assert CAP_AND_GATE_SENTENCE in SOURCE
+    source = SOURCE.replace(CAP_AND_GATE_SENTENCE, sentences)
+    candidate = (
+        CANDIDATE.replace(CAP_AND_GATE_SENTENCE, sentences)
+        .replace(THRESHOLD_EXCERPT, threshold_sentence.rstrip("."))
+        .replace("\n          50\n", "\n          40\n")
+        .replace("travel_distance_miles >", f"travel_distance_miles {gate}")
+        .replace(
+            PROVENANCE["source"]["sha256"],
+            hashlib.sha256(source.encode()).hexdigest(),
+        )
+    )
+    assert CAP_EXCERPT in candidate and CAP_AND_GATE_SENTENCE not in candidate
+    assert f"travel_distance_miles {gate} medical_lodging" in candidate
+    cases = copy.deepcopy(CASES)
+    for case in cases:
+        if DISTANCE in case["input"]:
+            case["input"][DISTANCE] = distances[case["input"][DISTANCE]]
+    return candidate, cases, source
+
+
+def _distance_inputs(cases: list[dict]) -> set[int]:
+    return {case["input"][DISTANCE] for case in cases if DISTANCE in case["input"]}
+
+
+MORE_THAN_40_MILES = (
+    "Travel distance is more than 40 miles for lodging to be allowable."
+)
+UNTESTED_LOWER_GATE = {49: 38, 50: 39, 51: 51}
+
+
+@pytest.mark.parametrize(
+    ("threshold_sentence", "gate", "distances", "threshold_first"),
+    [
+        pytest.param(
+            MORE_THAN_40_MILES, ">=", UNTESTED_LOWER_GATE, False, id="lower-limit"
+        ),
+        pytest.param(
+            "Travel distance is less than 40 miles for lodging to be allowable.",
+            "<=",
+            {49: 45, 50: 41, 51: 30},
+            False,
+            id="upper-limit",
+        ),
+        pytest.param(
+            "Travel cost is more than $40 for lodging to be allowable.",
+            ">=",
+            UNTESTED_LOWER_GATE,
+            False,
+            id="both-in-usd",
+        ),
+        pytest.param(
+            MORE_THAN_40_MILES, ">=", UNTESTED_LOWER_GATE, True, id="threshold-first"
+        ),
+    ],
+)
+def test_the_cap_case_does_not_witness_another_threshold_with_the_same_number(
+    threshold_sentence, gate, distances, threshold_first
+):
+    """The wrong inclusive gate pays at 40, and no case sets the gate input to 40."""
+
+    candidate, cases, source = _second_forty(
+        threshold_sentence,
+        gate=gate,
+        distances=distances,
+        threshold_first=threshold_first,
+    )
+    assert source.count("40") == 2
+    assert 40 not in _distance_inputs(cases)
+    assert _cap_case_of(cases)["input"][COST] == 40
+    assert _issues(candidate, cases, source) == MISSING_40
+
+
+def test_the_other_threshold_is_witnessed_by_its_own_cases():
+    candidate, cases, source = _second_forty(
+        MORE_THAN_40_MILES, gate=">", distances={49: 39, 50: 40, 51: 41}
+    )
+    assert {40, 41} <= _distance_inputs(cases)
+    assert _issues(candidate, cases, source) == []
+
+
+def test_a_cap_excerpt_that_states_the_number_twice_binds_no_occurrence():
+    candidate, cases, source = _second_forty(
+        MORE_THAN_40_MILES, gate=">=", distances=UNTESTED_LOWER_GATE
+    )
+    both_sentences = f"{CAP_SENTENCE} {MORE_THAN_40_MILES}"
+    candidate = candidate.replace(CAP_EXCERPT, f'excerpt: "{both_sentences}"')
+    assert CAP_EXCERPT not in candidate
+    # Neither 40 is credited now: the cap has no single occurrence, and no
+    # case sets the travel distance to 40.
+    assert _issues(candidate, cases, source) == [
+        MISSING_40[0].replace("unit=40.", "unit=40, source unit=40.")
+    ]
+
+
+def test_a_cap_excerpt_that_occurs_twice_in_the_source_binds_no_occurrence():
+    repeated = f"{CAP_AND_GATE_SENTENCE} {CAP_SENTENCE}"
+    source = SOURCE.replace(CAP_AND_GATE_SENTENCE, repeated)
+    candidate = CANDIDATE.replace(CAP_AND_GATE_SENTENCE, repeated).replace(
+        PROVENANCE["source"]["sha256"], hashlib.sha256(source.encode()).hexdigest()
+    )
+    assert source.count("Up to $40 per day for lodging is allowed") == 2
+    assert _boundary_refused(_issues(candidate, source=source))
+
+
+def test_a_cap_without_its_own_source_excerpt_binds_no_occurrence():
+    """A literal cap has no proof excerpt that says which 40 it is."""
+
+    candidate = CANDIDATE.replace(CAP_FORMULA, "min(max(0, daily_lodging_cost), 40)")
+    assert candidate != CANDIDATE
+    assert _boundary_refused(_issues(candidate))
