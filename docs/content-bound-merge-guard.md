@@ -695,7 +695,10 @@ Neither form is recorded, and at most one may be.
     a pass on the pull request stays green after a dismissal. Only the
     merge-group run reads the reviews again at merge time. Admission
     without the pre-sign approval must not open while a merge can go around
-    the queue. The `merge_queue` rule may come from any ruleset.
+    the queue. The `merge_queue` rule may come from any ruleset. A merge
+    queue that is set in classic branch protection is expected not to be in
+    this listing, and then does not count [not verified]; the lock fails
+    closed.
   - The admission record's `guard` is then `{form:
     "organization_ruleset_workflow", ruleset_id, repository_id, path,
     sha}`; the App form's record is unchanged. Revalidation compares the

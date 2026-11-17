@@ -678,6 +678,8 @@ REFUSALS = {
     "sha-with-space": (_entry_with(sha=" " + SHA_A), NOT_PINNED),
     "sha-as-list": (_entry_with(sha=[SHA_A]), NOT_PINNED),
     "sha-as-integer": (_entry_with(sha=1), NOT_PINNED),
+    # Its decimal form is 40 hex characters; it is still not a string.
+    "sha-as-40-digit-integer": (_entry_with(sha=int("1" * 40)), NOT_PINNED),
     "empty-sha": (_entry_with(sha=""), NOT_PINNED),
     "sha-256-length": (_entry_with(sha="a1" * 32), NOT_PINNED),
     "unrecorded-sha": (_entry_with(sha="c3" * 20), NOT_RECORDED),
