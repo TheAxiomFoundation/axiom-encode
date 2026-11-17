@@ -2203,21 +2203,26 @@ def test_case_17_any_missing_or_malformed_merge_group_read_fails_closed(path):
         assert group_verdict(world).verdict == guard.FAIL, (path, value)
 
 
-@pytest.mark.parametrize(
-    "judged",
-    [
-        guard.Verdict("neutral", guard.R_PASS, "", {"head": H, "base": B}),
-        guard.Verdict(guard.PASS, guard.R_PASS, "", {"base": B}),
-        guard.Verdict(guard.PASS, guard.R_PASS, "", {"head": H}),
-        guard.Verdict(guard.PASS, guard.R_PASS, "", {"head": "main", "base": B}),
-    ],
-)
-def test_merge_group_needs_a_known_verdict_that_names_head_and_base(
-    monkeypatch, judged
-):
+def test_merge_group_treats_an_unknown_verdict_as_fail(monkeypatch):
+    judged = guard.Verdict("neutral", guard.R_PASS, "", {"head": H, "base": B})
     world = queue(build())
     monkeypatch.setattr(guard, "evaluate", lambda *_args, **_kwargs: judged)
-    assert group_verdict(world).verdict == guard.FAIL
+    group_fails(world, guard.R_PASS)
+    assert world.calls == []
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [{"base": B}, {"head": H}, {"head": "main", "base": B}, {"head": H, "base": 7}],
+)
+def test_merge_group_needs_a_verdict_that_names_head_and_base(monkeypatch, evidence):
+    # Refused before any read of the group: a verdict that does not say which
+    # head and base it judged cannot be bound to a merge group.
+    judged = guard.Verdict(guard.PASS, guard.R_PASS, "", evidence)
+    world = queue(build())
+    monkeypatch.setattr(guard, "evaluate", lambda *_args, **_kwargs: judged)
+    group_fails(world, guard.R_EVALUATION_ERROR)
+    assert world.calls == []
 
 
 def test_merge_group_evaluation_never_raises(monkeypatch):

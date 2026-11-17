@@ -2307,6 +2307,22 @@ def test_event_file_is_read_as_one_strict_json_object(tmp_path):
         DEEP_JSON,
         b'{"a":' * 100_000 + b"1" + b"}" * 100_000,
     ],
+    ids=[
+        "empty",
+        "not-json",
+        "array",
+        "null",
+        "string",
+        "duplicate-key",
+        "nested-duplicate-key",
+        "nan",
+        "infinity",
+        "trailing-text",
+        "invalid-utf8",
+        "byte-order-mark",
+        "deep-arrays",
+        "deep-objects",
+    ],
 )
 def test_event_file_refuses_anything_else(tmp_path, raw):
     with pytest.raises(runner.RunnerError, match="not strict JSON"):
