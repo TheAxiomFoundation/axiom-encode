@@ -1303,6 +1303,12 @@ ACTIVE_STEP_REQUIRED = [
     "merge queue",
     "question 0 of §10",
     "its lane is on at the pinned SHA",
+    # Review round 1 of #2286, F1: the hold for the runner's inert path, the
+    # one assumption that would fail open.
+    "a pull request with no lane shows a failed `content-bound-merge-guard` job",
+    'whose report has a `verdict` and no `"inert"`',
+    # F10: switching the lane on also needs its success reasons listed.
+    "the lane's two success reasons added to the runner's `SUCCESS_VERDICTS`",
     "Rollback: set the enforcement back to `Evaluate`",
     f"`{runner.SHADOW_CHECK_NAME}`",
     f"`{runner.GUARD_CHECK_NAME}`",

@@ -463,18 +463,41 @@ exist today (§5 "Now") and for the second fallback:
     Without a merge queue a dismissed approval does not block the merge.
     **So a merge queue on `rulespec-us` `main` is a precondition of
     `Active`** (rulespec-us#2160, TheAxiomFoundation/.github#155).
-  - (c) **The merge-group run does not close the window.** It evaluates once,
-    when the group is created, and does not wait
-    [code: `_enforce_merge_group` in `merge_guard_runner.py`]. The group
-    merges when its other required check ends. rulespec-us#2160 reports 2.5
-    to 4 hours for that check [author-reported]. A dismissal in that time is
-    not seen, unless GitHub removes the entry by itself; `rulespec-us`
-    requires 0 approvals, so nothing native does [inferred;
-    experiment X15]. This is the main trade-off against the App design.
-- **R4. The wait for CI.** The guard run starts together with
-  `validate / validate` and waits for it, at most 60 minutes, then evaluates
-  once more [code: `CI_WAIT_SECONDS`, `_wait_for_ci`]. If the check takes
-  longer, the run fails closed and someone re-runs it.
+  - (c) **The merge-group run narrows the window to seconds; it does not
+    close it.** The run waits until the group's own `validate / validate`
+    run has completed with success, for at most 5 hours, and evaluates once
+    after that [code: `_enforce_merge_group`, `_wait_for_group_ci` in
+    `merge_guard_runner.py`]. rulespec-us#2160 reports 2.5 to 4 hours for
+    that check [author-reported]; a dismissal or a `CHANGES_REQUESTED`
+    review in that time now fails the guard's group job. What remains is the
+    time between the evaluation's last read of the reviews and GitHub's
+    merge: the rest of the evaluation, the end of the job and the queue's
+    own delay, seconds if the queue merges promptly [inferred]. In that time
+    a dismissal is not seen, unless GitHub removes the entry by itself;
+    `rulespec-us` requires 0 approvals, so nothing native does [inferred].
+    Unverified: that the group's check has the expected name and
+    `merge_group` run on the group commit (if not, every group fails,
+    closed), that the queue merges only after the guard job has ended, and
+    how long after [experiment X15]. Cost: the guard job runs for the whole
+    validation of the group and ends last, so the queue's status-check
+    timeout must cover it (design §6).
+- **R4. The wait for CI.** The guard run of a pull request starts together
+  with `validate / validate` and waits for it, at most 60 minutes, then
+  evaluates once more [code: `CI_WAIT_SECONDS`, `_wait_for_ci`]. The guard
+  run of a merge group waits for the group's own run of that check, at most
+  5 hours, before its one evaluation [code: `MERGE_GROUP_WAIT_SECONDS`]. If
+  the check takes longer, the run fails closed and someone re-runs it. The
+  job timeout is 330 minutes, below the 6 hours a hosted job may run [code:
+  the workflow and its tripwire test].
+- **R4b. The inert path is the one assumption that fails open.** In
+  axiom-encode itself the runner ends with success without an evaluation.
+  It takes that path only when `GITHUB_REPOSITORY` and the event payload
+  both name axiom-encode [code: `_require_source_event`]. No documentation
+  states what these values are in a ruleset run for another repository
+  [experiment X18]. If such a run carried axiom-encode in all of them, every
+  pull request of the target would pass unjudged. Hold: under the `Evaluate`
+  ruleset a pull request with no lane must show a **failed** guard job
+  before `Active` (design §4, "The inert path"; checklist steps 7 and 10).
 - **R5. Unverified platform behavior.** The experiment. If a same-named check
   from another workflow can satisfy the rule (X2), (g') fails outright.
 - **R6. Agents under both enrolled identities** (design §9). No option
@@ -614,7 +637,12 @@ order, with the steps before and after, is the activation checklist of
    rules and rulesets" unless Max accepts its holders as part of R1.
 6. Record the ruleset id, the SHA and the bundle digest (`BUNDLE_SHA256` in
    the workflow at that SHA) in the design's §11.
-7. Anyone can check the rule once it is `Active`:
+7. Before the switch to `Active`, confirm the hold of the inert path: a
+   `rulespec-us` pull request with no lane shows a failed
+   `content-bound-merge-guard` run under this `Evaluate` ruleset, and its
+   report line has a `verdict` and no `"inert"` (R4b; checklist step 7 has
+   the commands). A passed run there stops the activation.
+8. Anyone can check the rule once it is `Active`:
    `gh api repos/TheAxiomFoundation/rulespec-us/rules/branches/main`.
    The call returns active rules only (P22). While the ruleset is in
    `Evaluate` it returns nothing for it; use Rule Insights (Organization
@@ -751,7 +779,12 @@ The review reads the merged code and the live settings, not this document.
    literal equals the recomputed digest; the launcher's flags, file list and
    import refusal; no function-level import off the list.
 3. **The evaluator's switches at that SHA.** `INFRASTRUCTURE_LANE_ENABLED`,
-   `V6_READER_ENABLED`, the enrolled list, `SUCCESS_VERDICTS`.
+   `V6_READER_ENABLED`, the enrolled list, `SUCCESS_VERDICTS` (while the
+   infrastructure lane is off it holds three reasons; the lane's two success
+   reasons enter it only in the change that switches the lane on), the wait
+   constants (`CI_WAIT_SECONDS`, `MERGE_GROUP_WAIT_SECONDS`,
+   `MERGE_GROUP_POLL_SECONDS`, `MAX_ENFORCE_REQUESTS`) against the job's
+   `timeout-minutes`, and the inert path (`_require_source_event`).
 4. **The ruleset.** One repository, the default branch, one workflow entry
    with that SHA, an empty bypass list, the enforcement status; who can
    manage organization rulesets (owners and roles, P19).

@@ -97,7 +97,8 @@ jobs:
             repository: .repository.full_name,
             number,
             pull_request: (.pull_request // null | if . == null then null else
-              {number, head_sha: .head.sha, base_ref: .base.ref} end),
+              {number, head_sha: .head.sha, base_ref: .base.ref,
+               base_repository: .base.repo.full_name} end),
             merge_group_keys: (.merge_group // null | if . == null then null else keys end),
             merge_group: (.merge_group // null | if . == null then null else
               {head_sha, base_sha, head_ref, base_ref} end)
@@ -137,11 +138,56 @@ jobs:
             echo "status=$code path=$path"
           done
 
+      - name: For a merge group, wait until lab-slow has completed on the group commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" != "merge_group" ]; then
+            echo "not a merge group: no wait"
+            exit 0
+          fi
+          group="$(jq -r '.merge_group.head_sha' "$GITHUB_EVENT_PATH")"
+          listing="$RUNNER_TEMP/checks.json"
+          attempt=0
+          while [ "$attempt" -lt 30 ]; do
+            attempt=$((attempt + 1))
+            code="$(curl -s -o "$listing" -w '%{http_code}' \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$group/check-runs?check_name=lab-slow&filter=latest&per_page=100")"
+            echo "poll=$attempt status=$code at $(date -u +%H:%M:%S)"
+            [ "$code" = "200" ] || exit 1
+            jq -c '{total_count, runs: [.check_runs[] | {name, app: .app.id,
+              head_sha, status, conclusion, details_url}]}' "$listing"
+            pending="$(jq '[.check_runs[] | select(.status != "completed")] | length' "$listing")"
+            done_runs="$(jq '[.check_runs[] | select(.status == "completed")] | length' "$listing")"
+            if [ "$done_runs" -ge 1 ] && [ "$pending" = "0" ]; then
+              run_id="$(jq -r '.check_runs[0].details_url' "$listing" | sed -n \
+                's#^https://github.com/[^/]*/[^/]*/actions/runs/\([0-9][0-9]*\)/job/[0-9][0-9]*$#\1#p')"
+              echo "workflow run of the check=$run_id"
+              curl -s \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+                | jq -c '{id, event, path, head_sha, status, conclusion,
+                    repository: .repository.full_name}'
+              echo "lab-slow completed on the group commit at $(date -u +%H:%M:%S)"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "lab-slow did not complete on the group commit"
+          exit 1
+
       - name: Pass only with an effective approval
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          echo "evaluation starts at $(date -u +%H:%M:%S)"
           if [ "$GITHUB_EVENT_NAME" = "merge_group" ]; then
             ref="$(jq -r '.merge_group.head_ref' "$GITHUB_EVENT_PATH")"
             number="$(printf '%s\n' "$ref" | sed -n \
@@ -169,8 +215,15 @@ jobs:
           [ "$approvals" -ge 1 ]
 ```
 
-The token reaches two steps through `env` only. No step prints it. Do not add
-`set -x`.
+The token reaches three steps through `env` only. No step prints it. Do not
+add `set -x`.
+
+For a merge group the lab workflow does what the real runner does: it waits
+until the other required check (`lab-slow`) has completed on the group
+commit, and only then reads the reviews [code: `_wait_for_group_ci` in
+`merge_guard_runner.py`]. The real runner also requires that check to be the
+group's own `merge_group` run and to have succeeded; the lab prints those
+fields for the record and does not judge them.
 
 ### 1.2 The target repository
 
@@ -350,6 +403,31 @@ or only after the next run.
   [code]. It then needs a reviewed change that takes the commit from the
   value that does name the source commit, and a new run of this step.
 
+### X18. The run names the TARGET repository
+
+- **Procedure.** Read the "Print the run identity" and "Print the event
+  payload fields" steps of the X6 run (a `pull_request` event) and, later,
+  of the X5 run (a `merge_group` event).
+- **Pass.** In both runs `github.repository` and `GITHUB_REPOSITORY` are
+  `TheAxiomFoundation/guard-lab-target`, and the payload's `repository` is
+  `TheAxiomFoundation/guard-lab-target`. In the `pull_request` run the
+  payload's `pull_request.base_repository` is the target too. None of them
+  is `guard-lab-source`.
+- **Record.** The five printed values of each run (four for the
+  `merge_group` run, whose payload has no pull request; record whether its
+  `repository` key is present at all [docs D14 does not mark it required]).
+- **If it fails.** This is the one unverified point that fails **open**. The
+  real runner ends with success, without an evaluation, when
+  `GITHUB_REPOSITORY` and the payload both name `axiom-encode` [code:
+  `_require_source_event`]. If a ruleset run reports the source repository
+  in all of them, every pull request of the target would pass unjudged:
+  (g') must not go `Active`, and the runner needs a reviewed change (for
+  example no inert path at all) and a new run of this step. If only some of
+  the values name the source, the real runner fails every run (closed);
+  record which, and prepare the change that reads the right one. If the
+  `merge_group` payload has no `repository` key, the real runner fails every
+  merge-group run (closed) [code: `enforce`].
+
 ### X12. The check name and the commit it attaches to
 
 - **Procedure.** `gh api repos/TheAxiomFoundation/guard-lab-target/commits/<PR-1 head>/check-runs --jq '.check_runs[] | {name, head_sha, app: .app.slug, status, conclusion}'`.
@@ -490,22 +568,45 @@ or only after the next run.
 
 ### X15. A dismissal and the queue
 
+The guard's merge-group run waits for the group's other required check and
+evaluates after it (design §6). This step must confirm that, and measure
+the window that remains.
+
 - **Procedure.** (a) Approve a pull request, let its run go green, dismiss
   the approval, then add the pull request to the queue. (b) Approve another,
-  add it to the queue, and dismiss the approval before the `lab-guard`
-  merge-group run starts or while it runs. (c) Approve another, add it to
-  the queue, wait until the `lab-guard` merge-group run is green, and
-  dismiss the approval while `lab-slow` still runs.
-- **Pass.** (a) and (b): the merge-group run fails and the entry leaves the
-  queue. (c): record only. The expected result is that the pull request
-  **merges**, because nothing evaluates again after the guard's group run
-  (key-protection R3 (c)).
+  add it to the queue, and dismiss the approval while `lab-slow` of the
+  group still runs; the `lab-guard` merge-group run is then in its wait
+  step. (c) Approve another, add it to the queue, and dismiss nothing. (d)
+  Record only: approve another, add it to the queue, and try to dismiss the
+  approval in the seconds after the `lab-guard` merge-group run has ended
+  green.
+- **Pass.** (a) and (b): the `lab-guard` merge-group run fails, in its last
+  step, after `lab-slow` has completed, and the entry leaves the queue. (c):
+  the wait step of the merge-group run lists a check named `lab-slow` on the
+  group commit, from app id 15368 (GitHub Actions), whose workflow run has
+  `event` `merge_group` and `head_sha` equal to the group commit; the line
+  "evaluation starts at" is later than the line "lab-slow completed on the
+  group commit at"; the `lab-guard` job ends after the `lab-slow` job; and
+  the pull request merges only after the `lab-guard` job has ended.
 - **Record.** For each case: the merge-group run's conclusion, whether the
-  entry left the queue, whether the pull request merged.
+  entry left the queue, whether the pull request merged. For (c) also: the
+  JSON lines of the wait step; the `completed_at` of both jobs
+  (`gh run view <run id> --repo TheAxiomFoundation/guard-lab-target --json jobs --jq '.jobs[] | {name, completedAt}'`)
+  and the pull request's `merged_at`
+  (`gh api repos/TheAxiomFoundation/guard-lab-target/pulls/<n> --jq .merged_at`).
+  The difference between the end of the `lab-guard` job and `merged_at` is
+  the queue's part of the window that remains. For (d): whether the pull
+  request merged; the expected result is that it merges, because nothing
+  evaluates again after the guard's group run (key-protection R3 (c)).
 - **If it fails.** (a) or (b) fail: the merge-time evaluation does not
-  bound the stale green; (g') is not acceptable for `Active`. (c) does not
-  merge: GitHub removes the entry by itself, and R3 (c) is smaller than
-  stated.
+  bound the stale green; (g') is not acceptable for `Active`. (c): if the
+  check on the group commit has another name, app or run than the real
+  runner expects, the real runner fails every merge group (closed) and needs
+  a reviewed change [code: `_group_ci_succeeded`]; if the pull request
+  merges before the `lab-guard` job has ended, the ruleset result is not
+  part of the queue's requirements, and (g') is not acceptable for `Active`.
+  (d) does not merge: GitHub removes the entry by itself, and R3 (c) is
+  smaller than stated.
 
 ### X10. Renaming the target
 
@@ -570,9 +671,10 @@ recorded output is the evidence; the agent adds none.
 | X12 | Check name; result on the pull request's head SHA | | |
 | X13 | A re-run of an old run cannot make a new head green | | |
 | X14 | The rules response carries `sha`, `repository_id`, `ruleset_source_type` | | |
-| X15 | A dismissal before or in the queue removes the entry; after the group run it does not | | |
+| X15 | A dismissal before or in the queue removes the entry; the guard's group run ends after the group's other check; seconds from its end to the merge | | |
 | X16 | A write collaborator and a job token can re-run a ruleset run | | |
 | X17 | A workflow disabled in the source repository | | |
+| X18 | `GITHUB_REPOSITORY`, `github.repository` and the payload name the target repository | | |
 | — | The web form offers a SHA pin; the API accepts `sha` with no `ref` | | |
 
 ## 5. What this experiment cannot show
@@ -582,7 +684,11 @@ recorded output is the evidence; the agent adds none.
 - A check with the guard's name that another GitHub App publishes (X2 tests
   a workflow only).
 - The behavior on rate limiting, and the real duration of
-  `validate / validate` against the runner's 60-minute wait.
+  `validate / validate` against the runner's 60-minute wait for a pull
+  request and its 5-hour wait for a merge group.
+- That the real group check is named `validate / validate` and comes from a
+  `merge_group` run of `repository-checks.yml`. The queue trial of checklist
+  step 8 records that on `rulespec-us`.
 - What happens to the rule if the organization's plan changes.
 - Anything about the fallback: the cloud condition, the App binding and an
   App check on a merge-group commit need real settings.
