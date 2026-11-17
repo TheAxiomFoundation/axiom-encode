@@ -23358,7 +23358,9 @@ CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED = _declare_companion_test_check(
     fix=(
         "Add a case with the clamped input below zero that asserts the clamped "
         "rule (and the downstream principal output when one exists). A zero "
-        "input does not exercise the clamp."
+        "input does not exercise the clamp. For an entity output tested through "
+        "`tables:`, write a separate case with exactly one row, an empty "
+        "`input:`, and a one-item list assertion of the clamped rule."
     ),
     site="axiom_encode/harness/source_completeness.py:_negative_local_input_clamp_test_issues",
 )
@@ -23849,6 +23851,67 @@ def _negative_local_input_clamp_test_issues(
                     return None
         return tuple({"period": point} for point in sorted(change_points))
 
+    row_bound_cases: dict[tuple[int, str], dict[str, Any] | None] = {}
+
+    def row_bound_case(
+        case: dict[str, Any],
+        rule: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Return the case replay reads, or ``None`` for an unproven row case.
+
+        One list-valued assertion makes the companion runner query table rows
+        for every derived output of the case and compare each result as a
+        row-ordered list. Such a case is evidence only when every derived
+        output is asserted as a list and the row binding is proven; a scalar
+        assertion of a derived output beside a list fails in the runner. A
+        parameter output is evaluated separately and stays a scalar. A name
+        that is not a known parameter counts as a derived output. A case
+        without a list-valued assertion is returned unchanged. The rewritten
+        case is cached so that its identity stays stable for the per-case
+        caches above.
+        """
+
+        name = str(rule.get("name") or "")
+        outputs = case.get("output")
+        if not isinstance(outputs, dict) or not any(
+            isinstance(value, list) for value in outputs.values()
+        ):
+            return case
+        if not all(
+            isinstance(value, list)
+            for key, value in outputs.items()
+            if str(key).rsplit("#", 1)[-1] not in parameter_rule_names
+        ):
+            return None
+        cache_key = (id(case), name)
+        if cache_key not in row_bound_cases:
+            row_bound_cases[cache_key] = _sole_table_row_scalar_case(
+                case,
+                rule,
+                principal_rules=principal_rules,
+            )
+        return row_bound_cases[cache_key]
+
+    def row_case_executes_clamp(
+        case: dict[str, Any],
+        rule: dict[str, Any],
+        *,
+        input_name: str,
+        dependency_environment: dict[str, Any],
+    ) -> bool:
+        """Require the row's selected formula path to contain the clamp."""
+
+        execution = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=dependency_environment,
+        )
+        return execution is not None and any(
+            match.group("input") == input_name
+            for match in _DIRECT_LOCAL_INPUT_NONNEGATIVE_CLAMP.finditer(execution.leaf)
+        )
+
     missing_clamps: set[tuple[str, str]] = set()
     for owner, rule in principal_rules.items():
         clamped_inputs = _direct_local_input_clamps(rule, declared_input_names)
@@ -23886,7 +23949,10 @@ def _negative_local_input_clamp_test_issues(
                 missing_clamps.add((owner, input_name))
                 continue
             witnessed_contexts: set[tuple[Any, ...]] = set()
-            for case in cases:
+            for stated_case in cases:
+                case = row_bound_case(stated_case, rule)
+                if case is None:
+                    continue
                 inputs = case.get("input")
                 if not isinstance(inputs, dict):
                     continue
@@ -23931,6 +23997,13 @@ def _negative_local_input_clamp_test_issues(
                     )
                 dependency_environment = asserted_dependencies_by_case[case_key]
                 if owner not in dependency_environment:
+                    continue
+                if case is not stated_case and not row_case_executes_clamp(
+                    case,
+                    rule,
+                    input_name=input_name,
+                    dependency_environment=dependency_environment,
+                ):
                     continue
                 for principal_output in sorted(outputs & principal_outputs):
                     if principal_output == owner:
@@ -40699,6 +40772,67 @@ def _exception_witness_satisfies_requirement(
     return True
 
 
+def _sole_table_row_inputs(
+    case: Mapping[str, Any],
+    entity: str,
+) -> dict[Any, Any] | None:
+    """Return the facts of the only ``tables`` row the runner queries."""
+
+    tables = case.get("tables")
+    rows = tables.get(entity) if isinstance(tables, dict) else None
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        return None
+    # Drop only the companion runner's row-identity keys. Every other key is
+    # kept verbatim, so a flat ``input`` repeats the row only under the same
+    # legal input IDs. Once a row is read as flat facts, replay resolves its
+    # keys by short name exactly as it does for a scalar case: a same-named
+    # input of another module is not told apart there.
+    snake_entity = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", entity)
+    snake_entity = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", snake_entity)
+    row_id_keys = {
+        "id",
+        "entity_id",
+        snake_entity.replace("-", "_").lower() + "_id",
+    }
+    return {key: value for key, value in rows[0].items() if key not in row_id_keys}
+
+
+def _sole_table_row_scalar_case(
+    case: dict[str, Any],
+    rule: dict[str, Any],
+    *,
+    principal_rules: Mapping[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Rewrite a proven sole-row case as the scalar case replay can read.
+
+    Replay reads flat ``input`` facts and scalar assertions. A table-row case
+    states its facts in the row and asserts row-ordered lists, so it is
+    rewritten only when the binding is exact: the flat ``input`` is empty or
+    repeats the row, and the row is the only one the runner queries for every
+    asserted output. Any other row shape returns ``None``.
+    """
+
+    inputs = case.get("input")
+    candidate = case
+    if inputs is None or inputs == {}:
+        row_inputs = _sole_table_row_inputs(case, str(rule.get("entity") or "Case"))
+        if row_inputs is None:
+            return None
+        candidate = {**case, "input": row_inputs}
+    name = str(rule.get("name") or "")
+    if not _asserted_cases_with_bound_formula_inputs(
+        principal_rules, {name: [candidate]}
+    ).get(name):
+        return None
+    return {
+        **candidate,
+        "output": {
+            key: value[0] if isinstance(value, list) else value
+            for key, value in candidate["output"].items()
+        },
+    }
+
+
 def _asserted_cases_with_bound_formula_inputs(
     principal_rules: Mapping[str, dict[str, Any]],
     asserted_by_rule: dict[str, list[dict[str, Any]]],
@@ -40737,26 +40871,9 @@ def _asserted_cases_with_bound_formula_inputs(
             for name in _test_case_output_names(case) & principal_rules.keys()
         ):
             return False
-        tables = case.get("tables")
-        rows = tables.get(entity) if isinstance(tables, dict) else None
-        if (
-            not isinstance(rows, list)
-            or len(rows) != 1
-            or not isinstance(rows[0], dict)
-        ):
+        row_inputs = _sole_table_row_inputs(case, entity)
+        if row_inputs is None:
             return False
-        # Match the companion runner's metadata keys, retaining legal input IDs
-        # verbatim so same-named inputs in other modules cannot establish binding.
-        snake_entity = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", entity)
-        snake_entity = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", snake_entity)
-        row_id_keys = {
-            "id",
-            "entity_id",
-            snake_entity.replace("-", "_").lower() + "_id",
-        }
-        row_inputs = {
-            key: value for key, value in rows[0].items() if key not in row_id_keys
-        }
         inputs = case.get("input")
         return (
             isinstance(inputs, dict)
