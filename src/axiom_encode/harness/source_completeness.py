@@ -54,7 +54,7 @@ from axiom_encode.bound_schedule_structure import (
     BoundScheduleStructure,
     recognize_bound_schedule_structure,
 )
-from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
+from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check, retype
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.bound_form_operands import (
@@ -93,6 +93,10 @@ from axiom_encode.harness.repayment_alternative_evidence import (
     certify_repayment_alternatives,
 )
 from axiom_encode.harness.reporting_route_evidence import certify_reporting_routes
+from axiom_encode.harness.reviewed_alternative_lists import (
+    ReviewedAlternativeList,
+    reviewed_alternative_lists_for,
+)
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.printed_source_rows import (
     PrintedRowStructure,
@@ -2234,12 +2238,19 @@ _SOURCE_BOUND_RUNTIME_GAP_STOPWORDS = frozenset(
         "until",
     }
 )
+_IMPRECISE_DEFERRAL_RETRY_EXAMPLE = """\
+    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax
+      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded."""
+# U.S. encodes get a U.S. example: 26 U.S.C. 24(c)(1) defines a qualifying
+# child by reference to section 152(c).
+_US_IMPRECISE_DEFERRAL_RETRY_EXAMPLE = """\
+    - output: us:statutes/26/24/c/1#ctc_qualifying_child
+      reason: Cannot be computed until the qualifying child definition cited in 26 U.S.C. 152(c) is encoded."""
 _IMPRECISE_DEFERRAL_RETRY_SHAPE = """\
 Required shape (adapt the output and cited dependency to the omitted branch):
 module:
   deferred_outputs:
-    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax
-      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.
+{example}
 `output` and `reason` are required; `blocked_by` is optional and, when present, \
 must list exact absolute upstream RuleSpec outputs. When no external legal dependency \
 exists, cite the exact current source branch and name its concrete source-stated missing \
@@ -2312,7 +2323,13 @@ def _imprecise_deferral_retry_shape(
                 "source-stated input); a reason naming an exact external missing "
                 "dependency need not cite it."
             )
-    return f"{_IMPRECISE_DEFERRAL_RETRY_SHAPE}{branch_hint}"
+    example = (
+        _US_IMPRECISE_DEFERRAL_RETRY_EXAMPLE
+        if _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+        else _IMPRECISE_DEFERRAL_RETRY_EXAMPLE
+    )
+    shape = _IMPRECISE_DEFERRAL_RETRY_SHAPE.replace("{example}", example)
+    return f"{shape}{branch_hint}"
 
 
 _ABSATZ_REFERENCE = re.compile(
@@ -6883,6 +6900,7 @@ def _analyze_rulespec_payload(
     test_cases = _typed_numeric_expected_cases(test_cases, named_rules)
     test_cases = _typed_date_cases(test_cases, payload)
     deferred_clauses: list[SourceStructureBranch] = []
+    imprecise_deferral_paths: list[tuple[int, tuple[str, ...]]] = []
     deferred_paths, imprecise_deferrals = _deferred_coverage(
         payload,
         corpus_citation_path=corpus_citation_path,
@@ -6891,6 +6909,7 @@ def _analyze_rulespec_payload(
         authenticated_same_act_aliases=authenticated_same_act_aliases,
         resolved_dependency_outputs=resolved_dependency_outputs,
         deferred_clauses=deferred_clauses,
+        imprecise_paths=imprecise_deferral_paths,
     )
     # Like a source-bound proof excerpt, a precise clause accounts for its
     # structural owner. It does not defer that owner's other obligations.
@@ -6931,6 +6950,7 @@ def _analyze_rulespec_payload(
         )
     )
     issues: list[str] = []
+    imprecise_deferral_issue_offset = len(issues)
     issues.extend(imprecise_deferrals)
     from axiom_encode.harness.worksheet_country_evidence import (
         certify_worksheet_country,
@@ -7041,6 +7061,11 @@ def _analyze_rulespec_payload(
         else None
     )
 
+    # A branch that only an imprecise deferral would cover repeats that
+    # deferral's finding. Report it inside the deferral finding instead; it
+    # is reported on its own again as soon as the deferral is removed, and
+    # it is covered once the deferral is precise.
+    branches_behind_imprecise_deferral: dict[int, dict[str, SourceStructureBranch]] = {}
     for branch in branches:
         if _path_covered(
             branch.path,
@@ -7099,13 +7124,31 @@ def _analyze_rulespec_payload(
                     "atom on the affected principal formula when applicable), or "
                     "precisely defer the parent; do not invent a dummy output."
                 )
+        structure_message = (
+            "[complete-source-unit:structure] "
+            f"Source branch {branch.label} at "
+            f"{_branch_citation(corpus_citation_path, branch)} is neither "
+            "encoded nor precisely deferred."
+            f"{covered_descendant_detail}"
+        )
+        pending_deferral = max(
+            (
+                (len(deferral_path), finding_index)
+                for finding_index, deferral_path in imprecise_deferral_paths
+                if _path_is_deferred(branch.path, {deferral_path})
+            ),
+            default=None,
+        )
+        if pending_deferral is not None:
+            # An identical finding text is one finding, as the final
+            # de-duplication of the issue list makes it.
+            branches_behind_imprecise_deferral.setdefault(pending_deferral[1], {})[
+                structure_message
+            ] = branch
+            continue
         issues.append(
             ValidationIssue(
-                "[complete-source-unit:structure] "
-                f"Source branch {branch.label} at "
-                f"{_branch_citation(corpus_citation_path, branch)} is neither "
-                "encoded nor precisely deferred."
-                f"{covered_descendant_detail}",
+                structure_message,
                 check=CHECK_STRUCTURE_BRANCH_UNENCODED,
                 subject=_branch_subject(corpus_citation_path, branch),
                 expected="encoded or precisely deferred",
@@ -7116,6 +7159,11 @@ def _analyze_rulespec_payload(
                 ),
                 evidence=branch.text,
             )
+        )
+    for finding_index, pending_branches in branches_behind_imprecise_deferral.items():
+        issue_index = imprecise_deferral_issue_offset + finding_index
+        issues[issue_index] = _with_branches_behind_imprecise_deferral(
+            issues[issue_index], tuple(pending_branches.values())
         )
 
     active_branches = tuple(
@@ -8940,6 +8988,60 @@ def _deferral_anchor_bases(corpus_citation_path: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys((base, module_root)))
 
 
+IMPRECISE_DEFERRAL_PENDING_BRANCHES = re.compile(
+    r" Until it is precise, (?P<count>\d+) source branch(?:es)? that it would "
+    r"cover (?:is|are) neither encoded nor precisely deferred and (?:is|are) "
+    r"not reported separately; encode each one or cover it with a deferral that "
+    r"names its own exact missing dependency: "
+    r"(?P<paths>`[^`\n]*`(?:, `[^`\n]*`)*)\."
+)
+
+
+def _with_branches_behind_imprecise_deferral(
+    issue: str,
+    branches: Sequence[SourceStructureBranch],
+) -> str:
+    """Name, inside an imprecise-deferral finding, the branches it leaves open.
+
+    These branches get no separate structure finding while the deferral is
+    rejected. Every one is listed, and the sentence stays parseable
+    (`IMPRECISE_DEFERRAL_PENDING_BRANCHES`, `split_imprecise_deferral_branches`)
+    so that retry ranking and dependent-regression checks still count each
+    open branch as its own obligation.
+    """
+
+    count = len(branches)
+    if not count:
+        return issue
+    paths = ", ".join(
+        f"`{'/'.join(branch.path) or '<source-unit>'}`" for branch in branches
+    )
+    plural = count != 1
+    sentence = (
+        f" Until it is precise, {count} source branch{'es' if plural else ''} "
+        f"that it would cover {'are' if plural else 'is'} neither encoded nor "
+        f"precisely deferred and {'are' if plural else 'is'} not reported "
+        "separately; encode each one or cover it with a deferral that names its "
+        f"own exact missing dependency: {paths}."
+    )
+    head, separator, tail = issue.partition("\n")
+    return retype(issue, f"{head}{sentence}{separator}{tail}")
+
+
+def split_imprecise_deferral_branches(issue: str) -> tuple[str, tuple[str, ...]]:
+    """Split a deferral finding into its own text and the branches it holds.
+
+    Returns the finding without the pending-branch sentence and the listed
+    branch paths; a finding without that sentence is returned unchanged.
+    """
+
+    match = IMPRECISE_DEFERRAL_PENDING_BRANCHES.search(issue)
+    if match is None or "[complete-source-unit:deferral]" not in issue:
+        return issue, ()
+    paths = tuple(re.findall(r"`([^`\n]*)`", match.group("paths")))
+    return issue[: match.start()] + issue[match.end() :], paths
+
+
 _SITE_DEFERRED_COVERAGE = (
     "axiom_encode/harness/source_completeness.py:_deferred_coverage"
 )
@@ -9023,7 +9125,15 @@ def _deferred_coverage(
     authenticated_same_act_aliases: Sequence[str] = (),
     resolved_dependency_outputs: Sequence[str] = (),
     deferred_clauses: list[SourceStructureBranch] | None = None,
+    imprecise_paths: list[tuple[int, tuple[str, ...]]] | None = None,
 ) -> tuple[set[tuple[str, ...]], list[str]]:
+    """Return precisely deferred paths and the deferral findings.
+
+    ``imprecise_paths`` receives ``(finding index, path)`` for each deferral
+    rejected only because its reason is imprecise: the path it would cover
+    once the reason names an exact missing dependency.
+    """
+
     module = payload.get("module")
     records = module.get("deferred_outputs") if isinstance(module, dict) else None
     if not isinstance(records, list):
@@ -9360,6 +9470,8 @@ def _deferred_coverage(
                     found=reason or "<empty reason>",
                 )
             )
+            if imprecise_paths is not None:
+                imprecise_paths.append((len(issues) - 1, path))
     return covered, issues
 
 
@@ -20216,6 +20328,58 @@ def _is_pure_physical_alternative_condition(body: str) -> bool:
     )
 
 
+def _clause_is_reviewed_alternative_list(
+    text: str,
+    body: str,
+    body_start: int,
+    text_start: int,
+    reviewed_lists: Sequence[ReviewedAlternativeList],
+) -> bool:
+    """Say whether a registry entry records exactly this clause.
+
+    There is no grammar here: ``reviewed_lists`` are the registry entries
+    already bound to this citation and this exact source text, and
+    ``text_start`` is the offset of ``text`` in that source text. The clause is
+    a reviewed list only when:
+
+    - ``body`` is the untouched rest of ``text`` after the cue at
+      ``body_start``; no earlier step cut or rewrote it;
+    - the physical line that holds the cue is the chapeau of an entry, at its
+      recorded offset; and
+    - the nonblank lines after it, to the end of ``text``, are exactly the
+      recorded lines of that entry, each at its recorded offset.
+
+    The gates-collapsed check does not examine such a clause at all. It does
+    not verify the structure of the alternatives or the other facts of the
+    clause; the entry records what an owner verified instead.
+    """
+
+    if text[body_start:] != body:
+        return False
+    line_start = text.rfind("\n", 0, body_start) + 1
+    lines = text[line_start:].split("\n")
+    for reviewed in reviewed_lists:
+        if (
+            reviewed.chapeau.physical_start != text_start + line_start
+            or reviewed.chapeau.line != lines[0]
+        ):
+            continue
+        expected = iter(reviewed.lines)
+        offset = text_start + line_start + len(lines[0]) + 1
+        for line in lines[1:]:
+            if line.strip():
+                recorded = next(expected, None)
+                if (
+                    recorded is None
+                    or recorded.physical_start != offset
+                    or recorded.line != line
+                ):
+                    return False
+            offset += len(line) + 1
+        return next(expected, None) is None
+    return False
+
+
 _SOURCE_ANY_REASON_PREFIX = "source_any_reason:"
 
 
@@ -20366,14 +20530,24 @@ def _source_conjunctive_fact_gates(
     text: str,
     *,
     care_source_text: str | None = None,
+    reviewed_alternative_lists: Sequence[ReviewedAlternativeList] = (),
+    text_start: int | None = None,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
-    """Return distinct entity/predicate signatures from one condition."""
+    """Return distinct entity/predicate signatures from one condition.
+
+    ``reviewed_alternative_lists`` are registry entries bound to the citation
+    and exact source text that ``text`` comes from, and ``text_start`` is the
+    offset of ``text`` in that source text. Without both, every bullet under
+    the cue stays a simultaneous fact. With both, a clause that an entry
+    records exactly is a reviewed exception: it has no gates here.
+    """
 
     actual_condition = _concessive_form_completion_condition(text)
     if actual_condition is not None:
         if care_source_text is None:
             care_source_text = text
         text = actual_condition
+        text_start = None
 
     if _closed_filing_return_alternatives(text):
         return ()
@@ -20450,6 +20624,18 @@ def _source_conjunctive_fact_gates(
     body = _without_flattened_pdf_alternative_list(body)
     body = _without_completed_chart_result_label(body, text)
     body = _without_worksheet_imperative_consequent(body)
+    if (
+        reviewed_alternative_lists
+        and text_start is not None
+        and _clause_is_reviewed_alternative_list(
+            text,
+            body,
+            conditional.start("body"),
+            text_start,
+            reviewed_alternative_lists,
+        )
+    ):
+        return ()
     membership_body = _shared_membership_list_body(body)
     membership_requirement = None
     if membership_body != body:
@@ -21619,13 +21805,30 @@ def _terminal_names_corroborate_source_gates(
 ) -> bool:
     """Require a distinct semantically related terminal for every source gate."""
 
+    return not _source_gates_without_distinct_terminal(
+        names,
+        gates,
+        terminal_evidence=terminal_evidence,
+        neutral_polarity_imports=neutral_polarity_imports,
+    )
+
+
+def _source_gates_without_distinct_terminal(
+    names: frozenset[str],
+    gates: tuple[tuple[frozenset[str], frozenset[str]], ...],
+    *,
+    terminal_evidence: Mapping[str, _TerminalGateEvidence],
+    neutral_polarity_imports: frozenset[str] = frozenset(),
+) -> tuple[int, ...]:
+    """Return the gates that a maximum distinct name matching leaves unmatched."""
+
     if not gates:
-        return True
+        return ()
     if (
         len(gates) > _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT
         or len(names) > _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT
     ):
-        return False
+        return tuple(range(len(gates)))
     repeated_predicates = [
         frozenset().union(
             *(
@@ -21886,8 +22089,6 @@ def _terminal_names_corroborate_source_gates(
                 continue
             matches.append(name)
         candidates.append(tuple(matches))
-    if any(not values for values in candidates):
-        return False
     order = sorted(range(len(gates)), key=lambda index: (len(candidates[index]), index))
 
     matched_gate_by_terminal: dict[str, int] = {}
@@ -21903,7 +22104,12 @@ def _terminal_names_corroborate_source_gates(
                 return True
         return False
 
-    return all(augment(gate_index, set()) for gate_index in order)
+    # Augmenting paths give a maximum matching, so the gates that stay
+    # unmatched are a true count, and none stays unmatched exactly when every
+    # gate has its own terminal.
+    return tuple(
+        sorted(gate_index for gate_index in order if not augment(gate_index, set()))
+    )
 
 
 CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
@@ -22095,13 +22301,28 @@ def _opaque_same_source_condition_input_issues(
             selector_cache[key] = tuple(group - context_names for group in groups)
         return selector_cache[key]
 
+    reviewed_alternative_lists = reviewed_alternative_lists_for(
+        corpus_citation_path, source_text
+    )
+
     def source_clause_gates(
         clause: _SourceConditionClause,
     ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
         identity = (clause.branch_path, clause.start, clause.end)
         if identity not in source_gate_cache:
+            # A reviewed reading needs the clause at a known place in the
+            # exact source text; else every bullet stays a gate.
+            raw_clause = source_text[clause.start : clause.end]
             source_gate_cache[identity] = _source_conjunctive_fact_gates(
-                clause.text, care_source_text=care_source_text
+                clause.text,
+                care_source_text=care_source_text,
+                reviewed_alternative_lists=reviewed_alternative_lists,
+                text_start=(
+                    clause.start + len(raw_clause) - len(raw_clause.lstrip(" ;,"))
+                    if reviewed_alternative_lists
+                    and raw_clause.strip(" ;,") == clause.text
+                    else None
+                ),
             )
         return source_gate_cache[identity]
 
@@ -22426,6 +22647,9 @@ def _opaque_same_source_condition_input_issues(
         )
 
     findings: list[tuple[str, int, int, frozenset[str]]] = []
+    finding_details: list[
+        tuple[str, tuple[frozenset[str], ...], tuple[int, ...]] | None
+    ] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
             not reviewed_care_source
@@ -22475,11 +22699,13 @@ def _opaque_same_source_condition_input_issues(
                             ),
                         )
                     )
+                    finding_details.append(None)
                 continue
             gate_sets: dict[
                 tuple[tuple[str, ...], int, int],
                 tuple[tuple[frozenset[str], frozenset[str]], ...],
             ] = {}
+            gate_clause_texts: dict[tuple[tuple[str, ...], int, int], str] = {}
             reversed_negative_gate_keys: set[tuple[tuple[str, ...], int, int]] = set()
             schedule_role_sets: dict[
                 tuple[tuple[str, ...], int, int], frozenset[str]
@@ -22635,6 +22861,7 @@ def _opaque_same_source_condition_input_issues(
                     excerpt_has_gates = True
                     clause_key = (clause.branch_path, clause.start, clause.end)
                     gate_sets[clause_key] = gates
+                    gate_clause_texts[clause_key] = clause.text
                     if _direct_exception_reverses_negative_proposition(
                         clause.text
                     ) and _rule_has_negative_output_semantics(
@@ -22775,6 +23002,28 @@ def _opaque_same_source_condition_input_issues(
                     tuple(sorted(value.names)),
                 ),
             )
+            # Name the clause and the facts that the weakest path leaves
+            # without an input, so a retry knows what to change.
+            weakest_detail: tuple[str, tuple[frozenset[str], ...], tuple[int, ...]]
+            weakest_detail = ("", (), ())
+            for clause_key, gates in gate_sets.items():
+                unmatched = _source_gates_without_distinct_terminal(
+                    reversed_names
+                    if clause_key in reversed_negative_gate_keys
+                    else least_supported.names,
+                    gates,
+                    terminal_evidence=terminal_evidence,
+                    neutral_polarity_imports=frozenset(imported_names),
+                )
+                if (len(unmatched), len(gates)) > (
+                    len(weakest_detail[2]),
+                    len(weakest_detail[1]),
+                ):
+                    weakest_detail = (
+                        gate_clause_texts[clause_key],
+                        tuple(predicates for _entities, predicates in gates),
+                        unmatched,
+                    )
             findings.append(
                 (
                     rule_name,
@@ -22783,15 +23032,57 @@ def _opaque_same_source_condition_input_issues(
                     direct_selectors | least_supported.names,
                 )
             )
+            finding_details.append(weakest_detail)
     if not findings:
         return []
 
-    findings.sort(key=lambda item: (item[0], item[1], tuple(sorted(item[3]))))
+    ordered = sorted(
+        zip(findings, finding_details, strict=True),
+        key=lambda pair: (pair[0][0], pair[0][1], tuple(sorted(pair[0][3]))),
+    )
+
+    def render_detail(
+        detail: tuple[str, tuple[frozenset[str], ...], tuple[int, ...]] | None,
+    ) -> str:
+        """Say which clause and which of its facts lack an input."""
+
+        if detail is None or not detail[1]:
+            return ""
+        clause_text, gate_words, unmatched = detail
+        facts = "; ".join(
+            f"fact {index} ("
+            + (
+                ", ".join(sorted(word for word in words if word.isalpha())[:8])
+                or ", ".join(
+                    sorted(word.replace("_", " ") for word in words if ":" not in word)[
+                        :8
+                    ]
+                )
+                or "no plain source words"
+            )
+            + ")"
+            for index, words in enumerate(gate_words, start=1)
+        )
+        matched = len(gate_words) - len(unmatched)
+        missing = (
+            "no input name matches the source words of "
+            + ", ".join(f"fact {index + 1}" for index in unmatched)
+            if unmatched
+            else "the facts are matched, but the clause that owns them is "
+            "ambiguous or its reviewed fact contract is not met"
+        )
+        return (
+            f' [source clause "{_bounded_source_feedback_excerpt(clause_text, limit=200)}" '
+            f"states {len(gate_words)} facts by their source words: {facts}. The "
+            f"least-supported formula path gives {matched} of {len(gate_words)} "
+            f"facts its own input; {missing}]"
+        )
+
     rendered = [
         f"`{rule_name}` versions[{version_index}] "
         f"({_bounded_identifier_feedback(tuple(evidence_names)) or 'no resolved fact selectors'} "
-        f"for {gate_count} source gates)"
-        for rule_name, version_index, gate_count, evidence_names in findings[
+        f"for {gate_count} source gates)" + render_detail(detail)
+        for (rule_name, version_index, gate_count, evidence_names), detail in ordered[
             :_SOURCE_EXPLICIT_CONDITION_DIAGNOSTIC_LIMIT
         ]
     ]
@@ -22800,7 +23091,17 @@ def _opaque_same_source_condition_input_issues(
             f"... ({len(findings) - _SOURCE_EXPLICIT_CONDITION_DIAGNOSTIC_LIMIT} "
             "additional formula versions omitted)"
         )
-    first_rule, first_version, first_gate_count, first_evidence = findings[0]
+    (first_rule, first_version, first_gate_count, first_evidence), first_detail = (
+        ordered[0]
+    )
+    if first_detail is not None and first_detail[1]:
+        first_found = (
+            f"{len(first_detail[1]) - len(first_detail[2])} of "
+            f"{len(first_detail[1])} source gates with their own terminal input "
+            "on the least-supported formula path"
+        )
+    else:
+        first_found = f"{len(first_evidence)} terminal selectors"
     return [
         ValidationIssue(
             "[complete-source-unit:source-explicit-conditions] Derived formula "
@@ -22810,7 +23111,10 @@ def _opaque_same_source_condition_input_issues(
             "as distinct local inputs or canonical imports, declare every local fact "
             "in the RuleSpec document-root `inputs` list (a sibling of `module` and "
             "`rules`, never nested under `module`), combine them in a "
-            "source-proved derived Judgment, and test each gate. Reserve aggregate "
+            "source-proved derived Judgment, and test each gate. For each fact "
+            "that a bracket names without an input, declare one input or canonical "
+            "import whose name uses that fact's source words, and use it on every "
+            "formula path that the quoted clause governs. Reserve aggregate "
             "boundary statuses for source-atomic or externally determined conditions.",
             check=CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
             subject=IssueSubject(
@@ -22819,7 +23123,7 @@ def _opaque_same_source_condition_input_issues(
                 field=f"rules.{first_rule}.versions[{first_version}].formula",
             ),
             expected=f"{first_gate_count} distinct gate inputs",
-            found=f"{len(first_evidence)} terminal selectors",
+            found=first_found,
         )
     ]
 
