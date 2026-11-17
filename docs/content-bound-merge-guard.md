@@ -754,7 +754,8 @@ requested RuleSpec ref, `TheAxiomFoundation/rulespec-<country>` of the run
 and the `rulespec_pr` of the `reviewed-pr-promotion/v1` dispatch. The step then
 reads the ref through `CANDIDATE_REF_FIELD` and writes the evidence record
 `axiom-encode/candidate-promotion-evidence/v1`, not the reviewed-candidate
-record. Lock 3 adds one anonymous read per v6 manifest (46 in a candidate run).
+record. Lock 3 adds one anonymous read per v6 manifest (at least 46 in a candidate
+run; §5, "Encoder", gives the count and its limits).
 
 `base_sha`, `author_id` and the dispatcher are checked for shape only here;
 the merge guard compares them with live GitHub state.
