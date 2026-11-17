@@ -26,7 +26,9 @@ job's read-only token and writes nothing: no code path of ``enforce`` builds
 of the process, which is the conclusion of the Actions job: 0 only for a
 ``pass`` or ``not_applicable`` verdict whose bindings hold, 1 for everything
 else. It is required nowhere until an organization owner creates a ruleset
-that names the workflow.
+that names the workflow. For a merge group it first waits until the group's
+own required check has completed and evaluates after that, so that the
+verdict is as late as the job can make it.
 
 Nothing here carries authority. The list of open pull requests is only a work
 list: every verdict comes from the evaluator's own live reads. A read that
@@ -74,6 +76,9 @@ MAX_CHECK_RUN_PAGES: Final = 10
 MAX_SUMMARY_CHARS: Final = 4000
 EXIT_OK: Final = 0
 EXIT_RUN_ERROR: Final = 1
+# The socket timeout of one request. It bounds each blocking operation of the
+# request, not the request as a whole.
+REQUEST_TIMEOUT_SECONDS: Final = 30
 
 # --- the enforcing runner (change 3b) ----------------------------------------
 ENFORCE_REPORT_SCHEMA: Final = "axiom-encode/merge-guard-enforce-report/v1"
@@ -85,14 +90,16 @@ INERT_SOURCE_REPOSITORY: Final = "source_repository"
 R_EVENT_HEAD_STALE: Final = "event_head_is_stale"
 # The verdicts that end the job with success, by verdict AND reason. A new
 # success reason of the evaluator does not pass here until a reviewed change
-# adds it to this set.
+# adds it to this set. The two success reasons of the proposed infrastructure
+# lane (``guard.R_CONTROL_PLANE_PASS``, ``guard.R_INFRASTRUCTURE``) are not in
+# it: that lane is a proposal and is switched off. A verdict with one of them
+# ends the job with failure. They are added in the reviewed change that
+# decides the lane, not before.
 SUCCESS_VERDICTS: Final = frozenset(
     {
         (guard.PASS, guard.R_PASS),
-        (guard.PASS, guard.R_CONTROL_PLANE_PASS),
         (guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT),
         (guard.NOT_APPLICABLE, guard.R_EARLIER_LANE),
-        (guard.NOT_APPLICABLE, guard.R_INFRASTRUCTURE),
     }
 )
 # The guard run starts together with ``validate / validate`` and nothing
@@ -103,6 +110,31 @@ SUCCESS_VERDICTS: Final = frozenset(
 CI_POLL_SECONDS: Final = 30
 CI_WAIT_SECONDS: Final = 3600
 MAX_CI_POLLS: Final = CI_WAIT_SECONDS // CI_POLL_SECONDS + 1
+# A merge group is judged as late as the job can do it. Its run starts when
+# the group is created, and the group's own ``validate / validate`` run can
+# take hours; a verdict from the start of that time would not see an approval
+# that is dismissed while the group validates. So the run first waits until
+# the required check on the GROUP head has completed, and only then evaluates,
+# once. The wait gives no verdict. When it ends without a completed check,
+# when the check did not succeed, or when a poll fails, the run is an error
+# and nothing is evaluated.
+#
+# ``MERGE_GROUP_WAIT_SECONDS`` is five hours. rulespec-us#2160 reports (its
+# author's figures, not measured here) 2.5 to 4 hours of validation for each
+# group and asks for a queue status-check timeout above 4 hours. The job's
+# ``timeout-minutes`` must exceed this wait plus one evaluation, and a
+# GitHub-hosted job ends after 6 hours at the latest.
+#
+# The poll interval keeps the requests of one run under
+# ``MAX_ENFORCE_REQUESTS``: a poll is one listing read, plus one read of the
+# workflow run for each listed check once all of them are completed. 101
+# polls of two reads each and the largest measured evaluation (29 reads, 30
+# with headroom) are 2 * 101 + 30 = 232 requests.
+MERGE_GROUP_POLL_SECONDS: Final = 180
+MERGE_GROUP_WAIT_SECONDS: Final = 5 * 3600
+MAX_MERGE_GROUP_POLLS: Final = MERGE_GROUP_WAIT_SECONDS // MERGE_GROUP_POLL_SECONDS + 1
+# The workflow run event of the required check on a merge group head.
+MERGE_GROUP_RUN_EVENT: Final = "merge_group"
 # One event payload. GitHub documents "Payloads are capped at 25 MB"
 # (https://docs.github.com/en/webhooks/webhook-events-and-payloads); a
 # pull_request or merge_group payload is far smaller. A larger file fails.
@@ -110,7 +142,9 @@ MAX_EVENT_BYTES: Final = 4 * 1024 * 1024
 # Hard cap of GitHub requests in one enforce run: two evaluations and the
 # polls of one full wait, with headroom. The largest evaluation measured on
 # fixtures is 29 requests (``tests/test_merge_guard_runner.py``, "request
-# volume"), so two of them and every poll are 2 * 29 + 121 = 179 requests.
+# volume"), so for a pull request two of them and every poll are
+# 2 * 29 + 121 = 179 requests, and for a merge group every poll and the one
+# evaluation are at most 2 * 101 + 29 = 231 requests (see above).
 # Past the cap every read fails, so the verdict is ``fail``. GitHub documents
 # the job token's limit as 1,000 requests per hour per repository
 # (https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
@@ -129,6 +163,7 @@ _COMPARE_SEGMENT = re.compile(r"[0-9a-f]{40}\.\.\.[0-9a-f]{40}")
 _CHECK_RUNS_PATH = re.compile(
     r"/repos/TheAxiomFoundation/rulespec-[a-z]{2}(-[a-z0-9]+)*/check-runs"
 )
+_RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
 
 # Verdict reasons that mean "the evaluation could not read", not "the pull
 # request is refused". The verdict is still ``fail``; the run is also an error.
@@ -193,7 +228,7 @@ def _request(
             urllib.request.ProxyHandler({}), _NoRedirect()
         )
     try:
-        with opener.open(request, timeout=30) as response:
+        with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             status = response.status
             raw = response.read(MAX_RESPONSE_BYTES + 1)
     except RunnerError:
@@ -608,12 +643,8 @@ def read_event(path: object) -> dict:
         ) from None
 
 
-def _ci_settled(root: str, head: str, fetch: Fetch) -> bool:
-    """Whether every required-named check run on ``head`` is completed.
-
-    At least one must exist. This decides only when to evaluate again; the
-    evaluation makes its own reads and decides the verdict.
-    """
+def _required_check_runs(root: str, head: str, fetch: Fetch) -> list[dict]:
+    """The check runs named like the required check on ``head``, read whole."""
     name = urllib.parse.quote(guard.REQUIRED_CHECK_NAME, safe="")
     listing = fetch(
         f"{root}/commits/{head}/check-runs?check_name={name}&filter=latest&per_page=100"
@@ -627,7 +658,111 @@ def _ci_settled(root: str, head: str, fetch: Fetch) -> bool:
         or any(not isinstance(run, dict) for run in runs)
     ):
         raise RunnerError("required check listing is incomplete")
+    return runs
+
+
+def _ci_settled(root: str, head: str, fetch: Fetch) -> bool:
+    """Whether every required-named check run on ``head`` is completed.
+
+    At least one must exist. This decides only when to evaluate again; the
+    evaluation makes its own reads and decides the verdict. The match is by
+    name only: any completed check with the required name ends the wait. For
+    a pull request that is harmless, because the evaluation that follows
+    verifies the check itself and gives ``fail`` for a foreign one.
+    """
+    runs = _required_check_runs(root, head, fetch)
     return bool(runs) and all(run.get("status") == "completed" for run in runs)
+
+
+def _group_ci_succeeded(root: str, group_head: str, fetch: Fetch) -> bool:
+    """Whether the merge group's own required check has completed.
+
+    For a merge group an early end of the wait is not harmless: the
+    evaluation would then run long before the merge. So a name is not enough
+    here. Every listed check must be the Actions check of a ``merge_group``
+    run of the required workflow on ``group_head``; a listed check that is
+    anything else is an error of the run. A check that says ``completed``
+    while its workflow run does not is waited for.
+
+    Returns False while the check is absent or not completed. Once it has
+    completed, anything but ``success``, of the check or of its workflow run,
+    is an error of the run: the job fails and nothing is evaluated. A red
+    group therefore never has a green guard job, whatever the repository's own
+    requirement of that check does.
+    """
+    runs = _required_check_runs(root, group_head, fetch)
+    if not runs or any(run.get("status") != "completed" for run in runs):
+        return False
+    repository = root.removeprefix("/repos/")
+    prefix = f"https://github.com/{repository}/actions/runs/"
+    foreign = RunnerError(
+        "a check with the required name on the merge group head is not the "
+        "merge group run of the required workflow"
+    )
+    for run in runs:
+        app = run.get("app")
+        details = run.get("details_url")
+        run_id, _, job = (
+            details.removeprefix(prefix).partition("/job/")
+            if isinstance(details, str) and details.startswith(prefix)
+            else ("", "", "")
+        )
+        if (
+            run.get("name") != guard.REQUIRED_CHECK_NAME
+            or not isinstance(app, dict)
+            or app.get("id") != guard.REQUIRED_CHECK_APP_ID
+            or run.get("head_sha") != group_head
+            or _RUN_ID.fullmatch(run_id) is None
+            or _RUN_ID.fullmatch(job) is None
+        ):
+            raise foreign
+        workflow = fetch(f"{root}/actions/runs/{run_id}")
+        named = workflow.get("repository") if isinstance(workflow, dict) else None
+        if (
+            not isinstance(workflow, dict)
+            or str(workflow.get("id")) != run_id
+            or workflow.get("event") != MERGE_GROUP_RUN_EVENT
+            or workflow.get("path") != guard.REQUIRED_CHECK_WORKFLOW_PATH
+            or workflow.get("head_sha") != group_head
+            or not isinstance(named, dict)
+            or named.get("full_name") != repository
+        ):
+            raise foreign
+        if workflow.get("status") != "completed":
+            return False
+        if run.get("conclusion") != "success" or workflow.get("conclusion") != (
+            "success"
+        ):
+            raise RunnerError("the required check of the merge group did not succeed")
+    return True
+
+
+def _wait_for_group_ci(
+    root: str, group_head: str, fetch: Fetch, sleep: Sleep, clock: Clock, report: dict
+) -> None:
+    """Return when the merge group's required check has completed.
+
+    Raises ``RunnerError`` when it has not within ``MERGE_GROUP_WAIT_SECONDS``
+    on the injected clock or ``MAX_MERGE_GROUP_POLLS`` polls. Records the
+    polls and the seconds waited in ``report``.
+    """
+    start = clock()
+    while True:
+        report["ci_polls"] += 1
+        try:
+            settled = _group_ci_succeeded(root, group_head, fetch)
+        finally:
+            report["waited_seconds"] = max(0, int(clock() - start))
+        if settled:
+            return
+        if (
+            clock() - start >= MERGE_GROUP_WAIT_SECONDS
+            or report["ci_polls"] >= MAX_MERGE_GROUP_POLLS
+        ):
+            raise RunnerError(
+                "the required check of the merge group did not complete within the wait"
+            )
+        sleep(MERGE_GROUP_POLL_SECONDS)
 
 
 def _wait_for_ci(
@@ -716,7 +851,9 @@ def _enforce_pull_request(
     return verdict
 
 
-def _enforce_merge_group(name: str, payload: dict, fetch: Fetch, report: dict):
+def _enforce_merge_group(
+    name: str, payload: dict, fetch: Fetch, sleep: Sleep, clock: Clock, report: dict
+) -> guard.Verdict:
     group = _event_object(payload.get("merge_group"), "merge_group")
     group_head = _event_sha(group.get("head_sha"), "merge group head")
     group_base = _event_sha(group.get("base_sha"), "merge group base")
@@ -731,6 +868,11 @@ def _enforce_merge_group(name: str, payload: dict, fetch: Fetch, report: dict):
     number = int(match.group(1))
     report["pull_request"] = number
     report["event_head"] = group_head
+    # First the wait, then the one evaluation. A wait that fails or ends
+    # without a completed check raises: the run is an error with no verdict.
+    _wait_for_group_ci(
+        f"/repos/{guard.ORGANISATION}/{name}", group_head, fetch, sleep, clock, report
+    )
     report["evaluations"] = 1
     verdict = guard.evaluate_merge_group(
         name, group_head, group_base, number, fetch=fetch
@@ -799,7 +941,7 @@ def enforce(
                 name, payload, counted, sleep, clock, report
             )
         elif event_name == EVENT_MERGE_GROUP:
-            verdict = _enforce_merge_group(name, payload, counted, report)
+            verdict = _enforce_merge_group(name, payload, counted, sleep, clock, report)
         else:
             raise RunnerError("the event is not pull_request or merge_group")
     except RunnerError as exc:
@@ -820,6 +962,50 @@ def enforce(
     return report, EXIT_RUN_ERROR
 
 
+def _require_source_event(event_name: object, payload: dict) -> None:
+    """Refuse the inert path unless the event, too, is the encoder's own.
+
+    The inert path is the one place where this command ends with success
+    without an evaluation. It must not rest on ``GITHUB_REPOSITORY`` alone:
+    no live ruleset run has shown what that variable is when an organization
+    ruleset runs the workflow for a RuleSpec repository. So the event payload
+    must agree, in every field that names the repository:
+
+    - the event is ``pull_request`` or ``merge_group``, the workflow's two
+      triggers;
+    - ``repository.full_name`` is the encoder repository;
+    - for ``pull_request``, the pull request's own base repository
+      (``pull_request.base.repo.full_name``) is the encoder repository. A
+      pull request of a RuleSpec repository names that repository there.
+
+    A ``merge_group`` payload has no second field that names a repository.
+
+    This narrows the assumption and does not remove it. If a ruleset run for
+    a RuleSpec repository carried the encoder repository BOTH in
+    ``GITHUB_REPOSITORY`` and in these payload fields, the job would pass
+    with no evaluation. The activation checklist therefore holds the ruleset
+    in Evaluate mode until a pull request with no lane shows a FAILED guard
+    job.
+    """
+    if event_name not in (EVENT_PULL_REQUEST, EVENT_MERGE_GROUP):
+        raise RunnerError("the event is not pull_request or merge_group")
+    named = _event_object(payload.get("repository"), "repository")
+    if named.get("full_name") != guard.ENCODER_REPOSITORY:
+        raise RunnerError(
+            "GITHUB_REPOSITORY names the source repository and the event "
+            "payload names another repository"
+        )
+    if event_name == EVENT_PULL_REQUEST:
+        pull = _event_object(payload.get("pull_request"), "pull_request")
+        base = _event_object(pull.get("base"), "pull request base")
+        base_repository = _event_object(base.get("repo"), "pull request base repo")
+        if base_repository.get("full_name") != guard.ENCODER_REPOSITORY:
+            raise RunnerError(
+                "GITHUB_REPOSITORY names the source repository and the pull "
+                "request of the event belongs to another repository"
+            )
+
+
 def enforce_command(
     *,
     environ=None,
@@ -837,7 +1023,10 @@ def enforce_command(
 
     In ``TheAxiomFoundation/axiom-encode`` itself, where the workflow's
     triggers also fire on the encoder's own pull requests, the command is
-    inert: it reads neither the event nor the network and exits 0.
+    inert: it makes no network read and exits 0. It is inert only when
+    ``GITHUB_REPOSITORY`` AND the event payload name the encoder repository
+    (``_require_source_event``); when they disagree, or the event cannot be
+    read, it exits 1.
     """
     environ = os.environ if environ is None else environ
     repository = environ.get("GITHUB_REPOSITORY")
@@ -849,10 +1038,22 @@ def enforce_command(
             "repository": repository,
             "verdict": None,
             "requests": 0,
-            "inert": INERT_SOURCE_REPOSITORY,
         }
+        try:
+            _require_source_event(
+                event_name, read_event(environ.get("GITHUB_EVENT_PATH"))
+            )
+        except RunnerError as exc:
+            report["error"] = str(exc)
+            code = EXIT_RUN_ERROR
+        except Exception as exc:  # fail closed on anything unforeseen
+            report["error"] = "unforeseen error: " + type(exc).__name__
+            code = EXIT_RUN_ERROR
+        else:
+            report["inert"] = INERT_SOURCE_REPOSITORY
+            code = EXIT_OK
         print(json.dumps(report, sort_keys=True, separators=(",", ":")))
-        return EXIT_OK
+        return code
     token = environ.get(TOKEN_ENV, "")
     try:
         if not isinstance(token, str) or _TOKEN.fullmatch(token) is None:

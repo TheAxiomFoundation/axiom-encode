@@ -29,6 +29,7 @@ from tests.test_content_merge_guard import (
     H2,
     MAX,
     NAME,
+    PAVEL,
     PRIMARY,
     REPO,
     ROOT,
@@ -1800,6 +1801,62 @@ def group_event(head=G, base=B, number=42, repository=REPO, **changes):
     }
 
 
+GROUP_RUN = "999"
+GROUP_CHECK_LISTING = f"{ROOT}/commits/{G}{CHECKS}"
+GROUP_RUN_PATH = f"{ROOT}/actions/runs/{GROUP_RUN}"
+SOURCE = "TheAxiomFoundation/axiom-encode"
+
+
+def group_ci(world, *, check=None, run=None, head=G):
+    """The merge group's own run of the required check on ``head``: green.
+
+    ``check`` and ``run`` are changes to the check run and to its workflow
+    run, the shape of a ``merge_group`` run of ``repository-checks.yml``.
+    """
+    world.api[f"{ROOT}/commits/{head}{CHECKS}"] = {
+        "total_count": 1,
+        "check_runs": [
+            {
+                "id": 2,
+                "name": "validate / validate",
+                "app": {"id": 15368},
+                "head_sha": head,
+                "status": "completed",
+                "conclusion": "success",
+                "details_url": (
+                    f"https://github.com/{REPO}/actions/runs/{GROUP_RUN}/job/2"
+                ),
+            }
+            | (check or {})
+        ],
+    }
+    world.api[GROUP_RUN_PATH] = {
+        "id": int(GROUP_RUN),
+        "event": "merge_group",
+        "path": ".github/workflows/repository-checks.yml",
+        "head_sha": head,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "repository": {"full_name": REPO},
+    } | (run or {})
+    return world
+
+
+def queued(world=None, **changes):
+    """A merge group of one pull request whose own required check is green."""
+    return group_ci(queue(build() if world is None else world, **changes))
+
+
+def source_event(name="pull_request", repository=SOURCE, base=SOURCE):
+    """An event of the encoder repository itself, as the inert path needs it."""
+    if name == "merge_group":
+        return group_event(repository=repository)
+    event = pr_event(repository=repository)
+    event["pull_request"]["base"] = {"repo": {"full_name": base}}
+    return event
+
+
 class Time:
     """An injected clock and sleep: sleeping moves the clock, nothing waits."""
 
@@ -1893,16 +1950,46 @@ GUARD_REASONS = sorted(
 )
 SUCCESS = {
     ("pass", guard.R_PASS),
-    ("pass", guard.R_CONTROL_PLANE_PASS),
     ("not_applicable", guard.R_NO_GUARDED_CONTENT),
     ("not_applicable", guard.R_EARLIER_LANE),
-    ("not_applicable", guard.R_INFRASTRUCTURE),
 }
 
 
-def test_the_success_set_is_the_five_stand_aside_and_pass_reasons():
+def test_the_success_set_is_the_three_reasons_of_the_lanes_that_are_on():
     assert runner.SUCCESS_VERDICTS == SUCCESS
     assert len(GUARD_REASONS) > 40 and guard.R_CI in GUARD_REASONS
+    # The proposed infrastructure lane is off; its success reasons are not
+    # success reasons of the job until a reviewed change decides the lane.
+    assert guard.INFRASTRUCTURE_LANE_ENABLED is False
+    for verdict, reason in (
+        ("pass", guard.R_CONTROL_PLANE_PASS),
+        ("not_applicable", guard.R_INFRASTRUCTURE),
+    ):
+        assert reason in GUARD_REASONS
+        assert (verdict, reason) not in runner.SUCCESS_VERDICTS
+
+
+def control_plane_world():
+    world = plain({".github/workflows/x.yml": b"x\n"})
+    world.publish(H, B, [commit(H)])
+    world.reviews([review(11, MAX, H)])
+    return world
+
+
+def test_a_verdict_of_the_switched_off_infrastructure_lane_fails_the_job(monkeypatch):
+    # With the lane switched on in the test only, the evaluator itself gives
+    # the lane's two success verdicts. The job fails for both.
+    monkeypatch.setattr(guard, "INFRASTRUCTURE_LANE_ENABLED", True)
+    report, code = judge(control_plane_world())
+    assert reason_of(report) == ("pass", guard.R_CONTROL_PLANE_PASS)
+    assert code == 1
+    stand_aside = guard.Verdict(
+        guard.NOT_APPLICABLE, guard.R_INFRASTRUCTURE, "", {"head": H}
+    )
+    monkeypatch.setattr(guard, "evaluate", lambda *_a, **_k: stand_aside)
+    report, code = judge(build())
+    assert reason_of(report) == ("not_applicable", guard.R_INFRASTRUCTURE)
+    assert code == 1
 
 
 @pytest.mark.parametrize("reason", [*GUARD_REASONS, "a_reason_added_later"])
@@ -1928,7 +2015,7 @@ def test_an_unforeseen_error_ends_the_job_with_failure(monkeypatch, event_name):
     monkeypatch.setattr(guard, "evaluate", explode)
     monkeypatch.setattr(guard, "evaluate_merge_group", explode)
     event = pr_event() if event_name == "pull_request" else group_event()
-    report, code = judge(build(), event, event_name)
+    report, code = judge(queued(), event, event_name)
     assert code == 1 and report["verdict"] is None
     assert report["error"] == "unforeseen error: RuntimeError"
 
@@ -2243,13 +2330,371 @@ def test_a_poll_that_raises_keeps_fail_and_is_a_run_error():
     assert "HTTPError" in report["error"] and report["evaluations"] == 1
 
 
-def test_a_merge_group_does_not_wait_for_the_required_check():
-    world = queue(build())
+# The merge group: evaluate as late as possible. The run waits until the
+# group's own required check has completed with success, then evaluates once.
+
+FIRST_EVALUATION_READ = ROOT + "/pulls/42"
+
+
+def group_pending_then(world, *, polls, check=None, run=None):
+    """The group's check is in progress for ``polls`` reads, then as given."""
+    group_ci(world, check=check, run=run)
+    settled = world.api[GROUP_CHECK_LISTING]
+    group_ci(world, check={"status": "in_progress", "conclusion": None})
+    pending = world.api[GROUP_CHECK_LISTING]
+    group_ci(world, check=check, run=run)
+    reads = []
+
+    def read():
+        reads.append(1)
+        return pending if len(reads) <= polls else settled
+
+    world.api[GROUP_CHECK_LISTING] = read
+    return reads
+
+
+def judge_group(world, time=None, sleep=None):
+    time = time or Time()
+    report, code = runner.enforce(
+        "merge_group",
+        REPO,
+        group_event(),
+        fetch=world.fetch,
+        sleep=sleep or time.sleep,
+        clock=time.clock,
+    )
+    assert report["requests"] == len(world.calls)
+    return report, code
+
+
+def test_a_merge_group_is_evaluated_only_after_its_required_check_completes():
+    world = queued()
+    group_pending_then(world, polls=3)
+    time = Time()
+    record = []
+    fetch = world.fetch
+
+    def recording(path):
+        record.append(("read", path))
+        return fetch(path)
+
+    def sleeping(seconds):
+        record.append(("sleep", seconds))
+        time.sleep(seconds)
+
+    world.fetch = recording
+    report, code = judge_group(world, time, sleeping)
+    assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
+    # Three pending polls with a sleep after each, the fourth poll and its
+    # read of the workflow run, and only then the first read of the
+    # evaluation. No poll and no sleep follows it.
+    poll, sleep = ("read", GROUP_CHECK_LISTING), ("sleep", 180)
+    assert record[:9] == [
+        poll,
+        sleep,
+        poll,
+        sleep,
+        poll,
+        sleep,
+        poll,
+        ("read", GROUP_RUN_PATH),
+        ("read", FIRST_EVALUATION_READ),
+    ]
+    assert poll not in record[9:] and sleep not in record[9:]
+    assert ("read", GROUP_RUN_PATH) not in record[9:]
+    assert report["evaluations"] == 1 and report["ci_polls"] == 4
+    assert report["waited_seconds"] == 3 * runner.MERGE_GROUP_POLL_SECONDS == 540
+
+
+def test_a_merge_group_whose_check_is_complete_is_evaluated_at_once():
+    world = queued()
+    time = Time()
+    report, code = judge_group(world, time)
+    assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
+    assert world.calls[:3] == [
+        GROUP_CHECK_LISTING,
+        GROUP_RUN_PATH,
+        FIRST_EVALUATION_READ,
+    ]
+    assert time.sleeps == [] and report["ci_polls"] == 1
+
+
+def test_a_dismissal_while_the_merge_group_validates_fails_the_job():
+    # The approval is there when the group is created: an evaluation at that
+    # time passes. It is dismissed while the group's check runs.
+    world = queued()
+    assert guard.evaluate_merge_group(NAME, G, B, 42, fetch=world.fetch).verdict == (
+        guard.PASS
+    )
+    world.calls.clear()
+    group_pending_then(world, polls=2)
+    time = Time()
+
+    def dismiss(seconds):
+        time.sleep(seconds)
+        world.reviews([review(11, MAX, H, state="DISMISSED")])
+
+    report, code = judge_group(world, time, dismiss)
+    assert (reason_of(report), code) == (("fail", guard.R_NO_APPROVAL), 1)
+    assert report["evaluations"] == 1 and report["ci_polls"] == 3
+
+
+def test_a_change_request_while_the_merge_group_validates_fails_the_job():
+    world = queued()
+    group_pending_then(world, polls=1)
+    time = Time()
+
+    def object_(seconds):
+        time.sleep(seconds)
+        world.reviews(
+            [review(11, MAX, H), review(12, PAVEL, H, state="CHANGES_REQUESTED")]
+        )
+
+    report, code = judge_group(world, time, object_)
+    assert (report["verdict"]["verdict"], code) == ("fail", 1)
+    assert report["evaluations"] == 1
+
+
+def no_evaluation(world, report, code):
+    assert code == 1 and report["verdict"] is None and report["evaluations"] == 0
+    assert FIRST_EVALUATION_READ not in world.calls
+    assert not any("/pulls/" in path for path in world.calls)
+
+
+def test_a_merge_group_check_that_never_completes_times_out_without_a_verdict():
+    world = queued()
+    group_ci(world, check={"status": "in_progress", "conclusion": None})
+    time = Time()
+    report, code = judge_group(world, time)
+    no_evaluation(world, report, code)
+    assert "did not complete within the wait" in report["error"]
+    assert report["ci_polls"] == runner.MAX_MERGE_GROUP_POLLS == 101
+    assert report["waited_seconds"] == runner.MERGE_GROUP_WAIT_SECONDS == 18000
+    assert sum(time.sleeps) == runner.MERGE_GROUP_WAIT_SECONDS
+    assert set(time.sleeps) == {runner.MERGE_GROUP_POLL_SECONDS} == {180}
+    assert report["requests"] == 101
+
+
+def test_a_merge_group_with_no_required_check_times_out_without_a_verdict():
+    world = queued()
+    world.api[GROUP_CHECK_LISTING] = {"total_count": 0, "check_runs": []}
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert "did not complete within the wait" in report["error"]
+    assert report["ci_polls"] == runner.MAX_MERGE_GROUP_POLLS
+
+
+def test_the_merge_group_wait_is_bounded_by_polls_when_the_clock_does_not_move():
+    world = queued()
+    group_ci(world, check={"status": "queued", "conclusion": None})
+    time = Time(advance=False)
+    report, code = judge_group(world, time)
+    no_evaluation(world, report, code)
+    assert report["ci_polls"] == runner.MAX_MERGE_GROUP_POLLS
+    assert len(time.sleeps) == runner.MAX_MERGE_GROUP_POLLS - 1
+
+
+def test_the_merge_group_wait_is_bounded_by_the_clock_when_sleeps_are_long():
+    world = queued()
+    group_ci(world, check={"status": "queued", "conclusion": None})
+    time = Time()
+
+    def oversleep(seconds):
+        time.sleeps.append(seconds)
+        time.now += runner.MERGE_GROUP_WAIT_SECONDS
+
+    report, code = judge_group(world, time, oversleep)
+    no_evaluation(world, report, code)
+    assert report["ci_polls"] == 2 and len(time.sleeps) == 1
+
+
+def test_one_pending_group_check_among_completed_ones_is_waited_for():
+    world = queued()
+    green = world.api[GROUP_CHECK_LISTING]["check_runs"][0]
+    world.api[GROUP_CHECK_LISTING] = {
+        "total_count": 2,
+        "check_runs": [green, green | {"id": 3, "status": "queued"}],
+    }
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert report["ci_polls"] == runner.MAX_MERGE_GROUP_POLLS
+    # No listed check was read further while one of them was pending.
+    assert GROUP_RUN_PATH not in world.calls
+
+
+def test_a_completed_group_check_whose_run_is_not_completed_is_waited_for():
+    # A check that says "completed" while its workflow run is in progress:
+    # any workflow of the repository with ``checks: write`` can create one.
+    world = queued()
+    group_ci(world, run={"status": "in_progress", "conclusion": None})
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert "did not complete within the wait" in report["error"]
+    assert report["ci_polls"] == runner.MAX_MERGE_GROUP_POLLS
+    # Two reads for every poll, and still under the request cap.
+    assert report["requests"] == 2 * runner.MAX_MERGE_GROUP_POLLS == 202
+    assert report["requests"] <= runner.MAX_ENFORCE_REQUESTS
+
+
+def test_a_full_merge_group_wait_and_the_evaluation_fit_under_the_request_cap():
+    # The worst honest run: every poll makes two reads, the last poll finds
+    # the run completed, and the evaluation follows.
+    world = queued()
+    group_ci(world, run={"status": "in_progress", "conclusion": None})
+    pending = world.api[GROUP_RUN_PATH]
+    group_ci(world)
+    done = world.api[GROUP_RUN_PATH]
+    reads = []
+
+    def run():
+        reads.append(1)
+        return pending if len(reads) < runner.MAX_MERGE_GROUP_POLLS else done
+
+    world.api[GROUP_RUN_PATH] = run
+    report, code = judge_group(world)
+    assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
+    assert report["ci_polls"] == runner.MAX_MERGE_GROUP_POLLS
+    assert report["requests"] == 2 * 101 + 29 == 231
+    assert report["requests"] <= runner.MAX_ENFORCE_REQUESTS
+
+
+def test_the_request_cap_bounds_the_merge_group_polls(monkeypatch):
+    world = queued()
+    group_ci(world, run={"status": "in_progress", "conclusion": None})
+    monkeypatch.setattr(runner, "MAX_ENFORCE_REQUESTS", 40)
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert report["requests"] == 40 and "request cap" in report["error"]
+
+
+@pytest.mark.parametrize(
+    ("check", "run"),
+    [
+        ({"conclusion": "failure"}, {"conclusion": "failure"}),
+        ({"conclusion": "cancelled"}, {"conclusion": "cancelled"}),
+        ({"conclusion": "skipped"}, None),
+        ({"conclusion": "neutral"}, None),
+        ({"conclusion": None}, None),
+        (None, {"conclusion": "failure"}),
+        (None, {"conclusion": None}),
+    ],
+)
+def test_a_merge_group_whose_required_check_did_not_succeed_fails_unevaluated(
+    check, run
+):
+    world = queued()
+    group_ci(world, check=check, run=run)
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert "did not succeed" in report["error"]
+    assert report["ci_polls"] == 1
+
+
+OTHER_RUN = f"https://github.com/{REPO}/actions/runs/{GROUP_RUN}"
+
+
+@pytest.mark.parametrize(
+    ("check", "run"),
+    [
+        ({"name": "validate"}, None),
+        ({"app": {"id": 1}}, None),
+        ({"app": None}, None),
+        ({"head_sha": H}, None),
+        ({"details_url": None}, None),
+        ({"details_url": OTHER_RUN}, None),
+        ({"details_url": OTHER_RUN + "/job/x"}, None),
+        ({"details_url": OTHER_RUN + "/job/2/x"}, None),
+        ({"details_url": OTHER_RUN.replace(NAME, "rulespec-uk") + "/job/2"}, None),
+        ({"details_url": OTHER_RUN.replace(GROUP_RUN, "0999") + "/job/2"}, None),
+        ({"details_url": "x" + OTHER_RUN + "/job/2"}, None),
+        ({"details_url": GROUP_RUN + "/job/2"}, None),
+        ({"details_url": f"/{REPO}/actions/runs/{GROUP_RUN}/job/2"}, None),
+        (None, {"id": 998}),
+        (None, {"event": "pull_request"}),
+        (None, {"event": "workflow_dispatch"}),
+        (None, {"path": ".github/workflows/other.yml"}),
+        (None, {"head_sha": H}),
+        (None, {"repository": {"full_name": "TheAxiomFoundation/rulespec-uk"}}),
+        (None, {"repository": None}),
+    ],
+)
+def test_a_foreign_check_on_the_merge_group_head_fails_the_job_unevaluated(check, run):
+    # A completed check with the required name that is not the group's own
+    # run must not end the wait: the evaluation would run hours early.
+    world = queued()
+    group_ci(world, check=check, run=run)
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert "not the merge group run of the required workflow" in report["error"]
+
+
+def test_a_group_run_that_is_not_an_object_fails_the_job_unevaluated():
+    world = queued()
+    world.api[GROUP_RUN_PATH] = []
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert "not the merge group run of the required workflow" in report["error"]
+
+
+@pytest.mark.parametrize(
+    "listing",
+    [
+        None,
+        [],
+        {"message": "API rate limit exceeded"},
+        {"total_count": 2, "check_runs": [{"status": "completed"}]},
+        {"total_count": "1", "check_runs": [{"status": "completed"}]},
+        {"total_count": 1, "check_runs": ["completed"]},
+        {"total_count": 101, "check_runs": [{"status": "completed"}] * 101},
+        {"check_runs": [{"status": "completed"}]},
+    ],
+)
+def test_a_merge_group_poll_that_cannot_be_read_whole_fails_unevaluated(listing):
+    world = queued()
+    group_ci(world, check={"status": "in_progress", "conclusion": None})
+    pending = world.api[GROUP_CHECK_LISTING]
+    reads = []
+
+    def read():
+        reads.append(1)
+        return pending if len(reads) == 1 else listing
+
+    world.api[GROUP_CHECK_LISTING] = read
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert "required check listing is incomplete" in report["error"]
+    assert report["ci_polls"] == 2
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        runner.RunnerError("GitHub GET request failed: HTTPError"),
+        urllib.error.HTTPError("https://api.github.com", 500, "error", {}, None),
+        KeyError("x"),
+    ],
+)
+@pytest.mark.parametrize("at", ["listing", "run"])
+def test_a_merge_group_poll_that_raises_fails_unevaluated(error, at):
+    world = queued()
+
+    def read():
+        raise error
+
+    world.api[GROUP_CHECK_LISTING if at == "listing" else GROUP_RUN_PATH] = read
+    report, code = judge_group(world)
+    no_evaluation(world, report, code)
+    assert type(error).__name__ in report["error"] or "HTTPError" in report["error"]
+
+
+def test_the_merge_group_evaluation_still_needs_the_pull_request_check_green():
+    # The group's check is green; the pull request's own check on H is not.
+    world = queued()
     world.ci(H, status="in_progress", conclusion=None)
     time = Time()
-    report, code = judge(world, group_event(), "merge_group", time=time)
+    report, code = judge_group(world, time)
     assert (reason_of(report), code) == (("fail", guard.R_CI), 1)
-    assert time.sleeps == [] and report["ci_polls"] == 0
+    assert time.sleeps == [] and report["ci_polls"] == 1
 
 
 # Design section 7 in enforce mode.
@@ -2299,7 +2744,7 @@ def test_case_25_docs_only_is_not_applicable_and_passes_the_job():
 
 
 def test_case_24_a_merge_group_of_two_units_fails_the_job():
-    world = queue(build(), group_tree=oid("tree-of-two-units"))
+    world = queued(group_tree=oid("tree-of-two-units"))
     report, code = judge(world, group_event(), "merge_group")
     assert (reason_of(report), code) == (("fail", guard.R_MERGE_GROUP_TREE), 1)
 
@@ -2332,7 +2777,7 @@ def passing_runs():
         "pull_request": (build, ..., "pull_request"),
         "pull_request_v5": (lambda: plain(V5_LANE), ..., "pull_request"),
         "pull_request_waited": (waited, ..., "pull_request"),
-        "merge_group": (lambda: queue(build()), group_event(), "merge_group"),
+        "merge_group": (queued, group_event(), "merge_group"),
     }
 
 
@@ -2352,7 +2797,8 @@ PASSING_RUN_LENGTHS = {
     "pull_request": 25,
     "pull_request_v5": 14,
     "pull_request_waited": 43,
-    "merge_group": 29,
+    # One poll (the listing and the workflow run) and the evaluation of 29.
+    "merge_group": 31,
 }
 READ_INDEXES = [
     (key, index)
@@ -2364,7 +2810,7 @@ READ_INDEXES = [
 def test_the_passing_runs_have_the_measured_number_of_reads():
     assert set(PASSING_RUN_LENGTHS) == set(PASSING_RUNS)
     assert {key: run_length(key) for key in PASSING_RUNS} == PASSING_RUN_LENGTHS
-    assert len(READ_INDEXES) == 25 + 14 + 43 + 29
+    assert len(READ_INDEXES) == 25 + 14 + 43 + 31
 
 
 @pytest.mark.parametrize(("key", "index"), READ_INDEXES)
@@ -2373,8 +2819,12 @@ def test_case_17_a_failed_read_at_any_index_fails_the_job(key, index):
     world = Failing(make(), index)
     report, code = judge(world, event, name)
     assert code == 1, report
-    assert report["verdict"]["verdict"] == "fail"
     assert "error" in report
+    if key == "merge_group" and index < 2:
+        # A failed poll of the merge group wait: no evaluation, no verdict.
+        assert report["verdict"] is None and report["evaluations"] == 0
+    else:
+        assert report["verdict"]["verdict"] == "fail"
     assert report["requests"] == index + 1 or report["evaluations"] == 2
 
 
@@ -2388,8 +2838,9 @@ MEASURED_REQUESTS = {
     "allowlist only": 5,
     "v6 unit, unapproved": 15,
     "control plane, pass (lane switched on in the test)": 17,
-    "merge group of a v6 unit, pass": 29,
+    "merge group of a v6 unit, pass (2 reads of one poll, then 29)": 31,
 }
+MERGE_GROUP_LABEL = "merge group of a v6 unit, pass (2 reads of one poll, then 29)"
 # The largest evaluation any fixture makes. MAX_ENFORCE_REQUESTS leaves room
 # for two of them and every poll of one full wait.
 LARGEST_EVALUATION = 30
@@ -2417,10 +2868,7 @@ def test_request_volume_per_evaluation_is_measured_and_bounded(monkeypatch):
 
     def control_plane():
         monkeypatch.setattr(guard, "INFRASTRUCTURE_LANE_ENABLED", True)
-        world = plain({".github/workflows/x.yml": b"x\n"})
-        world.publish(H, B, [commit(H)])
-        world.reviews([review(11, MAX, H)])
-        return world
+        return control_plane_world()
 
     measured = {}
     for label, make, event, name in (
@@ -2441,23 +2889,28 @@ def test_request_volume_per_evaluation_is_measured_and_bounded(monkeypatch):
             ...,
             "pull_request",
         ),
-        (
-            "merge group of a v6 unit, pass",
-            lambda: queue(build()),
-            group_event(),
-            "merge_group",
-        ),
+        (MERGE_GROUP_LABEL, queued, group_event(), "merge_group"),
     ):
         report, _code = judge(make(), event, name)
         assert report["evaluations"] == 1, label
         measured[label] = report["requests"]
         monkeypatch.setattr(guard, "INFRASTRUCTURE_LANE_ENABLED", False)
     assert measured == MEASURED_REQUESTS
-    assert max(measured.values()) <= LARGEST_EVALUATION
-    # Two evaluations and every poll of one full wait fit under the cap, and
-    # the cap is well under the documented 1,000 requests per hour.
+    evaluations = measured | {MERGE_GROUP_LABEL: measured[MERGE_GROUP_LABEL] - 2}
+    assert max(evaluations.values()) == 29 <= LARGEST_EVALUATION
+    # Pull request: two evaluations and every poll of one full wait fit under
+    # the cap. Merge group: every poll of one full wait at two reads each and
+    # the one evaluation fit under it. The cap is well under the documented
+    # 1,000 requests per hour.
     assert 2 * LARGEST_EVALUATION + runner.MAX_CI_POLLS <= runner.MAX_ENFORCE_REQUESTS
-    assert runner.MAX_ENFORCE_REQUESTS <= 500
+    assert (
+        2 * runner.MAX_MERGE_GROUP_POLLS + LARGEST_EVALUATION
+        <= runner.MAX_ENFORCE_REQUESTS
+    )
+    assert runner.MAX_MERGE_GROUP_POLLS == 101 and runner.MAX_CI_POLLS == 121
+    assert runner.MAX_ENFORCE_REQUESTS == 250
+    # The polls of one merge group run in any one hour: 20, or 40 reads.
+    assert 3600 // runner.MERGE_GROUP_POLL_SECONDS == 20
     # A v5 lane costs three reads per unit: its manifest and two module files.
     assert (26 - 14) / 4 == 3
 
@@ -2598,7 +3051,7 @@ def test_a_malformed_pull_request_event_fails_without_a_read(event):
     ],
 )
 def test_a_merge_group_event_must_name_one_pull_request_queued_to_main(changes):
-    world = queue(build())
+    world = queued()
     report, code = judge(world, group_event(**changes), "merge_group")
     assert code == 1 and world.calls == [] and report["verdict"] is None
     assert report["error"]
@@ -2614,13 +3067,13 @@ def test_a_merge_group_event_must_name_one_pull_request_queued_to_main(changes):
     ],
 )
 def test_a_malformed_merge_group_event_fails_without_a_read(event):
-    world = queue(build())
+    world = queued()
     report, code = judge(world, event, "merge_group")
     assert code == 1 and world.calls == [] and report["verdict"] is None
 
 
 def test_a_merge_group_event_passes_for_the_one_approved_unit():
-    world = queue(build())
+    world = queued()
     report, code = judge(world, group_event(), "merge_group")
     assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
     assert report["event_head"] == G and report["pull_request"] == 42
@@ -2629,10 +3082,10 @@ def test_a_merge_group_event_passes_for_the_one_approved_unit():
 
 def test_the_merge_group_number_comes_from_the_head_ref():
     # The ref names pull request 43, which the fake cannot read.
-    world = queue(build())
+    world = queued()
     report, code = judge(world, group_event(number=43), "merge_group")
     assert (reason_of(report), code) == (("fail", guard.R_READ_FAILED), 1)
-    assert world.calls == [ROOT + "/pulls/43"]
+    assert world.calls == [GROUP_CHECK_LISTING, GROUP_RUN_PATH, ROOT + "/pulls/43"]
 
 
 @pytest.mark.parametrize(
@@ -2650,7 +3103,7 @@ def test_a_success_that_is_not_bound_to_the_event_merge_group_fails(
 ):
     judged = guard.Verdict(guard.PASS, guard.R_PASS, "", evidence)
     monkeypatch.setattr(guard, "evaluate_merge_group", lambda *_a, **_k: judged)
-    report, code = judge(build(), group_event(), "merge_group")
+    report, code = judge(queued(), group_event(), "merge_group")
     assert (reason_of(report), code) == (("fail", runner.R_EVENT_HEAD_STALE), 1)
 
 
@@ -2658,7 +3111,7 @@ def test_a_bound_merge_group_success_is_passed_through(monkeypatch):
     evidence = {"pull_request": 42, "merge_group": {"head": G, "base": B}}
     judged = guard.Verdict(guard.PASS, guard.R_PASS, "", evidence)
     monkeypatch.setattr(guard, "evaluate_merge_group", lambda *_a, **_k: judged)
-    assert judge(build(), group_event(), "merge_group")[1] == 0
+    assert judge(queued(), group_event(), "merge_group")[1] == 0
 
 
 # The event file.
@@ -2783,9 +3236,9 @@ def run_enforce_command(capsys, tmp_path, world, event=None, **environ):
             1,
             "fail",
         ),
-        (lambda: queue(build()), group_event(), "merge_group", 0, "pass"),
+        (queued, group_event(), "merge_group", 0, "pass"),
         (
-            lambda: queue(build(), group_tree=oid("other")),
+            lambda: queued(group_tree=oid("other")),
             group_event(),
             "merge_group",
             1,
@@ -2821,27 +3274,157 @@ def test_command_waits_through_the_http_layer(capsys, tmp_path):
     assert {request.get_method() for request in opener.requests} == {"GET"}
 
 
-def test_command_is_inert_in_the_source_repository(capsys, tmp_path):
-    # No token, an event path that does not exist, an opener that refuses
-    # every request: the source repository's own runs read nothing.
-    code = runner.enforce_command(
-        environ={
-            "GITHUB_REPOSITORY": "TheAxiomFoundation/axiom-encode",
-            "GITHUB_EVENT_NAME": "pull_request",
-            "GITHUB_EVENT_PATH": str(tmp_path / "missing.json"),
-        },
-        opener=Exploding(),
-    )
+SOURCE_ENV = {"GITHUB_REPOSITORY": SOURCE, "GITHUB_EVENT_NAME": "pull_request"}
+
+
+def run_source_command(capsys, tmp_path, event, **environ):
+    """The command where ``GITHUB_REPOSITORY`` names the encoder repository."""
+    values = SOURCE_ENV | {"GITHUB_EVENT_PATH": event_file(tmp_path, event)} | environ
+    code = runner.enforce_command(environ=values, opener=Exploding())
     out = capsys.readouterr().out
-    assert code == 0 and out.count("\n") == 1
-    assert json.loads(out) == {
+    assert out.count("\n") == 1
+    return code, json.loads(out)
+
+
+@pytest.mark.parametrize("name", ["pull_request", "merge_group"])
+def test_command_is_inert_in_the_source_repository(capsys, tmp_path, name):
+    # No token and an opener that refuses every request: the source
+    # repository's own runs make no network read.
+    code, report = run_source_command(
+        capsys, tmp_path, source_event(name), GITHUB_EVENT_NAME=name
+    )
+    assert code == 0
+    assert report == {
         "schema": runner.ENFORCE_REPORT_SCHEMA,
-        "event": "pull_request",
-        "repository": "TheAxiomFoundation/axiom-encode",
+        "event": name,
+        "repository": SOURCE,
         "verdict": None,
         "requests": 0,
         "inert": "source_repository",
     }
+
+
+OTHER_REPOSITORIES = [
+    REPO,
+    "TheAxiomFoundation/rulespec-uk",
+    "theaxiomfoundation/axiom-encode",
+    "TheAxiomFoundation/axiom-encode-fork",
+    "Other/axiom-encode",
+    "axiom-encode",
+    "",
+    None,
+    7,
+    ["TheAxiomFoundation/axiom-encode"],
+]
+
+
+@pytest.mark.parametrize("repository", OTHER_REPOSITORIES)
+@pytest.mark.parametrize("name", ["pull_request", "merge_group"])
+def test_the_inert_path_fails_when_the_event_names_another_repository(
+    capsys, tmp_path, name, repository
+):
+    # F1 of review round 1: GITHUB_REPOSITORY says "axiom-encode" and the
+    # event belongs to a RuleSpec repository. That must never be a success.
+    code, report = run_source_command(
+        capsys,
+        tmp_path,
+        source_event(name, repository=repository),
+        GITHUB_EVENT_NAME=name,
+        **{runner.TOKEN_ENV: TOKEN},
+    )
+    assert code == 1 and "inert" not in report and report["requests"] == 0
+    assert "another repository" in report["error"]
+
+
+@pytest.mark.parametrize("base", OTHER_REPOSITORIES)
+def test_the_inert_path_fails_when_the_pull_request_is_of_another_repository(
+    capsys, tmp_path, base
+):
+    # ``repository.full_name`` agrees; the pull request's own base does not.
+    code, report = run_source_command(capsys, tmp_path, source_event(base=base))
+    assert code == 1 and "inert" not in report
+    assert "belongs to another repository" in report["error"]
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {k: v for k, v in source_event().items() if k != "repository"},
+        source_event() | {"repository": None},
+        source_event() | {"repository": SOURCE},
+        source_event() | {"repository": {"name": "axiom-encode"}},
+        {k: v for k, v in source_event().items() if k != "pull_request"},
+        source_event() | {"pull_request": None},
+        source_event() | {"pull_request": {"number": 42, "head": {"sha": H}}},
+        source_event() | {"pull_request": {"base": None}},
+        source_event() | {"pull_request": {"base": {"repo": None}}},
+        source_event() | {"pull_request": {"base": {"repo": SOURCE}}},
+        source_event() | {"pull_request": {"base": {"repo": {}}}},
+        source_event("merge_group"),
+    ],
+)
+def test_the_inert_path_fails_on_an_event_that_does_not_name_the_source(
+    capsys, tmp_path, event
+):
+    code, report = run_source_command(capsys, tmp_path, event)
+    assert code == 1 and "inert" not in report and report["error"]
+
+
+@pytest.mark.parametrize(
+    "raw", [b"not json", b'{"number": 42, "number": 42}', b"[]", b"", DEEP_JSON]
+)
+def test_the_inert_path_fails_on_an_event_that_is_not_strict_json(
+    capsys, tmp_path, raw
+):
+    code, report = run_source_command(capsys, tmp_path, raw)
+    assert code == 1 and "inert" not in report
+    assert "not strict JSON" in report["error"]
+
+
+@pytest.mark.parametrize("path", [None, "", "missing.json", "."])
+def test_the_inert_path_fails_without_a_readable_event(
+    capsys, tmp_path, monkeypatch, path
+):
+    monkeypatch.chdir(tmp_path)
+    environ = dict(SOURCE_ENV)
+    if path is not None:
+        environ["GITHUB_EVENT_PATH"] = path
+    code = runner.enforce_command(environ=environ, opener=Exploding())
+    report = json.loads(capsys.readouterr().out)
+    assert code == 1 and "inert" not in report and report["error"]
+
+
+def test_the_inert_path_fails_on_an_oversized_event(capsys, tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "MAX_EVENT_BYTES", 16)
+    code, report = run_source_command(capsys, tmp_path, source_event())
+    assert code == 1 and "exceeds its bound" in report["error"]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [None, "push", "pull_request_target", "workflow_dispatch", "PULL_REQUEST", ""],
+)
+def test_the_inert_path_fails_on_another_event(capsys, tmp_path, name):
+    environ = {} if name is None else {"GITHUB_EVENT_NAME": name}
+    values = (
+        {"GITHUB_REPOSITORY": SOURCE}
+        | {"GITHUB_EVENT_PATH": event_file(tmp_path, source_event())}
+        | environ
+    )
+    code = runner.enforce_command(environ=values, opener=Exploding())
+    report = json.loads(capsys.readouterr().out)
+    assert code == 1 and "inert" not in report
+    assert "not pull_request or merge_group" in report["error"]
+
+
+def test_the_inert_path_fails_on_an_unforeseen_error(capsys, tmp_path, monkeypatch):
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("unforeseen " + TOKEN)
+
+    monkeypatch.setattr(runner, "_require_source_event", explode)
+    code, report = run_source_command(capsys, tmp_path, source_event())
+    assert code == 1 and "inert" not in report
+    assert report["error"] == "unforeseen error: RuntimeError"
 
 
 @pytest.mark.parametrize(
@@ -2957,9 +3540,12 @@ def test_enforce_has_no_argument_that_selects_a_pull_request_or_a_mode():
     assert "POST" not in source
 
 
-def test_cli_registers_merge_guard_enforce_without_arguments(monkeypatch, capsys):
+def test_cli_registers_merge_guard_enforce_without_arguments(
+    monkeypatch, capsys, tmp_path
+):
     monkeypatch.setenv("GITHUB_REPOSITORY", "TheAxiomFoundation/axiom-encode")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", event_file(tmp_path, source_event()))
     monkeypatch.delenv(runner.TOKEN_ENV, raising=False)
     monkeypatch.setattr(sys, "argv", ["axiom-encode", "merge-guard-enforce"])
     with pytest.raises(SystemExit) as stop:
