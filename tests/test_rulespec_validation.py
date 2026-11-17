@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import time
 import tomllib
 from decimal import Decimal
 from pathlib import Path
@@ -38295,6 +38296,11 @@ def test_extract_json_object_damaged_failing_verdict_cannot_be_superseded(
         'the "passed" flag and the "score" field are right',
         'Use {"passed": false, "score": 1} when it is wrong.',
         "Use 'passed' or {passed} or passed:true or 'passed: no' in prose",
+        "The test sets 'passed': true without checking",
+        "expected {'passed': True, 'score': 9}",
+        "returns {passed: true} always",
+        "cases ok,\npassed: 3\nfailed: 0",
+        'The field \u201cpassed\u201d: is right and "Passed": too',
         'issues: none; reasoning: n/a; the map {"a b c is odd',
         'a backslash \\ and a quote " before "passed" : here',
         "ends in a backslash \\",
@@ -38322,20 +38328,129 @@ def test_extract_json_object_raw_key_count_accepts_one_verdict(reasoning, form):
     assert _extract_json_object(output) == payload
 
 
-def test_extract_json_object_raw_key_count_refuses_keys_outside_the_verdict():
-    # Disclosed cost of failing closed: a review key token in prose outside
-    # the verdict object is refused, as an unread fragment would be.
-    output = 'I set "passed": true below.\n{"passed": true, "score": 9}'
+def test_extract_json_object_accepts_key_spellings_in_a_raw_newline_string():
+    output = '{"score":9,"passed":true,"reasoning":"cases ok,\npassed: 3\nfailed: 0"}'
+    assert _extract_json_object(output) == {
+        "score": 9,
+        "passed": True,
+        "reasoning": "cases ok,\npassed: 3\nfailed: 0",
+    }
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        'I set "passed": true because all checks hold.',
+        'The "score": 9 is high.',
+        "Schema: { passed: <boolean>, score: <float> }",
+        "Summary:\n  checks run: 4,\n  passed: 4",
+        "The test sets 'passed': true without checking.",
+    ],
+)
+@pytest.mark.parametrize("prose_first", [True, False])
+@pytest.mark.parametrize("fenced", [True, False])
+def test_extract_json_object_refuses_review_keys_in_prose_outside_the_verdict(
+    prose, prose_first, fenced
+):
+    # Deliberate fail-closed policy: outside the decoded verdict, a key token
+    # in prose cannot be told from a second verdict that could not be read.
+    verdict = _PASSING_VERDICT
+    if fenced:
+        verdict = f"```json\n{verdict}\n```"
+    values = [prose, verdict] if prose_first else [verdict, prose]
+
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object("\n".join(values))
+    # The same words inside the verdict's own string are string content.
+    payload = {"passed": True, "score": 9, "reasoning": prose}
+    assert _extract_json_object(json.dumps(payload)) == payload
+
+
+@pytest.mark.parametrize("key", ["blocking_issues", "non_blocking_issues", "passed"])
+@pytest.mark.parametrize("fragment_first", [True, False])
+def test_extract_json_object_escaped_nested_key_cannot_absorb_a_hidden_fragment(
+    key, fragment_first
+):
+    # A fully \uXXXX-escaped key in the passing object is a decoded key that
+    # no raw token shows. It must not balance a raw key of a hidden fragment.
+    escaped = "".join(f"\\u{ord(char):04x}" for char in key)
+    passing = '{"passed":true,"score":9,"details":{"%s":[]}}' % escaped
+    if key == "passed":
+        passing = '{"score":9,"blocking_issues":[],"details":{"%s":1}}' % escaped
+    fragment = '{"note":"\\","%s":["wrong and/or"],}' % key
+    values = [fragment, passing] if fragment_first else [passing, fragment]
+
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object("\n".join(values))
+    # The escaped spelling is also found outside a verdict, at any key length.
+    hidden = '{"note":"\\","%s":["x"],}' % escaped
+    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
+        _extract_json_object(hidden + "\n" + _PASSING_VERDICT)
+
+
+def test_decode_candidate_extent_ends_at_the_decoded_prefix():
+    decode = validator_pipeline._decode_json_object_candidate_extent
+    verdict = '{"passed": true, "score": 9}'
+
+    assert decode(verdict) == ({"passed": True, "score": 9}, len(verdict))
+    assert decode(f"  {verdict}\n") == ({"passed": True, "score": 9}, len(verdict) + 3)
+    data, consumed = decode(f'  {verdict} "blocking_issues": ["x"]}}')
+    assert (data, consumed) == ({"passed": True, "score": 9}, 2 + len(verdict))
+    # The count maps back through the trailing-comma repair.
+    repaired = '{"issues": [1,], "passed": true,}'
+    data, consumed = decode(repaired + ' "score": 1,}')
+    assert data == {"issues": [1], "passed": True}
+    assert consumed == len(repaired)
+
+
+@pytest.mark.parametrize(
+    "verdict",
+    ['{"passed": true, "score": 9}', '{"issues": [1,], "passed": true, "score": 9,}'],
+)
+def test_extract_json_object_refuses_a_fragment_after_a_decoded_prefix(
+    monkeypatch, verdict
+):
+    # The decoder accepts a prefix of its candidate. If the lexer ever hands
+    # it more than one object, the text after the prefix is outside.
+    output = verdict + ' "blocking_issues": ["wrong and/or"]}'
+    whole = validator_pipeline._ReviewJsonObjectSpan(
+        0, len(output), review_like=True, has_passed=True
+    )
+    monkeypatch.setattr(
+        validator_pipeline, "_review_json_object_spans", lambda _output: [whole]
+    )
+    assert validator_pipeline._decode_json_object_candidate(output)["passed"] is True
+
     with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
         _extract_json_object(output)
-    output = 'The "score": 9 is high.\n{"passed": true, "score": 9}'
-    with pytest.raises(ValueError, match="Multiple reviewer JSON verdict objects"):
-        _extract_json_object(output)
-    # The same for a pseudo-JSON `passed` key quoted inside a string.
-    for example in ("{'passed': false}", "{passed: false}"):
-        output = json.dumps({"passed": True, "score": 9, "reasoning": example})
-        with pytest.raises(ValueError, match="Multiple reviewer JSON verdict"):
-            _extract_json_object(output)
+    assert _extract_json_object(verdict + " and no more.}")["passed"] is True
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        "{" + "/**/" * 200 + "x",
+        "{" + "/*" * 20000,
+        "{ /* " + "* " * 20000,
+        "\\" * 100000 + '"',
+        '"a' * 50000,
+        ",\n" * 50000,
+        'word "quoted": thing, {x}\n' * 20000,
+    ],
+    ids=[
+        "closed-comments",
+        "open-comments",
+        "comment-stars",
+        "backslashes",
+        "quotes",
+        "comma-lines",
+        "prose-braces",
+    ],
+)
+def test_extract_json_object_raw_key_scan_does_not_backtrack(tail):
+    started = time.perf_counter()
+    assert _extract_json_object(_PASSING_VERDICT + "\n" + tail)["passed"] is True
+    assert time.perf_counter() - started < 1
 
 
 @pytest.mark.parametrize("seed", range(4))

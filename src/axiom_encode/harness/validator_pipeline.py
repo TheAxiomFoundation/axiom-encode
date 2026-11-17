@@ -1056,32 +1056,56 @@ def _unique_reviewer_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _decode_json_object_candidate(text: str) -> dict[str, Any] | None:
     """Decode a JSON object candidate with strict and reviewer-friendly modes."""
-    cleaned = text.strip().replace("\u3000", " ")
+    decoded = _decode_json_object_candidate_extent(text)
+    return None if decoded is None else decoded[0]
+
+
+def _decode_json_object_candidate_extent(
+    text: str,
+) -> tuple[dict[str, Any], int] | None:
+    """Decode a candidate; also return how many characters of it were read.
+
+    A whole-text decode reads all of ``text``. The prefix fallback reads less:
+    the count then ends at the last character of the decoded object, mapped
+    back through the trailing-comma repair, so the rest is known to be unread.
+    """
+    stripped = text.lstrip()
+    lead = len(text) - len(stripped)
+    cleaned = stripped.rstrip().replace("　", " ")
     if not cleaned:
         return None
 
-    variants = [cleaned]
+    removed_commas: list[int] = []
+    variants: list[tuple[str, list[int]]] = [(cleaned, removed_commas)]
     without_trailing_commas = _strip_trailing_json_commas(cleaned)
     if without_trailing_commas != cleaned:
-        variants.append(without_trailing_commas)
+        variants.append(
+            (
+                without_trailing_commas,
+                [match.start() for match in re.finditer(r",(\s*[}\]])", cleaned)],
+            )
+        )
 
-    for variant in variants:
+    for variant, removed in variants:
         for strict in (True, False):
             with contextlib.suppress(json.JSONDecodeError):
                 data = json.loads(
                     variant, strict=strict, object_pairs_hook=_unique_reviewer_json_keys
                 )
                 if isinstance(data, dict):
-                    return data
+                    return data, len(text)
 
         for strict in (True, False):
             decoder = json.JSONDecoder(
                 strict=strict, object_pairs_hook=_unique_reviewer_json_keys
             )
             with contextlib.suppress(json.JSONDecodeError):
-                data, _ = decoder.raw_decode(variant)
+                data, end = decoder.raw_decode(variant)
                 if isinstance(data, dict):
-                    return data
+                    for position in removed:
+                        if position < end:
+                            end += 1
+                    return data, lead + end
 
     return None
 
@@ -1126,21 +1150,27 @@ def _brace_in_string_starts_object(output: str, quote: int) -> bool:
     return False
 
 
+# Only these can start a JSON object. A failed decode costs time in proportion
+# to its offset, so prose braces are skipped without a decode attempt.
+_JSON_OBJECT_START = re.compile(r'\{[ \t\n\r]*["}]')
+
+
 def _well_formed_json_objects(output: str) -> list[tuple[int, int, dict[str, Any]]]:
     """Decode every outermost well-formed JSON object, without the lexer."""
     text = output.replace("\u3000", " ")
     decoder = json.JSONDecoder(strict=False)
     objects: list[tuple[int, int, dict[str, Any]]] = []
-    position = text.find("{")
-    while position != -1:
+    start = _JSON_OBJECT_START.search(text)
+    while start is not None:
+        position = start.start()
         try:
             data, end = decoder.raw_decode(text, position)
         except (ValueError, RecursionError):
-            position = text.find("{", position + 1)
+            start = _JSON_OBJECT_START.search(text, position + 1)
             continue
         if isinstance(data, dict):
             objects.append((position, end, data))
-        position = text.find("{", max(end, position + 1))
+        start = _JSON_OBJECT_START.search(text, max(end, position + 1))
     return objects
 
 
@@ -1162,6 +1192,7 @@ def _decoded_review_verdicts(value: Any, under_review: bool) -> list[dict[str, A
 def _refuse_verdicts_hidden_from_lexer(
     output: str,
     selected: tuple[_ReviewJsonObjectSpan, dict[str, Any] | None] | None,
+    well_formed: list[tuple[int, int, dict[str, Any]]],
 ) -> None:
     """Fail closed when decoded JSON holds a verdict the lexer did not select.
 
@@ -1170,7 +1201,7 @@ def _refuse_verdicts_hidden_from_lexer(
     require that their verdicts are exactly the lexer's selection.
     """
     found: list[tuple[int, int, dict[str, Any]]] = []
-    for start, end, data in _well_formed_json_objects(output):
+    for start, end, data in well_formed:
         inside_selected = (
             selected is not None
             and selected[1] is not None
@@ -1262,82 +1293,69 @@ def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
 
 # A quote that an even number of backslashes precedes is not escaped.
 _UNESCAPED = r"(?<!\\)(?:\\\\)*"
-_PASSED_KEY_TOKEN = re.compile(
+# Each alternative is linear: no nested unbounded repeat, and a comment
+# cannot span a comment end.
+_REVIEW_KEY_TOKEN_OUTSIDE_VERDICT = re.compile(
     "|".join(
         (
             # A JSON key. An escaped example inside a string does not count.
-            _UNESCAPED + r'"passed"\s*:',
-            # Pseudo-JSON that neither the lexer nor the decoder reads.
-            _UNESCAPED + r"'passed'\s*:",
-            r"[\u2018\u2019\u201c\u201d]passed[\u2018\u2019\u201c\u201d]\s*:",
-            # An unquoted key: first in its object, or first on its line after
-            # a comma. A comma on the same line is left out: prose such as
-            # "2 failed, passed: 3" must not look like a key.
-            r"(?:\{\s*|,[^\S\n]*\n\s*)(?:/\*.*?\*/\s*)*passed\s*:",
-            # A comment between the brace or comma and a quoted key hides the
-            # object from the lexer; the quoted forms above still count it.
+            _UNESCAPED + '"(?:' + "|".join(sorted(_REVIEW_JSON_KEYS)) + r')"\s*:',
+            # `passed` in spellings that neither the lexer nor the decoder
+            # reads: another case, single or curly quotes, or no quotes.
+            _UNESCAPED + r'(?i:"passed")\s*:',
+            _UNESCAPED + r"(?i:'passed')\s*:",
+            r"[‘’“”](?i:passed)[‘’“”]\s*:",
+            # Unquoted: first in its object, or first on its line after a
+            # comma, with optional block comments before it.
+            r"(?:\{|,[^\S\n]*\n)\s*"
+            r"(?:/\*(?:[^*]|\*(?!/)){0,200}\*/\s*){0,8}(?i:passed)\s*:",
         )
-    ),
-    re.IGNORECASE | re.DOTALL,
+    )
 )
-_REVIEW_KEY_TOKEN = re.compile(
-    _UNESCAPED + '"(' + "|".join(sorted(_REVIEW_JSON_KEYS)) + r')"\s*:'
-)
+# A key spelled with backslash escapes: up to 160 characters or escapes, more
+# than the longest review key written as \uXXXX throughout.
 _ESCAPED_KEY_TOKEN = re.compile(
-    _UNESCAPED + r'("(?:[^"\\\n]|\\.){0,64}")\s*:', re.DOTALL
+    _UNESCAPED + r'("(?:[^"\\\n]|\\.){0,160}")\s*:', re.DOTALL
 )
 
 
-def _raw_review_key_tokens(output: str) -> tuple[Counter[str], int]:
-    """Count review key tokens in the raw text, whatever the JSON state.
-
-    The count needs no string parity and no decoding, so damage before a
-    review key (an odd quote, a string that ends in a backslash) cannot hide
-    the key. Returns the count of each JSON review key, with backslash-escaped
-    spellings decoded, and the count of `passed` keys in spellings that are
-    not JSON: another case, single or curly quotes, or no quotes.
-    """
-    keys = Counter(match.group(1) for match in _REVIEW_KEY_TOKEN.finditer(output))
-    other_passed = len(_PASSED_KEY_TOKEN.findall(output)) - keys["passed"]
-    escaped_passed = 0
-    for match in _ESCAPED_KEY_TOKEN.finditer(output):
+def _has_review_key_token(text: str) -> bool:
+    if _REVIEW_KEY_TOKEN_OUTSIDE_VERDICT.search(text):
+        return True
+    for match in _ESCAPED_KEY_TOKEN.finditer(text):
         token = match.group(1)
         if "\\" not in token:
             continue
         with contextlib.suppress(ValueError):
             key = json.loads(token, strict=False)
-            if key in _REVIEW_JSON_KEYS:
-                keys[key] += 1
-            elif isinstance(key, str) and key.casefold() == "passed":
-                escaped_passed += 1
-    return keys, other_passed + escaped_passed
+            if isinstance(key, str) and (
+                key in _REVIEW_JSON_KEYS or key.casefold() == "passed"
+            ):
+                return True
+    return False
 
 
-def _decoded_review_key_counts(value: Any) -> Counter[str]:
-    counts: Counter[str] = Counter()
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in _REVIEW_JSON_KEYS:
-                counts[key] += 1
-            counts.update(_decoded_review_key_counts(child))
-    elif isinstance(value, list):
-        for child in value:
-            counts.update(_decoded_review_key_counts(child))
-    return counts
+def _refuse_review_keys_outside_verdict(output: str, start: int, end: int) -> None:
+    """Fail closed when text outside the decoded verdict holds a review key.
 
+    ``output[start:end]`` is what the decoder read as the verdict (or the
+    well-formed object around it): there, everything is a known key or string
+    content. Any review key token elsewhere belongs to something else: a
+    second verdict, or a fragment that the lexer and the decoder could not
+    read. The scan needs no string state and no decoding, so damage before a
+    key (an odd quote, a string that ends in a backslash) cannot hide it.
 
-def _refuse_review_keys_outside_verdict(output: str, data: dict[str, Any]) -> None:
-    """Fail closed when the raw text has a review key the verdict lacks.
+    Deliberate policy: prose outside the verdict that quotes a key is refused
+    too, for example `I set "passed": true because ...` before the object,
+    `Schema: { passed: <boolean> }`, or `checks run: 4,` then a line
+    `passed: 4`. The scan cannot tell such prose from a second verdict.
 
-    Every review key token of a single verdict is a key of its decoded object.
-    A token beyond those belongs to something else: a second verdict, or a
-    fragment that the lexer and the decoder could not read.
+    Known limits: an unquoted `passed:` after a comma on the same line is not
+    detected, and neither is a pseudo-JSON fragment without a counted
+    spelling (for example single-quoted or unquoted keys other than
+    `passed`).
     """
-    raw, other_passed = _raw_review_key_tokens(output)
-    decoded = _decoded_review_key_counts(data)
-    if raw["passed"] + other_passed > 1 or any(
-        count > decoded[key] for key, count in raw.items()
-    ):
+    if _has_review_key_token(output[:start]) or _has_review_key_token(output[end:]):
         raise ValueError("Multiple reviewer JSON verdict objects in output")
 
 
@@ -1345,17 +1363,49 @@ def _extract_json_object(output: str) -> dict[str, Any]:
     """Extract one physical reviewer verdict; refuse multiple occurrences.
 
     Three independent checks refuse a second verdict: the tolerant lexer, the
-    decode of every well-formed object, and the count of raw review key
-    tokens. The last one holds when the others have lost the string state.
+    decode of every well-formed object, and the scan for raw review key
+    tokens outside the verdict. The last one holds when the others have lost
+    the string state.
     """
-    data = _select_reviewer_json_object(output)
-    _refuse_review_keys_outside_verdict(output, data)
+    data, start, end = _select_reviewer_json_object(output)
+    _refuse_review_keys_outside_verdict(output, start, end)
     return data
 
 
-def _select_reviewer_json_object(output: str) -> dict[str, Any]:
+def _decode_review_span(
+    output: str, span: _ReviewJsonObjectSpan
+) -> tuple[dict[str, Any], int] | None:
+    """Decode one lexer span; return its data and the end of what was read."""
+    candidate = output[span.start : span.end]
+    if span.end is not None:
+        decoded = _decode_json_object_candidate_extent(candidate)
+        return None if decoded is None else (decoded[0], span.start + decoded[1])
+    # The candidate starts at its brace, so offsets in the body are offsets
+    # in the output. Reading the appended brace means reading to the end:
+    # only whitespace and a closing fence were dropped.
+    body = re.sub(r"\s*```\s*$", "", candidate.strip()).strip()
+    decoded = _decode_json_object_candidate_extent(body + "}")
+    if decoded is None:
+        return None
+    data, consumed = decoded
+    return data, len(output) if consumed > len(body) else span.start + consumed
+
+
+def _select_reviewer_json_object(output: str) -> tuple[dict[str, Any], int, int]:
+    """Return the verdict and the extent of the output that decoded as it."""
     spans = _review_json_object_spans(output)
+    well_formed = _well_formed_json_objects(output)
+
+    def extent(span: _ReviewJsonObjectSpan, end: int) -> tuple[int, int]:
+        # A well-formed object around the selection is decoded JSON too, and
+        # the decode check has shown that it holds no other verdict.
+        for outer_start, outer_end, _data in well_formed:
+            if outer_start <= span.start < outer_end:
+                return min(outer_start, span.start), max(outer_end, end)
+        return span.start, end
+
     reviews: list[tuple[_ReviewJsonObjectSpan, dict[str, Any] | None]] = []
+    review_end = 0
     for span in spans:
         if not span.review_like:
             continue
@@ -1371,24 +1421,22 @@ def _select_reviewer_json_object(output: str) -> dict[str, Any]:
             continue
         if reviews:
             raise ValueError("Multiple reviewer JSON verdict objects in output")
-        candidate = output[span.start : span.end]
-        if span.end is None:
-            candidate = re.sub(r"\s*```\s*$", "", candidate.strip()).strip() + "}"
-        reviews.append((span, _decode_json_object_candidate(candidate)))
-    _refuse_verdicts_hidden_from_lexer(output, reviews[0] if reviews else None)
+        decoded = _decode_review_span(output, span)
+        reviews.append((span, None if decoded is None else decoded[0]))
+        review_end = 0 if decoded is None else decoded[1]
+    _refuse_verdicts_hidden_from_lexer(
+        output, reviews[0] if reviews else None, well_formed
+    )
     if reviews:
-        _span, data = reviews[0]
+        span, data = reviews[0]
         if data is None or not _looks_like_review_json(data):
             raise ValueError("Malformed reviewer JSON verdict object")
-        return data
+        return (data, *extent(span, review_end))
 
     for span in spans:
-        candidate = output[span.start : span.end]
-        if span.end is None:
-            candidate = re.sub(r"\s*```\s*$", "", candidate.strip()).strip() + "}"
-        data = _decode_json_object_candidate(candidate)
-        if data is not None:
-            return data
+        decoded = _decode_review_span(output, span)
+        if decoded is not None:
+            return (decoded[0], *extent(span, decoded[1]))
 
     raise ValueError("No JSON found in output")
 
