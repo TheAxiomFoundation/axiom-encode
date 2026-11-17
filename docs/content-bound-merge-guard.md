@@ -680,35 +680,102 @@ Neither form is recorded, and at most one may be.
   - Lock 3 then reads the active rules of the branch, anonymously:
     `GET /repos/<repo>/rules/branches/main`, every page within a bound. It
     passes only when the whole listing has exactly one rule of type
-    `workflows`; that rule is from a ruleset of the organization
-    (`ruleset_source_type: "Organization"`, `ruleset_source:
-    "TheAxiomFoundation"`, an integer `ruleset_id`); it names exactly one
-    workflow with the recorded repository id, the recorded path, a `sha` of
-    the recorded set and no `ref`; and the listing has a rule of type
-    `merge_queue`. A ruleset in `Evaluate` or `Disabled` mode is not in the
+    `workflows`; that rule has no key outside `type`, `parameters`,
+    `ruleset_source_type`, `ruleset_source` and `ruleset_id`; it is from a
+    ruleset of the organization (`ruleset_source_type: "Organization"`,
+    `ruleset_source: "TheAxiomFoundation"`, an integer `ruleset_id`); it
+    names exactly one workflow with the recorded repository id, the
+    recorded path, a `sha` of the recorded set and no `ref`; and the
+    listing has at least one rule of type `merge_queue`, each of them a
+    well-formed rule of the RuleSpec repository's own ruleset (below). The
+    rules of a ruleset in `Evaluate` or `Disabled` mode are not in the
     listing [docs: "Rules in rulesets with "evaluate" or "disabled"
     enforcement statuses are not returned", REST "Get rules for a branch",
-    read 2026-11-17], so it refuses. A rule of a repository ruleset, a
-    second `workflows` rule, a second workflow, a `ref`, an unknown key in
-    the entry, a read error, a rate limit and an unknown shape all refuse.
+    read 2026-11-17]; the listing can still hold rules of other rulesets.
+    With the guard's ruleset in such a mode the listing has no `workflows`
+    rule, so it refuses. A rule of a repository ruleset, a second
+    `workflows` rule, a second workflow, a `ref`, an unknown key in the
+    entry, in the parameters or in the rule, a read error and a rate limit
+    all refuse.
+  - Two decisions about the `workflows` rule, each the stricter reading
+    until X14 records a live response (review round 1, P2-2):
+    - A key of the rule outside the five above refuses, in particular
+      `enforcement`, `bypass_actors` and `current_user_can_bypass`. They
+      are fields of a ruleset in the REST schema, not of a rule of this
+      listing; what they would mean here is not documented. If GitHub's
+      live response carries another key, the lock stays shut until a
+      reviewed change of the lock.
+    - `do_not_enforce_on_create` must be absent or exactly `false`. The
+      schema describes `true` as "Allow repositories and branches to be
+      created if a check would otherwise prohibit it"; whether that touches
+      a merge into an existing `main` is not documented.
   - Why the merge queue is part of the lock: no event follows a review, so
     a pass on the pull request stays green after a dismissal. Only the
     merge-group run reads the reviews again at merge time. Admission
     without the pre-sign approval must not open while a merge can go around
-    the queue. The `merge_queue` rule may come from any ruleset. A merge
-    queue that is set in classic branch protection is expected not to be in
-    this listing, and then does not count [not verified]; the lock fails
-    closed.
+    the queue. A merge queue that is set in classic branch protection is
+    expected not to be in this listing, and then does not count [not
+    verified]; the lock fails closed.
+  - What the lock requires of the merge queue rule, and why not more
+    (review round 1, P2-1). GitHub's documentation of "Require merge queue"
+    says: "This rule is not available for rulesets created at the
+    organization level." [docs: "Available rules for rulesets", read
+    2026-11-17; source file in `github/docs` at `49a012fa`, last changed in
+    `1e6ab0ef`]. So the organization source that is required of the
+    `workflows` rule cannot be required of the queue. Required instead, of
+    every `merge_queue` rule in the listing: no key outside the five rule
+    keys, `parameters` a JSON object, `ruleset_source_type: "Repository"`,
+    `ruleset_source` exactly the repository that is checked, a positive
+    integer `ruleset_id`. A rule of type `merge_queue` alone, and a queue
+    rule that names another repository, refuse.
+  - **The limit of the queue half.** The queue rule lives in a repository
+    ruleset, which the administrators of the RuleSpec repository can edit,
+    disable or give a bypass list. The read cannot see that ruleset's
+    bypass list. An administrator on it merges outside the queue, with the
+    pull-request pass that stays green after a dismissed approval. The lock
+    proves only that the rule was present at each of its reads: the start
+    and the end of admission and each revalidation.
+  - The queue's parameters are not checked. All seven of the schema
+    `repository-rule-merge-queue` were examined: `merge_method`,
+    `grouping_strategy`, `max_entries_to_build`, `max_entries_to_merge`,
+    `min_entries_to_merge`, `min_entries_to_merge_wait_minutes`,
+    `check_response_timeout_minutes`. Reason: the merge-group evaluation of
+    the enforcing guard (change 3b; a stub that fails on this branch)
+    passes only when the group is built on the live `main` tip and its
+    tree is the tree of one judged pull request head [read in
+    `content_merge_guard.py` of `claude/merge-guard-enforce` at
+    `9888240e9`]. A group of two or more pull requests has another tree or
+    another base and fails at the guard, with `ALLGREEN` and with
+    `HEADGREEN`, and for every merge method, because trees are compared.
+    The size, wait and concurrency values decide whether and when a group
+    forms; a check that does not report within the timeout counts as failed
+    [schema text]. So no value lets a merge pass the merge-group check
+    without a judged tree; a wrong value stops merges. This rests on that
+    guard, which the lock does not read, and on GitHub requiring the
+    workflow on the merge group [not verified; §6].
   - The admission record's `guard` is then `{form:
     "organization_ruleset_workflow", ruleset_id, repository_id, path,
     sha}`; the App form's record is unchanged. Revalidation compares the
     whole record, so a pin that moves between admission and signing
     refuses, also to another recorded SHA.
-  - What this read cannot see: the ruleset's bypass list (the ruleset
-    endpoint returns `bypass_actors` only to a caller with write access to
-    the ruleset [docs: REST "Get a repository ruleset", read 2026-11-17]);
-    whether GitHub runs the file of exactly the pinned commit; any later
-    change by an organization owner.
+  - What this read cannot see: the bypass list of the organization ruleset
+    (the ruleset endpoint returns `bypass_actors` only to a caller with
+    write access to the ruleset [docs: REST "Get a repository ruleset",
+    read 2026-11-17]); the bypass list and the editors of the repository
+    ruleset that holds the merge queue; whether GitHub runs the file of
+    exactly the pinned commit; any later change by an organization owner.
+    A bypass entry that exists before the dispatch is invisible at every
+    read.
+  - What the lock does not check. That the pinned file is the guard: the
+    path is a name, and the recorded SHA set is the ONLY evidence. The
+    reviewed change that records a SHA in `GUARD_WORKFLOW` asserts that the
+    file at that path in that commit is the reviewed guard workflow; the
+    lock does not read the file, does not check that the commit exists in
+    the recorded repository, and compares the repository by its numeric id
+    only. The merge queue's parameters (above). The identity of the
+    queue's ruleset between two reads: its `ruleset_id` is not in the
+    admission record, so a queue ruleset that is replaced by another
+    well-formed one of the same repository does not refuse.
   - The response shape of a `workflows` rule on this endpoint has a
     documented schema and no documented example. The test fixture
     `tests/fixtures/merge_guard_requirement/rules_branches_main_workflows_SYNTHETIC.json`
@@ -718,7 +785,9 @@ Neither form is recorded, and at most one may be.
     Recorded on 2026-11-17 (`rules_branches_main_recorded.json`): the
     listing of `rulespec-us` `main` is empty, and the listing of
     axiom-encode `main` holds one `merge_queue` rule of a repository
-    ruleset. Both refuse.
+    ruleset: the queue of axiom-encode is a repository ruleset [live read
+    2026-11-17]. No other queue of the organization was read. Both
+    listings refuse.
 - The read is anonymous, so the signing runtime still holds no repository
   credential. Verified on 2026-11-13: the record is public and carries
   `checks[].app_id`.
@@ -937,7 +1006,7 @@ Implementation comes strictly before activation.
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch. Built with three locks: `V6_WRITER_ENABLED = False`, `GUARD_APP_ID = None`, and a live read that the guard check is required (§5, "Encoder") | revert |
 | 5b | axiom-encode | Record the guard App's numeric App ID in `GUARD_APP_ID`, after checklist step 1. The other half, the hosted workflow's evidence step reading `candidate_rulespec_ref` behind the writer's locks, is present and switched off (§5, "Evidence step") | set it back to `None` |
-| 5c | axiom-encode | **Writer lock for the ruleset form (built, locked).** A second accepted form of locks 2 and 3: `GUARD_WORKFLOW = None`, and a live read that an organization ruleset requires the guard workflow at a recorded commit on `main`, with a merge queue (§5, "Encoder"). Exactly one of `GUARD_APP_ID` and `GUARD_WORKFLOW` may be recorded; with neither, as committed, the lane refuses before any read. Needed only if the maintainers accept the ruleset mechanism. The listing it is tested against is SYNTHETIC. [experiment X14]: must be replaced by the recorded live response before activation. | revert; the locks stay shut |
+| 5c | axiom-encode | **Writer lock for the ruleset form (built, locked).** A second accepted form of locks 2 and 3: `GUARD_WORKFLOW = None`, and a live read that an organization ruleset requires the guard workflow at a recorded commit on `main`, with a merge queue rule of the repository's own ruleset (§5, "Encoder"; the queue rule cannot be an organization rule, and the lock proves only that it was present at each of its reads). Exactly one of `GUARD_APP_ID` and `GUARD_WORKFLOW` may be recorded; with neither, as committed, the lane refuses before any read. Needed only if the maintainers accept the ruleset mechanism. The listing it is tested against is SYNTHETIC. [experiment X14]: must be replaced by the recorded live response before activation. | revert; the locks stay shut |
 | 6 | axiom-encode | **Activation**: turn the switch on; update `docs/reviewed-pr-promotion.md` | flip the switch back; the required check stays |
 
 ### Activation checklist
@@ -984,8 +1053,20 @@ gains these conditions before change 6 merges:
 - Record `GUARD_WORKFLOW` in one reviewed change: the repository id of
   axiom-encode, the workflow path and the reviewed commit SHA or SHAs.
   `GUARD_APP_ID` stays `None`.
-- A maintainer with access confirms that the ruleset's bypass list is empty;
-  the lock cannot read it.
+- A maintainer with access confirms that the bypass list of the
+  organization ruleset is empty, and that the bypass list of the repository
+  ruleset that holds the merge queue of `rulespec-us` is empty. The lock
+  cannot read either list. This confirmation happens once; the lock does
+  not repeat it, and a later entry shows only in the audit log.
+- The maintainers accept in writing the limit of the queue half: the merge
+  queue rule is in a ruleset that the administrators of `rulespec-us` can
+  edit, disable or give a bypass list, and the lock proves only that the
+  rule was present at each of its reads (§5, "Encoder").
+- The live response of X14 is compared with the two shape decisions of the
+  lock: a `workflows` rule with a key outside `type`, `parameters`,
+  `ruleset_source_type`, `ruleset_source`, `ruleset_id`, or with
+  `do_not_enforce_on_create` other than absent or `false`, keeps the lock
+  shut until a reviewed change of the lock.
 
 What fixes the order. D2d ("deployed and enforced before the pre-sign approval
 is removed") forces the guard App (step 1), the runner and the v6 reader pin

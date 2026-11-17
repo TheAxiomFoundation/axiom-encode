@@ -63,16 +63,41 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 #
 # Change 5c: a SECOND accepted form of locks 2 and 3, for the mechanism that
 # has no guard App (an organization ruleset "Require workflows to pass before
-# merging"; a recommendation, not accepted). Lock 2 is then ``GUARD_WORKFLOW``
-# and lock 3 reads the active branch rules of ``main``; see
-# ``_require_guard_workflow_ruleset``. Exactly one of ``GUARD_APP_ID`` and
-# ``GUARD_WORKFLOW`` may be recorded: with neither, and with both, the lane
-# refuses before any read. Both are ``None`` here.
+# merging"; a recommendation, not accepted). Exactly one of ``GUARD_APP_ID``
+# and ``GUARD_WORKFLOW`` may be recorded: with neither, and with both, the
+# lane refuses before any read. Both are ``None`` here. In the ruleset form
+# locks 2 and 3 are:
+#
+# 2. ``GUARD_WORKFLOW``. ``None`` until a reviewed change records the
+#    repository id, the path and the reviewed commit SHAs of the guard
+#    workflow. While it is ``None`` (and ``GUARD_APP_ID`` too) the lane
+#    refuses, also with lock 1 open.
+# 3. ``_require_guard_workflow_ruleset``: a live read of the active branch
+#    rules of ``main`` of the RuleSpec repository, at every admission and
+#    every revalidation. It refuses unless the listing shows exactly one
+#    ``workflows`` rule, from a ruleset of the organization, that pins the
+#    recorded workflow at a recorded commit, and a ``merge_queue`` rule of
+#    the RuleSpec repository's own ruleset.
+#    This read proves LESS than the App form's ("for administrators too"). It
+#    proves that the two rules were in the listing at each read. It does not
+#    show who may bypass them: no read of this module returns a bypass list,
+#    so a bypass entry that exists before the dispatch is invisible at every
+#    read. An organization owner (the enrolled signers may be owners) can add
+#    such an entry before a run, and only the organization audit log shows
+#    it. The activation checklist has a person confirm the bypass lists
+#    once; nothing confirms them again.
+#    The merge queue half is weaker still. GitHub offers "Require merge
+#    queue" in repository rulesets only, so the queue rule lives in a ruleset
+#    that the administrators of the RuleSpec repository can edit, disable or
+#    give a bypass list. The lock proves that the rule was present at each of
+#    its reads (start and end of admission, each revalidation), no more.
 #
 # OPERATOR PRECONDITION, not checkable here: the read of lock 3 proves the
-# requirement at admission and before signing. A repository administrator can
-# remove a required check afterwards; that adversary is out of scope (design,
-# section 9). Do not turn lock 1 before activation checklist step 4 is done.
+# requirement at admission and before signing (in the ruleset form: that the
+# rules are listed, not that they bind the dispatcher; see above). A
+# repository administrator can remove a required check afterwards; that
+# adversary is out of scope (design, section 9). Do not turn lock 1 before
+# activation checklist step 4 is done.
 #
 # RESIDUAL RISK the owners would accept by opening lock 1 (a proposal: they
 # have not accepted it). Lock 3 is read again, never
@@ -86,6 +111,10 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # and merge with no second approval. What exists against that: the
 # organisation audit log records the settings change, and the push to main
 # still runs validation. Neither prevents the merge or supplies a review.
+# In the ruleset form the same owner has two more ways, both invisible to
+# lock 3: a bypass entry of either ruleset that is set BEFORE the run (then
+# no setting changes after signing), and, as an administrator of the RuleSpec
+# repository alone, the merge queue's ruleset.
 #
 # KNOWN LIMIT (availability only). Every read is anonymous. One signing run
 # of this lane makes at least 45 reads (7 of them the branch record) and one
@@ -134,6 +163,14 @@ GUARD_RULESET_FORM: Final = "organization_ruleset_workflow"
 # at c9c95fe3, read on 2026-11-17): ``repository-rule-workflows`` parameters
 # and ``repository-rule-params-workflow-file-reference``. Any other key
 # refuses: an unknown field could change which file runs.
+# A rule of the listing (``repository-rule-detailed``) is the rule itself
+# (``type``, ``parameters``) joined with ``repository-rule-ruleset-info``.
+# Any other key at rule level refuses too, for the ``workflows`` rule and for
+# a ``merge_queue`` rule: an unknown field could say whether the rule binds
+# (``enforcement``, ``bypass_actors``, ``current_user_can_bypass``).
+_BRANCH_RULE_FIELDS: Final = frozenset(
+    {"type", "parameters", "ruleset_source_type", "ruleset_source", "ruleset_id"}
+)
 _WORKFLOWS_PARAMETER_FIELDS: Final = frozenset(
     {"workflows", "do_not_enforce_on_create"}
 )
@@ -473,24 +510,29 @@ def _recorded_guard_workflow() -> GuardWorkflow:
     """``GUARD_WORKFLOW``, or refuse when it is not the exact structure."""
 
     recorded = GUARD_WORKFLOW
+    malformed = "the recorded merge guard workflow is malformed (GUARD_WORKFLOW)"
     # ``type(...) is``: a subclass, a mapping with the same keys, ``True`` as
-    # an id and a list of SHAs are all refused.
+    # an id, a list of SHAs and a subclass of ``frozenset`` (it could answer
+    # ``in`` as it likes) are all refused.
+    if type(recorded) is not GuardWorkflow:
+        raise AdmissionError(malformed)
+    try:
+        repository_id, path, shas = recorded.repository_id, recorded.path, recorded.shas
+    except AttributeError as exc:  # an instance made without its fields
+        raise AdmissionError(malformed) from exc
     if (
-        type(recorded) is not GuardWorkflow
-        or type(recorded.repository_id) is not int
-        or recorded.repository_id <= 0
-        or type(recorded.path) is not str
-        or recorded.path != GUARD_WORKFLOW_PATH
-        or type(recorded.shas) is not frozenset
-        or not recorded.shas
+        type(repository_id) is not int
+        or repository_id <= 0
+        or type(path) is not str
+        or path != GUARD_WORKFLOW_PATH
+        or type(shas) is not frozenset
+        or not shas
         or any(
             type(sha) is not str or re.fullmatch(r"[0-9a-f]{40}", sha) is None
-            for sha in recorded.shas
+            for sha in shas
         )
     ):
-        raise AdmissionError(
-            "the recorded merge guard workflow is malformed (GUARD_WORKFLOW)"
-        )
+        raise AdmissionError(malformed)
     return recorded
 
 
@@ -504,16 +546,20 @@ def _require_guard_workflow_ruleset(
     documentation (https://docs.github.com/en/rest/repos/rules, "Get rules
     for a branch", read on 2026-11-17) says: "Returns all active rules that
     apply to the specified branch. [...] Rules in rulesets with "evaluate" or
-    "disabled" enforcement statuses are not returned." So a ruleset in
-    ``evaluate`` mode is an empty listing here, and refuses.
+    "disabled" enforcement statuses are not returned." That sentence is about
+    the rules of such a ruleset; the listing can still hold rules of other
+    rulesets. When the guard's ruleset is in one of those modes the listing
+    has no ``workflows`` rule, and the count below refuses.
 
     Accepted: exactly one rule of type ``workflows`` in the whole listing,
-    from a ruleset of the organization ``GUARD_RULESET_ORGANIZATION``, with
-    exactly one workflow entry that names the recorded repository id, the
-    recorded path and a ``sha`` of the recorded set, and no ``ref``; and at
-    least one rule of type ``merge_queue``. Without the merge queue a pass on
-    the pull request stays green after a dismissed approval; only the
-    merge-group run reads the reviews again at merge time.
+    with no key outside ``_BRANCH_RULE_FIELDS``, from a ruleset of the
+    organization ``GUARD_RULESET_ORGANIZATION``, with exactly one workflow
+    entry that names the recorded repository id, the recorded path and a
+    ``sha`` of the recorded set, and no ``ref``; and at least one rule of
+    type ``merge_queue``, each of them a well-formed rule of a ruleset of
+    ``repository`` itself. Without the merge queue a pass on the pull request
+    stays green after a dismissed approval; only the merge-group run reads
+    the reviews again at merge time.
 
     Decisions, each the stricter reading until experiment X14 records a live
     response:
@@ -521,14 +567,64 @@ def _require_guard_workflow_ruleset(
       ``sha``: which of the two GitHub follows is not documented.
     - Unknown keys in the rule's ``parameters`` or in the workflow entry
       refuse.
-    - The ``merge_queue`` rule may come from any ruleset (today the queues of
-      this organization are repository rulesets).
+    - Unknown keys of the ``workflows`` rule itself refuse, in particular
+      ``enforcement``, ``bypass_actors`` and ``current_user_can_bypass``:
+      they are fields of a ruleset in the REST schema, not of a rule of this
+      listing, and what they would mean here is not documented.
+    - ``do_not_enforce_on_create`` must be absent or exactly ``False``. The
+      schema describes ``True`` as "Allow repositories and branches to be
+      created if a check would otherwise prohibit it"; whether that touches a
+      merge into an existing ``main`` is not documented, so it refuses.
 
-    What this read cannot see:
-    - The ruleset's bypass list. ``GET /repos/{owner}/{repo}/rulesets/{id}``
-      returns ``bypass_actors`` only to a caller with write access to the
-      ruleset (same documentation page), so an anonymous reader never sees
-      it. An actor on that list merges without the workflow.
+    The merge queue rule. GitHub's documentation of the rule "Require merge
+    queue" says: "This rule is not available for rulesets created at the
+    organization level." (docs.github.com, "Available rules for rulesets",
+    read on 2026-11-17; source file in github/docs at 49a012fa, last changed
+    in 1e6ab0ef.) So the organization source that is required of the
+    ``workflows`` rule cannot be required of the queue. What is required
+    instead, of EVERY rule of type ``merge_queue`` in the listing:
+    - no key outside ``_BRANCH_RULE_FIELDS`` and ``parameters`` a JSON
+      object, as in the one recorded live rule (axiom-encode, 2026-11-17);
+    - ``ruleset_source_type`` exactly ``"Repository"``, ``ruleset_source``
+      exactly ``repository`` and a positive integer ``ruleset_id``. A queue
+      rule "from another repository's ruleset" is not a state GitHub is
+      documented to report, and refuses.
+    The queue's parameters are NOT checked (``merge_method``,
+    ``grouping_strategy``, ``max_entries_to_build``, ``max_entries_to_merge``,
+    ``min_entries_to_merge``, ``min_entries_to_merge_wait_minutes``,
+    ``check_response_timeout_minutes``; all seven of
+    ``repository-rule-merge-queue`` were examined). Reason: the merge-group
+    evaluation of the enforcing guard (``evaluate_merge_group`` of change 3b; on
+    this branch it is a stub that fails) passes only when
+    the group is built on the live ``main`` tip and its tree is the tree of
+    one judged pull request head. A group of two or more pull requests has
+    another tree or another base and fails at the guard, with ``ALLGREEN``
+    and with ``HEADGREEN``, and whatever the merge method, because trees are
+    compared. The size, wait and concurrency parameters only decide whether
+    and when a group forms; a check that does not report within the timeout
+    counts as failed (schema text). So no parameter value lets a merge pass
+    the merge-group check without a judged tree; a wrong value stops merges.
+    This rests on that guard, which this function does not read.
+
+    What this read cannot see, and what the lock therefore does not prove:
+    - The bypass list of the organization ruleset.
+      ``GET /repos/{owner}/{repo}/rulesets/{id}`` returns ``bypass_actors``
+      only to a caller with write access to the ruleset (same documentation
+      page), so an anonymous reader never sees it. An actor on that list
+      merges without the workflow.
+    - Anything about who controls the merge queue rule. It is in a
+      repository ruleset, which the administrators of the RuleSpec
+      repository can edit, disable or give a bypass list; that bypass list
+      is not readable here either. An administrator on it merges outside the
+      queue, with the pull-request pass that stays green after a dismissed
+      approval. The lock proves only that the rule was present at each of
+      its reads: the start and the end of admission and each revalidation.
+    - That the pinned file is the guard. The path is a name. The recorded
+      SHA set is the ONLY evidence: the reviewed change that records a SHA
+      in ``GUARD_WORKFLOW`` asserts that the file at that path in that commit
+      is the reviewed guard workflow. This function does not read the file,
+      does not check that the commit exists in the recorded repository, and
+      compares the repository by its numeric id only.
     - Whether the response of this endpoint for a ``workflows`` rule has the
       shape assumed here. The schema is documented, an example is not; the
       test fixture is SYNTHETIC.
@@ -559,6 +655,10 @@ def _require_guard_workflow_ruleset(
             f"the branch rules show {len(required)}"
         )
     rule = required[0]
+    if not set(rule) <= _BRANCH_RULE_FIELDS:
+        raise AdmissionError(
+            "the rule that requires workflows on main has an unknown field"
+        )
     ruleset_id = rule.get("ruleset_id")
     if (
         rule.get("ruleset_source_type") != "Organization"
@@ -574,6 +674,11 @@ def _require_guard_workflow_ruleset(
     entries = parameters.get("workflows")
     if not set(parameters) <= _WORKFLOWS_PARAMETER_FIELDS or type(entries) is not list:
         raise AdmissionError("the required workflows rule has an unknown shape")
+    if parameters.get("do_not_enforce_on_create", False) is not False:
+        raise AdmissionError(
+            "the required workflows rule is not enforced on creation "
+            "(do_not_enforce_on_create)"
+        )
     if len(entries) != 1:
         raise AdmissionError(
             "the organization ruleset must require exactly one workflow; it "
@@ -603,11 +708,28 @@ def _require_guard_workflow_ruleset(
             "the required workflow is pinned to a commit that is not recorded "
             "(GUARD_WORKFLOW)"
         )
-    if not any(rule["type"] == "merge_queue" for rule in rules):
+    queues = [rule for rule in rules if rule["type"] == "merge_queue"]
+    if not queues:
         raise AdmissionError(
             "main does not require a merge queue; the merge guard reads the "
             "reviews again only on the merge group"
         )
+    for queue in queues:
+        if (
+            not set(queue) <= _BRANCH_RULE_FIELDS
+            or type(queue.get("parameters")) is not dict
+        ):
+            raise AdmissionError("a merge queue rule of main has an unknown shape")
+        if (
+            queue.get("ruleset_source_type") != "Repository"
+            or queue.get("ruleset_source") != repository
+            or type(queue.get("ruleset_id")) is not int
+            or queue["ruleset_id"] <= 0
+        ):
+            raise AdmissionError(
+                "a merge queue rule of main is not from a ruleset of the "
+                "RuleSpec repository itself"
+            )
     return {
         "form": GUARD_RULESET_FORM,
         "ruleset_id": ruleset_id,

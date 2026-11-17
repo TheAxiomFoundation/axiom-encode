@@ -146,6 +146,10 @@ def test_the_synthetic_listing_uses_only_fields_of_the_rest_schema():
     (entry,) = workflows["parameters"]["workflows"]
     assert set(entry) == {"repository_id", "path", "sha"}
     assert set(entry) <= admission._WORKFLOW_ENTRY_FIELDS
+    # The rule-level field set of the lock is the schema's, and it is exactly
+    # the key set of the one recorded live rule of this endpoint.
+    assert admission._BRANCH_RULE_FIELDS == {"type", "parameters"} | info
+    assert set(RECORDED["reads"][1]["response"][0]) == admission._BRANCH_RULE_FIELDS
     # The merge-queue rule is the recorded one of axiom-encode, with another
     # (invented) source and id.
     recorded = RECORDED["reads"][1]["response"][0]
@@ -301,6 +305,28 @@ class _Text(str):
     pass
 
 
+class _EverySha(frozenset):
+    """Review round 1, P3-2: a ``frozenset`` subclass answers ``in`` as it
+    likes. Here it claims to hold every SHA."""
+
+    def __contains__(self, _sha):
+        return True
+
+
+def _without_fields(*names):
+    """Review round 1, P3-3: an instance made without ``__init__``; only the
+    named slots are set."""
+    value = object.__new__(GuardWorkflow)
+    fields = {
+        "repository_id": REPOSITORY_ID,
+        "path": admission.GUARD_WORKFLOW_PATH,
+        "shas": frozenset({SHA_A}),
+    }
+    for name in names:
+        object.__setattr__(value, name, fields[name])
+    return value
+
+
 @pytest.mark.parametrize(
     "workflow",
     [
@@ -351,6 +377,18 @@ class _Text(str):
         pytest.param(_workflow(shas=frozenset({SHA_A, 1})), id="integer-sha"),
         pytest.param(_workflow(shas=frozenset({_Text(SHA_A)})), id="str-subclass-sha"),
         pytest.param(_workflow(shas=frozenset({"main"})), id="a-ref"),
+        pytest.param(_workflow(shas=_EverySha({SHA_A})), id="frozenset-subclass"),
+        pytest.param(
+            _workflow(shas=_EverySha({"c3" * 20})), id="frozenset-subclass-other-sha"
+        ),
+        pytest.param(_without_fields(), id="instance-without-fields"),
+        pytest.param(
+            _without_fields("repository_id", "path"), id="instance-without-shas"
+        ),
+        pytest.param(_without_fields("path", "shas"), id="instance-without-id"),
+        pytest.param(
+            _without_fields("repository_id", "shas"), id="instance-without-path"
+        ),
     ],
 )
 def test_a_malformed_recorded_workflow_refuses_before_any_read(
@@ -431,8 +469,18 @@ def _other_rules(rules):
     rules.append(dict(FILLER, type="pull_request", parameters={}))
 
 
-def _unknown_rule_field(rules):
-    rules[0]["future_field"] = 1
+def _queue_with(**changes):
+    def change(rules):
+        rules[1].update(changes)
+
+    return change
+
+
+def _queue_parameters(**changes):
+    def change(rules):
+        rules[1]["parameters"].update(changes)
+
+    return change
 
 
 @pytest.mark.parametrize(
@@ -443,7 +491,16 @@ def _unknown_rule_field(rules):
         _queue_first,
         _two_queues,
         _other_rules,
-        _unknown_rule_field,
+        # Decision (review round 1, P2-1): the queue's parameters are not
+        # checked. None of them lets a merge pass the merge-group check
+        # without a judged tree; see ``_require_guard_workflow_ruleset``.
+        _queue_parameters(grouping_strategy="HEADGREEN"),
+        _queue_parameters(merge_method="SQUASH"),
+        _queue_parameters(max_entries_to_merge=100, min_entries_to_merge=2),
+        _queue_parameters(check_response_timeout_minutes=1),
+        _queue_parameters(future_parameter=1),
+        _queue_with(parameters={}),
+        _queue_with(ruleset_id=1),
     ],
 )
 def test_harmless_variants_of_the_listing_are_accepted(ruleset_on, world, change):
@@ -519,6 +576,29 @@ def _no_queue(rules):
     del rules[1]
 
 
+def _queue_without(key):
+    def change(rules):
+        del rules[1][key]
+
+    return change
+
+
+def _queue_is(value):
+    def change(rules):
+        rules[1] = copy.deepcopy(value)
+
+    return change
+
+
+def _queue_before(value):
+    """A second merge queue rule, listed before the good one."""
+
+    def change(rules):
+        rules.insert(1, copy.deepcopy(value))
+
+    return change
+
+
 def _queue_type(value):
     def change(rules):
         rules[1]["type"] = value
@@ -536,6 +616,16 @@ REF_FOLLOWING = "follows a ref; only a pinned commit SHA is accepted"
 NOT_PINNED = "is not pinned to a commit SHA$"
 NOT_RECORDED = r"pinned to a commit that is not recorded \(GUARD_WORKFLOW\)"
 QUEUE = "main does not require a merge queue"
+RULE_FIELD = "the rule that requires workflows on main has an unknown field$"
+ON_CREATE = r"is not enforced on creation \(do_not_enforce_on_create\)$"
+QUEUE_SHAPE = "a merge queue rule of main has an unknown shape$"
+QUEUE_SOURCE = (
+    "a merge queue rule of main is not from a ruleset of the RuleSpec "
+    "repository itself$"
+)
+GOOD_QUEUE = SYNTHETIC["response"][1]
+# The one recorded live rule of this endpoint: the queue of ANOTHER repository.
+RECORDED_QUEUE = RECORDED["reads"][1]["response"][0]
 REFUSALS = {
     # Evaluate or disabled enforcement: the rule is not in the listing.
     "empty-listing-as-in-evaluate-mode": (_replace([]), NONE),
@@ -683,10 +773,142 @@ REFUSALS = {
     "empty-sha": (_entry_with(sha=""), NOT_PINNED),
     "sha-256-length": (_entry_with(sha="a1" * 32), NOT_PINNED),
     "unrecorded-sha": (_entry_with(sha="c3" * 20), NOT_RECORDED),
+    # Review round 1, P2-2: a key of the workflows rule outside the schema's
+    # set. It could say whether the rule binds.
+    "rule-level-enforcement-evaluate": (_rule(enforcement="evaluate"), RULE_FIELD),
+    "rule-level-enforcement-active": (_rule(enforcement="active"), RULE_FIELD),
+    "rule-level-bypass-actors": (
+        _rule(bypass_actors=[{"actor_id": 5, "actor_type": "RepositoryRole"}]),
+        RULE_FIELD,
+    ),
+    "rule-level-empty-bypass-actors": (_rule(bypass_actors=[]), RULE_FIELD),
+    "rule-level-current-user-can-bypass": (
+        _rule(current_user_can_bypass="always"),
+        RULE_FIELD,
+    ),
+    "rule-level-future-field": (_rule(future_field=1), RULE_FIELD),
+    "rule-level-null-future-field": (_rule(future_field=None), RULE_FIELD),
+    # Review round 1, P2-2: only absent or exactly ``False``.
+    "not-enforced-on-create-true": (
+        _parameters(do_not_enforce_on_create=True),
+        ON_CREATE,
+    ),
+    "not-enforced-on-create-string": (
+        _parameters(do_not_enforce_on_create="yes"),
+        ON_CREATE,
+    ),
+    "not-enforced-on-create-false-string": (
+        _parameters(do_not_enforce_on_create="false"),
+        ON_CREATE,
+    ),
+    "not-enforced-on-create-null": (
+        _parameters(do_not_enforce_on_create=None),
+        ON_CREATE,
+    ),
+    "not-enforced-on-create-zero": (_parameters(do_not_enforce_on_create=0), ON_CREATE),
+    "not-enforced-on-create-one": (_parameters(do_not_enforce_on_create=1), ON_CREATE),
+    "not-enforced-on-create-empty-list": (
+        _parameters(do_not_enforce_on_create=[]),
+        ON_CREATE,
+    ),
     # The merge queue.
     "no-merge-queue": (_no_queue, QUEUE),
     "merge-queue-type-case": (_queue_type("Merge_Queue"), QUEUE),
     "merge-queue-other-name": (_queue_type("merge-queue"), QUEUE),
+    # Review round 1, P2-1: the queue rule is a well-formed rule object.
+    "queue-of-type-alone": (_queue_is({"type": "merge_queue"}), QUEUE_SHAPE),
+    "queue-without-parameters": (_queue_without("parameters"), QUEUE_SHAPE),
+    "queue-null-parameters": (_queue_with(parameters=None), QUEUE_SHAPE),
+    "queue-list-parameters": (_queue_with(parameters=[]), QUEUE_SHAPE),
+    "queue-string-parameters": (_queue_with(parameters="ALLGREEN"), QUEUE_SHAPE),
+    "queue-enforcement-evaluate": (_queue_with(enforcement="evaluate"), QUEUE_SHAPE),
+    "queue-bypass-actors": (_queue_with(bypass_actors=[]), QUEUE_SHAPE),
+    "queue-current-user-can-bypass": (
+        _queue_with(current_user_can_bypass="always"),
+        QUEUE_SHAPE,
+    ),
+    "queue-future-field": (_queue_with(future_field=None), QUEUE_SHAPE),
+    # ... of the ruleset of THIS repository.
+    "queue-of-another-repository-as-recorded": (
+        _queue_is(RECORDED_QUEUE),
+        QUEUE_SOURCE,
+    ),
+    "queue-of-another-rulespec-repository": (
+        _queue_with(ruleset_source="TheAxiomFoundation/rulespec-uk"),
+        QUEUE_SOURCE,
+    ),
+    "queue-of-a-longer-repository-name": (
+        _queue_with(ruleset_source="TheAxiomFoundation/rulespec-us-tn"),
+        QUEUE_SOURCE,
+    ),
+    "queue-source-short-name": (
+        _queue_with(ruleset_source="rulespec-us"),
+        QUEUE_SOURCE,
+    ),
+    "queue-source-case": (
+        _queue_with(ruleset_source="theaxiomfoundation/rulespec-us"),
+        QUEUE_SOURCE,
+    ),
+    "queue-source-trailing-space": (
+        _queue_with(ruleset_source="TheAxiomFoundation/rulespec-us "),
+        QUEUE_SOURCE,
+    ),
+    "queue-source-another-owner": (
+        _queue_with(ruleset_source="other/rulespec-us"),
+        QUEUE_SOURCE,
+    ),
+    "queue-source-as-list": (
+        _queue_with(ruleset_source=["TheAxiomFoundation/rulespec-us"]),
+        QUEUE_SOURCE,
+    ),
+    "queue-source-null": (_queue_with(ruleset_source=None), QUEUE_SOURCE),
+    "queue-without-source": (_queue_without("ruleset_source"), QUEUE_SOURCE),
+    # GitHub documents no merge queue rule of an organization ruleset; an
+    # unknown state refuses.
+    "queue-organization-source": (
+        _queue_with(
+            ruleset_source_type="Organization", ruleset_source="TheAxiomFoundation"
+        ),
+        QUEUE_SOURCE,
+    ),
+    "queue-organization-type-with-the-repository-name": (
+        _queue_with(ruleset_source_type="Organization"),
+        QUEUE_SOURCE,
+    ),
+    "queue-source-type-case": (
+        _queue_with(ruleset_source_type="repository"),
+        QUEUE_SOURCE,
+    ),
+    "queue-enterprise-source": (
+        _queue_with(ruleset_source_type="Enterprise"),
+        QUEUE_SOURCE,
+    ),
+    "queue-source-type-null": (_queue_with(ruleset_source_type=None), QUEUE_SOURCE),
+    "queue-without-source-type": (_queue_without("ruleset_source_type"), QUEUE_SOURCE),
+    "queue-without-ruleset-id": (_queue_without("ruleset_id"), QUEUE_SOURCE),
+    "queue-null-ruleset-id": (_queue_with(ruleset_id=None), QUEUE_SOURCE),
+    "queue-string-ruleset-id": (_queue_with(ruleset_id="4343"), QUEUE_SOURCE),
+    "queue-bool-ruleset-id": (_queue_with(ruleset_id=True), QUEUE_SOURCE),
+    "queue-float-ruleset-id": (_queue_with(ruleset_id=4343.0), QUEUE_SOURCE),
+    "queue-zero-ruleset-id": (_queue_with(ruleset_id=0), QUEUE_SOURCE),
+    "queue-negative-ruleset-id": (_queue_with(ruleset_id=-4343), QUEUE_SOURCE),
+    # Every merge queue rule of the listing is held to this, in any position.
+    "a-second-queue-of-type-alone-listed-last": (
+        _append({"type": "merge_queue"}),
+        QUEUE_SHAPE,
+    ),
+    "a-second-queue-of-type-alone-listed-first": (
+        _queue_before({"type": "merge_queue"}),
+        QUEUE_SHAPE,
+    ),
+    "a-second-queue-of-another-repository-listed-last": (
+        _append(RECORDED_QUEUE),
+        QUEUE_SOURCE,
+    ),
+    "a-second-queue-of-another-repository-listed-first": (
+        _queue_before(RECORDED_QUEUE),
+        QUEUE_SOURCE,
+    ),
 }
 
 
@@ -718,6 +940,75 @@ def test_a_true_ruleset_id_is_not_ruleset_one(ruleset_on, world):
     world[RULES][0]["ruleset_id"] = True
     with pytest.raises(AdmissionError, match=SOURCE):
         enforced(world.__getitem__)
+
+
+def test_the_queue_rule_must_name_the_repository_that_is_checked(ruleset_on, world):
+    """Review round 1, P2-1: "this repository" is the argument, not a constant.
+    The same listing is read for another RuleSpec repository: the queue rule of
+    ``rulespec-us`` does not count there, and that repository's own does."""
+    other = "TheAxiomFoundation/rulespec-uk"
+    path = f"/repos/{other}/rules/branches/main?per_page=100&page=1"
+    world[path] = listing()
+    fetch = Recorder(world)
+    with pytest.raises(AdmissionError, match=QUEUE_SOURCE):
+        admission.require_guard_enforced(other, fetch=fetch)
+    assert fetch.calls == [path]
+    world[path][1]["ruleset_source"] = other
+    assert admission.require_guard_enforced(other, fetch=world.__getitem__) == ACCEPTED
+    # And the reverse: that listing does not satisfy the lock for rulespec-us.
+    world[RULES] = copy.deepcopy(world[path])
+    with pytest.raises(AdmissionError, match=QUEUE_SOURCE):
+        enforced(world.__getitem__)
+
+
+def test_a_true_queue_ruleset_id_is_not_ruleset_one(ruleset_on, world):
+    world[RULES][1]["ruleset_id"] = 1
+    assert enforced(world.__getitem__) == ACCEPTED
+    world[RULES][1]["ruleset_id"] = True
+    with pytest.raises(AdmissionError, match=QUEUE_SOURCE):
+        enforced(world.__getitem__)
+
+
+def test_the_recorded_live_queue_rule_is_well_formed_for_its_own_repository(
+    ruleset_on, world
+):
+    """The only recorded live rule (the queue of axiom-encode) passes the
+    queue half when the source it names is the repository that is checked:
+    here with nothing but ``ruleset_source`` changed."""
+    world[RULES][1] = copy.deepcopy(RECORDED_QUEUE) | {
+        "ruleset_source": SELECTOR.repository
+    }
+    assert world[RULES][1]["ruleset_id"] == 26573200
+    assert enforced(world.__getitem__) == ACCEPTED
+
+
+def test_the_limits_of_the_queue_half_are_stated_where_the_lock_is_described():
+    """Review round 1, P2-1 (ii), P3-1, P3-5: the text, not the behaviour."""
+
+    def flat(path):
+        text = (REPOSITORY_ROOT / path).read_text("utf-8").replace("#", " ")
+        return " ".join(text.replace(">", " ").split())
+
+    source = flat("src/axiom_encode/reviewed_pr_admission.py")
+    design = flat("docs/content-bound-merge-guard.md")
+    quoted = (
+        '"This rule is not available for rulesets created at the organization level."'
+    )
+    for text in (source, design):
+        assert quoted in text
+        assert "edit, disable or give a bypass list" in text
+        assert "present at each of its reads" in text
+        assert "ONLY evidence" in text
+    # The module header (comment) and the docstring both carry the limit.
+    assert source.count("present at each of its reads") == 2
+    assert "A bypass entry that exists before the dispatch is invisible" in " ".join(
+        source.replace("a bypass entry", "A bypass entry").split()
+    )
+    # The activation conditions name both bypass lists and say "once".
+    assert "the bypass list of the repository ruleset that holds the merge queue" in (
+        design
+    )
+    assert "This confirmation happens once" in design
 
 
 def test_the_app_forms_branch_record_never_satisfies_the_ruleset_form(
@@ -979,6 +1270,25 @@ def test_revalidation_refuses_any_change_of_the_requirement(admitted, world, cha
     change(world)
     with pytest.raises(AdmissionError):
         admission.revalidate_admission(admitted, fetch=Recorder(world))
+
+
+def _queue_shape_lost(api_):
+    api_[RULES][1]["parameters"] = None
+
+
+def _queue_moved_to_another_repository(api_):
+    api_[RULES][1]["ruleset_source"] = "TheAxiomFoundation/axiom-encode"
+
+
+LIVE_CHANGES += [_queue_shape_lost, _queue_moved_to_another_repository]
+
+
+def test_a_replaced_queue_ruleset_of_the_same_repository_is_not_seen(admitted, world):
+    """A stated limit, pinned: the record does not name the queue's ruleset.
+    Another well-formed queue rule of the same repository passes revalidation."""
+    world[RULES][1]["ruleset_id"] += 1
+    world[RULES][1]["parameters"] = {"grouping_strategy": "HEADGREEN"}
+    assert admission.revalidate_admission(admitted, fetch=Recorder(world)) == admitted
 
 
 @pytest.mark.parametrize("change", LIVE_CHANGES)
