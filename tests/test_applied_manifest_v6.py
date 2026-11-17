@@ -660,7 +660,9 @@ def test_v5_only_readers_do_not_know_v6(path):
 
 
 def test_enabled_telemetry_and_replacement_baseline_refuse_v6(
-    enabled, promotion, manifest_fixture
+    enabled,
+    promotion,
+    manifest_fixture,  # noqa: F811
 ):
     from axiom_encode import supabase_sync
     from axiom_encode.harness.evals import resolve_corpus_source_unit
