@@ -23857,12 +23857,15 @@ def _negative_local_input_clamp_test_issues(
         """Return the case replay reads, or ``None`` for an unproven row case.
 
         One list-valued assertion makes the companion runner query table rows
-        for every output of the case and compare each result as a row-ordered
-        list. Such a case is evidence only when every assertion is a list and
-        the row binding is proven; a scalar assertion beside a list fails in
-        the runner. A case without a list-valued assertion is returned
-        unchanged. The rewritten case is cached so that its identity stays
-        stable for the per-case caches above.
+        for every derived output of the case and compare each result as a
+        row-ordered list. Such a case is evidence only when every derived
+        output is asserted as a list and the row binding is proven; a scalar
+        assertion of a derived output beside a list fails in the runner. A
+        parameter output is evaluated separately and stays a scalar. A name
+        that is not a known parameter counts as a derived output. A case
+        without a list-valued assertion is returned unchanged. The rewritten
+        case is cached so that its identity stays stable for the per-case
+        caches above.
         """
 
         name = str(rule.get("name") or "")
@@ -23871,7 +23874,11 @@ def _negative_local_input_clamp_test_issues(
             isinstance(value, list) for value in outputs.values()
         ):
             return case
-        if not all(isinstance(value, list) for value in outputs.values()):
+        if not all(
+            isinstance(value, list)
+            for key, value in outputs.items()
+            if str(key).rsplit("#", 1)[-1] not in parameter_rule_names
+        ):
             return None
         cache_key = (id(case), name)
         if cache_key not in row_bound_cases:

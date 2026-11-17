@@ -367,3 +367,68 @@ def test_scalar_clamp_assertion_beside_a_sibling_row_assertion_is_refused(malfor
     malform(negative, payload)
     cases = [*_base_cases(_row_case), negative]
     assert _clamp_refused("Payment", cases, payload=payload)
+
+
+def _payload_with_parameter():
+    payload = _payload("Payment")
+    payload["rules"].append(
+        {
+            "name": "fee_cap",
+            "kind": "parameter",
+            "dtype": "Money",
+            "unit": "USD",
+            "period": "Month",
+            "versions": [{"effective_from": "2026-01-01", "formula": "100"}],
+        }
+    )
+    return payload
+
+
+def _row_case_with_parameter(qualifies, amount, expected, cap=100):
+    case = _row_case("negative", qualifies, amount, expected)
+    case["output"][f"{MODULE}#fee_cap"] = cap
+    return case
+
+
+def test_row_case_with_a_scalar_parameter_assertion_witnesses_the_clamp():
+    # The runner evaluates a parameter output separately, as a scalar.
+    cases = [*_base_cases(_row_case), _row_case_with_parameter(True, -25, 0)]
+    assert not _clamp_refused("Payment", cases, payload=_payload_with_parameter())
+
+
+def _wrong_clamp_assertion(case):
+    case["output"][f"{MODULE}#allowable_fee"] = [-25]
+
+
+def _gate_false_row(case):
+    case["tables"]["Payment"][0][f"{MODULE}#input.fee_qualifies"] = False
+
+
+def _scalar_derived_sibling(case):
+    case["output"][f"{MODULE}#fee_counts"] = True
+
+
+def _scalar_unknown_output(case):
+    case["output"]["us:policies/example/other#unknown"] = 1
+
+
+def _list_parameter_assertion(case):
+    # The runner returns a scalar for a parameter and fails a list assertion.
+    case["output"][f"{MODULE}#fee_cap"] = [100]
+
+
+@pytest.mark.parametrize(
+    "spoil",
+    [
+        _wrong_clamp_assertion,
+        _gate_false_row,
+        _scalar_derived_sibling,
+        _scalar_unknown_output,
+        _list_parameter_assertion,
+    ],
+)
+def test_row_case_with_a_parameter_assertion_stays_refused(spoil):
+    negative = _row_case_with_parameter(True, -25, 0)
+    spoil(negative)
+    cases = [*_base_cases(_row_case), negative]
+    assert _clamp_refused("Payment", cases, payload=_payload_with_parameter())
