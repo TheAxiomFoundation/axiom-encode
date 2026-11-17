@@ -61,6 +61,14 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 #    for administrators too. So an open switch does not help while the guard
 #    is not a required check (proposed constraint D2d).
 #
+# Change 5c: a SECOND accepted form of locks 2 and 3, for the mechanism that
+# has no guard App (an organization ruleset "Require workflows to pass before
+# merging"; a recommendation, not accepted). Lock 2 is then ``GUARD_WORKFLOW``
+# and lock 3 reads the active branch rules of ``main``; see
+# ``_require_guard_workflow_ruleset``. Exactly one of ``GUARD_APP_ID`` and
+# ``GUARD_WORKFLOW`` may be recorded: with neither, and with both, the lane
+# refuses before any read. Both are ``None`` here.
+#
 # OPERATOR PRECONDITION, not checkable here: the read of lock 3 proves the
 # requirement at admission and before signing. A repository administrator can
 # remove a required check afterwards; that adversary is out of scope (design,
@@ -95,6 +103,41 @@ GUARD_APP_ID: Final[int | None] = None
 # GitHub Actions. Any workflow of the RuleSpec repository can publish a check
 # as this App, so it can never be the guard's publisher.
 GITHUB_ACTIONS_APP_ID: Final = 15368
+
+
+@dataclass(frozen=True, slots=True)
+class GuardWorkflow:
+    """The guard workflow that an organization ruleset must require (5c).
+
+    ``repository_id``: the numeric id of the repository that holds the
+    workflow file (axiom-encode). ``path``: exactly ``GUARD_WORKFLOW_PATH``.
+    ``shas``: the reviewed commits the ruleset may pin, a non-empty
+    ``frozenset`` of 40 lowercase hex characters each. The dataclass does not
+    check its fields; ``_recorded_guard_workflow`` does, at every use.
+    """
+
+    repository_id: int
+    path: str
+    shas: frozenset[str]
+
+
+# The ruleset form of lock 2 (change 5c). ``None`` until a reviewed activation
+# change records ``GuardWorkflow(...)`` here. No environment variable, CLI
+# flag, dispatch input or setting sets it.
+GUARD_WORKFLOW: Final[GuardWorkflow | None] = None
+GUARD_WORKFLOW_PATH: Final = ".github/workflows/content-bound-merge-guard.yml"
+# The organization whose ruleset must carry the rule. A ruleset of the
+# RuleSpec repository itself does not count: its administrators can edit it.
+GUARD_RULESET_ORGANIZATION: Final = "TheAxiomFoundation"
+GUARD_RULESET_FORM: Final = "organization_ruleset_workflow"
+# The fields of the REST schemas this lock knows (github/rest-api-description
+# at c9c95fe3, read on 2026-11-17): ``repository-rule-workflows`` parameters
+# and ``repository-rule-params-workflow-file-reference``. Any other key
+# refuses: an unknown field could change which file runs.
+_WORKFLOWS_PARAMETER_FIELDS: Final = frozenset(
+    {"workflows", "do_not_enforce_on_create"}
+)
+_WORKFLOW_ENTRY_FIELDS: Final = frozenset({"path", "repository_id", "ref", "sha"})
 CANDIDATE_SCHEMA: Final = "axiom-encode/live-candidate-pr-admission/v1"
 CANDIDATE_FIELDS: Final = frozenset(
     {
@@ -354,8 +397,26 @@ def require_guard_enforced(
     runtime needs no credential. Any read error, a missing field or a shape
     this function does not know refuses. A required check that comes from a
     repository ruleset is not in this record and does not count.
+
+    Change 5c: exactly one of ``GUARD_APP_ID`` (the App form, described
+    above) and ``GUARD_WORKFLOW`` (the organization-ruleset form,
+    ``_require_guard_workflow_ruleset``) may be recorded. Neither, or both,
+    refuses before any read. The two forms return records with different
+    keys; callers compare the record as a whole and read no key of it.
     """
 
+    if GUARD_APP_ID is None and GUARD_WORKFLOW is None:
+        raise AdmissionError(
+            "the merge guard requirement is not recorded on encoder main "
+            "(neither GUARD_APP_ID nor GUARD_WORKFLOW)"
+        )
+    if GUARD_APP_ID is not None and GUARD_WORKFLOW is not None:
+        raise AdmissionError(
+            "ambiguous merge guard configuration on encoder main: both "
+            "GUARD_APP_ID and GUARD_WORKFLOW are recorded"
+        )
+    if GUARD_WORKFLOW is not None:
+        return _require_guard_workflow_ruleset(repository, fetch=fetch)
     if (
         type(GUARD_APP_ID) is not int
         or GUARD_APP_ID <= 0
@@ -406,6 +467,154 @@ def require_guard_enforced(
             "bound to the guard App"
         )
     return {"check": GUARD_CHECK_NAME, "app_id": GUARD_APP_ID}
+
+
+def _recorded_guard_workflow() -> GuardWorkflow:
+    """``GUARD_WORKFLOW``, or refuse when it is not the exact structure."""
+
+    recorded = GUARD_WORKFLOW
+    # ``type(...) is``: a subclass, a mapping with the same keys, ``True`` as
+    # an id and a list of SHAs are all refused.
+    if (
+        type(recorded) is not GuardWorkflow
+        or type(recorded.repository_id) is not int
+        or recorded.repository_id <= 0
+        or type(recorded.path) is not str
+        or recorded.path != GUARD_WORKFLOW_PATH
+        or type(recorded.shas) is not frozenset
+        or not recorded.shas
+        or any(
+            type(sha) is not str or re.fullmatch(r"[0-9a-f]{40}", sha) is None
+            for sha in recorded.shas
+        )
+    ):
+        raise AdmissionError(
+            "the recorded merge guard workflow is malformed (GUARD_WORKFLOW)"
+        )
+    return recorded
+
+
+def _require_guard_workflow_ruleset(
+    repository: str, *, fetch: Callable[[str], object]
+) -> dict:
+    """Refuse unless an organization ruleset requires the guard workflow on ``main``.
+
+    The ruleset form of locks 2 and 3 (change 5c). The read is
+    ``GET /repos/{repository}/rules/branches/main``, anonymous. GitHub's REST
+    documentation (https://docs.github.com/en/rest/repos/rules, "Get rules
+    for a branch", read on 2026-11-17) says: "Returns all active rules that
+    apply to the specified branch. [...] Rules in rulesets with "evaluate" or
+    "disabled" enforcement statuses are not returned." So a ruleset in
+    ``evaluate`` mode is an empty listing here, and refuses.
+
+    Accepted: exactly one rule of type ``workflows`` in the whole listing,
+    from a ruleset of the organization ``GUARD_RULESET_ORGANIZATION``, with
+    exactly one workflow entry that names the recorded repository id, the
+    recorded path and a ``sha`` of the recorded set, and no ``ref``; and at
+    least one rule of type ``merge_queue``. Without the merge queue a pass on
+    the pull request stays green after a dismissed approval; only the
+    merge-group run reads the reviews again at merge time.
+
+    Decisions, each the stricter reading until experiment X14 records a live
+    response:
+    - An entry with a ``ref`` that is not null refuses, also next to a good
+      ``sha``: which of the two GitHub follows is not documented.
+    - Unknown keys in the rule's ``parameters`` or in the workflow entry
+      refuse.
+    - The ``merge_queue`` rule may come from any ruleset (today the queues of
+      this organization are repository rulesets).
+
+    What this read cannot see:
+    - The ruleset's bypass list. ``GET /repos/{owner}/{repo}/rulesets/{id}``
+      returns ``bypass_actors`` only to a caller with write access to the
+      ruleset (same documentation page), so an anonymous reader never sees
+      it. An actor on that list merges without the workflow.
+    - Whether the response of this endpoint for a ``workflows`` rule has the
+      shape assumed here. The schema is documented, an example is not; the
+      test fixture is SYNTHETIC. [experiment X14]: it must be replaced by the
+      recorded live response before activation.
+    - That GitHub runs the file of exactly the pinned commit (experiment X1),
+      and everything after the read: an organization owner can change the
+      ruleset afterwards (design, section 9).
+    """
+
+    recorded = _recorded_guard_workflow()
+    if re.fullmatch(r"TheAxiomFoundation/rulespec-[a-z]{2}", str(repository)) is None:
+        raise AdmissionError("invalid repository for the merge guard requirement")
+    try:
+        rules = _pages(fetch, f"/repos/{repository}/rules/branches/main")
+    except AdmissionError:
+        raise
+    except Exception as exc:  # HTTP error, rate limit, bad JSON: never "absent"
+        raise AdmissionError(
+            "branch rules of the RuleSpec repository cannot be read"
+        ) from exc
+    if any(type(rule.get("type")) is not str for rule in rules):
+        raise AdmissionError("a branch rule of main has no type")
+    required = [rule for rule in rules if rule["type"] == "workflows"]
+    if len(required) != 1:
+        raise AdmissionError(
+            "main must have exactly one active rule that requires workflows; "
+            f"the branch rules show {len(required)}"
+        )
+    rule = required[0]
+    ruleset_id = rule.get("ruleset_id")
+    if (
+        rule.get("ruleset_source_type") != "Organization"
+        or rule.get("ruleset_source") != GUARD_RULESET_ORGANIZATION
+        or type(ruleset_id) is not int
+        or ruleset_id <= 0
+    ):
+        raise AdmissionError(
+            "the rule that requires workflows on main is not from a ruleset of "
+            f"the organization {GUARD_RULESET_ORGANIZATION}"
+        )
+    parameters = _object(rule.get("parameters"), "required workflows parameters")
+    entries = parameters.get("workflows")
+    if not set(parameters) <= _WORKFLOWS_PARAMETER_FIELDS or type(entries) is not list:
+        raise AdmissionError("the required workflows rule has an unknown shape")
+    if len(entries) != 1:
+        raise AdmissionError(
+            "the organization ruleset must require exactly one workflow; it "
+            f"names {len(entries)}"
+        )
+    entry = _object(entries[0], "required workflow")
+    if not set(entry) <= _WORKFLOW_ENTRY_FIELDS:
+        raise AdmissionError("the required workflow entry has an unknown field")
+    if (
+        type(entry.get("repository_id")) is not int
+        or entry["repository_id"] != recorded.repository_id
+        or type(entry.get("path")) is not str
+        or entry["path"] != recorded.path
+    ):
+        raise AdmissionError(
+            "the required workflow is not the recorded merge guard workflow "
+            "(repository id or path differs)"
+        )
+    if entry.get("ref") is not None:
+        raise AdmissionError(
+            "the required workflow follows a ref; only a pinned commit SHA is accepted"
+        )
+    sha = entry.get("sha")
+    if type(sha) is not str or re.fullmatch(r"[0-9a-f]{40}", sha) is None:
+        raise AdmissionError("the required workflow is not pinned to a commit SHA")
+    if sha not in recorded.shas:
+        raise AdmissionError(
+            "the required workflow is pinned to a commit that is not recorded "
+            "(GUARD_WORKFLOW)"
+        )
+    if not any(rule["type"] == "merge_queue" for rule in rules):
+        raise AdmissionError(
+            "main does not require a merge queue; the merge guard reads the "
+            "reviews again only on the merge group"
+        )
+    return {
+        "form": GUARD_RULESET_FORM,
+        "ruleset_id": ruleset_id,
+        "repository_id": recorded.repository_id,
+        "path": recorded.path,
+        "sha": sha,
+    }
 
 
 def _enrolled_dispatcher(run: dict, selector: PromotionSelector) -> dict:
