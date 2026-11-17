@@ -1025,7 +1025,41 @@ def test_gate_script_refuses(changes):
     assert gate(**changes) == 1
 
 
-def test_design_names_the_enforcing_runner_as_its_own_change_before_step_4():
+# The step of the design's activation checklist that makes the guard a merge
+# requirement. Until the recommendation change it was step 4 ("Add the
+# guard's check ... to the required checks"); the checklist is now the whole
+# ordered runbook and the step is number 10 (the ruleset becomes Active).
+ACTIVE_STEP_START = "10. **M** (an organization owner) Switch the ruleset to `Active`"
+ACTIVE_STEP_END = "11. Run the current-order canary"
+ACTIVE_STEP_REQUIRED = [
+    "change 3b",
+    "Hard preconditions",
+    "WARNING",
+    "the experiment passed",
+    "merge queue",
+    "question 0 of §10",
+    "its lane is on at the pinned SHA",
+    "Rollback: set the enforcement back to `Evaluate`",
+    f"`{runner.SHADOW_CHECK_NAME}`",
+    f"`{runner.GUARD_CHECK_NAME}`",
+]
+
+
+def _active_step(doc: str) -> str:
+    flat = " ".join(doc.split())
+    assert flat.count(ACTIVE_STEP_START) == 1 and flat.count(ACTIVE_STEP_END) == 1
+    return flat[flat.index(ACTIVE_STEP_START) : flat.index(ACTIVE_STEP_END)]
+
+
+def active_step_problems(step: str) -> list[str]:
+    return [
+        f"the Active step lost {phrase!r}"
+        for phrase in ACTIVE_STEP_REQUIRED
+        if phrase not in step
+    ]
+
+
+def test_design_names_the_enforcing_runner_as_its_own_change_before_the_active_step():
     doc = (REPOSITORY_ROOT / "docs" / "content-bound-merge-guard.md").read_text()
     rows = [line for line in doc.splitlines() if line.startswith("| 3b |")]
     assert len(rows) == 1
@@ -1033,13 +1067,18 @@ def test_design_names_the_enforcing_runner_as_its_own_change_before_step_4():
     assert "enforcing" in row.lower() and "`content-bound-merge-guard`" in row
     assert "every" in row and "trigger" in row.lower()
     assert "snapshot" in row  # the page-number sweep is fixed there
-    flat = " ".join(doc.split())
-    start = flat.index("4. **M** Add the guard's check")
-    step = flat[start : flat.index("5. Run the current-order canary")]
-    assert "change 3b" in step and "precondition" in step.lower()
-    assert "WARNING" in step
-    assert f"`{runner.SHADOW_CHECK_NAME}`" in step
-    assert f"`{runner.GUARD_CHECK_NAME}`" in step
+    assert active_step_problems(_active_step(doc)) == []
+
+
+@pytest.mark.parametrize("phrase", ACTIVE_STEP_REQUIRED)
+def test_the_active_step_pin_reports_each_lost_element(phrase):
+    doc = (REPOSITORY_ROOT / "docs" / "content-bound-merge-guard.md").read_text()
+    step = _active_step(doc)
+    assert phrase in step
+    assert any(
+        repr(phrase) in problem
+        for problem in active_step_problems(step.replace(phrase, ""))
+    )
 
 
 # --- follow-ups of #2257 --------------------------------------------------------
@@ -1314,8 +1353,10 @@ def test_a_paged_check_listing_that_does_not_add_up_fails_closed(count, changes)
 # when the maintainers revise the step. Each phrase is matched in the step's
 # text with runs of white space collapsed. This pins the wording of the
 # precondition; it is not evidence that any mechanism closes the boundary.
+# The key-exposure scope and the hold stay pinned although the step now
+# recommends an option without a key: they bind both fallbacks and any App.
 STEP_1_START = "1. **M** Hard precondition"
-STEP_1_END = "2. Merge changes 1-4"
+STEP_1_END = "2. **M** Merge the changes in this order"
 STEP_1_REQUIRED = {
     "hold: before the key is stored or the runner enabled, shadow included": [
         "before anyone stores the App key",
@@ -1361,11 +1402,25 @@ STEP_1_REQUIRED = {
         "prevents other workflows from obtaining the key by selecting `merge-guard`",
         "no agent session approving",
     ],
-    # Update this group, in a reviewed change, when Max chooses.
-    "nothing is chosen yet": [
-        "none of them chosen",
+    # Update this group, in a reviewed change, when Max accepts or rejects.
+    "a recommendation exists, and nothing is chosen or accepted": [
+        "None of them is chosen",
         "No option or complement has approval here",
-        "This design chooses neither",
+        "**The recommendation is (g')**",
+        "no guard App and no private key",
+        "`docs/merge-guard-key-protection.md`",
+        "Max has not accepted it",
+    ],
+    "the experiment is a precondition": [
+        "The experiment is a precondition",
+        "`docs/merge-guard-ruleset-experiment.md`",
+        "nothing is chosen for activation",
+    ],
+    "the fallback is named": [
+        "the named fallback is (b)+(d)",
+        "non-exportable signing key",
+        "the second fallback is (b) with the complement",
+        "one approved but wrong change can leak the key for good",
     ],
 }
 
