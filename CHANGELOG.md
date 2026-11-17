@@ -1,3 +1,7 @@
+## 0.2.2384
+
+- Evidence floor for the start date of a date-silent unit (#2227)
+
 ## 0.2.2383
 
 - Reviewed alternative-list readings for the gates-collapsed check (digest-bound registry) (#2216)
