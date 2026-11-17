@@ -1602,3 +1602,18 @@ def test_the_driver_is_a_stdlib_only_helper_outside_the_bundle():
         "driver: imports dynamically (import_module)",
     ]
     assert "tests/" + DRIVER_PATH.name not in launch.SOURCE_FILES
+
+
+def test_the_guard_files_have_both_code_owners():
+    # The workflow carries the digest of the bundle, so a bundle change needs
+    # a change to a file under ``.github/``; these entries give the launcher,
+    # the workflow and their tripwires an owner by name as well.
+    lines = (REPOSITORY_ROOT / ".github" / "CODEOWNERS").read_text().splitlines()
+    for path in (
+        "/.github/workflows/content-bound-merge-guard.yml",
+        "/scripts/merge_guard_launch.py",
+        "/tests/test_merge_guard_enforce_workflow.py",
+        "/tests/merge_guard_bundle_driver.py",
+        *("/" + source for source in launch.SOURCE_FILES),
+    ):
+        assert f"{path} @PavelMakarchuk @MaxGhenis" in lines, path

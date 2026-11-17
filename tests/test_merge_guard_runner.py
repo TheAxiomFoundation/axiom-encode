@@ -1991,18 +1991,24 @@ def run_length(key):
     return report["requests"]
 
 
+# The number of reads of each passing run. Constants, not computed at import:
+# a change that breaks a passing run then fails tests, not the collection.
+PASSING_RUN_LENGTHS = {
+    "pull_request": 25,
+    "pull_request_v5": 14,
+    "pull_request_waited": 43,
+    "merge_group": 29,
+}
 READ_INDEXES = [
-    (key, index) for key in PASSING_RUNS for index in range(run_length(key))
+    (key, index)
+    for key, length in PASSING_RUN_LENGTHS.items()
+    for index in range(length)
 ]
 
 
 def test_the_passing_runs_have_the_measured_number_of_reads():
-    assert {key: run_length(key) for key in PASSING_RUNS} == {
-        "pull_request": 25,
-        "pull_request_v5": 14,
-        "pull_request_waited": 43,
-        "merge_group": 29,
-    }
+    assert set(PASSING_RUN_LENGTHS) == set(PASSING_RUNS)
+    assert {key: run_length(key) for key in PASSING_RUNS} == PASSING_RUN_LENGTHS
     assert len(READ_INDEXES) == 25 + 14 + 43 + 29
 
 

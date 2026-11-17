@@ -2175,23 +2175,23 @@ def test_merge_group_refuses_commits_that_are_not_exact_without_a_read(group, ba
     assert world.calls == []
 
 
-def merge_group_reads():
-    world = queue(build())
-    assert group_verdict(world).verdict == guard.PASS
-    return sorted(set(world.calls) - set(PASSING_READS))
-
-
-MERGE_GROUP_READS = merge_group_reads()
+# The reads a merge group adds to the pull request's evaluation. A constant,
+# so that a change that breaks the passing group fails tests, not collection.
+MERGE_GROUP_READS = sorted(
+    [
+        f"{ROOT}/git/commits/{G}",
+        f"{ROOT}/git/commits/{H}",
+        f"{ROOT}/compare/{B}...{G}",
+    ]
+)
 
 
 def test_merge_group_adds_three_reads_to_the_pull_request_evaluation():
-    assert MERGE_GROUP_READS == sorted(
-        [
-            f"{ROOT}/git/commits/{G}",
-            f"{ROOT}/git/commits/{H}",
-            f"{ROOT}/compare/{B}...{G}",
-        ]
-    )
+    world = queue(build())
+    assert group_verdict(world).verdict == guard.PASS
+    assert sorted(set(world.calls) - set(PASSING_READS)) == MERGE_GROUP_READS
+    # One more read of the main tip than the pull request's evaluation.
+    assert len(world.calls) == 29
 
 
 @pytest.mark.parametrize("path", PASSING_READS + MERGE_GROUP_READS)

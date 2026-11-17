@@ -96,12 +96,6 @@ REQUIRED_ENTRIES = (
     "/src/axiom_encode/rulespec_admission_registry.py",
     "/.github/workflows/validation-effect.yml",
     "/scripts/check_validation_effect.py",
-    # The enforcing merge guard (change 3b): its workflow carries the digest
-    # of the bundle that the launcher lists.
-    "/.github/workflows/content-bound-merge-guard.yml",
-    "/scripts/merge_guard_launch.py",
-    "/tests/test_merge_guard_enforce_workflow.py",
-    "/tests/merge_guard_bundle_driver.py",
 )
 
 Rule = tuple[int, str, frozenset[str]]
