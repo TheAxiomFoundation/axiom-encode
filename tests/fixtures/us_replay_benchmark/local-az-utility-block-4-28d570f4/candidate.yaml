@@ -1,0 +1,223 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+    source_sha256: acdd452f1b956a0ad51c1ac3df42dad0217a27dd698180904be4fae69b774008
+  summary: |-
+    A utility allowance is allowed regardless of the percentage of the utilities paid.
+    See Shelter Cost Sharing for information on how money for shelter costs exchanged between participants in the same budgetary unit or different budgetary units, or nonparticipants, is treated as unearned income.
+# Structural inventory: shared-residence bullet, nonrecipient bullet, monthly
+# exchange paragraph, and separate-housing/shared-meter paragraph are encoded.
+# The percentage paragraph governs the sharing outputs without a percentage gate.
+# Shelter Cost Sharing is a referral only; no income treatment is calculated here.
+# The NOTE supplies examples, including a separate apartment within a residence;
+# same-property location and ownership are not eligibility requirements.
+# Household represents the evaluated budgetary unit. Every expense fact in a
+# scenario concerns the same identified utility expense and counterpart.
+# Outputs establish only the named sharing path. A negative result does not
+# deny another allowance path, and no output determines an allowance amount.
+# 2026-08-01 is the first full Month evidence coverage floor following the
+# authenticated snapshot, not a legal commencement date. Earlier coverage is
+# unproven.
+inputs:
+  - name: evaluated_unit_utility_expense_verified
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: another_budgetary_unit_lives_in_same_residence
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: evaluated_unit_shares_that_utility_expense_with_other_unit
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: evaluated_unit_shares_housing_with_other_people
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: those_other_people_do_not_receive_na
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: evaluated_unit_pays_that_utility_expense
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: evaluated_unit_receives_monthly_contribution_for_that_expense_from_other_unit
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: other_budgetary_unit_pays_that_utility_expense
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: evaluated_unit_contributes_monthly_to_that_other_unit_for_that_expense
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: evaluated_and_other_budgetary_units_live_in_separate_housing_units
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: those_housing_units_share_a_utility_meter
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: evaluated_unit_incurs_that_metered_utility_expense
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: evaluated_unit_obligated_to_pay_that_metered_utility_expense
+    entity: Household
+    dtype: Boolean
+    period: Month
+  - name: evaluated_unit_share_of_that_utility_expense_paid
+    entity: Household
+    dtype: Rate
+    period: Month
+rules:
+  - name: shared_residence_utility_allowance_path
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 4, opening paragraph and first bullet
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: "The budgetary unit is entitled to a utility allowance based on utility expenses verified when either situation occurs:"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: More than one budgetary unit lives in the same residence and shares utility expenses.
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: A utility allowance is allowed regardless of the percentage of the utilities paid.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          evaluated_unit_utility_expense_verified
+          and another_budgetary_unit_lives_in_same_residence
+          and evaluated_unit_shares_that_utility_expense_with_other_unit
+  - name: nonrecipient_cooccupancy_utility_allowance_path
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 4, opening paragraph and second bullet
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: "The budgetary unit is entitled to a utility allowance based on utility expenses verified when either situation occurs:"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: One budgetary unit shares a housing unit with others who do not receive NA.
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: A utility allowance is allowed regardless of the percentage of the utilities paid.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          evaluated_unit_utility_expense_verified
+          and evaluated_unit_shares_housing_with_other_people
+          and those_other_people_do_not_receive_na
+  - name: monthly_contribution_recipient_utility_allowance_path
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 4, monthly utility exchange
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: based on utility expenses verified
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: When one budgetary unit pays the expense and receives a monthly amount from another budgetary unit for utilities, each budgetary unit is allowed a utility allowance.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          evaluated_unit_utility_expense_verified
+          and evaluated_unit_pays_that_utility_expense
+          and evaluated_unit_receives_monthly_contribution_for_that_expense_from_other_unit
+  - name: monthly_contributor_utility_allowance_path
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 4, monthly utility exchange
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: based on utility expenses verified
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: When one budgetary unit pays the expense and receives a monthly amount from another budgetary unit for utilities, each budgetary unit is allowed a utility allowance.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          evaluated_unit_utility_expense_verified
+          and other_budgetary_unit_pays_that_utility_expense
+          and evaluated_unit_contributes_monthly_to_that_other_unit_for_that_expense
+  - name: separate_housing_shared_meter_utility_allowance_path
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, NA Utility Expenses and Allowances, block 4, separate housing units paragraph and NOTE
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: based on utility expenses verified
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: When budgetary units that incur utility expenses live in separate housing units (house, apartment, trailer, etc.) and share a meter with each other, each budgetary unit with an obligation to pay is entitled to a utility allowance.
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4
+              excerpt: This situation is common when two separate housing units are located on the same property or when the homeowner rents out a separate apartment within their residence.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          evaluated_unit_utility_expense_verified
+          and evaluated_and_other_budgetary_units_live_in_separate_housing_units
+          and those_housing_units_share_a_utility_meter
+          and evaluated_unit_incurs_that_metered_utility_expense
+          and evaluated_unit_obligated_to_pay_that_metered_utility_expense

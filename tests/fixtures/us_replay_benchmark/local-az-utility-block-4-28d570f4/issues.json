@@ -1,0 +1,21 @@
+{
+  "id": "local-az-utility-block-4-28d570f4",
+  "run_id": "local-az-utility-block-4-28d570f4",
+  "citation": "us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-4",
+  "module": "us-az/policies/des/faa5/na-utility-expenses-and-allowances/block-4.yaml",
+  "imports_resolved": 0,
+  "imports_unresolved": [],
+  "deferral_providers_resolved": [],
+  "deferral_providers_unresolved": [],
+  "split": "visible",
+  "control": false,
+  "issues": [
+    "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `monthly_contribution_recipient_utility_allowance_path` versions[0] (`evaluated_unit_pays_that_utility_expense`, `evaluated_unit_receives_monthly_contribution_for_that_expense_from_other_unit`, `evaluated_unit_utility_expense_verified` for 2 source gates); `nonrecipient_cooccupancy_utility_allowance_path` versions[0] (`evaluated_unit_shares_housing_with_other_people`, `evaluated_unit_utility_expense_verified`, `those_other_people_do_not_receive_na` for 2 source gates). Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. Reserve aggregate boundary statuses for source-atomic or externally determined conditions.",
+    "[complete-source-unit:tests] Companion tests do not exercise every source-stated boundary input; missing: source unit=1."
+  ],
+  "rules": {
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:tests": 1
+  },
+  "error": null
+}
