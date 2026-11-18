@@ -159,7 +159,7 @@
     {
       "category": "complete-source-unit:tests",
       "cause": "encoder_output",
-      "fix": "Add cases at each listed boundary value (and just across it) that assert the affected principal output.",
+      "fix": "Add cases at each listed boundary value (and just across it) that assert the affected principal output. If the listed value is a cap whose `min(...)` shares a formula with a comparison, move the clamp into its own derived rule with no comparison and assert that rule in every case that sets the capped amount.",
       "gate": "ci",
       "id": "complete-source-unit:tests/boundary-unexercised",
       "requires": "Every source-stated boundary value is exercised by a companion case.",
@@ -1141,6 +1141,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "3defd58de7f3d76a44ca5ab3d24e08f5f33c993b17d822de625d511ba36b5816",
+  "registry_sha256": "2d54c13c9bd4580648a21714456cd27b42546cb155a9567a23c74431fc6bd8b0",
   "schema": "axiom-encode/check-registry/v1"
 }

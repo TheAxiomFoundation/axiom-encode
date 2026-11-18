@@ -15312,6 +15312,59 @@ class TestEvalPrompt:
         assert "Do not use Python inline ternaries" in prompt
         assert "`x if cond else y`" in prompt
 
+    def test_build_eval_prompt_rulespec_puts_a_gated_cap_in_its_own_rule(
+        self, tmp_path
+    ):
+        from axiom_encode.prompts.encoder import _FORMULA_PROTOCOL, _TESTS_PROTOCOL
+
+        def bullet(block: str, start: str) -> str:
+            begin = block.index(start)
+            end = block.find("\n- ", begin)
+            return " ".join(block[begin : end if end != -1 else None].split())
+
+        workspace = prepare_eval_workspace(
+            citation="us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Up to $40 per day for lodging is allowed when the participant "
+                "must travel over 50 miles to obtain medical treatments or services."
+            ),
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us-az"),
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = " ".join(
+            _build_eval_prompt(
+                "us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8",
+                "cold",
+                workspace,
+                [],
+                target_file_name="block-8.yaml",
+                include_tests=True,
+            ).split()
+        )
+
+        # The eval prompt carries the same two rules as the encoder prompt.
+        formula_rule = bullet(_FORMULA_PROTOCOL, '- When a source limit ("up to"')
+        tests_rule = bullet(
+            _TESTS_PROTOCOL, "- When a cap is encoded in its own derived rule"
+        )
+        assert "with no comparison" in formula_rule
+        assert (
+            "Do not put a comparison gate and the cap `min(...)` in one formula."
+            in formula_rule
+        )
+        assert "so the clamp is applied to one name" in formula_rule
+        assert "Use one clamp rule per source cap value" in formula_rule
+        assert "carries its own proof atom quoting the cap sentence" in formula_rule
+        assert "in every companion case that sets the capped amount" in tests_rule
+        assert "any derived rule that computes the capped amount" in tests_rule
+        assert "exactly at the limit" in tests_rule
+        assert formula_rule in prompt
+        assert tests_rule in prompt
+
     def test_build_eval_prompt_requires_rulespec_conditional_expression_syntax(
         self, tmp_path
     ):
