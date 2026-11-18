@@ -81,7 +81,7 @@ PERMISSIONS = {
 EVALUATE_SCRIPT = 'set -euo pipefail\npython3 -I -S "$RUNNER_TEMP/guard/launch.py"\n'
 # The longest a GitHub-hosted job may run.
 HOSTED_JOB_LIMIT_MINUTES = 360
-TIMEOUT_MINUTES = 330
+TIMEOUT_MINUTES = 345
 WORKFLOW_SHA = "${{ github.workflow_sha }}"
 JOB_TOKEN = "${{ github.token }}"
 
@@ -498,12 +498,27 @@ def longest_run_seconds() -> dict[str, int]:
     """
     request = runner.REQUEST_TIMEOUT_SECONDS
     evaluation = LARGEST_EVALUATION * request
+    # Review round 2, P3-2. A wait checks its clock after a poll and then
+    # sleeps one poll interval, so the last poll can start one interval after
+    # the wait's bound. That poll then makes its reads.
     return {
-        # An evaluation, the wait with its last poll, and the second
-        # evaluation.
-        "pull_request": evaluation + runner.CI_WAIT_SECONDS + request + evaluation,
-        # The wait with its last poll of two reads, and the one evaluation.
-        "merge_group": runner.MERGE_GROUP_WAIT_SECONDS + 2 * request + evaluation,
+        # An evaluation, the wait, its last poll interval and last poll, and
+        # the second evaluation.
+        "pull_request": (
+            evaluation
+            + runner.CI_WAIT_SECONDS
+            + runner.CI_POLL_SECONDS
+            + runner.CI_POLL_READS * request
+            + evaluation
+        ),
+        # The wait, its last poll interval and last poll at its highest
+        # cost, and the one evaluation.
+        "merge_group": (
+            runner.MERGE_GROUP_WAIT_SECONDS
+            + runner.MERGE_GROUP_POLL_SECONDS
+            + runner.MERGE_GROUP_POLL_READS * request
+            + evaluation
+        ),
     }
 
 
@@ -534,14 +549,18 @@ def test_the_job_publishes_the_reserved_check_name_and_covers_the_wait():
     job = workflow()["jobs"]["guard"]
     assert job["name"] == runner.GUARD_CHECK_NAME == "content-bound-merge-guard"
     assert workflow()["name"] == runner.GUARD_CHECK_NAME
-    assert job["timeout-minutes"] == TIMEOUT_MINUTES == 330
+    assert job["timeout-minutes"] == TIMEOUT_MINUTES == 345
     # 30 requests of 30 seconds are 15 minutes for one evaluation.
     assert longest_run_seconds() == {
-        "pull_request": 900 + 3600 + 30 + 900,  # 90.5 minutes
-        "merge_group": 18000 + 60 + 900,  # 316 minutes
+        "pull_request": 900 + 18000 + 180 + 30 + 900,  # 20,010 s, 333.5 minutes
+        "merge_group": 18000 + 180 + 90 + 900,  # 19,170 s, 319.5 minutes
     }
-    assert max(longest_run_seconds().values()) <= TIMEOUT_MINUTES * 60
+    assert max(longest_run_seconds().values()) == 20010 <= TIMEOUT_MINUTES * 60
     assert TIMEOUT_MINUTES < HOSTED_JOB_LIMIT_MINUTES
+    # The wait of a pull request outlasts the measured CI (design section 8:
+    # 172 to 227 minutes for 38 of 40 successful runs, read 2026-11-17).
+    assert runner.CI_WAIT_SECONDS == 5 * 3600 > 227 * 60
+    assert runner.CI_POLL_SECONDS == runner.MERGE_GROUP_POLL_SECONDS == 180
 
 
 @pytest.mark.parametrize(
@@ -549,14 +568,18 @@ def test_the_job_publishes_the_reserved_check_name_and_covers_the_wait():
     [
         (75, "job: timeout does not cover the longest run"),
         (300, "job: timeout does not cover the longest run"),
-        (315, "job: timeout does not cover the longest run"),
-        (316, None),
-        (330, None),
+        # 319.5 minutes cover a merge group run only; 330 was the timeout
+        # before the pull-request wait became five hours.
+        (320, "job: timeout does not cover the longest run"),
+        (330, "job: timeout does not cover the longest run"),
+        (333, "job: timeout does not cover the longest run"),
+        (334, None),
+        (345, None),
         (359, None),
         (360, "job: timeout is not below the limit of a hosted job"),
         (600, "job: timeout is not below the limit of a hosted job"),
-        ("330", "job: timeout does not cover the longest run"),
-        (330.0, "job: timeout does not cover the longest run"),
+        ("345", "job: timeout does not cover the longest run"),
+        (345.0, "job: timeout does not cover the longest run"),
         (True, "job: timeout does not cover the longest run"),
     ],
 )
@@ -567,10 +590,23 @@ def test_the_tripwire_pins_the_timeout_between_the_longest_run_and_the_job_limit
     assert problems == ([] if expected is None else [expected])
 
 
-def test_a_longer_merge_group_wait_needs_a_longer_timeout(monkeypatch):
+@pytest.mark.parametrize(
+    ("constant", "value"),
+    [
+        ("MERGE_GROUP_WAIT_SECONDS", 6 * 3600),
+        ("CI_WAIT_SECONDS", 5 * 3600 + 12 * 60),
+        # Review round 2, P3-2: the last poll interval and the reads of the
+        # last poll are part of the longest run.
+        ("CI_POLL_SECONDS", 180 + 12 * 60),
+        ("MERGE_GROUP_POLL_SECONDS", 180 + 26 * 60),
+        ("CI_POLL_READS", 1 + 24),
+        ("MERGE_GROUP_POLL_READS", 3 + 52),
+    ],
+)
+def test_a_longer_wait_needs_a_longer_timeout(monkeypatch, constant, value):
     # The timeout is pinned to the runner's constants, not to a number here.
     assert problems_of(workflow_text()) == []
-    monkeypatch.setattr(runner, "MERGE_GROUP_WAIT_SECONDS", 6 * 3600)
+    monkeypatch.setattr(runner, constant, value)
     assert problems_of(workflow_text()) == [
         "job: timeout does not cover the longest run"
     ]
@@ -1162,8 +1198,8 @@ def test_the_build_script_is_generated_from_the_launcher_lists():
 # Review round 1, F8: a repeated key. ``yaml.safe_load`` keeps the last one.
 DUPLICATE_KEYS = {
     "a second steps key before the real one (Y21)": (
-        "    timeout-minutes: 330\n    steps:\n",
-        "    timeout-minutes: 330\n    steps:\n      - run: exit 0\n    steps:\n",
+        "    timeout-minutes: 345\n    steps:\n",
+        "    timeout-minutes: 345\n    steps:\n      - run: exit 0\n    steps:\n",
     ),
     "a second on key": ("\non:\n", "\non:\n  push:\non:\n"),
     "a second permissions key": (

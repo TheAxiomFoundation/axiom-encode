@@ -882,14 +882,82 @@ older head, never satisfies it.
 **Waiting for `validate / validate`.** The guard run starts together with
 the required check, and nothing starts it again when that check finishes. On
 `fail` with reason `ci_not_green` the runner polls the check runs named
-`validate / validate` on the event head every 30 seconds
-(`CI_POLL_SECONDS`), until at least one exists and all are completed, for at
-most 3,600 seconds (`CI_WAIT_SECONDS`) and 121 polls. It then evaluates once
+`validate / validate` on the event head every 180 seconds
+(`CI_POLL_SECONDS`, the cadence of the merge-group wait), until at least one
+exists and all are completed, for at most 18,000 seconds, five hours
+(`CI_WAIT_SECONDS`), and 101 polls (`MAX_CI_POLLS`). It then evaluates once
 more, and that verdict is final. The wait only delays: a settled check is not
 a verdict, and a poll that cannot be read whole leaves `fail` and makes the
 run an error. Every other verdict is final at once. In the evaluator's step
 order an unapproved v6 unit fails at step 5 (`no_approval`) before step 7
 reads CI, so it does not wait; a test pins that it makes no check-run read.
+
+**Measured duration of the required check [live read].** Read on 2026-11-17,
+about 6:57pm EST, with one read-only call:
+`gh api "repos/TheAxiomFoundation/rulespec-us/actions/workflows/repository-checks.yml/runs?event=pull_request&status=success&per_page=40"`
+(the 40 newest successful `pull_request` runs, created 2026-11-07 to
+2026-11-17; duration = `updated_at` minus `run_started_at`, so for a re-run
+it is the last attempt; 2 of the 40 were re-runs). 38 runs took 172 to 227
+minutes; the other two took 42 and 55. The median of the 40 is 207.5
+minutes. The independent review of this change measured the same sample
+about ten minutes earlier with the same result. No `merge_group` run of that
+workflow exists yet (`event=merge_group` lists 0), so the group's duration
+is not measured; rulespec-us#2160 reports 2.5 to 4 hours [author-reported].
+The sample is ten days of one repository; a larger matrix makes the check
+slower.
+
+**Why the wait is five hours.** The wait was 60 minutes with a poll every 30
+seconds until review round 2 (P2-1). With the measured duration that wait
+ended before the check in 38 of 40 runs, so every head that reaches the CI
+rule (every v5 lane, every approved v6 head, every control-plane head once
+that lane exists) ended `fail`, `ci_not_green`, and needed a manual re-run
+about two hours later. Five hours leave 73 minutes over the slowest measured
+run. A check that takes longer than five hours ends the job with `fail`,
+`ci_not_green`, as before; then someone re-runs the failed job after the
+check is green.
+
+**What the wait costs.**
+
+- *Runner time.* One GitHub-hosted job stays busy for each head that reaches
+  the CI rule, for as long as that head's required check runs: about 3 to 4
+  hours today. `repository-checks.yml` has no `concurrency` key (read in a
+  checkout of `rulespec-us`, 2026-11-17), so a push to a pull request does
+  not cancel the check of the older head, and the guard job of the older
+  head also waits until that check ends. GitHub documents 500 concurrent
+  jobs on standard hosted runners for the Enterprise plan and 60 for Team
+  ([Actions limits](https://docs.github.com/en/actions/reference/limits),
+  read 2026-11-17) [docs]; the organization's plan reads `enterprise`
+  (`gh api orgs/TheAxiomFoundation --jq .plan.name`, 2026-11-17) [live read].
+  Each waiting guard job takes one of those slots, next to the jobs of the
+  check it waits for. `rulespec-us` is public; whether the job is billed was
+  not checked.
+- *Requests.* A waiting pull-request job makes 20 polls an hour, one read
+  each: 20 requests an hour. An hour that also holds one of its two
+  evaluations costs at most 20 + 30 = 50. The job token's limit is "1,000
+  requests per hour per repository" [docs, link below], shared by every
+  workflow of the repository that uses the job token. With **N** jobs
+  waiting at the same time the polls alone use 20 x N requests an hour: the
+  whole limit at N = 50. Counting every job at its costliest hour (50), the
+  limit is reached at N = 20. Over a whole run of 3.5 hours a job makes
+  about 70 polls and two evaluations, about 130 requests, 37 an hour, so
+  about 27 jobs that start evenly spread use the limit. These numbers leave
+  no room for the other workflows; what they use is not measured. In the
+  last 100 `pull_request` runs of the required workflow (the same read, 100
+  runs) the busiest hour started 8 runs and, with 3.5 hours each, about 28
+  heads can be in CI at once at that rate. So the 1,000 limit can be reached
+  on a busy day.
+- *At the limit the job fails closed.* A rate-limited read is a failed read.
+  In an evaluation it gives `fail` (`github_read_failed`) and a run error.
+  In a poll it ends the wait: the verdict stays `fail`, `ci_not_green`, the
+  report names the error, and no second evaluation is made. For a merge
+  group it is an error with no verdict. No path gives a pass. Someone
+  re-runs the failed job in a later hour.
+- *The higher limit.* GitHub documents "15,000 requests per hour per
+  repository" for "requests to resources that belong to a GitHub Enterprise
+  Cloud account" [docs, same page]. Whether a job token of `rulespec-us`
+  gets that limit is not verified: it needs the `x-ratelimit-limit` header
+  of a request made with a job token of that repository **[check live]**.
+  At 15,000 the same arithmetic gives N = 300 at the costliest hour.
 The poll matches check runs by name only [code: `_ci_settled`]: any completed
 check named `validate / validate` on the head ends the wait early. For a
 pull request that only brings the second evaluation forward, and that
@@ -903,18 +971,28 @@ group starts when the group is created. It first waits until the group's own
 `validate / validate` run has completed with success, and evaluates once
 after that. See §6 for the wait, its bounds and the window that remains.
 
-**Job timeout.** `timeout-minutes` is 330. Counted at the socket timeout of
+**Job timeout.** `timeout-minutes` is 345. Counted at the socket timeout of
 30 seconds for each request (`REQUEST_TIMEOUT_SECONDS`) and 30 requests for
-an evaluation, the longest pull-request run is 900 + 3,600 + 30 + 900 = 5,430
-seconds (90.5 minutes; the earlier timeout of 75 minutes did not cover it),
-and the longest merge-group run is 18,000 + 60 + 900 = 18,960 seconds (316
-minutes). The tripwire test computes both from the runner's constants and
-requires the timeout to cover them and to stay below 360 minutes, the limit
-of a GitHub-hosted job [code:
-`test_the_job_publishes_the_reserved_check_name_and_covers_the_wait`]. The
-socket timeout bounds each blocking operation, not a whole request; a
-response that arrives very slowly can exceed these numbers, and then the job
-timeout cancels the job, which fails closed [inferred].
+an evaluation (900 seconds), the longest run of each event is:
+
+| Event | Evaluation | Wait | Last poll interval | Last poll | Evaluation | Total |
+|---|---|---|---|---|---|---|
+| `pull_request` | 900 | 18,000 | 180 | 30 (1 read) | 900 | 20,010 s, 333.5 minutes |
+| `merge_group` | none before the wait | 18,000 | 180 | 90 (3 reads) | 900 | 19,170 s, 319.5 minutes |
+
+A wait checks its clock after a poll and then sleeps one poll interval, so
+its last poll can start up to one interval after the wait's bound; review
+round 2 (P3-2) found that the earlier formula left that interval out. The
+tripwire test computes both totals from the runner's constants and requires
+the timeout to cover them and to stay below 360 minutes, the limit of a
+GitHub-hosted job [code:
+`test_the_job_publishes_the_reserved_check_name_and_covers_the_wait`] ("Each job in a workflow can run for up to 6 hours of
+execution time", [Actions limits](https://docs.github.com/en/actions/reference/limits),
+read 2026-11-17). The timeout leaves 11.5 minutes over the longest run for
+the checkout, the Python set-up and the bundle build, which the formula does
+not count. The socket timeout bounds each blocking operation, not a whole
+request; a response that arrives very slowly can exceed these numbers, and
+then the job timeout cancels the job, which fails closed [inferred].
 
 **Request volume (measured on fixtures; one page per list).**
 `tests/test_merge_guard_runner.py` pins these numbers of GitHub requests per
@@ -931,49 +1009,63 @@ evaluation:
 | Control-plane lane, `pass` (lane switched on in the test only) | 17 |
 | Merge group of a v6 unit, `pass` | 29, after the wait. The whole run with one poll is 31: the check-run listing, the group's workflow run, then the evaluation |
 
-A pull-request run makes at most two evaluations and 121 polls: 2 x 29 + 121
-= 179 requests with the largest measured evaluation. A merge-group run makes
-one evaluation and at most 101 polls (`MAX_MERGE_GROUP_POLLS`: 18,000 seconds
-at one poll each 180 seconds, plus the first). A poll is one listing read; it
-reads the workflow run of each listed check only when all listed checks say
-`completed`, which in an honest run is the last poll. So an honest
+An evaluation is counted as 30 requests below (the largest measured is 29).
+
+| Event | Polls | Reads of one poll | Evaluations | Worst case | Driven by a test |
+|---|---|---|---|---|---|
+| `pull_request` | at most 101 (`MAX_CI_POLLS`) | 1: the listing (`CI_POLL_READS`) | 2 | 2 x 30 + 101 x 1 = 161 | a full wait, the check completed at the last poll, then a whole second evaluation: 12 + 101 + 29 = 142 with the v6 fixture, whose first evaluation stops at the CI rule after 12 reads |
+| `merge_group` | at most 101 (`MAX_MERGE_GROUP_POLLS`) | at most 3 (`MERGE_GROUP_POLL_READS`) | 1 | 3 x 101 + 30 = 333 | every poll at 3 reads, then the evaluation: 3 x 101 + 29 = 332 |
+
+A poll of the merge-group wait is one listing read; it reads the workflow
+run of each listed check only when all listed checks say `completed`. In an
+honest run with one listed check that is the last poll, so an honest
 merge-group run of the full five hours makes about 101 + 1 + 29 = 131
-requests, and the worst case, where every poll also reads one workflow run,
-makes 2 x 101 + 29 = 231 (a test drives exactly that run).
-`MAX_ENFORCE_REQUESTS` stays 250: past it every read fails and the result is
-a failed job. In any one hour a waiting merge-group run makes 20 polls, 20 to
-40 requests. GitHub documents the job token's limit as
-"1,000 requests per hour per repository", and 15,000 for resources of a
-GitHub Enterprise Cloud account
+requests. Review round 2 (P3-3) found that the earlier arithmetic assumed
+two reads for the costliest poll, while two listed checks (the first with a
+completed run, the second with a run in progress) cost three. The run now
+refuses a listing of more than two checks with the required name on the
+group head (`MAX_GROUP_CHECK_RUNS`; an error of the run, no evaluation), so
+three reads are the most one poll can cost, and a test drives that case for
+every poll of a full wait. `MAX_ENFORCE_REQUESTS` is 350 (it was 250, which
+the three-read case exceeded, failing closed): past it every read fails and
+the result is a failed job. In any one hour a waiting run of either event
+makes 20 polls: at most 50 requests for a pull request and 90 for a merge
+group in an hour that also holds an evaluation. GitHub documents the job
+token's limit as "1,000 requests per hour per repository", and 15,000 for
+resources of a GitHub Enterprise Cloud account
 ([Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api),
 read 2026-11-17). Consequences that no load test has measured:
 
-- One pull-request run that waits a full hour uses up to 121 polls and two
-  evaluations, about 170 requests. Six such runs in one hour exceed the 1,000
-  limit, which the repository's other workflows share. A rate-limited read is
-  a failed read: `fail`, and someone re-runs the job. A merge-group run adds
-  20 to 40 requests in each hour of its wait; with a group size of 1 and one
-  group at a time that is one such run.
+- Waiting pull-request jobs share the 1,000 limit: see "What the wait
+  costs" above for the number of concurrent jobs that reaches it. A
+  merge-group run adds 20 to 60 requests in each hour of its wait; with a
+  group size of 1 and one group at a time that is one such run.
 - A real pull request with more than 100 files, commits or reviews needs
   further page reads; the fixtures have one page of each.
 - A v5 lane of `u` units costs about `11 + 3u` requests per evaluation. With
-  a full wait the cap admits about 17 units; with a 15-minute wait about 32.
-  A larger train fails closed. Raise the cap in a reviewed change (which
-  changes the bundle digest) before a bulk landing.
+  two whole evaluations and a full wait of 101 polls the cap of 350 admits
+  about 37 units (2 x (11 + 3u) + 101 <= 350). A larger train fails closed.
+  Raise the cap in a reviewed change (which changes the bundle digest)
+  before a bulk landing.
 
 **Limits of the trigger set.**
 
 - No trigger follows a review [docs D1, D2]. A v6 unit is unapproved when
-  its signed head is pushed, so its first run fails; after the approval
-  someone must re-run the failed job. Whether a re-run updates the ruleset's
-  result is [experiment X3]. If it does not, the next options are to close
-  and reopen the pull request, or a base-only update by someone other than
-  the approver [inferred].
-- A dismissal after a pass leaves the pull-request run green. Only the
-  merge-group run evaluates again (§6). Without a merge queue the dismissal
-  never blocks the merge. A merge queue on the RuleSpec repository is
-  therefore a precondition of making the ruleset `Active` (checklist steps 8
-  and 10).
+  its signed head is pushed, so its first run fails at once (`no_approval`,
+  no wait) [code: `_enforce_pull_request`]; after the approval someone must
+  re-run the failed job. That re-run then waits for the required check if
+  it has not completed. A head that is approved before its run starts, and
+  every v5 lane, needs no re-run: its one run waits for the check. A re-run
+  is also needed after a wait that timed out or met a read error. Whether a
+  re-run updates the ruleset's result is [experiment X3]. If it does not,
+  the next options are to close and reopen the pull request, or a base-only
+  update by someone other than the approver [inferred].
+- A dismissal after a pass leaves the pull-request run green: this runner
+  has no sweep, and no event follows a review. Only the merge-group run
+  evaluates again (§6). Without a merge queue the dismissal never blocks
+  the merge and nothing withdraws the green job. A merge queue on the
+  RuleSpec repository is therefore a precondition of making the ruleset
+  `Active` (checklist steps 8 and 11).
 - The merge-group run evaluates once, as late as it can: after the group's
   own `validate / validate` run has completed with success [code:
   `_enforce_merge_group`, `_wait_for_group_ci`]. rulespec-us#2160 reports 2.5
@@ -1075,10 +1167,14 @@ ruleset. The step that tests each point is named:
 - what the branch-rules endpoint returns for the rule
   [experiment X14], and what a dismissal does to a queued pull request
   [experiment X15];
-- the behaviour on rate limiting, and the real duration of
-  `validate / validate` against the 60-minute wait for a pull request and
-  the 5-hour wait for a merge group. The experiment does not test these; the
-  shadow period and the queue trial do (checklist steps 7 and 8).
+- the behaviour on rate limiting and the limit a job token of a RuleSpec
+  repository really has (1,000 or 15,000 an hour). The experiment does not
+  test these; the shadow period and the queue trial do (checklist steps 7
+  and 8);
+- the duration of `validate / validate` on a merge group against the 5-hour
+  wait (checklist step 8). The duration on a pull request is measured
+  (above): 172 to 227 minutes for 38 of 40 runs, under the 5-hour wait
+  [live read 2026-11-17].
 
 ## 5. Manifest and encoder changes (planned, not in this change)
 
@@ -1272,7 +1368,7 @@ queue or ruleset uses it; only the enforcing runner calls it, for a
   evaluation follows the job.
 - **Queue settings this needs.** The queue's status-check timeout must be
   longer than the group's validation and this job's run that follows it;
-  the job's own limits are the 5-hour wait and the 330-minute job timeout.
+  the job's own limits are the 5-hour wait and the 345-minute job timeout.
   The guard job now ends last of the group's required checks, so each
   landing takes the group's validation time plus up to one poll interval
   (180 seconds) and the evaluation [inferred].

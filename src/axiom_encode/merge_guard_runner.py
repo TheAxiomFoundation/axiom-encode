@@ -107,9 +107,20 @@ SUCCESS_VERDICTS: Final = frozenset(
 # waits: poll the required check on the event head every ``CI_POLL_SECONDS``
 # until every listed run is completed, for at most ``CI_WAIT_SECONDS``, then
 # evaluate once more. The wait only delays; it never produces a verdict.
-CI_POLL_SECONDS: Final = 30
-CI_WAIT_SECONDS: Final = 3600
+#
+# ``CI_WAIT_SECONDS`` is five hours, so the job outlasts normal CI. Measured
+# read-only on 2026-11-17 (design section 8, "Measured duration of the
+# required check"): of the 40 newest successful ``pull_request`` runs of the
+# required workflow on rulespec-us, 38 took 172 to 227 minutes. A wait
+# shorter than that ends every signed head with ``ci_not_green`` and a manual
+# re-run. The poll interval is the merge group's: 101 polls of one listing
+# read each.
+CI_POLL_SECONDS: Final = 180
+CI_WAIT_SECONDS: Final = 5 * 3600
 MAX_CI_POLLS: Final = CI_WAIT_SECONDS // CI_POLL_SECONDS + 1
+# Reads of one poll of the pull-request wait: the listing. The poll does not
+# verify the listed runs; the evaluation that follows does.
+CI_POLL_READS: Final = 1
 # A merge group is judged as late as the job can do it. Its run starts when
 # the group is created, and the group's own ``validate / validate`` run can
 # take hours; a verdict from the start of that time would not see an approval
@@ -122,33 +133,42 @@ MAX_CI_POLLS: Final = CI_WAIT_SECONDS // CI_POLL_SECONDS + 1
 # ``MERGE_GROUP_WAIT_SECONDS`` is five hours. rulespec-us#2160 reports (its
 # author's figures, not measured here) 2.5 to 4 hours of validation for each
 # group and asks for a queue status-check timeout above 4 hours. The job's
-# ``timeout-minutes`` must exceed this wait plus one evaluation, and a
-# GitHub-hosted job ends after 6 hours at the latest.
+# ``timeout-minutes`` must exceed the longest run of either event (one
+# evaluation, the wait, its last poll interval and last poll, one more
+# evaluation), and a GitHub-hosted job ends after 6 hours at the latest.
 #
-# The poll interval keeps the requests of one run under
-# ``MAX_ENFORCE_REQUESTS``: a poll is one listing read, plus one read of the
-# workflow run for each listed check once all of them are completed. 101
-# polls of two reads each and the largest measured evaluation (29 reads, 30
-# with headroom) are 2 * 101 + 30 = 232 requests.
+# A poll of this wait is one listing read, plus one read of the workflow run
+# of each listed check once all of them say ``completed``. The listing may
+# hold at most ``MAX_GROUP_CHECK_RUNS`` checks; more is an error of the run.
+# So a poll costs at most ``MERGE_GROUP_POLL_READS`` = 3 reads (review round
+# 2, P3-3: two listed checks, the first with a completed run, the second with
+# a run in progress), and 101 polls and the largest measured evaluation (29
+# reads, 30 with headroom) are at most 3 * 101 + 30 = 333 requests.
 MERGE_GROUP_POLL_SECONDS: Final = 180
 MERGE_GROUP_WAIT_SECONDS: Final = 5 * 3600
 MAX_MERGE_GROUP_POLLS: Final = MERGE_GROUP_WAIT_SECONDS // MERGE_GROUP_POLL_SECONDS + 1
+MAX_GROUP_CHECK_RUNS: Final = 2
+MERGE_GROUP_POLL_READS: Final = 1 + MAX_GROUP_CHECK_RUNS
 # The workflow run event of the required check on a merge group head.
 MERGE_GROUP_RUN_EVENT: Final = "merge_group"
 # One event payload. GitHub documents "Payloads are capped at 25 MB"
 # (https://docs.github.com/en/webhooks/webhook-events-and-payloads); a
 # pull_request or merge_group payload is far smaller. A larger file fails.
 MAX_EVENT_BYTES: Final = 4 * 1024 * 1024
-# Hard cap of GitHub requests in one enforce run: two evaluations and the
-# polls of one full wait, with headroom. The largest evaluation measured on
-# fixtures is 29 requests (``tests/test_merge_guard_runner.py``, "request
-# volume"), so for a pull request two of them and every poll are
-# 2 * 29 + 121 = 179 requests, and for a merge group every poll and the one
-# evaluation are at most 2 * 101 + 29 = 231 requests (see above).
-# Past the cap every read fails, so the verdict is ``fail``. GitHub documents
-# the job token's limit as 1,000 requests per hour per repository
+# Hard cap of GitHub requests in one enforce run: the worst case of either
+# event, with headroom. The largest evaluation measured on fixtures is 29
+# requests (``tests/test_merge_guard_runner.py``, "request volume"), counted
+# as 30. Pull request: two evaluations and every poll of one full wait are
+# 2 * 30 + 101 * 1 = 161 requests. Merge group: every poll at its highest
+# cost and the one evaluation are 3 * 101 + 30 = 333 requests (see above).
+# Both worst cases are driven by tests. Past the cap every read fails, so a
+# verdict is ``fail`` and a wait is an error. A full wait takes five hours,
+# so in any one hour a run makes at most 20 polls: 20 + 30 = 50 requests for
+# a pull request (an hour that holds an evaluation), 60 + 30 = 90 for a merge
+# group. GitHub documents the job token's limit as 1,000 requests per hour
+# per repository
 # (https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
-MAX_ENFORCE_REQUESTS: Final = 250
+MAX_ENFORCE_REQUESTS: Final = 350
 
 _API: Final = "https://api.github.com"
 _REPOSITORY = re.compile(r"rulespec-[a-z]{2}(-[a-z0-9]+)*")
@@ -204,6 +224,14 @@ def _request(
             # it would fail every evaluation at its second read.
             or (".." in segment and _COMPARE_SEGMENT.fullmatch(segment) is None)
             for segment in path.split("/")
+        )
+        # Review round 2, P3-C: the same test on the path part alone, so a
+        # query or a ``;`` parameter after a single dot does not hide the
+        # dot segment (``/x/.?a``, ``/x/.;a/y``). The whole-string test
+        # above stays: it also refuses ".." inside a query.
+        or any(
+            segment.partition(";")[0] == "."
+            for segment in path.partition("?")[0].split("/")
         )
     ):
         raise RunnerError("invalid GitHub API path")
@@ -691,6 +719,12 @@ def _group_ci_succeeded(root: str, group_head: str, fetch: Fetch) -> bool:
     requirement of that check does.
     """
     runs = _required_check_runs(root, group_head, fetch)
+    if len(runs) > MAX_GROUP_CHECK_RUNS:
+        # Bounds the reads of one poll (``MERGE_GROUP_POLL_READS``).
+        raise RunnerError(
+            "more checks with the required name on the merge group head than "
+            "one poll reads"
+        )
     if not runs or any(run.get("status") != "completed" for run in runs):
         return False
     repository = root.removeprefix("/repos/")
