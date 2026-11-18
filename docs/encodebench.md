@@ -60,6 +60,25 @@ Prerequisites (all local):
   `openai:` backend is not part of the roster and needs explicit per-run
   approval.
 
+Use `claude-api:<model>` for a Claude Messages API contestant authenticated by
+`ANTHROPIC_API_KEY`. This runner is prompt-only, with every context file inlined
+in full; context overflow fails as an infrastructure error without scoring a
+partial artifact. Claude CLI runners and reviewers continue to use subscription
+authentication. `--skip-reviewers` disables the advisory reviewer and enters the
+execution identity. Repeat `--skip-reviewers` when resuming a suite created with
+it; omitting the flag causes an execution-identity mismatch. The Messages request
+omits both `thinking` and `fallbacks`; this checkout does not establish how the
+provider handles those omissions.
+
+`encode --apply --backend claude-api` is rejected, and admission scoring for that
+backend is not applicable. This check does not authenticate the origin of repair
+candidates: the tests-only repair route accepts caller-supplied, hash-bound main
+RuleSpec bytes and preserves them while expanding the companion tests. It does
+not verify which backend generated the main bytes, and the apply manifest records
+the current repair runner. API-generated main bytes can therefore reach a signed
+module through repair under an allowed backend; signing still requires a broker
+and passing validation.
+
 Serial run (whole roster from the manifest, resumable):
 
 ```bash

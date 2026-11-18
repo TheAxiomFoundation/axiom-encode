@@ -1,0 +1,423 @@
+- name: February gross income above 185 percent blocks the two-participant minimum
+    allotment
+  period: 2026-02
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1900
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_benefit_amount_after_categorical_eligibility_minimum_allotment_rule
+    : 15
+- name: March gross income at 200 percent permits the two-participant minimum allotment
+  period: 2026-03
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 2000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_benefit_amount_after_categorical_eligibility_minimum_allotment_rule
+    : 23
+- name: ECE gross income equals the February 185 percent ceiling
+  period: 2026-02
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1850
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : not_holds
+- name: ECE gross income equals the March 200 percent ceiling
+  period: 2026-03
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 2000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : not_holds
+- name: Basic categorical eligibility and minimum allotment
+  period: 2026-02
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income: 900
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income_standard_amount
+    : 1000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.benefits_reduced_as_result_of_na_proration
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.prorated_na_benefit_amount
+    : 23
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#basic_categorically_eligible_budgetary_unit_income_within_net_income_standard
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_benefit_amount_after_categorical_eligibility_minimum_allotment_rule
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#eligible_no_pay_status_due_to_na_proration
+    : not_holds
+- name: ECE gross income exceeds the February 185 percent limit
+  period: 2026-02
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1900
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income: 1100
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income_standard_amount
+    : 1000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.benefits_reduced_as_result_of_na_proration
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.prorated_na_benefit_amount
+    : 23
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : not_holds
+- name: ECE gross income remains within the March 200 percent limit
+  period: 2026-03
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1900
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income: 1100
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income_standard_amount
+    : 1000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.benefits_reduced_as_result_of_na_proration
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.prorated_na_benefit_amount
+    : 23
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_benefit_amount_after_categorical_eligibility_minimum_allotment_rule
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#eligible_no_pay_status_due_to_na_proration
+    : not_holds
+- name: ECE gross income exceeds the March 200 percent limit
+  period: 2026-03
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 2001
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income: 1100
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income_standard_amount
+    : 1000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.benefits_reduced_as_result_of_na_proration
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.prorated_na_benefit_amount
+    : 23
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : not_holds
+- name: Three-participant unit receives actual amount
+  period: 2026-03
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income: 1100
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income_standard_amount
+    : 1000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 3
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.benefits_reduced_as_result_of_na_proration
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.prorated_na_benefit_amount
+    : 23
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_benefit_amount_after_categorical_eligibility_minimum_allotment_rule
+    : 15
+- name: Proration below minimum allotment results in eligible no pay status
+  period: 2026-03
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income: 900
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income_standard_amount
+    : 1000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.benefits_reduced_as_result_of_na_proration
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.prorated_na_benefit_amount
+    : 10
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#eligible_no_pay_status_due_to_na_proration
+    : holds
+- name: basic categorical eligibility and minimum allotment
+  period: 2026-02
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income: 900
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income_standard_amount
+    : 1000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.benefits_reduced_as_result_of_na_proration
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.prorated_na_benefit_amount
+    : 23
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#basic_categorically_eligible_budgetary_unit_income_within_net_income_standard
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_benefit_amount_after_categorical_eligibility_minimum_allotment_rule
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#eligible_no_pay_status_due_to_na_proration
+    : not_holds
+- name: ECE gross income limit before March 2026
+  period: 2026-02
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1900
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income: 1100
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income_standard_amount
+    : 1000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.benefits_reduced_as_result_of_na_proration
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.prorated_na_benefit_amount
+    : 23
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : not_holds
+- name: ECE 200 percent ceiling effective March 2026
+  period: 2026-03
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1900
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income: 1100
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income_standard_amount
+    : 1000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 2
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.benefits_reduced_as_result_of_na_proration
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.prorated_na_benefit_amount
+    : 10
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#expanded_categorical_eligibility_blocked_by_gross_income_limit
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_categorically_eligible_for_benefit_calculation
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_benefit_amount_after_categorical_eligibility_minimum_allotment_rule
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#eligible_no_pay_status_due_to_na_proration
+    : holds
+- name: Three participants receive actual amount
+  period: 2026-03
+  input:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_na_basic_categorically_eligible
+    : true
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.budgetary_unit_is_considered_for_na_expanded_categorical_eligibility
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.current_federal_poverty_level_amount
+    : 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.gross_income: 1000
+    us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income: 1100
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.net_income_standard_amount
+    : 1000
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.number_of_participants_in_budgetary_unit
+    : 3
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.actual_benefit_amount_based_on_na_income_criteria
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.minimum_na_allotment_amount
+    : 23
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.benefits_reduced_as_result_of_na_proration
+    : false
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#input.prorated_na_benefit_amount
+    : 23
+  output:
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_three_or_more_participant_unit_must_receive_actual_benefit_amount
+    : holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#categorically_eligible_budgetary_unit_eligible_for_minimum_allotment
+    : not_holds
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#na_benefit_amount_after_categorical_eligibility_minimum_allotment_rule
+    : 15
+    ? us-az:policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation#eligible_no_pay_status_due_to_na_proration
+    : not_holds

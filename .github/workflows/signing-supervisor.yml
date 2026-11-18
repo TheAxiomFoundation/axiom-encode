@@ -13,8 +13,8 @@ on:
       - "uv.lock"
       - "tests/**"
       - ".github/workflows/signing-supervisor.yml"
+  # Validate stacked PRs before their dependency branches merge into main.
   pull_request:
-    branches: [main]
     paths:
       - "cmd/axiom-encode-signing-supervisor/**"
       - "cmd/axiom-encode-apply-signer/**"

@@ -1,0 +1,131 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/7
+    source_sha256: 952a224251d50fcb5c69fc765cb1b671ef797021bf00131426f93610a100ccad
+  summary: 'An employed or self-employed person working a minimum of 30 hours weekly
+
+    or earning weekly wages at least equal to the Federal minimum wage
+
+    multiplied by 30 hours is exempt from SNAP work requirements.'
+  deferred_outputs:
+  - output: us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_applies
+    reason: The source defines a State agency/FNS aggregate performance, sampling,
+      liability, waiver, or bonus measure, but the generated output was scoped to
+      a household/person/tax/payment-style entity rather than the source-stated administrative
+      entity.
+  - output: us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt
+    reason: The source defines a State agency/FNS aggregate performance, sampling,
+      liability, waiver, or bonus measure, but the generated output was scoped to
+      a household/person/tax/payment-style entity rather than the source-stated administrative
+      entity.
+  - output: us:regulations/7-cfr/273/7#snap_member_general_work_requirement_compliant
+    reason: The source defines a State agency/FNS aggregate performance, sampling,
+      liability, waiver, or bonus measure, but the generated output was scoped to
+      a household/person/tax/payment-style entity rather than the source-stated administrative
+      entity.
+  - output: us:regulations/7-cfr/273/7#snap_member_general_work_requirement_waived
+    reason: The source defines a State agency/FNS aggregate performance, sampling,
+      liability, waiver, or bonus measure, but the generated output was scoped to
+      a household/person/tax/payment-style entity rather than the source-stated administrative
+      entity.
+  - output: us:regulations/7-cfr/273/7#snap_member_general_work_requirement_eligible
+    reason: The source defines a State agency/FNS aggregate performance, sampling,
+      liability, waiver, or bonus measure, but the generated output was scoped to
+      a household/person/tax/payment-style entity rather than the source-stated administrative
+      entity.
+  status: entity_not_supported
+rules: []
+imports:
+- us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt_scalar_limit
+- us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt_scalar_limit_2
+- us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt_scalar_limit_3
+inputs:
+- name: member_age
+  entity: Person
+  dtype: Count
+  period: Month
+- name: member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_physically_or_mentally_unfit_for_employment
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_subject_to_and_complying_with_title_iv_work_requirement
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_responsible_for_dependent_child_under_six_or_incapacitated_person
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_receiving_or_applying_for_unemployment_compensation_and_complying
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_regular_participant_in_drug_or_alcohol_treatment
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_weekly_work_hours
+  entity: Person
+  dtype: Count
+  period: Week
+- name: member_weekly_wages
+  entity: Person
+  dtype: Money
+  period: Week
+  unit: USD
+- name: federal_or_state_minimum_wage
+  entity: Person
+  dtype: Money
+  period: Week
+  unit: USD
+- name: migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: alaska_subsistence_hunts_or_fishes_30_hours_weekly
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_student_enrolled_at_least_half_time_and_student_eligible
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_snap_work_requirements_waived_due_to_pending_ssi_joint_application
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_registered_for_work_or_registered_by_state
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_participated_in_snap_et_if_assigned
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_participated_in_workfare_if_assigned
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_provided_employment_status_or_availability_information
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_reported_to_referred_suitable_employer_if_referred
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_accepted_bona_fide_suitable_employment_offer_if_offered
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_voluntarily_quit_or_reduced_work_below_30_hours_without_good_cause
+  entity: Person
+  dtype: Boolean
+  period: Month

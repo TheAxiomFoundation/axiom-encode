@@ -179,6 +179,12 @@ jobs:
               "$RUNNER_TEMP/snap-queue-seed.json"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Refuse an encoder head that no version bump covers
+        if: inputs.dispatch
+        # Each dispatched run would wait for a production-signing approval and
+        # then be refused by the provisioner (axiom-encode#2048).
+        run: python3 -I src/axiom_encode/version_provenance.py check --repo . --ref HEAD
+
       - name: Plan or dispatch idempotent protected runs
         env:
           DO_DISPATCH: ${{ inputs.dispatch }}

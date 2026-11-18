@@ -1,0 +1,31 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-schedule2-floor-20261113",
+  "citation": "ca/policy/cra/t1-2025/federal-spouse-transfer-amounts",
+  "module_path": "ca/policies/cra/t1-2025/federal-spouse-transfer-amounts.yaml",
+  "policy_prefix": "ca",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "c544d64bd5f2912366dfd2f2f0e5eeb7b7c6091f",
+  "encoder_tree": "d80c1cd0d4e789817e49537d017d7c780885a61e",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --out /tmp/replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/same_page_floor_candidate.yaml",
+    "candidate.test.yaml": "tests/fixtures/same_page_floor_candidate.test.yaml",
+    "source.txt": "tests/fixtures/detached_schedule2_source.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:numeric-recall",
+    "complete-source-unit:tests"
+  ],
+  "files": {
+    "candidate.yaml": "6d0023d392a3437ae8f32f9432e1fff4788950d3579d1caf2396fb274d4a17f6",
+    "candidate.test.yaml": "2aa60bdc0f264ec7f02abcad6b5f4cb9fa03d00894ce1bef2ad5ef9c64ab427e",
+    "source.txt": "e27a34b0cc3314a0260cb848cd2caf3fc56772812554db29ae5ddd013e41f845",
+    "issues.json": "178ce692f86b09c25c1acc2ae8b13db69023df56b646e02d31f2725522026e11"
+  }
+}

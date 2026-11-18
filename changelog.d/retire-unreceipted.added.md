@@ -1,0 +1,1 @@
+Let `axiom-encode retire --unreceipted` delete a protected RuleSpec module and its companion test when no manifest or receipt covers either file. It signs a v5 receipt, with the tool `axiom-encode retire-unreceipted`, that records the sha256 of each deleted file and the commit it retired from. The generated-change guard re-runs the ownership check against the pull request's base.

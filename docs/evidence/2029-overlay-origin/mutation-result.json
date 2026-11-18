@@ -1,0 +1,48 @@
+{
+  "mutants": [
+    {
+      "lane": "eval",
+      "omitted": "seed",
+      "exit_code": 1,
+      "copied_module": "/var/folders/t5/1q_n2l7d1ndddzm52gy9n93w0000gn/T/overlay-origin-mutant-9s7qcpy5/src/axiom_encode/harness/evals.py",
+      "mutant_hash": "300340381ee46498ca144167aa4ff0289336b5bfee3de96c51814b7daa54a723",
+      "log_sha256": "4b82062ecdcc120345b07ab85beba7ea9dcf763ff7dd8a141f76760772f739e6",
+      "failed_capture_assertion": true
+    },
+    {
+      "lane": "eval",
+      "omitted": "forwarding",
+      "exit_code": 1,
+      "copied_module": "/var/folders/t5/1q_n2l7d1ndddzm52gy9n93w0000gn/T/overlay-origin-mutant-ew0sazs8/src/axiom_encode/harness/evals.py",
+      "mutant_hash": "703c07945aedc192c57f296dc1460d61737bc82204ad8016269c4ca8d9817ca1",
+      "log_sha256": "50fd6134c6cb6f54c285a7eee431138c3d92d1f0a1a9130e67f09a83d316ea01",
+      "failed_capture_assertion": true
+    },
+    {
+      "lane": "apply",
+      "omitted": "seed",
+      "exit_code": 1,
+      "copied_module": "/var/folders/t5/1q_n2l7d1ndddzm52gy9n93w0000gn/T/overlay-origin-mutant-erl3msab/src/axiom_encode/cli.py",
+      "mutant_hash": "523786a20eed939d70184a8d78824d71c20bb9b52e6eabf500125bd01a5e3950",
+      "log_sha256": "fac5b6cc44705d770244f818f2efaf482fe391b5a2073734a4b7969edeb9f0c3",
+      "failed_capture_assertion": true
+    },
+    {
+      "lane": "apply",
+      "omitted": "forwarding",
+      "exit_code": 1,
+      "copied_module": "/var/folders/t5/1q_n2l7d1ndddzm52gy9n93w0000gn/T/overlay-origin-mutant-p35ko77j/src/axiom_encode/cli.py",
+      "mutant_hash": "c9e2e1e73939f71321c3c2d272f2fa53d2e03965026af8310ed8868fce0568fb",
+      "log_sha256": "c21fc91d17fde8b7f83956365b7fff44c66bfecadda7b11e19afbfb0e89f0515",
+      "failed_capture_assertion": true
+    }
+  ],
+  "originals_unchanged": true,
+  "original_hashes": {
+    "src/axiom_encode/cli.py": "c9def567adcedfb53b9d637ec48972b563df27f1a8a840a082a61834bfad8101",
+    "src/axiom_encode/harness/evals.py": "90d52e1cadcf9d7e9dc86b6de935ceaaff722ad163d43909367a1b872f9cb382",
+    "src/axiom_encode/harness/validator_pipeline.py": "dfa533e7306d4f653d40fd128b50f537f89531dd60261b5008aa1e5b3d9a3830",
+    "src/axiom_encode/harness/same_case_execution.py": "feef6def69098b216313beea21647715c3008e8cc795143f8dafb3cc5b112829",
+    "tests/test_execution_overlay_origin.py": "13663b3d2c7c5e7974f308c58b2f8973bf0316f9ba6afd453e3b2cec30ba2a26"
+  }
+}

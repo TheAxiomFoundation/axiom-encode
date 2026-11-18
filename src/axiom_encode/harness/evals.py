@@ -40,6 +40,8 @@ from axiom_encode.checks import (
 from axiom_encode.codex_cli import (
     DEFAULT_CODEX_REASONING_EFFORT,
     codex_auth_error,
+    codex_auth_secrets,
+    redact_codex_auth_secrets,
     resolve_codex_cli,
     validate_codex_reasoning_effort,
     with_codex_model_availability_hint,
@@ -51,6 +53,7 @@ from axiom_encode.concepts.registry import (
     load_concept_registry,
 )
 from axiom_encode.constants import (
+    OPENAI_AUTHORING_OUTPUT_LIMITS,
     RULESPEC_ATOMIC_MODULE_ROOTS,
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
@@ -68,12 +71,26 @@ from axiom_encode.encode_timing import (
     mark_encode_phase,
     timed_phase,
 )
+from axiom_encode.harness.same_case_execution import (
+    bind_execution_overlay_origin,
+    capture_execution_git_origin,
+)
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
     replacement_excluded_jurisdictions,
     scope_canonical_replacement_overlay,
     stage_legacy_replacement_overlay,
+)
+from axiom_encode.live_run_telemetry import (
+    PHASE_GENERATE,
+    PHASE_REVIEW,
+    PHASE_VALIDATE,
+    report_phase,
+)
+from axiom_encode.producer_review_guidance import (
+    MAX_GUIDANCE_BYTES,
+    ProducerReviewGuidance,
 )
 from axiom_encode.prompts.encoder import (
     INTERPRETATIONS_PROTOCOL,
@@ -96,10 +113,39 @@ from axiom_encode.retry_feedback import (
     VALIDATION_RETRY_FEEDBACK_MAX_TOTAL_CHARS,
     bounded_validation_retry_feedback_item,
 )
+
+# Re-exports. These path helpers lived in this module until
+# ``rulespec_citation_paths`` took them, so that the content-bound merge guard
+# can resolve a RuleSpec path without importing this module (axiom-encode#2257;
+# section 4, step 1 of the guard key-protection proposal). Callers keep
+# importing them from here; the objects are the same.
+from axiom_encode.rulespec_citation_paths import (  # noqa: F401
+    _CFR_CITATION_RE,
+    _RULEMAKING_OUTPUT_ROOT,
+    _RULEMAKING_SOURCE_TOKEN,
+    _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN,
+    _RULESPEC_SOURCE_ROOT_TOKENS,
+    _UK_LEGISLATION_DOMAIN_TOKEN,
+    _UK_LEGISLATION_SECTION_TOKENS,
+    _USC_CITATION_RE,
+    _canonical_uk_legislation_tail,
+    _canonical_us_regulation_tail,
+    _cfr_citation_to_corpus_citation_path,
+    _citation_to_corpus_citation_path,
+    _dotted_leaf_to_nested_yaml_path,
+    _expand_louisiana_title_section_tail,
+    _looks_like_corpus_citation_path,
+    _mapped_relative_rulespec_path,
+    _names_rulemaking_output,
+    _preserve_dotted_leaf_filename,
+    _preserve_state_statute_dotted_leaf,
+    _resolve_eval_output_path,
+    _source_identifier_to_relative_rulespec_path,
+)
 from axiom_encode.signing_broker import SigningBroker
 from axiom_encode.statute import (
     CitationParts,
-    citation_to_citation_path,
+    citation_to_citation_path,  # noqa: F401  (its caller moved; the name stays)
     citation_to_relative_rulespec_path,
     normalize_rulespec_path_segment,
     parse_usc_citation,
@@ -134,6 +180,7 @@ from .eval_evidence import (
 )
 from .eval_prompt_surface import (
     render_date_silent_scaffold_guidance,
+    render_date_silent_start_guidance,
     render_single_amount_row_guidance,
     render_uk_legislation_guidance,
 )
@@ -144,12 +191,18 @@ from .policyengine_runtime import (
     PolicyEngineRuntime,
     PolicyEngineRuntimeError,
 )
-from .pricing import estimate_usage_cost_usd
+from .pricing import estimate_anthropic_refusal_cost_usd, estimate_usage_cost_usd
 from .proof_validator import find_interpretation_yaml_issues
 from .source_completeness import (
+    _deferral_anchor_bases,
     _rulespec_target_base,
     collect_artifact_numeric_values,
     mask_armenian_amendment_history,
+    mask_example_cross_references,
+)
+from .start_date_evidence import (
+    is_manual_citation,
+    start_date_evidence_from_metadata,
 )
 from .validator_pipeline import (
     ExistingTargetOracleContract,
@@ -320,23 +373,15 @@ _ADMIN_AGENCY_BONUS_USE_RESTRICTION_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _ADMIN_AGENCY_AGGREGATE_CONTEXT_WINDOW = 500
+_PERSON_LEVEL_RULE_CONTEXT_PATTERN = re.compile(
+    r"\b(?:each\s+household\s+member|the\s+following\s+persons|"
+    r"an?\s+(?:individual|person|recipient|applicant))\b",
+    flags=re.IGNORECASE,
+)
 _CONDITIONAL_AMOUNT_SLICE_PATTERN = re.compile(
     r"\b(?:if|where|unless|except|subject to|treated as paid)\b",
     re.IGNORECASE,
 )
-_RULESPEC_SOURCE_ROOT_TOKENS = {
-    "form",
-    "forms",
-    "guidance",
-    "manual",
-    "manuals",
-    "policies",
-    "policy",
-    "regulation",
-    "regulations",
-    "statute",
-    "statutes",
-}
 _CORPUS_DOCUMENT_CLASS_BY_SOURCE_TOKEN = {
     "form": "form",
     "forms": "form",
@@ -350,28 +395,6 @@ _CORPUS_DOCUMENT_CLASS_BY_SOURCE_TOKEN = {
     "statute": "statute",
     "statutes": "statute",
 }
-_RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN = {
-    "form": "policies",
-    "forms": "policies",
-    "guidance": "policies",
-    "manual": "policies",
-    "manuals": "policies",
-    "policies": "policies",
-    "policy": "policies",
-    "regulation": "regulations",
-    "regulations": "regulations",
-    "statute": "statutes",
-    "statutes": "statutes",
-}
-# Federal Register instruments live under <jurisdiction>/rulemaking/... in the
-# corpus. RuleSpec has no rulemaking filesystem root, so their outputs land in
-# a reserved ``policies/rulemaking/`` namespace. A dot-free tail maps back to
-# the same citation; a dotted leaf is written nested and maps back to the
-# nested path (cli._relative_output_to_child_corpus_citation_path,
-# validator_pipeline._corpus_citation_to_normalized_target and
-# dependency_stubs._corpus_kind_and_rest keep the same contract).
-_RULEMAKING_SOURCE_TOKEN = "rulemaking"
-_RULEMAKING_OUTPUT_ROOT = "policies"
 
 
 def is_rulemaking_source_identifier(identifier: str) -> bool:
@@ -478,8 +501,6 @@ def rulemaking_explicit_output_required_message(
     return message
 
 
-_UK_LEGISLATION_DOMAIN_TOKEN = "legislation.gov.uk"
-_UK_LEGISLATION_SECTION_TOKENS = {"article", "regulation", "section"}
 _CLAUDE_DEFAULT_TIMEOUT_SECONDS = 1800
 _CODEX_DEFAULT_TIMEOUT_SECONDS = 600
 _CODEX_DEFAULT_IDLE_TIMEOUT_SECONDS = 300
@@ -821,28 +842,51 @@ def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
     imports_indent = 0
     removed: list[str] = []
 
+    # Per `imports:` block: its header line index, how many items it lost,
+    # and whether any other content (a kept item or a nested key) remains.
+    import_headers: list[int] = []
+    import_removals: list[int] = []
+    import_retained: list[bool] = []
+
     for line in content.splitlines(keepends=True):
         imports_match = re.match(r"^(\s*)imports:\s*$", line)
         if imports_match:
             in_imports = True
             imports_indent = len(imports_match.group(1))
+            import_headers.append(len(repaired_lines))
+            import_removals.append(0)
+            import_retained.append(False)
             repaired_lines.append(line)
             continue
 
         if in_imports:
             stripped = line.strip()
-            if stripped:
+            # A comment line neither ends the block nor counts as content.
+            if stripped and not stripped.startswith("#"):
                 indent = len(line) - len(line.lstrip())
                 item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
                 if item_match and indent >= imports_indent:
                     item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
                     if item in unused:
                         removed.append(item)
+                        import_removals[-1] += 1
                         continue
+                    import_retained[-1] = True
                 elif indent <= imports_indent:
                     in_imports = False
+                else:
+                    import_retained[-1] = True
 
         repaired_lines.append(line)
+
+    # Pruning every item of a block must drop its header too: a bare
+    # `imports:` loads as null, which the rules engine rejects ("expected a
+    # sequence"). A block that lost nothing, or keeps any content, stays.
+    for header_index, removal_count, retained in reversed(
+        list(zip(import_headers, import_removals, import_retained, strict=True))
+    ):
+        if removal_count and not retained:
+            del repaired_lines[header_index]
 
     return "".join(repaired_lines), removed
 
@@ -1352,11 +1396,37 @@ class EvalResult:
     verdict_sha256: str | None = None
     require_complete_source_unit: bool = False
     amendment_request: str | None = None
+    # The record of the eval-time quote repair in this invocation. Each entry
+    # (`excerpt:102`) names one `source:` or `excerpt:` line whose value the
+    # encoder put in quotes after generation so the YAML parses. The number is
+    # the line in the file when the encoder quoted it.
+    # The two fields are set together, or both are absent. When they are set,
+    # the encoder changed the model's bytes in this invocation and
+    # generated_output_sha256 is the digest of the repaired file. Signed
+    # verdict evidence includes both fields.
+    # The record covers this invocation's edits only. It does not follow the
+    # file. A retry that keeps or overlays an earlier attempt's main file (a
+    # tests-only repair, an accepted retained candidate, a repair overlay)
+    # starts with no entries, although the file can hold quotes that the
+    # earlier attempt added. An eval suite never retains a candidate, so for a
+    # suite result the record covers every quote this repair added to the file.
+    # Absent fields mean only that this repair did not run. They do not mean
+    # that the file holds the model's bytes unchanged.
+    # The result keeps no copy of the pre-repair text. The `claude` and
+    # `openai` traces hold the model's response text and the `codex` trace
+    # holds its event stream. The `claude-api` trace is metadata only, so a
+    # `claude-api` run keeps no pre-repair text.
+    auto_repaired_unquoted_source_scalars: list[str] = field(default_factory=list)
+    generated_output_repaired_by_encoder: bool = False
 
     def to_dict(self) -> dict:
         data = asdict(self)
         if self.amendment_request is None:
             data.pop("amendment_request", None)
+        if not self.auto_repaired_unquoted_source_scalars:
+            data.pop("auto_repaired_unquoted_source_scalars", None)
+        if not self.generated_output_repaired_by_encoder:
+            data.pop("generated_output_repaired_by_encoder", None)
         if not self.require_complete_source_unit:
             data.pop("require_complete_source_unit", None)
         if self.admission_score is None:
@@ -1666,6 +1736,7 @@ class EvalReadinessSummary:
     mean_estimated_cost_usd: float | None
     gate_results: list[EvalReadinessGateResult]
     ready: bool
+    infrastructure_error_count: int = 0
 
 
 def parse_runner_spec(spec: str) -> EvalRunnerSpec:
@@ -1702,7 +1773,7 @@ def parse_runner_spec(spec: str) -> EvalRunnerSpec:
         )
     name = alias or re.sub(r"[^a-zA-Z0-9._-]+", "-", f"{backend}-{model}")
 
-    if backend not in {"claude", "codex", "openai"}:
+    if backend not in {"claude", "claude-api", "codex", "openai"}:
         raise ValueError(f"Unsupported backend '{backend}' in runner spec '{spec}'")
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name) is None or name in {".", ".."}:
         raise ValueError(f"Unsafe runner name '{name}' in runner spec '{spec}'")
@@ -1760,8 +1831,22 @@ def run_model_eval(
     accept_valid_retry_candidate: bool = False,
     codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
     axiom_rules_engine_ref: str | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
+    if producer_review_guidance is not None:
+        if (
+            len(citations) != 1
+            or len(runner_specs) != 1
+            or review_findings_paths
+            or not require_complete_source_unit
+            or legacy_replacement is not None
+            or repair_candidate_tests_only
+            or accept_valid_retry_candidate
+        ):
+            raise ValueError(
+                "producer guidance requires a single ordinary full-source target"
+            )
     validate_codex_reasoning_effort(codex_reasoning_effort)
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     if target_relative_output is not None and len(citations) != 1:
@@ -1838,6 +1923,11 @@ def run_model_eval(
                         source_unit=source_unit,
                         rulespec_dependency_roots=rulespec_dependency_roots,
                         review_findings_paths=review_findings_paths or [],
+                        **(
+                            {"producer_review_guidance": producer_review_guidance}
+                            if producer_review_guidance is not None
+                            else {}
+                        ),
                         require_complete_source_unit=require_complete_source_unit,
                         target_relative_output=target_relative_output,
                         validation_retry_feedback=validation_retry_feedback,
@@ -3501,6 +3591,7 @@ def run_eval_suite(
     resume_existing: bool = False,
     admission_score: bool = False,
     axiom_compose_path: Path | None = None,
+    skip_reviewers: bool = False,
 ) -> list[EvalResult]:
     """Run a suite while keeping its evidence signer out of child environments."""
 
@@ -3516,6 +3607,7 @@ def run_eval_suite(
             resume_existing=resume_existing,
             admission_score=admission_score,
             axiom_compose_path=axiom_compose_path,
+            skip_reviewers=skip_reviewers,
             evidence_signing_key=evidence_signing_key,
         )
 
@@ -3532,6 +3624,7 @@ def _run_eval_suite_with_signer(
     evidence_signing_key: SigningBroker,
     admission_score: bool = False,
     axiom_compose_path: Path | None = None,
+    skip_reviewers: bool = False,
 ) -> list[EvalResult]:
     """Run every case using a parent-memory-only evidence signer."""
 
@@ -3575,6 +3668,8 @@ def _run_eval_suite_with_signer(
             suite_retry_attempts=suite_retry_attempts,
         )
     )
+    if skip_reviewers:
+        execution_identity["skip_reviewers"] = True
     if admission_score:
         execution_identity["admission_score"] = _eval_suite_admission_score_options(
             axiom_compose_path
@@ -3607,6 +3702,7 @@ def _run_eval_suite_with_signer(
             manifest_identity=manifest_identity,
             execution_identity=execution_identity,
             policyengine_runtime=policyengine_runtime,
+            retry_usage_limits=True,
         )
         completed_cases = _contiguous_completed_case_count(
             completed_case_indexes, len(manifest.cases)
@@ -3713,6 +3809,7 @@ def _run_eval_suite_with_signer(
                                     runtime_axiom_rules_path=axiom_rules_path,
                                     corpus_release=corpus_release,
                                     mode=case.mode,
+                                    skip_reviewers=skip_reviewers,
                                     extra_context_paths=extra_context,
                                     oracle=case.oracle,
                                     policyengine_runtime=policyengine_runtime,
@@ -3739,6 +3836,7 @@ def _run_eval_suite_with_signer(
                                     local_corpus_release=corpus_release,
                                     runtime_axiom_rules_path=axiom_rules_path,
                                     mode=case.mode,
+                                    skip_reviewers=skip_reviewers,
                                     extra_context_paths=extra_context,
                                     oracle=case.oracle,
                                     policyengine_runtime=policyengine_runtime,
@@ -3981,6 +4079,57 @@ def _validate_eval_result_payload_binding(
         )
 
 
+_ENCODER_QUOTE_REPAIR_LINES_FIELD = "auto_repaired_unquoted_source_scalars"
+_ENCODER_QUOTE_REPAIR_FLAG_FIELD = "generated_output_repaired_by_encoder"
+#: One entry of the record: the quoted key and its 1-based line number.
+_ENCODER_QUOTED_SOURCE_SCALAR_PATTERN = re.compile(r"(?:source|excerpt):[1-9][0-9]*")
+
+
+def _eval_result_encoder_quote_repair_record(
+    result_payload: Mapping[str, object],
+    *,
+    artifact_name: str = "Eval result",
+) -> dict[str, object]:
+    """Return the validated encoder quote-repair record, or an empty mapping.
+
+    A result payload has both fields or neither. With both, the lines are a
+    nonempty list of `source:<line>` or `excerpt:<line>` entries, the flag is
+    exactly true, and the result binds a generated RuleSpec. A payload with
+    neither field returns an empty mapping, so evidence that was signed before
+    these fields existed keeps the exact bytes that were signed.
+    """
+
+    has_lines = _ENCODER_QUOTE_REPAIR_LINES_FIELD in result_payload
+    has_flag = _ENCODER_QUOTE_REPAIR_FLAG_FIELD in result_payload
+    if not has_lines and not has_flag:
+        return {}
+    lines = result_payload.get(_ENCODER_QUOTE_REPAIR_LINES_FIELD)
+    if (
+        not has_lines
+        or not has_flag
+        or result_payload[_ENCODER_QUOTE_REPAIR_FLAG_FIELD] is not True
+        or not isinstance(lines, list)
+        or not lines
+        or any(
+            not isinstance(item, str)
+            or _ENCODER_QUOTED_SOURCE_SCALAR_PATTERN.fullmatch(item) is None
+            for item in lines
+        )
+        or not result_payload.get("generated_output_sha256")
+    ):
+        raise ValueError(
+            f"{artifact_name} has an inconsistent encoder quote-repair record: "
+            f"'{_ENCODER_QUOTE_REPAIR_LINES_FIELD}' must be a nonempty list of "
+            "`source:<line>` or `excerpt:<line>` entries, "
+            f"'{_ENCODER_QUOTE_REPAIR_FLAG_FIELD}' must be true, and the result "
+            "must bind a generated RuleSpec"
+        )
+    return {
+        _ENCODER_QUOTE_REPAIR_LINES_FIELD: list(lines),
+        _ENCODER_QUOTE_REPAIR_FLAG_FIELD: True,
+    }
+
+
 def _eval_result_verdict_evidence_payload(
     result: EvalResult,
     admission_context: dict[str, object],
@@ -4025,6 +4174,9 @@ def _eval_result_verdict_evidence_payload(
             "retry_count": result_payload.get("retry_count"),
             "retrieved_files": result_payload.get("retrieved_files"),
             "unexpected_accesses": result_payload.get("unexpected_accesses"),
+            # Present only when the encoder quoted source text in the output.
+            # A result without the record signs the same bytes as before.
+            **_eval_result_encoder_quote_repair_record(result_payload),
         },
         "source_attestation": result_payload.get("source_attestation"),
         "validation": {
@@ -4333,13 +4485,16 @@ def _read_only_git_environment() -> dict[str, str]:
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_CONFIG_SYSTEM=os.devnull,
         GIT_CONFIG_NOSYSTEM="1",
-        GIT_CONFIG_COUNT="2",
+        GIT_CONFIG_COUNT="3",
         GIT_CONFIG_KEY_0="core.commitGraph",
         GIT_CONFIG_VALUE_0="false",
         # GIT_GRAFT_FILE=/dev/null is itself a readable graft file, so without
         # this Git advises on stderr whenever a query here parses a commit.
         GIT_CONFIG_KEY_1="advice.graftFileDeprecated",
         GIT_CONFIG_VALUE_1="false",
+        # A repository's log.showSignature would run its gpg.program on a read.
+        GIT_CONFIG_KEY_2="log.showSignature",
+        GIT_CONFIG_VALUE_2="false",
         GIT_TERMINAL_PROMPT="0",
     )
     return environment
@@ -4527,6 +4682,7 @@ def _build_eval_suite_execution_identity(
     suite_retry_attempts: int = _DEFAULT_SUITE_RETRY_ATTEMPTS,
     admission_score: bool = False,
     axiom_compose_path: Path | None = None,
+    skip_reviewers: bool = False,
 ) -> dict[str, object]:
     """Return every executable and RuleSpec input identity used by a suite."""
 
@@ -4567,6 +4723,8 @@ def _build_eval_suite_execution_identity(
             _rulespec_root_execution_identity(Path(root)) for root in rulespec_roots
         ],
     }
+    if skip_reviewers:
+        identity["skip_reviewers"] = True
     if admission_score:
         identity["admission_score"] = _eval_suite_admission_score_options(
             axiom_compose_path
@@ -4609,9 +4767,12 @@ def _eval_result_generation_infrastructure_failure(result: EvalResult) -> str | 
 
     - ``authentication``: the row's backend had no credentials at all (no
       ``OPENAI_API_KEY``, and for Codex no ``CODEX_API_KEY`` or auth file
-      either; ``encode`` refuses to start on the same Codex check) and the
-      row reports no model tokens, so nothing shows a model was reached.
+      either; ``encode`` refuses to start on the same Codex check), or no
+      ``ANTHROPIC_API_KEY`` for Claude API. The row reports no model tokens,
+      so nothing shows a model was reached.
     - ``quota-exhaustion``: the usage-limit rule that already stops the suite.
+    - ``context-overflow``: the API rejected the prompt size or stopped at its
+      context window, before producing a complete artifact.
 
     Any other backend error, including a credential the provider rejects,
     returns ``None`` and stays a scored failure. The fold's run-level
@@ -4625,6 +4786,8 @@ def _eval_result_generation_infrastructure_failure(result: EvalResult) -> str | 
     if result.success or result.output_file or result.failure_kind != "error":
         return None
     backend = result.backend.strip().lower()
+    if _eval_result_is_context_overflow(result):
+        return "context-overflow"
     reports_model_tokens = any(
         getattr(result, name, 0)
         for name in (
@@ -4644,9 +4807,22 @@ def _eval_result_generation_infrastructure_failure(result: EvalResult) -> str | 
             return "authentication"
         if backend == "openai" and not os.getenv("OPENAI_API_KEY"):
             return "authentication"
+        if backend == "claude-api" and not os.getenv("ANTHROPIC_API_KEY"):
+            return "authentication"
     if _eval_result_indicates_usage_limit(result):
         return "quota-exhaustion"
     return None
+
+
+def _eval_result_is_context_overflow(result: EvalResult) -> bool:
+    """Recognize the harness's artifact-free API context rejection."""
+    return (
+        result.backend == "claude-api"
+        and not result.success
+        and not result.output_file
+        and result.failure_kind == "error"
+        and "context overflow" in (result.error or "").lower()
+    )
 
 
 def _recorded_generation_infrastructure_failure(score: object) -> str | None:
@@ -5505,6 +5681,7 @@ def _load_eval_suite_resume_state(
     execution_identity: dict[str, object],
     policyengine_runtime: PolicyEngineRuntime | None = None,
     revalidate_persisted_results: bool = True,
+    retry_usage_limits: bool = False,
 ) -> tuple[str, str, list[EvalResult], set[int]]:
     """Load only a complete, content-identical suite ledger for resumption."""
     state_path = output_root / "suite-run.json"
@@ -5662,6 +5839,8 @@ def _load_eval_suite_resume_state(
 
     completed_case_indexes: set[int] = set()
     results: list[EvalResult] = []
+    quota_case_index: int | None = None
+    quota_result_count = 0
     for case_index in case_indexes:
         case = manifest.cases[case_index - 1]
         expected_source_attestation: dict[str, object] | None = None
@@ -5694,6 +5873,17 @@ def _load_eval_suite_resume_state(
             expected_source_attestation=expected_source_attestation,
             source_unit=live_source_unit,
         )
+        if retry_usage_limits and _suite_case_results_hit_usage_limit(case_results):
+            # Quota exhaustion stops generation before the remaining cases.
+            # Preserve earlier evidence, but rerun this terminal group after
+            # quota resets instead of treating it as a completed model exam.
+            if case_index != case_indexes[-1]:
+                raise ValueError(
+                    "Cannot resume eval suite: rows follow a usage-limit case"
+                )
+            quota_case_index = case_index
+            quota_result_count = len(case_results)
+            break
         admission_options = execution_identity.get("admission_score")
         admission_enabled = isinstance(admission_options, dict) and (
             admission_options.get("enabled") is True
@@ -5752,22 +5942,50 @@ def _load_eval_suite_resume_state(
 
     state_completed_cases = _state_nonnegative_int(state, "completed_cases")
     state_result_count = _state_nonnegative_int(state, "result_count")
-    if state_completed_cases > len(completed_case_indexes):
+    if state_completed_cases > len(completed_case_indexes) + (
+        quota_case_index is not None
+    ):
         raise ValueError(
             "Cannot resume eval suite: suite-run.json claims more completed cases "
             "than the durable results ledger"
         )
-    if state_result_count > len(results):
+    if state_result_count > len(results) + quota_result_count:
         raise ValueError(
             "Cannot resume eval suite: suite-run.json claims more results than the "
             "durable results ledger"
         )
-    if state.get("status") == "completed" and len(completed_case_indexes) != len(
-        manifest.cases
+    if (
+        state.get("status") == "completed"
+        and quota_case_index is None
+        and len(completed_case_indexes) != len(manifest.cases)
     ):
         raise ValueError(
             "Cannot resume eval suite: completed suite-run.json has incomplete "
             "ledger groups"
+        )
+    if quota_case_index is not None:
+        retained_ledger = "".join(
+            json.dumps(row) + "\n"
+            for index in case_indexes
+            if index < quota_case_index
+            for row in rows_by_case[index]
+        )
+        # Lower the progress counts first so an interruption between the two
+        # atomic writes remains resumable with either version of the ledger.
+        state["completed_cases"] = len(completed_case_indexes)
+        state["result_count"] = len(results)
+        state["status"] = "running"
+        for field_name in ("last_case_name", "active_case", "error", "finished_at"):
+            state.pop(field_name, None)
+        if completed_case_indexes:
+            state["last_case_name"] = manifest.cases[
+                max(completed_case_indexes) - 1
+            ].name
+        _secure_atomic_eval_write(
+            output_root, Path("suite-run.json"), json.dumps(state).encode()
+        )
+        _secure_atomic_eval_write(
+            output_root, Path("suite-results.jsonl"), retained_ledger.encode()
         )
     return run_id, started_at, results, completed_case_indexes
 
@@ -6230,6 +6448,10 @@ def _eval_result_from_payload(
         raise ValueError(
             f"{artifact_name} is missing its signed suite admission context"
         )
+    quote_repair_record = _eval_result_encoder_quote_repair_record(
+        payload,
+        artifact_name=artifact_name,
+    )
     metrics_payload = payload.get("metrics")
     metrics = None
     if isinstance(metrics_payload, dict):
@@ -6357,6 +6579,12 @@ def _eval_result_from_payload(
         timeout_attempts=int(payload.get("timeout_attempts", 0) or 0),
         retry_count=int(payload.get("retry_count", 0) or 0),
         amendment_request=payload.get("amendment_request"),
+        auto_repaired_unquoted_source_scalars=list(
+            quote_repair_record.get(_ENCODER_QUOTE_REPAIR_LINES_FIELD, [])
+        ),
+        generated_output_repaired_by_encoder=(
+            _ENCODER_QUOTE_REPAIR_FLAG_FIELD in quote_repair_record
+        ),
         source_attestation=(
             dict(payload["source_attestation"])
             if isinstance(payload.get("source_attestation"), dict)
@@ -6502,6 +6730,8 @@ def _suite_case_results_should_retry(case_results: list[EvalResult]) -> bool:
     """Return True when a suite case likely failed for a transient reason."""
     if _suite_case_results_hit_usage_limit(case_results):
         return False
+    if any(_eval_result_is_context_overflow(result) for result in case_results):
+        return False
     if any(result.timed_out or result.timeout_attempts for result in case_results):
         return False
     return any(
@@ -6528,7 +6758,10 @@ def _eval_result_indicates_usage_limit(result: EvalResult) -> bool:
         texts.extend(result.metrics.generalist_review_issues)
         texts.extend(result.metrics.policyengine_issues)
 
-    return any("usage limit" in text.lower() for text in texts)
+    return any(
+        "usage limit" in text.lower() or "credit balance is too low" in text.lower()
+        for text in texts
+    )
 
 
 def _eval_result_indicates_retryable_timeout(result: EvalResult) -> bool:
@@ -6551,6 +6784,10 @@ def summarize_readiness(
     gates: EvalReadinessGates,
 ) -> EvalReadinessSummary:
     """Summarize suite readiness for one runner."""
+    infrastructure_error_count = sum(
+        _eval_result_is_context_overflow(r) for r in results
+    )
+    results = [r for r in results if not _eval_result_is_context_overflow(r)]
     total_cases = len(results)
     artifact_results = [result for result in results if result.metrics is not None]
     artifact_case_count = len(artifact_results)
@@ -6688,6 +6925,7 @@ def summarize_readiness(
         )
 
     return EvalReadinessSummary(
+        infrastructure_error_count=infrastructure_error_count,
         total_cases=total_cases,
         artifact_case_count=artifact_case_count,
         timeout_count=timeout_count,
@@ -6702,7 +6940,8 @@ def summarize_readiness(
         mean_policyengine_score=mean_policyengine_score,
         mean_estimated_cost_usd=mean_estimated_cost_usd,
         gate_results=gate_results,
-        ready=all(result.passed for result in gate_results),
+        ready=not infrastructure_error_count
+        and all(result.passed for result in gate_results),
     )
 
 
@@ -6890,8 +7129,42 @@ def prepare_eval_workspace(
     review_findings_paths: list[Path] | None = None,
     target_relative_output: Path | None = None,
     review_contract: Mapping[str, object] | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> EvalWorkspace:
     """Create an isolated workspace bundle for a single eval."""
+    if producer_review_guidance is not None:
+        if review_findings_paths:
+            raise ValueError(
+                "producer guidance and review findings are mutually exclusive"
+            )
+        guidance = producer_review_guidance
+        if (
+            not isinstance(guidance.content, bytes)
+            or not 0 < len(guidance.content) <= MAX_GUIDANCE_BYTES
+        ):
+            raise ValueError("producer guidance content size is invalid")
+        try:
+            guidance_text = guidance.content.decode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ValueError("producer guidance content is not UTF-8") from exc
+        if (
+            guidance_text.startswith("\ufeff")
+            or not guidance_text.endswith("\n")
+            or guidance_text.endswith("\n\n")
+            or not guidance_text.strip()
+            or any(
+                (ord(c) < 32 and c not in "\n\t") or ord(c) == 127
+                for c in guidance_text
+            )
+        ):
+            raise ValueError("producer guidance content is not normalized")
+        source_digest = hashlib.sha256(
+            source_text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+        ).hexdigest()
+        if guidance.citation != citation or guidance.source_sha256 != source_digest:
+            raise ValueError("producer guidance does not match the workspace source")
+        if hashlib.sha256(guidance.content).hexdigest() != guidance.content_sha256:
+            raise ValueError("producer guidance content digest mismatch")
     slug = _slugify(citation)
     workspace_root = (
         Path(output_root) / "_eval_workspaces" / runner.name / slug / "workspace"
@@ -6983,6 +7256,28 @@ def prepare_eval_workspace(
                 "sha256": hashlib.sha256(
                     normalized_findings_text.encode("utf-8")
                 ).hexdigest(),
+            }
+        )
+
+    if producer_review_guidance is not None:
+        guidance = producer_review_guidance
+        workspace_relative_path = Path("review-findings/01-producer-guidance.txt")
+        workspace_path = workspace_root / workspace_relative_path
+        workspace_path.parent.mkdir(parents=True, exist_ok=True)
+        workspace_path.write_bytes(guidance.content)
+        context_file = EvalContextFile(
+            source_path=f"git:{guidance.producer_commit}:{guidance.path}",
+            workspace_path=str(workspace_relative_path),
+            import_path=str(workspace_relative_path),
+            kind="mandatory_review_findings",
+            label="producer-guidance.txt",
+        )
+        review_findings_files.append(context_file)
+        review_findings_evidence.append(
+            {
+                **asdict(context_file),
+                "content": guidance_text,
+                "sha256": guidance.content_sha256,
             }
         )
 
@@ -7123,6 +7418,17 @@ def prepare_eval_workspace(
         ],
         "review_findings_files": review_findings_evidence,
     }
+    if producer_review_guidance is not None:
+        guidance = producer_review_guidance
+        manifest_payload["producer_review_guidance"] = {
+            "producer_commit": guidance.producer_commit,
+            "path": guidance.path,
+            "blob_sha256": guidance.blob_sha256,
+            "size_bytes": guidance.size_bytes,
+            "citation": guidance.citation,
+            "source_sha256": guidance.source_sha256,
+            "content_sha256": guidance.content_sha256,
+        }
     if review_contract is not None:
         manifest_payload["review_contract"] = dict(review_contract)
     if rendered_context.dropped_amendment_documents:
@@ -7682,81 +7988,6 @@ def _normalize_rulespec_source_id_to_corpus_path(identifier: str) -> str:
     if not jurisdiction or document_class is None:
         return identifier
     return "/".join((jurisdiction, document_class, *parts[1:]))
-
-
-_CFR_CITATION_RE = re.compile(
-    r"^(?P<title>\d+)\s+C\.?\s*F\.?\s*R\.?\s+"
-    r"(?:(?:part|pt\.?)\s+)?(?:§+\s*)?"
-    r"(?P<section>[0-9A-Za-z.-]+)"
-    r"(?P<tail>(?:\([^)]+\))*)$",
-    re.IGNORECASE,
-)
-_USC_CITATION_RE = re.compile(
-    r"^\d+\s+U\.?\s*S\.?\s*C\.?\s+(?:§+\s*)?"
-    r"[0-9A-Za-z.-]+(?:\([^)]+\))*$",
-    re.IGNORECASE,
-)
-
-
-def _citation_to_corpus_citation_path(citation: str) -> str:
-    """Convert a bare legal citation to a corpus citation path."""
-    cfr_path = _cfr_citation_to_corpus_citation_path(citation)
-    if cfr_path is not None:
-        return cfr_path
-    if re.search(r"\bC\.?\s*F\.?\s*R\.?\b", citation, flags=re.IGNORECASE):
-        raise ValueError(f"Could not parse CFR citation: {citation}")
-    if _USC_CITATION_RE.fullmatch(citation.strip()) is None:
-        raise ValueError(f"Could not parse USC citation: {citation}")
-    return citation_to_citation_path(citation)
-
-
-def _cfr_citation_to_corpus_citation_path(citation: str) -> str | None:
-    match = _CFR_CITATION_RE.match(citation.strip().replace("§", "§ "))
-    if match is None:
-        return None
-    section_parts = [part for part in match.group("section").split(".") if part]
-    if not section_parts:
-        return None
-    fragments = re.findall(r"\(([^)]+)\)", match.group("tail"))
-    return "/".join(
-        (
-            "us",
-            "regulation",
-            match.group("title"),
-            *section_parts,
-            *fragments,
-        )
-    )
-
-
-def _looks_like_corpus_citation_path(identifier: str) -> bool:
-    parts = [part for part in identifier.strip().strip("/").split("/") if part]
-    if parts and ":" in parts[0]:
-        _jurisdiction, source_root = parts[0].split(":", 1)
-        if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
-            return True
-    if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
-        return True
-    return len(parts) >= 3 and parts[1] in {
-        "form",
-        "forms",
-        "guidance",
-        "manual",
-        "manuals",
-        "policies",
-        "policy",
-        "regulation",
-        "regulations",
-        # Federal Register instruments (proclamations, executive orders,
-        # notices) live under us/rulemaking/... in the corpus; without this
-        # token the CLI mangles such citations via citation_to_citation_path
-        # into us/statute/us/rulemaking/... and the provisions lookup fails.
-        # Validate-time source verification already resolves these paths
-        # verbatim.
-        "rulemaking",
-        "statute",
-        "statutes",
-    }
 
 
 class _ResolvedCorpusText(str):
@@ -8646,6 +8877,14 @@ def _evaluate_artifact_in_scope(
                     target=target,
                 )
             )
+    execution_git_origin = (
+        capture_execution_git_origin(Path(policy_repo_root))
+        if require_complete_source_unit
+        and legacy_replacement is None
+        and not replacement_overlay_scope
+        and not rulespec_dependency_roots
+        else None
+    )
     with _rulespec_validation_target(
         rulespec_file,
         policy_repo_root,
@@ -8664,6 +8903,15 @@ def _evaluate_artifact_in_scope(
         )
         pipeline = ValidatorPipeline(
             policy_repo_path=validation_policy_repo_root,
+            execution_overlay_origin=(
+                bind_execution_overlay_origin(
+                    execution_git_origin, validation_policy_repo_root
+                )
+                if legacy_replacement is None
+                and not replacement_overlay_scope
+                and not validation_dependency_roots
+                else None
+            ),
             axiom_rules_path=axiom_rules_path,
             **(
                 {"axiom_rules_engine_ref": axiom_rules_engine_ref}
@@ -8689,6 +8937,7 @@ def _evaluate_artifact_in_scope(
             },
             existing_target_oracle_contract=existing_target_oracle_contract,
         )
+        report_phase(PHASE_VALIDATE)
         compile_result = pipeline._run_compile_check(validation_file)
         timing_issues = amendment_timing_issues(
             validation_file.read_text(), amendment_documents
@@ -8758,6 +9007,7 @@ def _evaluate_artifact_in_scope(
                 issues=[],
             )
         else:
+            report_phase(PHASE_REVIEW)
             try:
                 generalist_review_result = pipeline._run_reviewer(
                     "generalist-reviewer",
@@ -8795,13 +9045,15 @@ def _evaluate_artifact_in_scope(
     # but generated literals are grounded only in authoritative source text and
     # separately parsed proof evidence below — never in module.summary.
     numeric_validation_source_text = embedded_source or numeric_source_text or ""
-    numeric_recall_source_text = mask_armenian_amendment_history(
-        (
-            evaluation_source_text
-            if require_complete_source_unit
-            else numeric_validation_source_text
+    numeric_recall_source_text = mask_example_cross_references(
+        mask_armenian_amendment_history(
+            (
+                evaluation_source_text
+                if require_complete_source_unit
+                else numeric_validation_source_text
+            )
+            or ""
         )
-        or ""
     )
     # Complete-source recall deliberately inventories the whole authoritative
     # unit.  Generated-number grounding remains scoped exactly as it is in the
@@ -9060,6 +9312,7 @@ def _evaluate_generated_artifact_with_repairs(
     allow_artifact_repairs: bool = True,
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
+    repair_log: list[str] | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
@@ -9113,6 +9366,15 @@ def _evaluate_generated_artifact_with_repairs(
         )
         if not repairs:
             return metrics
+        if repair_log is not None:
+            repair_log.extend(repairs)
+
+
+def _quoted_source_scalar_repairs(repairs: Sequence[str]) -> list[str]:
+    """Return the source-text lines an eval repair quoted (`excerpt:102`)."""
+
+    prefix = "source_scalar_quote:"
+    return [repair[len(prefix) :] for repair in repairs if repair.startswith(prefix)]
 
 
 def _rebind_retained_candidate_proof_import_hashes(
@@ -9240,13 +9502,28 @@ def _apply_generated_eval_repairs(
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[str]:
     """Apply deterministic generated-artifact repairs before final eval scoring."""
+    cli_helpers = None
+    unquoted_colon_issue = (
+        f"{rulespec_file.name} YAML parse failed: mapping values are not allowed here"
+    )
+    if any(str(issue).startswith(unquoted_colon_issue) for issue in issues):
+        # Import lazily to avoid the startup cycle: cli imports this module.
+        from axiom_encode import cli as cli_helpers
+
+        quoted_scalars = cli_helpers._quote_unquoted_source_scalars(
+            rules_file=rulespec_file
+        )
+        print("  auto_quoted_source_scalars:" + (",".join(quoted_scalars) or "none"))
+        if quoted_scalars:
+            # Score the now-parseable artifact before a repair that reads it.
+            return [f"source_scalar_quote:{item}" for item in quoted_scalars]
+
     repairs: list[str] = []
     proof_repairs = _remove_unreferenced_proof_import_atoms(rulespec_file, issues)
     repairs.extend(f"proof_import:{name}" for name in proof_repairs)
     unused_import_repairs = _prune_unused_imports_from_file(rulespec_file, issues)
     repairs.extend(f"unused_import:{name}" for name in unused_import_repairs)
 
-    cli_helpers = None
     if any("Proof source evidence not found:" in str(issue) for issue in issues):
         # Import lazily to avoid the startup cycle: cli imports this module.
         from axiom_encode import cli as cli_helpers
@@ -9465,6 +9742,101 @@ def _imported_named_scalar_occurrences(
     return occurrences
 
 
+_STRICT_IMPORT_SYMBOL_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_STRICT_IMPORT_PATH_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9_.~-]+")
+_STRICT_IMPORT_REFUSED_FILENAME_SUFFIXES = (".yaml", ".yml", ".test")
+_YAML_STRING_TAG = "tag:yaml.org,2002:str"
+
+
+def _strict_top_level_import_strings(content: str) -> list[str]:
+    """Return the import strings written in place in the top-level mapping.
+
+    The rules engine does not apply YAML merge keys, so a loaded payload can
+    show an ``imports`` list that the engine never sees. This reader works on
+    the event and node level and credits nothing for the whole file unless the
+    file is one document with no alias and no explicit tag, whose top-level
+    mapping has no merge key and exactly one ``imports`` key, valued by a
+    sequence of string scalars.
+    """
+
+    try:
+        events = list(yaml.parse(content, Loader=yaml.SafeLoader))
+        documents = list(yaml.compose_all(content, Loader=yaml.SafeLoader))
+    except (yaml.YAMLError, TypeError, ValueError):
+        return []
+    for event in events:
+        if isinstance(event, yaml.AliasEvent):
+            return []
+        if isinstance(event, yaml.NodeEvent) and event.tag is not None:
+            return []
+    if len(documents) != 1 or not isinstance(documents[0], yaml.MappingNode):
+        return []
+    import_values: list[yaml.Node] = []
+    for key_node, value_node in documents[0].value:
+        # A non-scalar key has a list value, so neither comparison matches it.
+        if key_node.value == "<<":
+            return []
+        if key_node.value == "imports":
+            import_values.append(value_node)
+    if len(import_values) != 1 or not isinstance(import_values[0], yaml.SequenceNode):
+        return []
+    items: list[str] = []
+    for item_node in import_values[0].value:
+        if (
+            not isinstance(item_node, yaml.ScalarNode)
+            or item_node.tag != _YAML_STRING_TAG
+        ):
+            return []
+        items.append(item_node.value)
+    return items
+
+
+def _strict_import_target_is_engine_loadable(import_target: str) -> bool:
+    """Mirror the rules engine's exact absolute module-target rule."""
+
+    prefix, separator, relative = import_target.partition(":")
+    if not separator or ":" in relative:
+        return False
+    if re.fullmatch(r"[a-z]{2}(?:-[a-z0-9]+)*", prefix) is None:
+        return False
+    segments = relative.split("/")
+    if len(segments) < 2 or segments[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
+        return False
+    for segment in segments:
+        if segment in {".", ".."}:
+            return False
+        if _STRICT_IMPORT_PATH_SEGMENT_PATTERN.fullmatch(segment) is None:
+            return False
+    return not segments[-1].lower().endswith(_STRICT_IMPORT_REFUSED_FILENAME_SUFFIXES)
+
+
+def _strict_symbol_import_items(content: str) -> list[tuple[str, str]]:
+    """Return exact `(target, symbol)` pairs the rules engine would load.
+
+    An item counts only when it is exactly one whitespace-free, prefixed
+    `target#symbol` reference whose target the engine accepts.
+    """
+
+    items: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw_item in _strict_top_level_import_strings(content):
+        if raw_item.count("#") != 1 or any(char.isspace() for char in raw_item):
+            continue
+        import_target, imported_symbol = raw_item.split("#", 1)
+        if not _STRICT_IMPORT_SYMBOL_PATTERN.fullmatch(imported_symbol):
+            continue
+        if not _strict_import_target_is_engine_loadable(import_target):
+            continue
+        target_ref = _parse_rulespec_target(raw_item)
+        if target_ref is None or target_ref.symbol != imported_symbol:
+            continue
+        if (import_target, imported_symbol) in seen:
+            continue
+        seen.add((import_target, imported_symbol))
+        items.append((import_target, imported_symbol))
+    return items
+
+
 def _strict_imported_named_scalar_occurrences(
     content: str,
     policy_repo_root: Path,
@@ -9472,11 +9844,13 @@ def _strict_imported_named_scalar_occurrences(
     """Count only direct scalar definitions for explicitly imported symbols."""
 
     occurrences: Counter[float] = Counter()
-    for import_target in _extract_import_targets(content):
-        if "#" not in import_target:
+    for import_target, imported_symbol in _strict_symbol_import_items(content):
+        try:
+            paths = _candidate_import_rule_files(import_target, policy_repo_root)
+        except UnsafeRulespecContextPath:
+            # An unsafe target earns no credit; the source number stays missing.
             continue
-        imported_symbol = import_target.rsplit("#", 1)[1]
-        for path in _candidate_import_rule_files(import_target, policy_repo_root):
+        for path in paths:
             with contextlib.suppress(OSError):
                 imported_content = path.read_text()
                 occurrences.update(
@@ -10120,6 +10494,7 @@ def _run_single_eval(
     accept_valid_retry_candidate: bool = False,
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
+    producer_review_guidance: ProducerReviewGuidance | None = None,
 ) -> EvalResult:
     if (
         accept_valid_retry_candidate
@@ -10192,21 +10567,27 @@ def _run_single_eval(
         amendment_documents=source_unit.amendment_documents,
         extra_context_paths=extra_context_paths,
         review_findings_paths=review_findings_paths,
+        **(
+            {"producer_review_guidance": producer_review_guidance}
+            if producer_review_guidance is not None
+            else {}
+        ),
         target_relative_output=target_relative_output,
         review_contract=review_contract,
     )
     target_ref_source = citation if is_corpus_path else source_unit.citation_path
+    target_ref_prefix = _canonical_target_ref_prefix(
+        target_ref_source,
+        relative_output,
+        policy_repo_path=policy_path,
+    )
     prompt = _build_eval_prompt(
         citation,
         mode,
         workspace,
         workspace.context_files,
         target_file_name=relative_output.name,
-        target_ref_prefix=_canonical_target_ref_prefix(
-            target_ref_source,
-            relative_output,
-            policy_repo_path=policy_path,
-        ),
+        target_ref_prefix=target_ref_prefix,
         include_tests=include_tests,
         runner_backend=runner.backend,
         policyengine_rule_hint=policyengine_rule_hint,
@@ -10370,6 +10751,7 @@ def _run_single_eval(
             _clear_eval_target_artifacts(output_file, artifact_root)
 
     if not retained_candidate_accepted:
+        report_phase(PHASE_GENERATE)
         mark_encode_phase(PHASE_MODEL_CALL)
         response, wrote_artifact, retry_count, materialized_paths = (
             _run_prompt_eval_with_empty_artifact_retry(
@@ -10401,6 +10783,7 @@ def _run_single_eval(
                 output_file,
                 artifact_root=artifact_root,
                 candidate=validation_retry_candidate,
+                target_ref_prefix=target_ref_prefix,
             )
         except _PreservedRepairOverlayError as exc:
             # Do not restore an unusable base, but also do not accept this
@@ -10472,6 +10855,7 @@ def _run_single_eval(
     )
 
     metrics = retained_candidate_metrics if retained_candidate_accepted else None
+    eval_repairs: list[str] = []
     if wrote_artifact and not retained_candidate_accepted:
         mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         metrics = _evaluate_generated_artifact_with_repairs(
@@ -10504,7 +10888,9 @@ def _run_single_eval(
             legacy_replacement=legacy_replacement,
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
+            repair_log=eval_repairs,
         )
+    quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     mark_encode_phase(PHASE_RECORD_RESULT)
     if overlay_validation_issue is not None and metrics is not None:
         metrics.ci_pass = False
@@ -10578,6 +10964,8 @@ def _run_single_eval(
         retry_count=retry_count,
         source_attestation=_source_metadata_attestation(source_metadata_payload),
         require_complete_source_unit=require_complete_source_unit,
+        auto_repaired_unquoted_source_scalars=quoted_source_scalars,
+        generated_output_repaired_by_encoder=bool(quoted_source_scalars),
     )
     emit_eval_result(result, response.trace)
     return result
@@ -10721,6 +11109,7 @@ def _run_single_source_eval(
     )
 
     metrics = None
+    eval_repairs: list[str] = []
     if wrote_artifact:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
@@ -10743,7 +11132,9 @@ def _run_single_source_eval(
             protected_review_excerpts=_workspace_quoted_review_finding_excerpts(
                 workspace
             ),
+            repair_log=eval_repairs,
         )
+    quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     validation_error = _eval_artifact_validation_error(
         metrics,
         require_policyengine=oracle == "policyengine",
@@ -10808,35 +11199,11 @@ def _run_single_source_eval(
         retry_count=retry_count,
         source_attestation=_source_metadata_attestation(source_metadata_payload),
         require_complete_source_unit=require_complete_source_unit,
+        auto_repaired_unquoted_source_scalars=quoted_source_scalars,
+        generated_output_repaired_by_encoder=bool(quoted_source_scalars),
     )
     emit_eval_result(result, response.trace)
     return result
-
-
-def _resolve_eval_output_path(
-    citation: str,
-    *,
-    fallback: Callable[[str], Path] | None = None,
-) -> Path:
-    """Resolve the rulespec-relative output path for an encode target.
-
-    Corpus-backed source evals pass their canonical requested citation path.
-    Citation evals may additionally pass a strict citation parser as ``fallback``.
-    Arbitrary free-text identifiers are not translated into source identities.
-    """
-    if _looks_like_corpus_citation_path(citation):
-        return _source_identifier_to_relative_rulespec_path(citation)
-    try:
-        return _source_identifier_to_relative_rulespec_path(
-            _citation_to_corpus_citation_path(citation)
-        )
-    except ValueError:
-        pass
-    if fallback is not None:
-        return fallback(citation)
-    raise ValueError(
-        f"Eval source identity is not a canonical citation path: {citation}"
-    )
 
 
 def _contained_eval_output_file(
@@ -11069,226 +11436,6 @@ def _prompt_corpus_citation_path(source_unit: CorpusSourceUnit) -> str:
     return _corpus_resolver.normalize_corpus_identifier(source_unit.requested)
 
 
-def _source_identifier_to_relative_rulespec_path(source_id: str) -> Path:
-    """Map a canonical source identifier to its RuleSpec artifact path.
-
-    See ``_mapped_relative_rulespec_path``. Only a rulemaking source may land
-    in the reserved ``policies/rulemaking/`` namespace: a corpus
-    ``<j>/rulemaking/...`` path, or the output's own RuleSpec name
-    ``[<j>:]policies/rulemaking/...``. Anything else that maps there (a policy,
-    form, guidance or manual source whose tail or dotted leaf starts with
-    ``rulemaking``, in any letter case) would overwrite a rulemaking output
-    and is refused.
-    """
-    relative = _mapped_relative_rulespec_path(source_id)
-    out = relative.parts
-    if (
-        len(out) >= 3
-        and out[0] == _RULEMAKING_OUTPUT_ROOT
-        and out[1].casefold() == _RULEMAKING_SOURCE_TOKEN
-        and not _names_rulemaking_output(source_id)
-    ):
-        raise ValueError(
-            "Source collides with the reserved rulemaking output namespace: "
-            f"{source_id!r}"
-        )
-    return relative
-
-
-def _names_rulemaking_output(source_id: str) -> bool:
-    """Whether ``source_id`` is a rulemaking source or its output's own name."""
-    parts = [part for part in source_id.strip().strip("/").split("/") if part]
-    if len(parts) < 3 or parts[1] != _RULEMAKING_SOURCE_TOKEN:
-        return False
-    head = parts[0]
-    if ":" in head:
-        # RuleSpec form: only the policies root names the rulemaking output.
-        return head.split(":", 1)[1] in {"policies", "policy"}
-    if head in _RULESPEC_SOURCE_ROOT_TOKENS:
-        return head in {"policies", "policy"}
-    # Corpus form <jurisdiction>/rulemaking/...
-    return True
-
-
-def _mapped_relative_rulespec_path(source_id: str) -> Path:
-    """Map a canonical source identifier to its RuleSpec artifact path.
-
-    Unicode dash punctuation is normalized only in the returned filesystem
-    path; the authoritative source identifier remains unchanged. Each path
-    segment is treated as a directory and a dot inside the leaf segment is
-    treated as a further nesting separator (CDSS-style numbering like
-    ``63-503.132`` becomes ``63-503/132``). This avoids the pathlib
-    ``with_suffix`` pitfall where a dotted leaf would be silently truncated
-    to a section-level path and collide with sibling subsections at apply
-    time (issue #71).
-    """
-    parts = [
-        normalize_rulespec_path_segment(part)
-        for part in source_id.strip().strip("/").split("/")
-        if part
-    ]
-    if any(part in {".", ".."} for part in parts):
-        raise ValueError(
-            f"Unsafe RuleSpec path component in source identifier: {source_id!r}"
-        )
-    if parts and ":" in parts[0]:
-        jurisdiction, source_root = parts[0].split(":", 1)
-        if source_root in _RULESPEC_SOURCE_ROOT_TOKENS:
-            tail = parts[1:]
-            root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(source_root, source_root)
-            tail = _expand_louisiana_title_section_tail(jurisdiction, root, tail)
-            if (
-                tail
-                and jurisdiction == "us"
-                and source_root
-                in {
-                    "regulation",
-                    "regulations",
-                }
-            ):
-                tail = _canonical_us_regulation_tail(tail)
-            if tail and jurisdiction == "uk":
-                tail = _canonical_uk_legislation_tail(tail)
-            if tail:
-                if _preserve_state_statute_dotted_leaf(jurisdiction, root, tail):
-                    return Path(root) / Path(*tail[:-1]) / f"{tail[-1]}.yaml"
-                return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
-    if len(parts) >= 2 and parts[0] in _RULESPEC_SOURCE_ROOT_TOKENS:
-        tail = parts[1:]
-        if tail:
-            root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[0], parts[0])
-            if tail and tail[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
-                tail = _canonical_uk_legislation_tail(tail)
-            return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
-    if len(parts) >= 3 and parts[1] == _RULEMAKING_SOURCE_TOKEN:
-        return Path(_RULEMAKING_OUTPUT_ROOT) / _dotted_leaf_to_nested_yaml_path(
-            [_RULEMAKING_SOURCE_TOKEN, *parts[2:]]
-        )
-    if len(parts) >= 3:
-        root = _RULESPEC_OUTPUT_ROOT_BY_SOURCE_TOKEN.get(parts[1])
-        if root is not None:
-            tail = parts[2:]
-            tail = _expand_louisiana_title_section_tail(parts[0], root, tail)
-            if parts[0] == "us" and parts[1] in {"regulation", "regulations"}:
-                tail = _canonical_us_regulation_tail(tail)
-            if parts[0] == "uk":
-                tail = _canonical_uk_legislation_tail(tail)
-            if tail:
-                if _preserve_state_statute_dotted_leaf(parts[0], root, tail):
-                    return Path(root) / Path(*tail[:-1]) / f"{tail[-1]}.yaml"
-                return Path(root) / _dotted_leaf_to_nested_yaml_path(tail)
-    raise ValueError(f"Unsupported canonical source identifier: {source_id!r}")
-
-
-def _expand_louisiana_title_section_tail(
-    jurisdiction: str,
-    root: str,
-    tail: list[str],
-) -> list[str]:
-    """Expand Louisiana statute ``title:section`` labels into path components."""
-
-    if jurisdiction != "us-la" or root != "statutes" or not tail:
-        return tail
-    if any(
-        not component
-        or component.startswith(".")
-        or component.endswith(".")
-        or ".." in component
-        for component in tail
-    ):
-        raise ValueError(f"Invalid Louisiana statute path: {tail!r}")
-    title_section = tail[0]
-    if any(":" in component for component in tail[1:]):
-        raise ValueError(f"Invalid Louisiana statute path: {tail!r}")
-    if ":" not in title_section:
-        return tail
-    components = title_section.split(":")
-    expanded = [*components, *tail[1:]]
-    if len(components) != 2 or any(
-        not component
-        or component.startswith(".")
-        or component.endswith(".")
-        or ".." in component
-        for component in expanded
-    ):
-        raise ValueError(
-            f"Invalid Louisiana title:section statute segment: {title_section!r}"
-        )
-    return expanded
-
-
-def _dotted_leaf_to_nested_yaml_path(tail: list[str]) -> Path:
-    """Join tail segments, splitting the leaf on ``.`` into further nesting.
-
-    ``["mpp", "63-503"]`` → ``mpp/63-503.yaml``
-    ``["mpp", "63-503.132"]`` → ``mpp/63-503/132.yaml``
-    ``["mpp", "63-503.131.a"]`` → ``mpp/63-503/131/a.yaml``
-    ``["10-ccr-2506-1", "4.207.2"]`` → ``10-ccr-2506-1/4.207.2.yaml``
-    """
-    if _preserve_dotted_leaf_filename(tail):
-        return Path(*tail[:-1]) / f"{tail[-1]}.yaml"
-    leaf_segments = tail[-1].split(".")
-    directory_parts = list(tail[:-1]) + leaf_segments[:-1]
-    leaf_file = f"{leaf_segments[-1]}.yaml"
-    if directory_parts:
-        return Path(*directory_parts) / leaf_file
-    return Path(leaf_file)
-
-
-def _preserve_dotted_leaf_filename(tail: list[str]) -> bool:
-    """Return true for source families whose dotted section is the file stem."""
-    if len(tail) < 2:
-        return False
-    return bool(
-        re.fullmatch(r"\d+-ccr-\d+-\d+", tail[0], flags=re.IGNORECASE)
-        and re.fullmatch(r"\d+(?:\.\d+)+", tail[-1])
-    )
-
-
-def _preserve_state_statute_dotted_leaf(
-    jurisdiction: str,
-    root: str,
-    tail: list[str],
-) -> bool:
-    """Return true when a dotted state statute segment is a legal citation label."""
-    if jurisdiction != "us-co" or root != "statutes" or len(tail) < 2:
-        return False
-    if len(tail) == 2 and tail[0].isdigit():
-        # C.R.S. section labels are structured by hyphens as
-        # title-article-section. Dots are part of any one of those three
-        # segments, never subsection separators.
-        crs_segments = tail[-1].split("-")
-        return len(crs_segments) == 3 and all(
-            re.fullmatch(r"\d+(?:\.\d+)*", segment) for segment in crs_segments
-        )
-    if not re.fullmatch(r"\d+(?:\.\d+)+", tail[-1]):
-        return False
-    return bool(re.fullmatch(r"\d+(?:-\d+)+(?:\.\d+)?", tail[-2]))
-
-
-def _canonical_us_regulation_tail(tail: list[str]) -> list[str]:
-    """Map federal regulation corpus paths to canonical RuleSpec repo paths."""
-    if not tail:
-        return tail
-    title = tail[0].strip()
-    if title.isdigit():
-        return [f"{title}-cfr", *tail[1:]]
-    return tail
-
-
-def _canonical_uk_legislation_tail(tail: list[str]) -> list[str]:
-    """Map official legislation.gov.uk corpus paths to canonical UK RuleSpec paths."""
-    normalized = list(tail)
-    if normalized and normalized[0] == _UK_LEGISLATION_DOMAIN_TOKEN:
-        normalized = normalized[1:]
-    if (
-        len(normalized) >= 2
-        and normalized[-2].lower() in _UK_LEGISLATION_SECTION_TOKENS
-    ):
-        normalized = [*normalized[:-2], normalized[-1]]
-    return normalized
-
-
 def _canonical_target_ref_prefix(
     source_id: str,
     relative_path: Path,
@@ -11389,8 +11536,200 @@ Mandatory independent-review corrections:
 """
 
 
-def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
-    """Render bounded prior-attempt validator output as non-authority guidance."""
+_COMPLETENESS_REPAIR_CATEGORIES = (
+    "[complete-source-unit:structure]",
+    "[complete-source-unit:deferral]",
+    "[complete-source-unit:formula-output]",
+)
+
+
+def _complete_source_deferral_anchor(corpus_citation_path: str | None) -> str:
+    """Return the module path a complete-source deferred output must extend.
+
+    This is the same preferred anchor the completeness validator names in its
+    own retry advice; it is used only to render generation guidance.
+    """
+
+    if not corpus_citation_path:
+        return "<module path>"
+    try:
+        anchors = _deferral_anchor_bases(corpus_citation_path)
+    except Exception:  # pragma: no cover - guidance must never block a prompt
+        return "<module path>"
+    if not anchors:
+        return "<module path>"
+    anchor = anchors[-1]
+    if not _is_manual_or_form_unit(corpus_citation_path):
+        return anchor
+    # A manual or form unit's corpus-shaped anchor (`us-az:manuals/...`) is no
+    # RuleSpec module root, and the target check refuses any output under it.
+    # Name the module's own target (`us-az:policies/...`) instead.
+    try:
+        relative = _source_identifier_to_relative_rulespec_path(corpus_citation_path)
+    except ValueError:
+        return anchor
+    jurisdiction = corpus_citation_path.strip("/").split("/", 1)[0]
+    return f"{jurisdiction}:{relative.with_suffix('').as_posix()}"
+
+
+def _is_manual_or_form_unit(corpus_citation_path: str | None) -> bool:
+    """Whether a corpus unit is a manual or form, encoded under `policies/`."""
+
+    parts = (corpus_citation_path or "").strip("/").split("/")
+    return len(parts) >= 3 and parts[1] in {"manual", "form"}
+
+
+def _unmarked_prose_deferral_note(corpus_citation_path: str | None) -> str:
+    """Tell a manual or form unit not to invent branch markers from prose."""
+
+    if not _is_manual_or_form_unit(corpus_citation_path):
+        return ""
+    anchor = _complete_source_deferral_anchor(corpus_citation_path)
+    return f"""- A manual or form paragraph without a printed marker is not a branch.
+  Defer its output at the module's own target `{anchor}#<name>` and quote its
+  source sentence and missing value in `reason`; never invent a marker from
+  its words, such as `/private-vehicles`.
+"""
+
+
+# Typed completeness checks whose declared fix offers "encode or defer" (or
+# "reword the reason or encode"). When the completeness repair guidance renders,
+# their CHECK FIXES line keeps the declared non-deferral content but puts
+# encoding first and points at that guidance, so the retry has one order.
+# Path-only and encode-only fixes keep their declared text.
+_COMPLETENESS_ENCODE_FIRST_FIXES = {
+    "complete-source-unit:structure/branch-unencoded": (
+        "Encode the branch in a rule that cites it (source path or proof excerpt "
+        "from its own text), as the Completeness repair guidance above orders; "
+        "defer it only on a deferral ground listed there. Descendant citations "
+        "do not cover a substantive parent chapeau."
+    ),
+    "complete-source-unit:formula-output/branch-without-output": (
+        "Add a principal derived rule whose formula implements the branch and "
+        "whose source or formula proof cites the branch, or add the proof atom "
+        "the finding names to an existing output that already implements it; "
+        "defer the branch only on a deferral ground listed in the Completeness "
+        "repair guidance above."
+    ),
+    "complete-source-unit:formula-output/control-without-output": (
+        "Encode the control inside a principal derived rule that covers its "
+        "branch; defer the branch only on a deferral ground listed in the "
+        "Completeness repair guidance above."
+    ),
+    "complete-source-unit:deferral/reason-imprecise": (
+        "Encode the branch and remove the rejected deferral with "
+        "`repair_remove: true`, as the Completeness repair guidance above "
+        "orders. Keep a deferral only on a deferral ground listed there, with "
+        "a reason in that ground's form."
+    ),
+    "complete-source-unit:tests/rounding-unwitnessed": (
+        "Add same-period paired cases that drive the pre-rounding amount to a "
+        "fraction on each side of the rounding point, asserting the unrounded "
+        "intermediate and the rounded output. Declare missing inputs as local "
+        "inputs; defer the branch only on a deferral ground listed in the "
+        "Completeness repair guidance above."
+    ),
+}
+
+
+_DEFERRAL_GROUNDS = """(1) the branch depends on the determination of another provision that
+  its own text cites, the cross-reference rules in this prompt call for a
+  deferral rather than an import or a boundary input, and `reason` names that
+  exact provision in the form `Cannot be computed until <provision> is
+  encoded.`, with no added relative clause (for a Louisiana rate provided in
+  another R.S. section, the missing-export clause in the complete-source rules
+  is also accepted); (2) the branch is a bare
+  repeal tombstone, in the repeal-tombstone form in the complete-source
+  rules; or (3) the source is a statute or a U.S. federal regulation, the
+  branch states only an administrative duty, such as a notice, filing,
+  report, hearing, or submission, with no computation, and `reason` cites the
+  exact canonical branch citation and names the concrete missing runtime
+  capability in the branch's own terms. In other source classes, cover such
+  an administrative branch by citing it in the `source:` of the rule it
+  governs"""
+
+
+def _format_branch_coverage_plan(deferral_anchor: str) -> str:
+    """Render the complete-source encode-or-defer plan for a first attempt."""
+
+    return f"""- Branch coverage plan: before writing YAML, list every structural branch
+  marker in `./source.txt` (for example `(1)`, `(A)`, `(i)`) and decide ENCODE
+  or DEFER for each one. ENCODE is the default. A condition, exception,
+  limitation, date or period test, status, classification, amount, or
+  computation that the branch itself states is encodable even when its facts
+  are not yet modeled: declare each fact the branch states as a local
+  `#input.*` (a Boolean for a status, date, or period test; a number for an
+  amount), and bind a principal `derived` output to that branch through
+  `source:`. For a determination made by a cited provision, follow the
+  cross-reference rules in this prompt (import an exact copied export, or use
+  their boundary-input or deferral form); do not invent a local fact for it.
+  For a branch that states a condition, amount, or computation, a missing
+  input, a missing date type, or a missing relation is not a deferral ground.
+  Where the complete-source rules above ask a runtime-gap `reason` to name a
+  missing input or runtime capability, that form serves only ground (3) below.
+- DEFER a branch only when {_DEFERRAL_GROUNDS}. A purpose, basis, or heading
+  leaf is covered by citing it in the `source:` of the rule that consumes it,
+  not by a deferral. Write each deferred output as
+  `{deferral_anchor}/<marker>/<marker>#<name>` with slash-separated markers;
+  never use parentheses such as `a(1)(A)`, another jurisdiction prefix, or the
+  bare module path for a branch. Return only when every listed branch is
+  encoded or deferred on one of those grounds.
+"""
+
+
+def _format_completeness_repair_guidance(deferral_anchor: str) -> str:
+    """Tell a repair to encode omitted branches instead of deferring them."""
+
+    return f"""
+- Completeness repair: when a finding names an exact output-path correction,
+  or a proof atom to add to an existing output that already implements the
+  computation, apply exactly that fix. Otherwise, for every branch reported as
+  neither encoded nor precisely deferred, every source-stated control or
+  computation reported without a principal output, and every deferral rejected
+  because its reason does not name an exact missing dependency, encode the
+  branch unless one of the deferral grounds below applies. Encoding is the
+  default repair. A new deferral, or a reworded reason on a rejected one, is
+  not. A literal citation, missing input, or runtime capability that a finding
+  or a check requires in `reason` applies only to a deferral that one of those
+  grounds supports.
+- This order also governs the CHECK FIXES block below, when it is present: its
+  per-subject lines name which subjects to repair; this order says how.
+- A condition, exception, limitation, date or period test, status,
+  classification, amount, or computation that the branch itself states is
+  encodable even when its facts are not yet modeled. Declare each fact the
+  branch states as a local `#input.*` (a Boolean for a status, date, or period
+  test; a number for an amount), and add a principal `derived` output whose
+  `source:` cites that exact branch. For a determination made by a cited
+  provision, follow the cross-reference rules in this prompt instead of
+  inventing a local fact. For such a branch, "no input is supplied", "the
+  schema has no date input", and "no executable relation is available" are
+  not deferral grounds: they name inputs to declare.
+- A purpose, basis, or heading leaf is covered by citing it in the `source:` of
+  the rule that consumes it, not by an invented formula or a deferral.
+- When you encode a branch whose deferral was rejected, remove that deferral
+  with an item that contains only `output: <existing output>` and
+  `repair_remove: true`.
+- Keep or add a deferral only when:
+  {_DEFERRAL_GROUNDS}.
+- A deferred output path puts the branch after the module path as
+  slash-separated markers: `{deferral_anchor}/<marker>/<marker>#<name>`.
+  Never use parentheses such as `a(1)(A)`, another jurisdiction prefix, or the
+  bare module path for a branch.
+"""
+
+
+def _format_validation_retry_feedback(
+    feedback: Sequence[str],
+    *,
+    deferral_anchor: str = "<module path>",
+    completeness_repair: bool = True,
+) -> str:
+    """Render bounded prior-attempt validator output as non-authority guidance.
+
+    ``completeness_repair`` allows the encode-first completeness repair block;
+    the prompt builder enables it only for complete-source runs that may edit
+    the RuleSpec, so other runs keep the plain feedback text.
+    """
 
     rendered_items: list[str] = []
     optional_items: list[str] = []
@@ -11448,6 +11787,15 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
   contrasting side as a same-period case with otherwise identical inputs.
   Merely placing the number in an unrelated input or test name is not credited.
 """
+    completeness_repair_guidance = ""
+    if completeness_repair and any(
+        category in item
+        for item in rendered_items
+        for category in _COMPLETENESS_REPAIR_CATEGORIES
+    ):
+        completeness_repair_guidance = "\n" + _format_completeness_repair_guidance(
+            deferral_anchor
+        ).strip("\n")
     return (
         f"""
 Deterministic validation feedback for the rejected candidate below:
@@ -11455,26 +11803,37 @@ Deterministic validation feedback for the rejected candidate below:
   authoritative source and release-bound corpus evidence as the sole basis for
   legal facts and values.
 - Correct every listed issue in this candidate. Do not repeat the rejected
-  pattern.
+  pattern.{completeness_repair_guidance.rstrip()}
 {test_repair_guidance.rstrip()}
 
 === BEGIN PRIOR VALIDATION FEEDBACK ===
 {chr(10).join(rendered_items)}
 === END PRIOR VALIDATION FEEDBACK ===
 """
-        + _format_check_fix_feedback(typed_items)
+        + _format_check_fix_feedback(
+            typed_items,
+            fix_overrides=(
+                _COMPLETENESS_ENCODE_FIRST_FIXES
+                if completeness_repair_guidance
+                else None
+            ),
+        )
         + optional_section
     )
 
 
-def _format_check_fix_feedback(items: Sequence[str]) -> str:
+def _format_check_fix_feedback(
+    items: Sequence[str],
+    *,
+    fix_overrides: Mapping[str, str] | None = None,
+) -> str:
     """Render each failed check's declared fix, with expected vs found per subject.
 
     Only typed issues (``checks.ValidationIssue``) contribute; feedback made of
     untyped strings renders nothing here, so its bytes are unchanged.
     """
 
-    lines = issue_fix_feedback(items)
+    lines = issue_fix_feedback(items, fix_overrides=fix_overrides)
     if not lines:
         return ""
     kept: list[str] = []
@@ -11602,6 +11961,8 @@ Existing canonical replacement baseline (not a rejected generated candidate):
   restores omitted named objects from this baseline before normal validation.
   Re-emitting a name replaces that entire object: preserve its other formulas,
   dates, proof atoms and expectations unless the requested repair requires it.
+- A retained `module.proof_validation.required: true` is preserved when omitted
+  and cannot be disabled by the replacement.
 - Do not regenerate a shortened substitute. All normal source, proof, runtime,
   completeness and signature requirements still apply. Existing validity never
   skips generation or validates the repaired result.
@@ -11638,11 +11999,13 @@ companion test file required by the task and deterministic validation.
         if tests_only
         else (
             "- Return syntactically complete RuleSpec and companion test YAML, but "
-            "you may omit unchanged named inputs, named rules, imports, deferred "
+            "you may omit unchanged named units, named inputs, named rules, imports, deferred "
             "outputs, and named companion cases. The encoder overlays those "
-            "omitted items from the hash-bound candidate before validation. Re-emit "
+            "omitted items from the hash-bound candidate before validation. "
+            "A retained `module.proof_validation.required: true` is restored when "
+            "omitted and cannot be disabled by the repair. Re-emit "
             "the complete item only when changing or replacing it. To remove an "
-            "obsolete named input, rule, or companion case from this rejected "
+            "obsolete named unit, input, rule, or companion case from this rejected "
             "candidate, emit an exact YAML item containing only "
             "`name: <existing name>` and `repair_remove: true`; input removal is "
             "accepted only after no repaired rule or companion case references "
@@ -11712,18 +12075,36 @@ def _build_rulespec_eval_prompt(
         )
     corpus_citation_path = _workspace_corpus_citation_path(workspace)
     backend_section = ""
-    if runner_backend == "openai":
+    if runner_backend in {"openai", "claude-api"}:
         backend_section = (
             "You do not have filesystem tool access in this eval; rely on the "
             "inline source and any inline context copies in this prompt.\n"
         )
     scaffold_dates = _collect_scaffold_dates(workspace, context_files)
+    # The start-date rule for a date-silent unit (#2212) covers corpus manual
+    # units without amendment context only, the scope of its check. Every
+    # other prompt keeps the earlier text byte for byte.
+    manual_start_date_rule = (
+        is_manual_citation(corpus_citation_path or citation)
+        and not workspace.amendment_documents
+    )
     scaffold_dates_section = ""
     if scaffold_dates:
+        scaffold_dates_note = (
+            "These dates belong to the copied files. A date copied from a "
+            "precedent or a sibling module is not evidence of this source "
+            "unit's own start date: do not write one into `effective_from` "
+            "because a neighbouring module carries it. When `./source.txt` "
+            "prints no effective date, follow the start-date rule for a "
+            "date-silent unit."
+            if manual_start_date_rule
+            else "Prefer the earliest scaffold date that is relevant to the "
+            "copied precedent when `./source.txt` lacks its own effective date."
+        )
         scaffold_dates_section = f"""
 Temporal scaffold dates visible in copied context:
 {", ".join(f"`{item}`" for item in scaffold_dates)}
-Prefer the earliest scaffold date that is relevant to the copied precedent when `./source.txt` lacks its own effective date.
+{scaffold_dates_note}
 """
 
     source_metadata_section = ""
@@ -11967,6 +12348,17 @@ Import and context rules:
 {scaffold_dates_section}
 """
 
+    if runner_backend == "claude-api" and context_files:
+        # Include the original copies as well as any derived guidance above.
+        # Amendments and replacement baselines must retain whitespace, too.
+        context_section += (
+            "\nInline context copies (complete files):\n"
+            + _format_inline_context_snippets(
+                workspace, context_files, max_chars_per_file=None
+            )
+            + "\n"
+        )
+
     missing_cited_source_section = _format_missing_cited_source_guidance(
         citation,
         source_text,
@@ -12073,6 +12465,7 @@ Test file rules:
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
 - Never assign an imported module's computed `#rule_name` output in `input:`. If this file imports that rule, the compiled program computes it. To make an imported output true, false, or equal a value, mirror the imported file's companion test pattern by setting its underlying `#input.<fact>` and `#relation.<name>` keys.
 - When a test is meant to exercise a threshold, cap, or boundary on an imported derived output, do not assume one upstream raw input equals that imported output. First compute the imported formula from the upstream inputs you set; if the upstream formula has deductions, rates, or offsets that make the exact boundary awkward, choose clearly below/above-boundary inputs instead of an exact boundary case.
+- When a cap is encoded in its own derived rule because the provision also has a comparison gate, assert that cap rule's output, and the output of any derived rule that computes the capped amount, in every companion case that sets the capped amount, not only in the at-limit case. Include a case with the amount exactly at the limit, and keep below-limit and above-limit cases, plus a negative-amount case when the clamp floors at zero.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not `<jurisdiction>:<repo-path>#input.imported_judgment`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
 - A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `<jurisdiction>:<repo-path>#relation.member_of_household: [- true]`. Good: `<jurisdiction>:<repo-path>#relation.member_of_household:` followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.
@@ -12198,6 +12591,16 @@ Return ONLY raw RuleSpec YAML for `{target_file_name}`. Do not include fences or
                 rulespec_context_files,
             )
         )
+        # The start-date rule for a date-silent manual unit (#2212) puts every
+        # companion period on or after the chosen start, which can follow the
+        # example oracle periods. Other prompts keep the earlier text.
+        oracle_period_start_note = (
+            "\n  When the start-date rule for a date-silent unit applies, it "
+            "comes first: keep every such period on or after the start date "
+            "you choose, also when that start is later than these examples."
+            if manual_start_date_rule
+            else ""
+        )
         target_hint = f"""
 Preferred principal output:
 - Treat the PolicyEngine hint as an oracle-semantic hint, not as a license to
@@ -12256,7 +12659,7 @@ Preferred principal output:
   intended to supply PolicyEngine oracle evidence. Never replace or omit a
   source-required historical branch merely to make it oracle-comparable; keep
   its companion case at the legally applicable period even when it cannot
-  contribute oracle evidence.
+  contribute oracle evidence.{oracle_period_start_note}
 - If that output has a durable `jurisdiction:path#rule` id, key the test by that id rather than the friendly local name.
 - Key inputs by their resolving legal RuleSpec target too, e.g. `jurisdiction:path#input.fact`, `jurisdiction:path#relation.name`, or `jurisdiction:path#upstream_rule`.
 - If a copied downstream output with the oracle hint's local name is available, assert that canonical copied output rather than replacing it with a helper-only local test.
@@ -12267,7 +12670,23 @@ Preferred principal output:
         guidance_parts.append(render_rate_only_source_boundary_guidance())
     if _is_single_amount_table_slice(source_text):
         guidance_parts.append(render_single_amount_row_guidance())
-    if (
+    if manual_start_date_rule:
+        if not re.search(r"\b\d{4}-\d{2}-\d{2}\b", source_text):
+            guidance_parts.append(
+                render_date_silent_scaffold_guidance(precedent_dates=False)
+            )
+        start_date_evidence = start_date_evidence_from_metadata(
+            workspace.source_metadata
+        )
+        guidance_parts.append(
+            render_date_silent_start_guidance(
+                source_as_of=start_date_evidence.source_as_of,
+                expression_date=start_date_evidence.expression_date,
+                evidence_floor=start_date_evidence.evidence_floor,
+                preferred_start=start_date_evidence.preferred_start,
+            )
+        )
+    elif (
         not re.search(r"\b\d{4}-\d{2}-\d{2}\b", source_text)
         and not scaffold_dates
         and not workspace.amendment_documents
@@ -12277,11 +12696,16 @@ Preferred principal output:
         part.strip() for part in guidance_parts if part.strip()
     )
 
+    subparagraph_coverage_checklist = _format_subparagraph_coverage_checklist(
+        source_text,
+        corpus_citation_path,
+        complete_source_unit=require_complete_source_unit,
+    )
     inline_source = f"""
 === BEGIN SOURCE.TXT ===
 {source_text}
 === END SOURCE.TXT ===
-{_format_subparagraph_coverage_checklist(source_text, corpus_citation_path)}"""
+{subparagraph_coverage_checklist}"""
     corpus_source_section = ""
     corpus_rulespec_requirement = ""
     if corpus_citation_path:
@@ -12316,8 +12740,13 @@ Preferred principal output:
 """
 
     mandatory_review_findings_section = _format_mandatory_review_findings(workspace)
+    deferral_anchor = _complete_source_deferral_anchor(corpus_citation_path)
     validation_retry_feedback_section = _format_validation_retry_feedback(
-        validation_retry_feedback
+        validation_retry_feedback,
+        deferral_anchor=deferral_anchor,
+        completeness_repair=(
+            require_complete_source_unit and not repair_candidate_tests_only
+        ),
     )
     required_deferred_output_contract_section = (
         _format_required_deferred_output_contracts(required_deferred_output_contracts)
@@ -12350,7 +12779,8 @@ Protected atomic-composition requirements:
 """
     complete_source_unit_section = ""
     if require_complete_source_unit:
-        complete_source_unit_section = """
+        complete_source_unit_section = (
+            """
 Complete-source-unit mode is enabled for this request:
 - Treat the entire authoritative `./source.txt` body as the completeness
   inventory. `module.summary` is only a concise reviewer orientation and
@@ -12389,7 +12819,10 @@ Complete-source-unit mode is enabled for this request:
   completeness validator. Follow the citation with the concrete missing input
   or runtime capability; do not infer a citation beyond the supplied source.
   Never guess a blocker target.
-- A child-branch `source:` citation does not cover a distinct parent chapeau.
+"""
+            + _format_branch_coverage_plan(deferral_anchor)
+            + _unmarked_prose_deferral_note(corpus_citation_path)
+            + """- A child-branch `source:` citation does not cover a distinct parent chapeau.
   When a parent chapeau states applicability, temporal scope, or a shared
   computation, bind one consuming executable rule to that exact parent path
   and include an exact parent-chapeau proof excerpt. Keep the child bindings as
@@ -12443,6 +12876,7 @@ Complete-source-unit mode is enabled for this request:
   applicable path.
 - A genuinely scalar-only source unit may remain parameter-only.
 """
+        )
 
     stable_prefix = f"""You are participating in an encoding eval for {citation}.
 
@@ -13014,6 +13448,19 @@ RuleSpec requirements:
   `min(source_amount, cap)`. The excluded excess is
   `max(0, source_amount - cap)`, but do not return `source_amount - cap` or
   `source_amount - remaining_cap` as the included amount.
+- When a source limit ("up to", "no more than", "a maximum of", "cannot
+  exceed") applies to an amount and the same provision also has a comparison
+  condition (a gate such as a distance, age, date, or count test), encode the
+  capped amount in its own `kind: derived` rule whose formula is only the
+  clamp, e.g. `min(max(0, amount), cap)`, with no comparison, and reference
+  that rule from the gated principal formula, e.g.
+  `if gate_measure > gate_threshold: capped_amount else: 0`. Do not put a
+  comparison gate and the cap `min(...)` in one formula. If the capped amount
+  is itself computed (a sum, a rate), compute it in its own derived rule first
+  so the clamp is applied to one name. Use one clamp rule per source cap
+  value, with that cap parameter as the direct second argument of `min`, and
+  select between the clamp rules in the principal formula. Each clamp rule
+  carries its own proof atom quoting the cap sentence.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
@@ -13402,7 +13849,10 @@ def _source_identifier_requests_percentage_rate_boundary(
 
 
 def _format_subparagraph_coverage_checklist(
-    source_text: str, corpus_citation_path: str | None
+    source_text: str,
+    corpus_citation_path: str | None,
+    *,
+    complete_source_unit: bool = False,
 ) -> str:
     """Pre-compute the validator's subparagraph coverage list and inject it as a
     structured checklist the model must satisfy.
@@ -13436,6 +13886,32 @@ def _format_subparagraph_coverage_checklist(
         excerpt = _compact_source_excerpt(text, limit=100)
         rows.append(f"  - {citation}: {excerpt}")
     rows_text = "\n".join(rows)
+    # In complete-source-unit mode a deferral is coverage only on the grounds
+    # the completeness validator accepts; a scope reason is rejected there.
+    deferral_reason_text = (
+        "the exact missing legal dependency, repeal, or administrative runtime\n"
+        "      gap allowed by the complete-source rules below"
+        if complete_source_unit
+        else "the legal dependency or scope reason blocking encoding"
+    )
+    preference_text = (
+        "When in doubt, prefer (a): encode the subparagraph, declaring the facts\n"
+        "it tests as local inputs. In complete-source-unit mode a deferral with a\n"
+        "scope or generic reason is rejected. Silent omission is not allowed."
+        if complete_source_unit
+        else "When in doubt, prefer (b): a `deferred_outputs` entry with a clear\n"
+        "`reason` is honest and cheap to refine later. Silent omission is not."
+    )
+    non_operative_text = (
+        "Legislative findings, preambles, intent clauses, and purpose clauses are still\n"
+        "source coverage items. In complete-source-unit mode, cover non-operative text\n"
+        "by citing it in the `source:` of the rule that consumes it; a\n"
+        "non-operative deferral is rejected. Never invent an executable formula."
+        if complete_source_unit
+        else "Legislative findings, preambles, intent clauses, and purpose clauses are still\n"
+        "source coverage items. If the text is non-operative, satisfy this checklist with\n"
+        "`module.deferred_outputs[]` rather than inventing an executable formula."
+    )
     return f"""
 === BEGIN SUBPARAGRAPH COVERAGE CHECKLIST ===
 The source text above contains {len(subparagraphs)} high-signal top-level
@@ -13446,11 +13922,9 @@ below, the encoded artifact must contain EITHER:
   (b) An entry under `module.deferred_outputs[]` whose `output:` target path
       includes that subparagraph segment (e.g.
       `us:statutes/7/2014/d#unspecified_output`) and whose `reason:` names
-      the legal dependency or scope reason blocking encoding.
+      {deferral_reason_text}.
 
-Legislative findings, preambles, intent clauses, and purpose clauses are still
-source coverage items. If the text is non-operative, satisfy this checklist with
-`module.deferred_outputs[]` rather than inventing an executable formula.
+{non_operative_text}
 
 Subparagraphs without (a) or (b) are an automatic CI failure under the
 source-subparagraph-coverage validator. There is no implicit "covered by
@@ -13469,8 +13943,7 @@ top-level checklist string, or the item must be listed under
 Subparagraphs requiring action:
 {rows_text}
 
-When in doubt, prefer (b): a `deferred_outputs` entry with a clear
-`reason` is honest and cheap to refine later. Silent omission is not.
+{preference_text}
 === END SUBPARAGRAPH COVERAGE CHECKLIST ===
 """
 
@@ -13501,17 +13974,22 @@ Rate-only source boundary:
 def _format_inline_context_snippets(
     workspace: EvalWorkspace,
     context_files: list[EvalContextFile],
-    max_chars_per_file: int = 6000,
+    max_chars_per_file: int | None = 6000,
 ) -> str:
     """Inline copied precedent files for non-tool backends like Responses API."""
     snippets: list[str] = []
     for item in context_files:
         path = workspace.root / item.workspace_path
-        try:
-            content = path.read_text().strip()
-        except OSError:
-            continue
-        if len(content) > max_chars_per_file:
+        if max_chars_per_file is None:
+            # UTF-8 decode preserves CRLF and surrounding whitespace. A missing
+            # copy must fail, never silently reduce the API's context exam.
+            content = path.read_bytes().decode("utf-8")
+        else:
+            try:
+                content = path.read_text().strip()
+            except OSError:
+                continue
+        if max_chars_per_file is not None and len(content) > max_chars_per_file:
             content = content[:max_chars_per_file].rstrip() + "\n... [truncated]"
         snippets.append(f"=== FILE: {item.workspace_path} ===\n{content}")
     return "\n\n".join(snippets)
@@ -15292,8 +15770,7 @@ def find_admin_agency_aggregate_entity_issues(
     source_text: str,
 ) -> list[str]:
     """Reject executable entity rules for State-agency/FNS aggregate measures."""
-    is_admin_agency_aggregate = _has_admin_agency_aggregate_source_context(source_text)
-    if not is_admin_agency_aggregate:
+    if not _has_admin_agency_aggregate_source_context(source_text):
         return []
     try:
         payload = yaml.safe_load(content)
@@ -15323,6 +15800,10 @@ def find_admin_agency_aggregate_entity_issues(
             continue
         if normalized_entity not in standard_entities:
             continue
+        if not _has_admin_agency_aggregate_rule_context(
+            rule, module=module, source_text=source_text
+        ):
+            continue
         name = str(rule.get("name") or f"rules[{index}]").strip()
         issues.append(
             "Unsupported administrative aggregate entity: "
@@ -15334,6 +15815,113 @@ def find_admin_agency_aggregate_entity_issues(
             "administrative surface still cannot be represented faithfully."
         )
     return issues
+
+
+def _has_admin_agency_aggregate_rule_context(
+    rule: dict,
+    *,
+    module: dict | None,
+    source_text: str,
+) -> bool:
+    """Scope a mixed provision to the rule's paragraph or source proof."""
+    source_verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    citations = []
+    if isinstance(source_verification, dict):
+        singular = source_verification.get("corpus_citation_path")
+        if isinstance(singular, str):
+            citations.append(singular)
+        plural = source_verification.get("corpus_citation_paths")
+        if isinstance(plural, list):
+            citations.extend(item for item in plural if isinstance(item, str))
+    rule_source = rule.get("source")
+    if (
+        citations
+        and citations[0] == "us/regulation/7/273/7"
+        and isinstance(rule_source, str)
+    ):
+        references = [
+            item.strip()
+            for item in re.split(r"\s*(?:,|;|\band\b)\s*", rule_source)
+            if item.strip()
+        ]
+        reference_pattern = re.compile(
+            r"7\s+CFR\s+273\.7\(([ab])\)(?:\([^)]+\))*", re.IGNORECASE
+        )
+        parsed = [reference_pattern.fullmatch(item) for item in references]
+        if parsed and all(parsed):
+            paragraphs = {item.group(1).lower() for item in parsed if item}
+            # Scope only the established (a)/(b) person-level provisions.
+            # A general alphabetic split confuses nested roman (i) with the
+            # top-level (i) and can conceal administrative measures.
+            a = re.search(r"(?m)^\(a\)\s", source_text)
+            b = re.search(r"(?m)^\(b\)\s", source_text)
+            c = re.search(r"(?m)^\(c\)\s", source_text)
+            if a and b and c and a.start() < b.start() < c.start():
+                intro = source_text[: a.start()]
+                sections = {
+                    "a": intro + source_text[a.end() : b.start()],
+                    "b": intro + source_text[b.end() : c.start()],
+                }
+                scoped = [sections[key.lower()] for key in paragraphs]
+                if any(
+                    _has_admin_agency_aggregate_source_context(text) for text in scoped
+                ):
+                    return True
+                if all(
+                    _PERSON_LEVEL_RULE_CONTEXT_PATTERN.search(text) for text in scoped
+                ):
+                    return False
+
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if isinstance(atoms, list):
+        proved_sources = [
+            source
+            for atom in atoms
+            if isinstance(atom, dict)
+            for source in [atom.get("source")]
+            if isinstance(source, dict) and isinstance(source.get("excerpt"), str)
+        ]
+        if proved_sources:
+            excerpts = "\n".join(source["excerpt"] for source in proved_sources)
+            if _has_admin_agency_aggregate_source_context(excerpts):
+                return True
+            # The existing SNAP work-registration exemption is proven by a
+            # separate statute. Do not let a generic statutory proof fragment
+            # (such as an administrative coefficient or household reference)
+            # override the regulation's aggregate context.
+            if (
+                citations
+                and citations[0] == "us/regulation/7/273/7"
+                and rule.get("name")
+                == "snap_member_statutory_work_registration_exemption_applies"
+                and rule_source == "7 U.S.C. 2015(d)(2)"
+                and len(proved_sources) >= 3
+                and all(
+                    source.get("corpus_citation_path") == "us/statute/7/2015/d/2"
+                    for source in proved_sources
+                )
+                and re.search(
+                    r"\bparent\b.{0,100}\bdependent child\b",
+                    excerpts,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                and re.search(
+                    r"\bstudent enrolled at least half time\b",
+                    excerpts,
+                    re.IGNORECASE,
+                )
+                and re.search(
+                    r"\bperson between the ages of sixteen and eighteen\b",
+                    excerpts,
+                    re.IGNORECASE,
+                )
+            ):
+                return False
+    return _has_admin_agency_aggregate_source_context(source_text)
 
 
 def _has_admin_agency_aggregate_source_context(source_text: str) -> bool:
@@ -16110,6 +16698,8 @@ def _run_prompt_eval(
         )
     if runner.backend == "claude":
         return _run_claude_prompt_eval(runner, workspace, prompt)
+    if runner.backend == "claude-api":
+        return _run_claude_api_prompt_eval(runner, workspace, prompt)
     if runner.backend == "codex":
         return _run_codex_prompt_eval(runner, workspace, prompt)
     if runner.backend == "openai":
@@ -16161,6 +16751,9 @@ def _run_claude_prompt_eval(
         "timeout_seconds": timeout_seconds,
     }
     start = time.time()
+    environment = scrub_attestation_signing_keys()
+    # Claude CLI uses subscription authentication, never the API credit key.
+    environment.pop("ANTHROPIC_API_KEY", None)
     try:
         result = subprocess.run(
             cmd,
@@ -16168,7 +16761,7 @@ def _run_claude_prompt_eval(
             text=True,
             cwd=workspace.root,
             timeout=timeout_seconds,
-            env=scrub_attestation_signing_keys(),
+            env=environment,
         )
     except subprocess.TimeoutExpired:
         duration_ms = int((time.time() - start) * 1000)
@@ -16288,7 +16881,9 @@ def _run_codex_prompt_eval(
         str(workspace.root),
         "-s",
         "read-only",
-        prompt,
+        # The prompt goes on stdin ("-"), not argv: a large source text as one
+        # argument fails exec with E2BIG before Codex starts.
+        "-",
     ]
 
     start = time.time()
@@ -16298,18 +16893,29 @@ def _run_codex_prompt_eval(
     timeout_reason = None
     triggering_timeout_seconds: float | None = None
     with (
+        # A seekable file, not a pipe: nothing has to feed the child while the
+        # wait loop below polls it, so a full pipe cannot block the timeouts.
+        tempfile.TemporaryFile(
+            mode="w+", encoding="utf-8", errors="surrogateescape"
+        ) as prompt_stdin,
         tempfile.TemporaryDirectory(prefix="axiom-codex-home-") as codex_home_dir,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
     ):
         codex_home = _prepare_codex_eval_home(Path(codex_home_dir))
+        # auth.json is readable from the read-only sandbox. Record its
+        # credential strings now and after the run, and keep none of them.
+        auth_secrets = codex_auth_secrets(codex_home)
         codex_env = scrub_attestation_signing_keys()
         codex_env["CODEX_HOME"] = str(codex_home)
         stdout_path = Path(stdout_file.name)
         stderr_path = Path(stderr_file.name)
+        prompt_stdin.write(prompt)
+        prompt_stdin.flush()
+        prompt_stdin.seek(0)
         process = subprocess.Popen(
             cmd,
-            stdin=subprocess.DEVNULL,
+            stdin=prompt_stdin,
             stdout=stdout_file,
             stderr=stderr_file,
             text=True,
@@ -16355,8 +16961,10 @@ def _run_codex_prompt_eval(
                     process.kill()
                     process.wait()
 
-    stdout_text = stdout_path.read_text()
-    stderr_text = stderr_path.read_text()
+        auth_secrets |= codex_auth_secrets(codex_home)
+
+    stdout_text = redact_codex_auth_secrets(stdout_path.read_text(), auth_secrets)
+    stderr_text = redact_codex_auth_secrets(stderr_path.read_text(), auth_secrets)
     stdout_path.unlink(missing_ok=True)
     stderr_path.unlink(missing_ok=True)
     duration_ms = int((time.time() - start) * 1000)
@@ -16366,6 +16974,7 @@ def _run_codex_prompt_eval(
     usage_payload: dict | None = None
     unexpected_accesses: list[str] = []
     error = None
+    runtime_initialization_error = None
 
     for line in (stdout_text + stderr_text).splitlines():
         stripped = line.strip()
@@ -16379,6 +16988,15 @@ def _run_codex_prompt_eval(
         events.append(payload)
         if payload.get("type") == "item.completed":
             item = payload.get("item", {}) or {}
+            # Codex can exit zero and emit a final answer after its tool runtime
+            # failed to start. This is not an ordinary recoverable tool error:
+            # workspace evidence was unavailable, so do not accept that answer.
+            if item.get("type") == "error":
+                message = item.get("message")
+                if isinstance(message, str) and message.startswith(
+                    "Code Mode is unavailable because "
+                ):
+                    runtime_initialization_error = message
             if item.get("type") == "agent_message" and item.get("text"):
                 assistant_messages.append(item["text"])
             if item.get("type") == "command_execution":
@@ -16413,9 +17031,21 @@ def _run_codex_prompt_eval(
 
     final_text = "\n".join(assistant_messages).strip()
     if last_message_file.exists():
-        file_text = last_message_file.read_text().strip()
+        # The raw file holds the child's unredacted text inside the workspace
+        # under --output, which failure diagnostics upload. Nothing reads it
+        # after this point, so remove it whether or not the read succeeds.
+        try:
+            file_text = redact_codex_auth_secrets(
+                last_message_file.read_text(), auth_secrets
+            ).strip()
+        finally:
+            last_message_file.unlink(missing_ok=True)
         if file_text:
             final_text = file_text
+
+    if runtime_initialization_error:
+        final_text = ""
+        error = "Codex runtime initialization failed: " + runtime_initialization_error
 
     if timeout_stage == "case_budget":
         final_text = ""
@@ -16754,6 +17384,8 @@ def _extract_openai_response_text(payload: dict) -> str:
 
 
 def _openai_prompt_max_output_tokens(model: str) -> int:
+    if model in OPENAI_AUTHORING_OUTPUT_LIMITS:
+        return OPENAI_AUTHORING_OUTPUT_LIMITS[model]
     if any(
         model == prefix or model.startswith(f"{prefix}-")
         for prefix in _OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES
@@ -16831,6 +17463,264 @@ def _openai_prompt_input(
     if suffix:
         content.append({"type": "input_text", "text": suffix})
     return [{"type": "message", "role": "user", "content": content}], prefix, True
+
+
+_CLAUDE_API_SYSTEM_PROMPT = (
+    "Produce accurate RuleSpec encodings from the supplied source and context."
+)
+
+
+def _run_claude_api_prompt_eval(
+    runner: EvalRunnerSpec,
+    workspace: EvalWorkspace,
+    prompt: str,
+) -> EvalPromptResponse:
+    """Run a complete, prompt-only exam through the Anthropic Messages API."""
+    import asyncio
+
+    from .anthropic_messages import (
+        ANTHROPIC_MESSAGES_MAX_TOKENS,
+        anthropic_messages_options,
+        resolve_api_encoder_effort,
+    )
+
+    start = time.time()
+    tokens: TokenUsage | None = None
+    refusal_details: Any = None
+    timeout_seconds, case_budget_limited = _timeout_bounded_by_eval_case_budget(
+        _claude_encoder_timeout_seconds()
+    )
+    trace: dict[str, Any] = {
+        "provider": "anthropic",
+        "backend": "messages",
+        "model": runner.model,
+        "served_model": None,
+        "stop_reason": None,
+        "effort": None,
+        "system_prompt_sha256": _sha256_text(_CLAUDE_API_SYSTEM_PROMPT),
+        "anthropic_sdk_version": None,
+        "request_id": None,
+        "prompt_chars": len(prompt),
+        "timed_out": False,
+        "timeout_stage": None,
+        "timeout_reason": None,
+        "timeout_seconds": timeout_seconds,
+        "timeout_attempts": 0,
+    }
+
+    def refusal_category() -> str | None:
+        category = (
+            refusal_details.get("category")
+            if isinstance(refusal_details, dict)
+            else getattr(refusal_details, "category", None)
+        )
+        return category if isinstance(category, str) else None
+
+    def respond(text: str = "", *, error: str | None = None) -> EvalPromptResponse:
+        cost_usd = estimate_usage_cost_usd(runner.model, tokens)
+        if trace["stop_reason"] == "refusal":
+            category = refusal_category()
+            trace["refusal_category"] = category
+            cost_usd = estimate_anthropic_refusal_cost_usd(
+                runner.model,
+                tokens,
+                category=category,
+                has_stop_details=refusal_details is not None,
+            )
+        return EvalPromptResponse(
+            text=text,
+            duration_ms=int((time.time() - start) * 1000),
+            tokens=tokens,
+            estimated_cost_usd=cost_usd,
+            trace=trace,
+            error=error,
+            timed_out=trace["timed_out"],
+            timeout_stage=trace["timeout_stage"],
+            timeout_reason=trace["timeout_reason"],
+            timeout_seconds=trace["timeout_seconds"],
+            timeout_attempts=trace["timeout_attempts"],
+        )
+
+    def timed_out(*, case_budget: bool, reason: str = "wall") -> EvalPromptResponse:
+        trace.update(
+            timed_out=True,
+            timeout_stage="case_budget" if case_budget else "encoder",
+            timeout_reason=reason,
+            timeout_attempts=1,
+        )
+        return respond(
+            error=(
+                "Eval case budget timed out"
+                if case_budget
+                else "Claude API eval timed out"
+            )
+        )
+
+    def context_overflow(detail: str) -> EvalPromptResponse:
+        trace["infrastructure_failure"] = "context-overflow"
+        return respond(error=f"Context overflow (prompt_chars={len(prompt)}): {detail}")
+
+    remaining = _remaining_eval_case_budget_seconds()
+    if remaining is not None and remaining <= 0:
+        return timed_out(case_budget=True)
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return respond(error="ANTHROPIC_API_KEY is not set")
+
+    try:
+        trace["effort"] = resolve_api_encoder_effort()
+    except ValueError as exc:
+        return respond(error=str(exc))
+
+    try:
+        import anthropic
+    except ImportError as exc:
+        return respond(
+            error=f"anthropic SDK not installed; install axiom-encode[api] ({exc})"
+        )
+    trace["anthropic_sdk_version"] = getattr(anthropic, "__version__", None)
+
+    # SDK import and request preparation also consume the shared case budget.
+    remaining = _remaining_eval_case_budget_seconds()
+    if remaining is not None:
+        if remaining <= 0:
+            return timed_out(case_budget=True)
+        case_budget_limited = case_budget_limited or remaining < timeout_seconds
+        timeout_seconds = min(timeout_seconds, remaining)
+        trace["timeout_seconds"] = timeout_seconds
+
+    async def request() -> tuple[str, Any]:
+        nonlocal tokens, refusal_details
+        # The explicit endpoint prevents environment overrides from forwarding
+        # this key. Disable SDK retries so one wall budget bounds the request.
+        async with asyncio.timeout(timeout_seconds):
+            async with anthropic.AsyncAnthropic(
+                api_key=api_key,
+                base_url="https://api.anthropic.com",
+                timeout=timeout_seconds,
+                max_retries=0,
+            ) as client:
+                async with client.messages.stream(
+                    **anthropic_messages_options(
+                        model=runner.model,
+                        prompt=prompt,
+                        effort=trace["effort"],
+                    ),
+                    system=_CLAUDE_API_SYSTEM_PROMPT,
+                ) as stream:
+                    streamed_details = None
+                    async for event in stream:
+                        if getattr(event, "type", None) == "message_delta":
+                            streamed_details = (
+                                getattr(
+                                    getattr(event, "delta", None), "stop_details", None
+                                )
+                                or streamed_details
+                            )
+                    response = await stream.get_final_message()
+                    trace["served_model"] = getattr(response, "model", None)
+                    trace["stop_reason"] = getattr(response, "stop_reason", None)
+                    trace["request_id"] = getattr(response, "_request_id", None)
+                    if trace["request_id"] is None:
+                        raw_response = getattr(stream, "response", None)
+                        if raw_response is not None:
+                            trace["request_id"] = raw_response.headers.get("request-id")
+                    usage = response.usage
+                    usage_payload = (
+                        usage.model_dump()
+                        if callable(getattr(usage, "model_dump", None))
+                        else vars(usage)
+                    )
+                    uncached_input_tokens = int(
+                        usage_payload.get("input_tokens", 0) or 0
+                    )
+                    cache_read_tokens = int(
+                        usage_payload.get("cache_read_input_tokens", 0) or 0
+                    )
+                    cache_creation_tokens = int(
+                        usage_payload.get("cache_creation_input_tokens", 0) or 0
+                    )
+                    trace["uncached_input_tokens"] = uncached_input_tokens
+                    # The shared estimator expects total input, while the SDK
+                    # reports uncached input separately from its cache counts:
+                    # https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+                    tokens = TokenUsage(
+                        input_tokens=(
+                            uncached_input_tokens
+                            + cache_read_tokens
+                            + cache_creation_tokens
+                        ),
+                        output_tokens=int(usage_payload.get("output_tokens", 0) or 0),
+                        cache_read_tokens=cache_read_tokens,
+                        cache_creation_tokens=cache_creation_tokens,
+                        reasoning_output_tokens=int(
+                            usage_payload.get("reasoning_output_tokens", 0) or 0
+                        )
+                        or extract_reasoning_output_tokens(
+                            {"json_result": {"usage": usage_payload}}
+                        ),
+                    )
+                    refusal_details = (
+                        getattr(response, "stop_details", None) or streamed_details
+                    )
+                    text = "".join(
+                        block.text
+                        for block in response.content
+                        if getattr(block, "type", None) == "text"
+                    )
+        return text, refusal_details
+
+    try:
+        text, refusal_details = asyncio.run(request())
+    except Exception as exc:
+        # SDK exception messages are useful diagnostics, but no exception may
+        # echo the API key into a persisted trace or the caller's output.
+        message = str(exc).replace(api_key, "[redacted]")
+        trace["exception_class"] = type(exc).__name__
+        trace["exception_message"] = message
+        trace["request_id"] = getattr(exc, "request_id", trace["request_id"])
+        timeout_error = getattr(anthropic, "APITimeoutError", TimeoutError)
+        if isinstance(exc, (TimeoutError, timeout_error)):
+            remaining = _remaining_eval_case_budget_seconds()
+            return timed_out(
+                case_budget=case_budget_limited
+                or (remaining is not None and remaining <= 0),
+                reason="wall" if isinstance(exc, TimeoutError) else "request",
+            )
+        if (
+            getattr(exc, "status_code", None) == 400
+            and "prompt" in message.lower()
+            and "too long" in message.lower()
+        ):
+            return context_overflow(message)
+        return respond(error=f"{type(exc).__name__}: {message}")
+
+    remaining = _remaining_eval_case_budget_seconds()
+    if remaining is not None and remaining <= 0:
+        return timed_out(case_budget=True)
+    stop_reason = trace["stop_reason"]
+    if stop_reason == "model_context_window_exceeded":
+        return context_overflow("model_context_window_exceeded")
+    if stop_reason == "refusal":
+        category = refusal_category()
+        return respond(
+            error="model declined the encode request"
+            + (f" (category: {category})" if category else "")
+        )
+    if stop_reason == "max_tokens":
+        return respond(
+            error=f"response hit max_tokens={ANTHROPIC_MESSAGES_MAX_TOKENS} "
+            "before the RuleSpec was complete"
+        )
+    if stop_reason not in {"end_turn", "stop_sequence"}:
+        return respond(
+            error=f"Claude API response did not finish (stop_reason: {stop_reason})"
+        )
+    if not text.strip():
+        return respond(
+            error=f"response had no RuleSpec text (stop_reason: {stop_reason})"
+        )
+    return respond(text)
 
 
 def _run_openai_prompt_eval(
@@ -16985,8 +17875,18 @@ def _run_openai_prompt_eval(
         ((usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0) or 0)
     )
 
+    incomplete = payload.get("status") == "incomplete"
+    incomplete_details = payload.get("incomplete_details") or {}
+    incomplete_reason = (
+        incomplete_details.get("reason", "unspecified")
+        if isinstance(incomplete_details, dict)
+        else "unspecified"
+    )
     return EvalPromptResponse(
-        text=_extract_openai_response_text(payload),
+        text="" if incomplete else _extract_openai_response_text(payload),
+        error=(
+            f"OpenAI response incomplete: {incomplete_reason}" if incomplete else None
+        ),
         duration_ms=duration_ms,
         tokens=tokens,
         estimated_cost_usd=estimate_usage_cost_usd(runner.model, tokens),
@@ -18965,6 +19865,13 @@ def _repair_overlay_candidate_base_issue(
         not isinstance(import_target, str) for import_target in imports
     ):
         return "preserved repair overlay imports must be a list of strings"
+    preserved_units = preserved.get("units", [])
+    if not isinstance(preserved_units, list):
+        return "preserved repair overlay units must be a list"
+    try:
+        _merge_named_yaml_items([], preserved_units, label="units")
+    except ValueError as exc:
+        return str(exc)
     preserved_inputs = preserved.get("inputs", [])
     if not isinstance(preserved_inputs, list):
         return "preserved repair overlay inputs must be a list"
@@ -19017,12 +19924,51 @@ def _repair_overlay_candidate_base_issue(
     return None
 
 
+def _preserve_repair_proof_requirement(
+    generated: dict, preserved: dict
+) -> tuple[str, ...]:
+    """Keep an integrity-bound strict-proof requirement through partial repairs."""
+    retained_module = preserved.get("module")
+    if (
+        not isinstance(retained_module, dict)
+        or "proof_validation" not in retained_module
+    ):
+        return ()
+    retained_proof = retained_module["proof_validation"]
+    if not isinstance(retained_proof, dict) or (
+        "required" in retained_proof and type(retained_proof["required"]) is not bool
+    ):
+        raise _PreservedRepairOverlayError(
+            "preserved repair module.proof_validation must be a mapping with a Boolean required value"
+        )
+    if retained_proof.get("required") is not True:
+        return ()
+
+    module = generated.get("module", {})
+    if not isinstance(module, dict):
+        raise ValueError(
+            "repair cannot replace a strict-proof module with a nonmapping"
+        )
+    proof = module.get("proof_validation", {})
+    if not isinstance(proof, dict) or (
+        "required" in proof and proof["required"] is not True
+    ):
+        raise ValueError(
+            "repair cannot disable retained module.proof_validation.required"
+        )
+    if proof.get("required") is True:
+        return ()
+    generated["module"] = {**module, "proof_validation": {**proof, "required": True}}
+    return ("module:proof_validation.required",)
+
+
 @timed_phase(PHASE_REPAIR_OVERLAY)
 def _overlay_validation_retry_candidate(
     rulespec_file: Path,
     *,
     artifact_root: Path,
     candidate: ValidationRetryCandidate,
+    target_ref_prefix: str | None = None,
 ) -> tuple[str, ...]:
     """Overlay partial repair output onto its integrity-bound prior candidate."""
 
@@ -19063,7 +20009,7 @@ def _overlay_validation_retry_candidate(
             "preserved repair overlay RuleSpec must be a YAML mapping"
         )
 
-    repairs: list[str] = []
+    repairs: list[str] = list(_preserve_repair_proof_requirement(generated, preserved))
     generated_imports = generated.get("imports", [])
     preserved_imports = preserved.get("imports", [])
     if not isinstance(generated_imports, list) or not isinstance(
@@ -19079,6 +20025,22 @@ def _overlay_validation_retry_candidate(
             repairs.append(f"import:{import_target}")
     if imports:
         generated["imports"] = imports
+
+    generated_units = generated.get("units", [])
+    preserved_units = preserved.get("units", [])
+    if not isinstance(generated_units, list) or not isinstance(preserved_units, list):
+        raise ValueError("repair overlay units must be lists")
+    units, restored_units, removed_units = _merge_named_yaml_items(
+        generated_units,
+        preserved_units,
+        label="units",
+    )
+    if units:
+        generated["units"] = units
+    else:
+        generated.pop("units", None)
+    repairs.extend(f"unit:{name}" for name in restored_units)
+    repairs.extend(f"removed_unit:{name}" for name in removed_units)
 
     generated_inputs = generated.get("inputs", [])
     preserved_inputs = preserved.get("inputs", [])
@@ -19109,6 +20071,28 @@ def _overlay_validation_retry_candidate(
         for item in rules
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
+    # A retained candidate can carry an import of a rule that the repaired
+    # target now defines locally. Such an import points back to this same
+    # module and creates a cycle; remove only exact local-rule self-imports.
+    if target_ref_prefix:
+        self_import_prefix = f"{target_ref_prefix}#"
+        local_rule_self_imports = [
+            item
+            for item in imports
+            if isinstance(item, str)
+            and item.startswith(self_import_prefix)
+            and item[len(self_import_prefix) :] in generated_rule_names
+        ]
+        if local_rule_self_imports:
+            imports = [item for item in imports if item not in local_rule_self_imports]
+            if imports:
+                generated["imports"] = imports
+            else:
+                generated.pop("imports", None)
+            repairs.extend(
+                f"removed_local_rule_self_import:{item}"
+                for item in local_rule_self_imports
+            )
     repairs.extend(f"rule:{name}" for name in restored_rules)
     repairs.extend(f"removed_rule:{name}" for name in removed_rules)
 

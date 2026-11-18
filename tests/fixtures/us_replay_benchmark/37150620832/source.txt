@@ -1,0 +1,13 @@
+AZTECS determines the benefit amount based on the information keyed. AZTECS subtracts 30% of the NA net income from the Thrifty Food Plan amount for the appropriate budgetary unit size. The resulting amount is the budgetary unit's eligible benefit amount before recoupment or NA proration.
+
+When the NA budgetary unit is eligible, AZTECS performs the allotment test.
+
+When the NA benefit for an eligible one or two participant budgetary unit is less than the minimum NA allotment, the benefit must be rounded up to the minimum NA allotment.
+
+When the NA benefit for an eligible three or more participant budgetary unit is less than the minimum NA allotment, the actual benefit amount must be paid.
+
+When a budgetary unit is eligible for less than the minimum NA allotment, in an initial month due to proration, all of the following apply:
+
+● The budgetary unit is in an eligible no pay status when the benefit is less than $10.
+
+● The actual benefit must be paid when the benefit is $10 or more. (See Proration of the First Month’s Benefits)

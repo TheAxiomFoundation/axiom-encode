@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-01-01",
+    "generation_input_sha256": "a6f556f7c314ad5fa09e243656441b641471d825fcd12a7a2abecfe3f91d7a5f",
+    "provision_file": "data/corpus/provisions/us/guidance/2026-07-23-irs-notice-2025-67.jsonl",
+    "provision_file_sha256": "4838e2001b16f4afcb0b97b7a194743adbaa14da59cb30f5b06626551baa018f",
+    "requested_corpus_citation_path": "us/guidance/irs/notice-2025-67/page-4",
+    "resolved_corpus_citation_path": "us/guidance/irs/notice-2025-67/page-4",
+    "resolved_text_sha256": "a6f556f7c314ad5fa09e243656441b641471d825fcd12a7a2abecfe3f91d7a5f",
+    "row": {
+      "body_sha256": "a6f556f7c314ad5fa09e243656441b641471d825fcd12a7a2abecfe3f91d7a5f",
+      "citation_path": "us/guidance/irs/notice-2025-67/page-4",
+      "document_class": "guidance",
+      "expression_date": "2026-01-01",
+      "jurisdiction": "us",
+      "line_number": 5,
+      "provision_file": "data/corpus/provisions/us/guidance/2026-07-23-irs-notice-2025-67.jsonl",
+      "provision_file_sha256": "4838e2001b16f4afcb0b97b7a194743adbaa14da59cb30f5b06626551baa018f",
+      "record_id": "44e00879-7c9e-5415-b33c-f54714507768",
+      "source_as_of": "2025-11-13",
+      "source_path": "sources/us/guidance/2026-07-23-irs-notice-2025-67/official-documents/irs-notice-2025-67.pdf",
+      "version": "2026-07-23-irs-notice-2025-67"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us",
+    "source_as_of": "2025-11-13",
+    "source_sha256": "a6f556f7c314ad5fa09e243656441b641471d825fcd12a7a2abecfe3f91d7a5f"
+  }
+}

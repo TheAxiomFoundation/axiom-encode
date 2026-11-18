@@ -1,0 +1,78 @@
+- name: no_qualifying_children_and_investment_income_at_limit
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/page-15#input.qualifying_child_count: 0
+  output:
+    us:policies/irs/rev-proc-2025-32/page-15#eitc_qualifying_child_table_index: 0
+- name: one_qualifying_child_and_excessive_investment_income
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/page-15#input.qualifying_child_count: 1
+  output:
+    us:policies/irs/rev-proc-2025-32/page-15#eitc_qualifying_child_table_index: 1
+- name: two_qualifying_children
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/page-15#input.qualifying_child_count: 2
+  output:
+    us:policies/irs/rev-proc-2025-32/page-15#eitc_qualifying_child_table_index: 2
+- name: three_or_more_qualifying_children
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/page-15#input.qualifying_child_count: 4
+  output:
+    us:policies/irs/rev-proc-2025-32/page-15#eitc_qualifying_child_table_index: 3
+- name: state_housing_credit_ceiling_uses_minimum_amount
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/page-15#input.low_income_unit_count: 10
+    us:policies/irs/rev-proc-2025-32/page-15#input.state_population: 1000000
+  output:
+    us:policies/irs/rev-proc-2025-32/page-15#rehabilitation_expenditure_qualified_basis: 87000
+    us:policies/irs/rev-proc-2025-32/page-15#state_low_income_housing_credit_ceiling: 3953600
+- name: state_housing_credit_ceiling_uses_population_amount
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/page-15#input.low_income_unit_count: 20
+    us:policies/irs/rev-proc-2025-32/page-15#input.state_population: 2000000
+  output:
+    us:policies/irs/rev-proc-2025-32/page-15#rehabilitation_expenditure_qualified_basis: 174000
+    us:policies/irs/rev-proc-2025-32/page-15#state_low_income_housing_credit_ceiling: 6832000
+- name: no_qualifying_children_and_investment_income_within_limit
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/page-15#input.qualifying_child_count: 0
+  output:
+    us:policies/irs/rev-proc-2025-32/page-15#eitc_qualifying_child_table_index: 0
+- name: one_qualifying_child
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:policies/irs/rev-proc-2025-32/page-15#input.qualifying_child_count: 1
+  output:
+    us:policies/irs/rev-proc-2025-32/page-15#eitc_qualifying_child_table_index: 1

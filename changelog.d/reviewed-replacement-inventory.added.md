@@ -1,0 +1,1 @@
+Add a non-authorizing, read-only Git inventory for exact same-path reviewed RuleSpec replacements and document the proposed local-subscription/central-signing handoff. Replacement signing is not implemented or enabled by this preparation tool.

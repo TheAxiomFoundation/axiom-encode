@@ -1,0 +1,568 @@
+format: rulespec/v1
+module:
+  summary: '“Elderly or disabled member” means a member of a household who satisfies
+
+    one of the conditions in paragraphs (1) through (7).'
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/7/2012/j
+    source_sha256: 61cef01bea2c1fb5152b7c979640b953ed8f5577a7f946fdeae118124c0b20ee
+rules:
+- name: elderly_or_disabled_member_under_paragraph_2_A
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(2)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: receives supplemental security income benefits under title XVI
+  versions:
+  - effective_from: '2008-10-01'
+    formula: 'receives_title_xvi_supplemental_security_income
+
+      or receives_public_law_93_66_type_supplemental_benefits'
+- name: elderly_or_disabled_member_under_paragraph_2_B
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(2)(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: if the Secretary determines that such benefits are conditioned
+            on meeting disability or blindness criteria
+  versions:
+  - effective_from: '2008-10-01'
+    formula: "benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi\n\
+      and (\n  receives_social_security_act_section_1616_a_type_supplemental_assistance\n\
+      \  or receives_interim_assistance_pending_supplemental_security_income\n  or\
+      \ receives_title_xix_disability_related_medical_assistance\n  or receives_disability_based_state_general_assistance\n\
+      )"
+- name: elderly_or_disabled_member_under_paragraph_2
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (2) (A) receives supplemental security income benefits
+  versions:
+  - effective_from: '2008-10-01'
+    formula: 'elderly_or_disabled_member_under_paragraph_2_A
+
+      or elderly_or_disabled_member_under_paragraph_2_B'
+- name: elderly_or_disabled_member_under_paragraph_5_B
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(5)(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: is entitled to compensation for a service-connected death or pension
+            benefits for a non-service-connected death under title 38
+  versions:
+  - effective_from: '2008-10-01'
+    formula: "is_surviving_spouse_of_veteran\nand survivor_has_permanent_disability_under_social_security_act_section_221_i\n\
+      and (\n  survivor_receives_title_38_service_connected_death_compensation\n \
+      \ or survivor_receives_title_38_non_service_connected_death_pension\n)"
+- name: member_of_household
+  kind: data_relation
+  data_relation:
+    predicate: member_of_household
+    arity: 2
+    arguments:
+    - Household
+    - Person
+- name: snap_household_has_elderly_or_disabled_member
+  kind: derived
+  entity: Household
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: “Elderly or disabled member” means a member of a household who—
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+  versions:
+  - effective_from: '2008-10-01'
+    formula: count_where(member_of_household, member_meets_elderly_or_disabled_definition)
+      > 0
+- name: elderly_or_disabled_member_age_threshold
+  kind: parameter
+  dtype: Integer
+  source: 7 USC 2012(j)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (1) is sixty years of age or older;
+  versions:
+  - effective_from: '2008-10-01'
+    formula: 60
+- name: elderly_or_disabled_member_under_paragraph_1
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (1) is sixty years of age or older;
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+  versions:
+  - effective_from: '2008-10-01'
+    formula: member_age >= elderly_or_disabled_member_age_threshold
+- name: elderly_or_disabled_member_under_paragraph_3
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(3)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (3) receives disability or blindness payments under title I, II,
+            X, XIV, or XVI of the Social Security Act [ 42 U.S.C. 301 et seq., 401
+            et seq., 1201 et seq., 1351 et seq., 1381 et seq.] or receives disability
+            retirement benefits from a governmental agency because of a disability
+            considered permanent under section 221(i) of the Social Security Act (
+            42 U.S.C. 421(i) );
+  versions:
+  - effective_from: '2008-10-01'
+    formula: receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi
+      or receives_governmental_disability_retirement_benefits_for_permanent_disability
+- name: elderly_or_disabled_member_under_paragraph_4_A
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(4)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (4) is a veteran who— (A) has a service-connected or non-service-connected
+            disability which is rated as total under title 38; or (B) is considered
+            in need of regular aid and attendance or permanently housebound under
+            such title;
+  versions:
+  - effective_from: '2008-10-01'
+    formula: is_veteran and veteran_has_total_disability_rating_under_title_38
+- name: elderly_or_disabled_member_under_paragraph_4_B
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(4)(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (4) is a veteran who— (A) has a service-connected or non-service-connected
+            disability which is rated as total under title 38; or (B) is considered
+            in need of regular aid and attendance or permanently housebound under
+            such title;
+  versions:
+  - effective_from: '2008-10-01'
+    formula: "is_veteran\nand (\n  veteran_needs_regular_aid_and_attendance_under_title_38\n\
+      \  or veteran_is_permanently_housebound_under_title_38\n)"
+- name: elderly_or_disabled_member_under_paragraph_4
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(4)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (4) is a veteran who— (A) has a service-connected or non-service-connected
+            disability which is rated as total under title 38; or (B) is considered
+            in need of regular aid and attendance or permanently housebound under
+            such title;
+  versions:
+  - effective_from: '2008-10-01'
+    formula: elderly_or_disabled_member_under_paragraph_4_A or elderly_or_disabled_member_under_paragraph_4_B
+- name: elderly_or_disabled_member_under_paragraph_5_A
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(5)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (5) is a surviving spouse of a veteran and— (A) is considered in
+            need of regular aid and attendance or permanently housebound under title
+            38; or (B) is entitled to compensation for a service-connected death or
+            pension benefits for a non-service-connected death under title 38, and
+            has a disability considered permanent under section 221(i) of the Social
+            Security Act ( 42 U.S.C. 421(i) );
+  versions:
+  - effective_from: '2008-10-01'
+    formula: "is_surviving_spouse_of_veteran\nand (\n  survivor_needs_regular_aid_and_attendance_under_title_38\n\
+      \  or survivor_is_permanently_housebound_under_title_38\n)"
+- name: elderly_or_disabled_member_under_paragraph_5
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(5)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (5) is a surviving spouse of a veteran and— (A) is considered in
+            need of regular aid and attendance or permanently housebound under title
+            38; or (B) is entitled to compensation for a service-connected death or
+            pension benefits for a non-service-connected death under title 38, and
+            has a disability considered permanent under section 221(i) of the Social
+            Security Act ( 42 U.S.C. 421(i) );
+  versions:
+  - effective_from: '2008-10-01'
+    formula: elderly_or_disabled_member_under_paragraph_5_A or elderly_or_disabled_member_under_paragraph_5_B
+- name: elderly_or_disabled_member_under_paragraph_6_A
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(6)(A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (6) is a child of a veteran and— (A) is considered permanently
+            incapable of self-support under section 1314 of title 38 ; or (B) is entitled
+            to compensation for a service-connected death or pension benefits for
+            a non-service-connected death under title 38, and has a disability considered
+            permanent under section 221(i) of the Social Security Act ( 42 U.S.C.
+            421(i) ); or
+  versions:
+  - effective_from: '2008-10-01'
+    formula: is_child_of_veteran and child_is_permanently_incapable_of_self_support_under_title_38_section_1314
+- name: elderly_or_disabled_member_under_paragraph_6_B
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(6)(B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (6) is a child of a veteran and— (A) is considered permanently
+            incapable of self-support under section 1314 of title 38 ; or (B) is entitled
+            to compensation for a service-connected death or pension benefits for
+            a non-service-connected death under title 38, and has a disability considered
+            permanent under section 221(i) of the Social Security Act ( 42 U.S.C.
+            421(i) ); or
+  versions:
+  - effective_from: '2008-10-01'
+    formula: "is_child_of_veteran\nand child_has_permanent_disability_under_social_security_act_section_221_i\n\
+      and (\n  child_receives_title_38_service_connected_death_compensation\n  or\
+      \ child_receives_title_38_non_service_connected_death_pension\n)"
+- name: elderly_or_disabled_member_under_paragraph_6
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(6)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (6) is a child of a veteran and— (A) is considered permanently
+            incapable of self-support under section 1314 of title 38 ; or (B) is entitled
+            to compensation for a service-connected death or pension benefits for
+            a non-service-connected death under title 38, and has a disability considered
+            permanent under section 221(i) of the Social Security Act ( 42 U.S.C.
+            421(i) ); or
+  versions:
+  - effective_from: '2008-10-01'
+    formula: elderly_or_disabled_member_under_paragraph_6_A or elderly_or_disabled_member_under_paragraph_6_B
+- name: elderly_or_disabled_member_under_paragraph_7
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)(7)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (7) is an individual receiving an annuity under section 2(a)(1)(iv)
+            or 2(a)(1)(v) of the Railroad Retirement Act of 1974 ( 45 U.S.C. 231a(a)(1)(iv)
+            or 231a(a)(1)(v)), if the individual’s service as an employee under the
+            Railroad Retirement Act of 1974 [ 45 U.S.C. 231 et seq.], after December
+            31, 1936 , had been included in the term “employment” as defined in the
+            Social Security Act [ 42 U.S.C. 301 et seq.], and if an application for
+            disability benefits had been filed.
+  versions:
+  - effective_from: '2008-10-01'
+    formula: 'receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity
+
+      and railroad_service_after_1936_would_be_social_security_act_employment
+
+      and filed_application_for_disability_benefits'
+- name: member_meets_elderly_or_disabled_definition
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: “Elderly or disabled member” means a member of a household who—
+  versions:
+  - effective_from: '2008-10-01'
+    formula: 'elderly_or_disabled_member_under_paragraph_1
+
+      or elderly_or_disabled_member_under_paragraph_2
+
+      or elderly_or_disabled_member_under_paragraph_3
+
+      or elderly_or_disabled_member_under_paragraph_4
+
+      or elderly_or_disabled_member_under_paragraph_5
+
+      or elderly_or_disabled_member_under_paragraph_6
+
+      or elderly_or_disabled_member_under_paragraph_7'
+- name: elderly_or_disabled_member_qualifies
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 USC 2012(j)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: definition
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: “Elderly or disabled member” means a member of a household who—
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/statute/7/2012/j
+          excerpt: (1) is sixty years of age or older;
+  versions:
+  - effective_from: '2008-10-01'
+    formula: "member_age >= elderly_or_disabled_member_age_threshold\nor receives_title_xvi_supplemental_security_income\n\
+      or receives_public_law_93_66_type_supplemental_benefits\nor (\n  benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi\n\
+      \  and (\n    receives_social_security_act_section_1616_a_type_supplemental_assistance\n\
+      \    or receives_interim_assistance_pending_supplemental_security_income\n \
+      \   or receives_title_xix_disability_related_medical_assistance\n    or receives_disability_based_state_general_assistance\n\
+      \  )\n)\nor receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi\n\
+      or receives_governmental_disability_retirement_benefits_for_permanent_disability\n\
+      or (\n  is_veteran\n  and (\n    veteran_has_total_disability_rating_under_title_38\n\
+      \    or veteran_needs_regular_aid_and_attendance_under_title_38\n    or veteran_is_permanently_housebound_under_title_38\n\
+      \  )\n)\nor (\n  is_surviving_spouse_of_veteran\n  and (\n    survivor_needs_regular_aid_and_attendance_under_title_38\n\
+      \    or survivor_is_permanently_housebound_under_title_38\n    or (\n      survivor_has_permanent_disability_under_social_security_act_section_221_i\n\
+      \      and (\n        survivor_receives_title_38_service_connected_death_compensation\n\
+      \        or survivor_receives_title_38_non_service_connected_death_pension\n\
+      \      )\n    )\n  )\n)\nor (\n  is_child_of_veteran\n  and (\n    child_is_permanently_incapable_of_self_support_under_title_38_section_1314\n\
+      \    or (\n      child_has_permanent_disability_under_social_security_act_section_221_i\n\
+      \      and (\n        child_receives_title_38_service_connected_death_compensation\n\
+      \        or child_receives_title_38_non_service_connected_death_pension\n  \
+      \    )\n    )\n  )\n)\nor (\n  receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity\n\
+      \  and railroad_service_after_1936_would_be_social_security_act_employment\n\
+      \  and filed_application_for_disability_benefits\n)"
+inputs:
+- name: member_meets_elderly_or_disabled_definition
+  entity: Person
+  dtype: Judgment
+  period: Month
+- name: member_age
+  entity: Person
+  dtype: Integer
+  period: Month
+- name: receives_title_xvi_supplemental_security_income
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: receives_public_law_93_66_type_supplemental_benefits
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: receives_social_security_act_section_1616_a_type_supplemental_assistance
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: receives_interim_assistance_pending_supplemental_security_income
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: receives_title_xix_disability_related_medical_assistance
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: receives_disability_based_state_general_assistance
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: receives_governmental_disability_retirement_benefits_for_permanent_disability
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: is_veteran
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: veteran_has_total_disability_rating_under_title_38
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: veteran_needs_regular_aid_and_attendance_under_title_38
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: veteran_is_permanently_housebound_under_title_38
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: is_surviving_spouse_of_veteran
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: survivor_needs_regular_aid_and_attendance_under_title_38
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: survivor_is_permanently_housebound_under_title_38
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: survivor_has_permanent_disability_under_social_security_act_section_221_i
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: survivor_receives_title_38_service_connected_death_compensation
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: survivor_receives_title_38_non_service_connected_death_pension
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: is_child_of_veteran
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: child_is_permanently_incapable_of_self_support_under_title_38_section_1314
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: child_has_permanent_disability_under_social_security_act_section_221_i
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: child_receives_title_38_service_connected_death_compensation
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: child_receives_title_38_non_service_connected_death_pension
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: railroad_service_after_1936_would_be_social_security_act_employment
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: filed_application_for_disability_benefits
+  entity: Person
+  dtype: Boolean
+  period: Month

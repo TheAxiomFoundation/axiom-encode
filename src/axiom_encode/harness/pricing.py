@@ -158,6 +158,24 @@ def anthropic_refusal_is_billed(
     return None
 
 
+def estimate_anthropic_refusal_cost_usd(
+    model: str,
+    usage: TokenUsage | None,
+    *,
+    category: str | None,
+    has_stop_details: bool,
+) -> float | None:
+    """Apply the refusal billing policy, retaining unknown pre-output costs."""
+    output_tokens = usage.output_tokens if usage else 0
+    billed = anthropic_refusal_is_billed(category, output_tokens)
+    if billed is None or (output_tokens == 0 and not has_stop_details):
+        # An absent stop_details differs from an explicit, free null category.
+        return None
+    if not billed:
+        return 0.0
+    return estimate_usage_cost_usd(model, usage)
+
+
 def estimate_usage_cost_breakdown(
     model: str,
     usage: TokenUsage | None,

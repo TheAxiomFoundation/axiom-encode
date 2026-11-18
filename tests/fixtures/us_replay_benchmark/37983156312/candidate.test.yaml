@@ -1,0 +1,200 @@
+- name: resource_inequity_pair_no_excluded_extent
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_resources: 200
+    us:statutes/42/1382c/f/2#input.parent_spouse_resources: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determined_inequitable_resource_extent: 0
+    us:statutes/42/1382c/f/2#input.child_is_disabled: false
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: false
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: false
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: false
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: not_holds
+    us:statutes/42/1382c/f/2#deemed_parent_resources: 250
+- name: resource_inequity_pair_excluded_extent
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_resources: 200
+    us:statutes/42/1382c/f/2#input.parent_spouse_resources: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determined_inequitable_resource_extent: 50
+    us:statutes/42/1382c/f/2#input.child_is_disabled: false
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: false
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: false
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: false
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: not_holds
+    us:statutes/42/1382c/f/2#deemed_parent_resources: 200
+- name: resource_exception_pair_condition_iv_fails
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_resources: 200
+    us:statutes/42/1382c/f/2#input.parent_spouse_resources: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determined_inequitable_resource_extent: 0
+    us:statutes/42/1382c/f/2#input.child_is_disabled: true
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: true
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: true
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: false
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: not_holds
+    us:statutes/42/1382c/f/2#deemed_parent_resources: 250
+- name: resource_exception_pair_condition_iv_holds
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_resources: 200
+    us:statutes/42/1382c/f/2#input.parent_spouse_resources: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determined_inequitable_resource_extent: 0
+    us:statutes/42/1382c/f/2#input.child_is_disabled: true
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: true
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: true
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: true
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: holds
+    us:statutes/42/1382c/f/2#deemed_parent_resources: 0
+- name: exception_age_pair_under_18
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.child_is_disabled: true
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: true
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: true
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: true
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: holds
+- name: exception_age_pair_at_18
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 18
+    us:statutes/42/1382c/f/2#input.child_is_disabled: true
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: true
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: true
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: true
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: not_holds
+- name: income_exception_pair_condition_iv_fails
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_income: 100
+    us:statutes/42/1382c/f/2#input.parent_spouse_income: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determines_income_deeming_inequitable: false
+    us:statutes/42/1382c/f/2#input.child_is_disabled: true
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: true
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: true
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: false
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: not_holds
+    us:statutes/42/1382c/f/2#deemed_parent_income: 150
+- name: income_exception_pair_condition_iv_holds
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_income: 100
+    us:statutes/42/1382c/f/2#input.parent_spouse_income: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determines_income_deeming_inequitable: false
+    us:statutes/42/1382c/f/2#input.child_is_disabled: true
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: true
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: true
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: true
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: holds
+    us:statutes/42/1382c/f/2#deemed_parent_income: 0
+- name: all_four_exception_conditions_make_exception_apply_and_income_not_deemed
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_income: 100
+    us:statutes/42/1382c/f/2#input.parent_spouse_income: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determines_income_deeming_inequitable: false
+    us:statutes/42/1382c/f/2#input.child_is_disabled: true
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: true
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: true
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: true
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: holds
+    us:statutes/42/1382c/f/2#deemed_parent_income: 0
+- name: failing_iv_means_exception_does_not_apply_and_parent_income_is_deemed
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_income: 100
+    us:statutes/42/1382c/f/2#input.parent_spouse_income: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determines_income_deeming_inequitable: false
+    us:statutes/42/1382c/f/2#input.child_is_disabled: true
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: true
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: true
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: false
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: not_holds
+    us:statutes/42/1382c/f/2#deemed_parent_income: 150
+- name: parent_income_is_not_deemed_at_age_18
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 18
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_income: 100
+    us:statutes/42/1382c/f/2#input.parent_spouse_income: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determines_income_deeming_inequitable: false
+    us:statutes/42/1382c/f/2#input.child_is_disabled: false
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: false
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: false
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: false
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: not_holds
+    us:statutes/42/1382c/f/2#deemed_parent_income: 0
+- name: parent_not_in_household_parent_income_is_not_deemed
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: false
+    us:statutes/42/1382c/f/2#input.parent_income: 100
+    us:statutes/42/1382c/f/2#input.parent_spouse_income: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determines_income_deeming_inequitable: false
+    us:statutes/42/1382c/f/2#input.child_is_disabled: false
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: false
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: false
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: false
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: not_holds
+    us:statutes/42/1382c/f/2#deemed_parent_income: 0
+- name: parent_and_coresident_stepparent_income_are_deemed
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_income: 100
+    us:statutes/42/1382c/f/2#input.parent_spouse_income: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determines_income_deeming_inequitable: false
+    us:statutes/42/1382c/f/2#input.child_is_disabled: false
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: false
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: false
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: false
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: not_holds
+    us:statutes/42/1382c/f/2#deemed_parent_income: 150
+- name: inequitable_income_deeming_is_not_applied
+  period: 2026-01
+  input:
+    us:statutes/42/1382c/f/2#input.child_age_years: 17
+    us:statutes/42/1382c/f/2#input.parent_or_parent_spouse_lives_in_same_household: true
+    us:statutes/42/1382c/f/2#input.parent_income: 100
+    us:statutes/42/1382c/f/2#input.parent_spouse_income: 50
+    us:statutes/42/1382c/f/2#input.commissioner_determines_income_deeming_inequitable: true
+    us:statutes/42/1382c/f/2#input.child_is_disabled: false
+    us:statutes/42/1382c/f/2#input.child_received_benefits_while_in_referenced_institution: false
+    us:statutes/42/1382c/f/2#input.child_is_eligible_for_medical_assistance_under_state_home_care_plan_or_authorization: false
+    us:statutes/42/1382c/f/2#input.child_would_be_ineligible_for_subchapter_benefits_but_for_this_exception: false
+  output:
+    us:statutes/42/1382c/f/2#child_deeming_exception_applies: not_holds
+    us:statutes/42/1382c/f/2#deemed_parent_income: 0

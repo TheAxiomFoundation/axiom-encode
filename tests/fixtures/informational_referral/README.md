@@ -1,0 +1,1 @@
+Unsigned NL479 diagnostic regression fixture. The source body has SHA256 9e88b12d0ddafe64504fb8b3fdb28d62e5a57bb371fd7c6b50aec19491a8c5a2. This fixture contains a diagnostic policy and six cases, with six unresolved source findings. The committed hashes establish byte identity; they do not independently authenticate source provenance, native generation, signing or publication.

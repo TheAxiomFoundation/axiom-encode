@@ -1,0 +1,48 @@
+"""Per-leg 'Enforce validation waiver ratchet' step durations for rulespec-us runs.
+
+Usage: python3 leg_durations.py RUN_ID [RUN_ID ...]
+Writes data/jobs_<run>.json (cached) and prints one summary line per run.
+"""
+import json, subprocess, sys, statistics
+from datetime import datetime
+from pathlib import Path
+
+DATA = Path(__file__).resolve().parent.parent / "data"
+REPO = "TheAxiomFoundation/rulespec-us"
+STEP = "Enforce validation waiver ratchet"
+
+def jobs(run):
+    cache = DATA / f"jobs_{run}.json"
+    if not cache.exists():
+        raw = subprocess.run(["gh", "api", "--paginate", f"repos/{REPO}/actions/runs/{run}/jobs?per_page=100&filter=latest"],
+                             check=True, capture_output=True, text=True).stdout
+        cache.write_text(raw)
+    raw = cache.read_text()
+    dec = json.JSONDecoder(); i = 0; out = []
+    while i < len(raw):
+        while i < len(raw) and raw[i].isspace(): i += 1
+        if i >= len(raw): break
+        obj, i = dec.raw_decode(raw, i); out += obj["jobs"]
+    return out
+
+def t(s): return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+def legs(run):
+    rows = []
+    for jb in jobs(run):
+        if not jb["name"].startswith("validate / validate ("): continue
+        leg = jb["name"].split("(", 1)[1].rstrip(")")
+        for st in jb.get("steps", []):
+            if st["name"] == STEP and st.get("started_at") and st.get("completed_at"):
+                rows.append((leg, (t(st["completed_at"]) - t(st["started_at"])).total_seconds() / 60, st["conclusion"], jb["id"]))
+    return rows
+
+if __name__ == "__main__":
+    for run in sys.argv[1:]:
+        rows = legs(run)
+        if not rows:
+            print(run, "no ratchet steps"); continue
+        rows.sort(key=lambda r: -r[1])
+        d = [r[1] for r in rows]
+        top = ", ".join(f"{r[0]} {r[1]:.0f}{'' if r[2]=='success' else '('+str(r[2])+')'}" for r in rows[:4])
+        print(f"{run} legs={len(rows)} median={statistics.median(d):.0f} max={d[0]:.0f} | {top}")

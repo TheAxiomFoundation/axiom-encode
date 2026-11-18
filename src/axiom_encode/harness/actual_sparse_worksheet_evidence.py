@@ -270,7 +270,9 @@ def _bind(
     ):
         return None
     match = _CLAUSE.fullmatch(branch.text)
-    structure = s._unconflicted_printed_rows(source_text, source_branches)
+    structure = s._unconflicted_printed_rows(
+        source_text, source_branches, corpus_citation_path=citation
+    )
     if (
         match is None
         or structure is None

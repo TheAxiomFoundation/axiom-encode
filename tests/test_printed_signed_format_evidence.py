@@ -80,7 +80,18 @@ def signed(pair):  # noqa: F811
     return pair
 
 
-def test_signed_negative_and_nonnegative_are_format_observations(signed):
+@pytest.mark.parametrize("strict_echo", [False, True])
+def test_signed_negative_and_nonnegative_are_format_observations(
+    signed, tmp_path, strict_echo
+):
+    from tests.test_same_case_execution import restage_witness_records
+
+    signed["evidence"] = restage_witness_records(
+        signed["evidence"],
+        [case for cases in signed["asserted_by_rule"].values() for case in cases],
+        tmp_path,
+        strict_echo,
+    )
     assert len(fmt.witnesses(**signed)) == 1
     # No counterfactual pair requirement: each signed execution stands alone.
     signed["asserted_by_rule"]["out"][1]["input"][ROOT + "#input.unrelated"] = 9

@@ -196,7 +196,9 @@ def provision(
         shutil.rmtree(snapshot, ignore_errors=True)
 
 
-def main() -> None:
+def _argument_parser() -> argparse.ArgumentParser:
+    """What main() parses. tests/test_verification_site_packages_lock.py reads
+    workflow calls with it, so it checks the values this script acts on."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--destination", type=Path, required=True)
     parser.add_argument("--site-packages", type=Path, required=True)
@@ -207,7 +209,11 @@ def main() -> None:
     parser.add_argument(
         "--max-runtime-files", type=int, default=DEFAULT_MAX_RUNTIME_FILES
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = _argument_parser().parse_args()
     provision(
         destination=args.destination.resolve(),
         site_packages=args.site_packages.resolve(),

@@ -1,0 +1,59 @@
+- name: citizen_member_satisfies_composed_member_eligibility
+  period: 2026-01
+  input:
+    us:policies/usda/snap/state-plan-composition#input.snap_member_work_requirement_eligible: true
+    us:regulations/7-cfr/273/4#input.member_is_us_citizen: true
+    us:regulations/7-cfr/273/4#input.member_is_us_noncitizen_national: false
+    us:regulations/7-cfr/273/5#input.enrolled_at_least_half_time: false
+    us:regulations/7-cfr/273/5#input.enrolled_in_business_technical_trade_or_vocational_school_requiring_high_school_diploma: false
+    us:regulations/7-cfr/273/5#input.enrolled_in_college_or_university_degree_program: false
+    us:regulations/7-cfr/273/6#input.member_refused_or_failed_to_provide_or_apply_for_ssn: false
+    us:regulations/7-cfr/273/6#input.member_has_documentary_or_collateral_evidence_of_ssn_application_or_every_effort: false
+    us:regulations/7-cfr/273/6#input.state_agency_fault_in_ssn_application_processing: false
+    ? us:regulations/7-cfr/273/6#input.member_unable_to_obtain_documents_required_for_ssn_application_with_caseworker_assistance_needed
+    : false
+    us:regulations/7-cfr/273/6#input.member_ssn_application_filed_pending_state_agency_notification: false
+    us:regulations/7-cfr/273/6#input.member_later_provided_ssn_ending_disqualification: false
+  output:
+    us:policies/usda/snap/state-plan-composition#snap_member_eligible: holds
+- name: household_membership_count_includes_one_related_member
+  period: 2026-01
+  input:
+    us:policies/usda/snap/state-plan-composition#relation.member_of_household:
+    - {}
+  output:
+    us:policies/usda/snap/state-plan-composition#snap_state_plan_member_of_household_count: 1
+- name: countable_income_and_household_income_are_nonnegative
+  period: 2026-01
+  input:
+    us:policies/usda/snap/state-plan-composition#input.snap_gross_monthly_earned_income: 100
+    us:policies/usda/snap/state-plan-composition#input.snap_total_monthly_unearned_income: 50
+  output:
+    us:policies/usda/snap/state-plan-composition#snap_countable_earned_income: 100
+    us:policies/usda/snap/state-plan-composition#snap_countable_unearned_income: 50
+    us:policies/usda/snap/state-plan-composition#snap_gross_monthly_income: 150
+    us:policies/usda/snap/state-plan-composition#snap_monthly_household_income: 150
+- name: negative_income_amounts_do_not_reduce_countable_income
+  period: 2026-01
+  input:
+    us:policies/usda/snap/state-plan-composition#input.snap_gross_monthly_earned_income: -1
+    us:policies/usda/snap/state-plan-composition#input.snap_total_monthly_unearned_income: -1
+  output:
+    us:policies/usda/snap/state-plan-composition#snap_countable_earned_income: 0
+    us:policies/usda/snap/state-plan-composition#snap_countable_unearned_income: 0
+    us:policies/usda/snap/state-plan-composition#snap_gross_monthly_income: 0
+    us:policies/usda/snap/state-plan-composition#snap_monthly_household_income: 0
+- name: initial_month_allotment_under_minimum_is_not_issued
+  period: 2026-01
+  input:
+    us:policies/usda/snap/state-plan-composition#input.snap_initial_month_prorated_allotment: 0
+  output:
+    us:policies/usda/snap/state-plan-composition#snap_initial_month_issued_allotment: 0
+- name: ineligible_household_receives_no_snap_benefit
+  period: 2026-01
+  input:
+    us:policies/usda/snap/state-plan-composition#input.snap_eligible: false
+    us:policies/usda/snap/state-plan-composition#input.household_initial_month: false
+    us:policies/usda/snap/state-plan-composition#input.snap_initial_month_prorated_allotment: 0
+  output:
+    us:policies/usda/snap/state-plan-composition#snap_benefit: 0

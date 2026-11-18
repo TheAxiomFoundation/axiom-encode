@@ -28,9 +28,39 @@ The static passes below make that outcome reachable and durable:
   the toolchain's absolute build-prefix RUNPATH so ``libpython`` loads from the
   runtime, and is the pass the maps check then verifies for the launcher.
 
-Trust boundary and residual: the inputs are the GitHub-provided toolcache stdlib
-and pinned pip dependencies, and the finished tree is chowned root and stripped
-of group/other write by the caller (the supervisor re-verifies that ownership).
+Trust boundary and residual: the inputs are the invoking interpreter's CPython
+prefix (the setup-python toolcache when ``--require-prefix-under`` is set) and
+the caller-staged ``--site-packages`` tree, and the finished tree is chowned
+root and stripped of group/other write by the caller (the supervisor re-verifies
+that ownership). This script does not inspect how ``--site-packages`` was
+installed. The repository workflows stage it from ``uv.lock``: ``uv export
+--locked`` hash-pinned registry distributions installed with ``--require-hashes
+--no-deps``, then the commit-pinned ``axiom-oracles`` git dependency and the
+project itself with ``--no-deps``, then a diff against the ``uv sync --locked``
+environment. The issue233 Canada diagnostic passes instead the purelib of a
+``uv sync --frozen`` environment; that sync is its job's only uv call, the job
+installs nothing with pip, and only this script's call names the purelib.
+``tests/test_verification_site_packages_lock.py`` enforces both forms, reads
+``--site-packages`` with this script's own argument parser, and fails a
+workflow whose text names the staged tree outside staging and this script's call.
+That staging builds three kinds of input: the sdists the lock pins with no wheel
+for the interpreter (pyiceberg 0.10.0; pyroaring 1.0.3 on 3.14), the git
+dependency and the project. In bulk-encode, golden-regeneration and
+targeted-signed-reencode each build runs uncached (``--no-cache``) with
+``--build-constraints`` set to the hash-pinned export of the lock's ``build``
+dependency group, so uv verifies every build backend it installs against
+``uv.lock``. uv would still build with a backend that export omits, unpinned;
+``scripts/check_locked_builds.py`` (the ``locked-builds`` CI job) builds each
+of those inputs with ``uv build --require-hashes``, which refuses an omitted or
+unhashed one. It builds on 3.13, which these workflows use, and on 3.14, the
+default of the organization's reusable ``validate-rulespec.yml``, which also
+stages this lock. Every uv call in the staging passes ``--no-config``, so
+neither the runner's user ``uv.toml`` nor a parent directory's uv config can
+change what it installs or builds. What remains unpinned everywhere is the
+runner's C toolchain, which compiles pyiceberg's and pyroaring's extensions
+(pyiceberg's build drops its Cython extension silently if compiling it fails).
+When the ``--encoder-*`` attestation arguments are given, the attested commit's
+bytes replace the staged ``axiom_encode`` package.
 A pinned dependency carrying hostile ELF metadata (an absolute ``DT_NEEDED``, a
 ``DT_AUDIT`` hook, a decoy section) is NOT statically audited here — such a
 dependency already executes its own code inside the signer, so metadata-level
@@ -303,9 +333,9 @@ def _relocate_elf_rpaths(runtime: Path, patchelf: str) -> int:
     which LD_LIBRARY_PATH cannot outrank; patchelf --print-rpath then re-reads
     the object to confirm nothing still escapes.
 
-    This is a best-effort hardening pass over trusted, pinned inputs (the
-    toolcache stdlib and pinned pip deps). The load-bearing guarantee for the
-    launcher interpreter is the empirical /proc/self/maps check in
+    This is a best-effort hardening pass over trusted inputs (the interpreter
+    prefix and the uv.lock-staged site-packages). The load-bearing guarantee for
+    the launcher interpreter is the empirical /proc/self/maps check in
     _assert_self_contained, not this static rewrite.
     """
     runtime_resolved = runtime.resolve(strict=True)
@@ -479,6 +509,164 @@ def _install_trusted_git_wrapper(
 ) -> Path:
     """Install a narrowly scoped Git command broker into the isolated PATH."""
 
+    snapshot_clone_code = r"""
+def snapshot_clone(options):
+    # This is a data-only clone for execution evidence, never a general Git transport.
+    import configparser
+    import pathlib
+    import shlex
+    import shutil
+    import stat
+    import tempfile
+
+    def directory_fd(raw):
+        path = pathlib.Path(raw)
+        if not path.is_absolute() or raw != os.path.normpath(raw) or raw != str(path):
+            refuse('snapshot clone requires normalized absolute local paths')
+        fd = os.open(path.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for part in path.parts[1:]:
+                next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(fd)
+                fd = next_fd
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
+
+    def canonical(raw, exists=True):
+        path = pathlib.Path(raw)
+        if not path.is_absolute() or raw != os.path.normpath(raw) or raw != str(path):
+            refuse('snapshot clone requires normalized absolute local paths')
+        fd = directory_fd(raw if exists else str(path.parent))
+        os.close(fd)
+        if not exists and path.is_symlink():
+            refuse('snapshot clone rejects symlink destinations')
+        return path
+
+    def read_regular(path):
+        parent_fd = directory_fd(str(path.parent))
+        try:
+            before = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+            if not stat.S_ISREG(before.st_mode):
+                refuse('snapshot clone requires regular metadata files')
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
+            with os.fdopen(fd, 'rb') as stream:
+                opened = os.fstat(stream.fileno())
+                data = stream.read()
+            after = os.stat(path.name, dir_fd=parent_fd, follow_symlinks=False)
+            identity = lambda st: (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+            if identity(before) != identity(opened) or identity(before) != identity(after):
+                refuse('snapshot clone metadata changed while reading')
+            return data
+        finally:
+            os.close(parent_fd)
+
+    if cursor != 0 or len(options) != 5 or options[:3] != ['--no-local', '--no-hardlinks', '--no-checkout']:
+        refuse('snapshot clone requires the exact data-only invocation')
+    source = canonical(options[3])
+    destination = canonical(options[4], exists=False)
+    parent = canonical(str(destination.parent))
+    parent_stat = parent.stat()
+    if (not parent.name.startswith('axiom-execution-snapshot-')
+            or parent_stat.st_uid != os.geteuid()
+            or stat.S_IMODE(parent_stat.st_mode) != 0o700
+            or any(parent.iterdir())):
+        refuse('snapshot clone requires a fresh private snapshot directory')
+    if destination.exists() or destination.is_symlink():
+        refuse('snapshot clone destination must not exist')
+    if source == destination or source in destination.parents or destination in source.parents:
+        refuse('snapshot clone source and destination must be disjoint')
+    gitdir = canonical(str(source / '.git'))
+    if any((gitdir / name).exists() or (gitdir / name).is_symlink() for name in
+           ('commondir', 'objects/info/alternates', 'objects/info/http-alternates')):
+        refuse('snapshot clone rejects shared or alternate object stores')
+    # Reject every link/special file, including ignored config/hooks. Never follow them.
+    for directory, dirs, files in os.walk(gitdir, followlinks=False):
+        for name in dirs + files:
+            mode = pathlib.Path(directory, name).lstat().st_mode
+            if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                refuse('snapshot clone rejects non-regular repository metadata')
+    config = configparser.RawConfigParser(strict=True)
+    try:
+        config.read_string(read_regular(gitdir / 'config').decode('utf-8'))
+        if config.get('core', 'repositoryformatversion') != '0' or any(
+            section.lower() == 'extensions' for section in config.sections()
+        ):
+            refuse('snapshot clone rejects unsupported repository formats')
+    except (ValueError, UnicodeError, configparser.Error):
+        refuse('snapshot clone cannot validate repository format')
+    source_identity = tuple((p.stat().st_dev, p.stat().st_ino) for p in (source, gitdir, parent))
+    head = read_regular(gitdir / 'HEAD')
+    with tempfile.TemporaryDirectory(prefix='axiom-sanitized-git-', dir=parent) as temp:
+        clean = pathlib.Path(temp) / 'source'
+        clean_git = clean / '.git'
+        clean_git.mkdir(parents=True)
+        # Only object/ref data is copied. Source config/includes, hooks and templates
+        # never reach Git or upload-pack. All native executables are the trusted Git.
+        for name in ('HEAD', 'packed-refs', 'shallow'):
+            path = gitdir / name
+            if path.exists():
+                (clean_git / name).write_bytes(read_regular(path))
+        for name in ('objects', 'refs'):
+            tree = canonical(str(gitdir / name))
+            for directory, dirs, files in os.walk(tree, followlinks=False):
+                target = clean_git / pathlib.Path(directory).relative_to(gitdir)
+                target.mkdir(parents=True, exist_ok=True)
+                for child in dirs:
+                    canonical(str(pathlib.Path(directory, child)))
+                for child in files:
+                    relative = (pathlib.Path(directory) / child).relative_to(gitdir).as_posix()
+                    if relative in ('objects/info/alternates', 'objects/info/http-alternates'):
+                        refuse('snapshot clone rejects late alternate object stores')
+                    (target / child).write_bytes(read_regular(pathlib.Path(directory, child)))
+        (clean_git / 'config').write_text('[core]\nrepositoryformatversion = 0\nbare = false\n')
+        if read_regular(gitdir / 'HEAD') != head or source_identity != tuple(
+            (p.stat().st_dev, p.stat().st_ino) for p in (source, gitdir, parent)
+        ):
+            refuse('snapshot clone origin changed')
+        if destination.exists() or destination.is_symlink():
+            refuse('snapshot clone destination appeared')
+        canonical(str(parent))
+        if (parent.stat().st_dev, parent.stat().st_ino) != source_identity[-1]:
+            refuse('snapshot clone parent changed')
+        if any((clean_git / name).exists() or (clean_git / name).is_symlink() for name in
+               ('commondir', 'objects/info/alternates', 'objects/info/http-alternates')):
+            refuse('snapshot clone sanitized metadata has external references')
+        destination.mkdir(mode=0o700)
+        destination_identity = (destination.stat().st_dev, destination.stat().st_ino)
+        try:
+            upload = shlex.join([git, '-c', 'core.hooksPath=/dev/null',
+                                'upload-pack'])
+            command = [*trusted, '-c', 'init.templateDir=', '-c', 'protocol.allow=never',
+                       '-c', 'protocol.file.allow=always', 'clone', '--no-local',
+                       '--no-hardlinks', '--no-checkout', '--template=',
+                       '--upload-pack=' + upload, '--', str(clean), str(destination)]
+            result = subprocess.run(command, capture_output=True, timeout=60)
+            if result.returncode:
+                refuse('snapshot clone failed: ' + result.stderr.decode('utf-8', errors='replace'))
+            # Do not leave the transient sanitized source as a misleading origin.
+            result = subprocess.run([*trusted, '-C', str(destination), 'remote', 'remove', 'origin'],
+                                    capture_output=True, timeout=10)
+            if result.returncode:
+                refuse('snapshot clone could not remove transient origin')
+            canonical(str(source))
+            canonical(str(gitdir))
+            canonical(str(parent))
+            canonical(str(destination))
+            if (destination.stat().st_dev, destination.stat().st_ino) != destination_identity:
+                refuse('snapshot clone destination changed')
+            if read_regular(gitdir / 'HEAD') != head or source_identity != tuple(
+                (p.stat().st_dev, p.stat().st_ino) for p in (source, gitdir, parent)
+            ):
+                refuse('snapshot clone source identity changed')
+        except BaseException:
+            if (not destination.is_symlink() and destination.is_dir()
+                    and (destination.stat().st_dev, destination.stat().st_ino) == destination_identity):
+                shutil.rmtree(destination)
+            raise
+    raise SystemExit(0)
+"""
     wrapper = tool_directory / "git"
     content = (
         f"#!{interpreter} -I\n"
@@ -493,7 +681,8 @@ def _install_trusted_git_wrapper(
         "def refuse(message):\n"
         "    sys.stderr.write(message + '\\n')\n"
         "    raise SystemExit(REFUSED)\n"
-        "args = sys.argv[1:]\n"
+        + snapshot_clone_code
+        + "args = sys.argv[1:]\n"
         "cursor = 0\n"
         "if args[:1] == ['-C']:\n"
         "    if len(args) < 3:\n"
@@ -503,7 +692,7 @@ def _install_trusted_git_wrapper(
         "    'add', 'cat-file', 'diff', 'for-each-ref', 'grep', 'log',\n"
         "    'ls-files', 'ls-tree', 'merge-base',\n"
         "    'remote', 'rev-list', 'rev-parse', 'show', 'show-ref', 'status',\n"
-        "    'symbolic-ref',\n"
+        "    'symbolic-ref', 'clone',\n"
         "}\n"
         "if cursor >= len(args) or args[cursor] not in allowed:\n"
         "    selected = args[cursor] if cursor < len(args) else '<missing>'\n"
@@ -689,11 +878,13 @@ def _install_trusted_git_wrapper(
         "            and options[:3] == ['--parents', '-n', '1']\n"
         "            and safe_ref(options[-1])\n"
         "        )\n"
+        "    if command == 'clone':\n"
+        "        return len(options) == 5 and options[:3] == ['--no-local', '--no-hardlinks', '--no-checkout']\n"
         "    if command == 'rev-parse':\n"
         "        if options in (\n"
         "            ['HEAD'], ['HEAD^{tree}'], ['--is-inside-work-tree'],\n"
         "            ['--show-prefix'],\n"
-        "            ['--show-toplevel'],\n"
+        "            ['--show-toplevel'], ['--show-toplevel', 'HEAD'],\n"
         "            ['--path-format=absolute', '--git-common-dir'],\n"
         "            ['--is-shallow-repository'],\n"
         "            ['--git-path', 'FETCH_HEAD'],\n"
@@ -771,6 +962,11 @@ def _install_trusted_git_wrapper(
         "    '-c', 'log.showSignature=false',\n"
         "    '-c', 'submodule.recurse=false',\n"
         "]\n"
+        "if command == 'clone':\n"
+        "    try:\n"
+        "        snapshot_clone(options)\n"
+        "    except (OSError, ValueError, subprocess.SubprocessError) as error:\n"
+        "        refuse(f'snapshot clone refused: {error}')\n"
         "def worktree_sensitive():\n"
         "    if command == 'add':\n"
         "        return True\n"
@@ -887,6 +1083,16 @@ _CODEX_CLI_PINS = {
         "member": "package/vendor/aarch64-apple-darwin/bin/codex",
         "archive_sha256": "36034ef21c4fd7992e3ca4d041dff869dbf8c5d742b68e5c9fad0c3636cf61ce",
         "sha256": "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a",
+        "host_member": "package/vendor/aarch64-apple-darwin/bin/codex-code-mode-host",
+        "host_sha256": "c83b50d881ea5153fa9855cad6763fd7f847b24e60931b26513311fed3f71fbd",
+    },
+    ("linux", "x64"): {
+        "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-linux-x64.tgz",
+        "member": "package/vendor/x86_64-unknown-linux-musl/bin/codex",
+        "archive_sha256": "27a80e1904c7337fe65d94f881779ba7700f42a8a87f3d06352b543b0115df98",
+        "sha256": "d2752c52353401f7f6efbfcea68796f4f7a3d3e4769f5d1da53fa49d4856b72f",
+        "host_member": "package/vendor/x86_64-unknown-linux-musl/bin/codex-code-mode-host",
+        "host_sha256": "160c7ea08738447582821fbb2611ee016d6dd628853401bbc441767cb4e95ef8",
     },
 }
 
@@ -902,7 +1108,7 @@ def _sha256_file(path: Path) -> str:
 def _install_pinned_codex_cli(
     destination: Path, archive: Path | None = None
 ) -> dict[str, str]:
-    """Install only the reviewed Codex binary, failing closed on its digest."""
+    """Install the reviewed CLI and required tool host from one pinned archive."""
 
     machine = platform.machine().lower()
     if machine in {"aarch64", "arm64"}:
@@ -940,40 +1146,52 @@ def _install_pinned_codex_cli(
             )
         try:
             with tarfile.open(archive, "r:gz") as bundle:
-                member = bundle.getmember(pin["member"])
-                if not member.isfile() or member.issym() or member.islnk():
-                    raise SystemExit(
-                        "refusing pinned Codex archive member that is not a file"
-                    )
-                source = bundle.extractfile(member)
-                if source is None:
-                    raise SystemExit("pinned Codex archive does not contain its binary")
                 bin_dir = destination / "bin"
                 bin_dir.mkdir(mode=0o755, exist_ok=True)
-                target = bin_dir / "codex"
-                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                if hasattr(os, "O_NOFOLLOW"):
-                    flags |= os.O_NOFOLLOW
-                descriptor = os.open(target, flags, 0o755)
-                with os.fdopen(descriptor, "wb") as output:
-                    shutil.copyfileobj(source, output)
-                    output.flush()
-                    os.fsync(output.fileno())
+                for name, member_key, digest_key in (
+                    ("codex", "member", "sha256"),
+                    ("codex-code-mode-host", "host_member", "host_sha256"),
+                ):
+                    if sum(m.name == pin[member_key] for m in bundle.getmembers()) != 1:
+                        raise SystemExit(
+                            "pinned Codex archive must contain each executable exactly once"
+                        )
+                    member = bundle.getmember(pin[member_key])
+                    if not member.isfile() or member.issym() or member.islnk():
+                        raise SystemExit(
+                            "refusing pinned Codex archive member that is not a file"
+                        )
+                    source = bundle.extractfile(member)
+                    if source is None:
+                        raise SystemExit(
+                            "pinned Codex archive lacks required executable"
+                        )
+                    target = bin_dir / name
+                    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                    if hasattr(os, "O_NOFOLLOW"):
+                        flags |= os.O_NOFOLLOW
+                    descriptor = os.open(target, flags, 0o755)
+                    with os.fdopen(descriptor, "wb") as output:
+                        shutil.copyfileobj(source, output)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    actual = _sha256_file(target)
+                    if actual != pin[digest_key]:
+                        target.unlink(missing_ok=True)
+                        raise SystemExit(
+                            f"refusing to provision: pinned Codex {name} sha256 mismatch "
+                            f"(expected {pin[digest_key]}, got {actual})"
+                        )
+                    target.chmod(0o755)
         except (KeyError, tarfile.TarError) as exc:
             raise SystemExit(f"invalid pinned Codex CLI archive: {exc}") from exc
-        actual = _sha256_file(target)
-        if actual != pin["sha256"]:
-            target.unlink(missing_ok=True)
-            raise SystemExit(
-                "refusing to provision: pinned Codex CLI sha256 mismatch "
-                f"(expected {pin['sha256']}, got {actual})"
-            )
-        target.chmod(0o755)
         config = {
-            "schema": "axiom-encode/trusted-codex-cli/v1",
+            "schema": "axiom-encode/trusted-codex-cli/v2",
             "version": _CODEX_CLI_VERSION,
-            "sha256": actual,
-            "path": str(target),
+            "sha256": pin["sha256"],
+            "path": str(bin_dir / "codex"),
+            "code_mode_host_sha256": pin["host_sha256"],
+            "code_mode_host_path": str(bin_dir / "codex-code-mode-host"),
         }
         config_path = destination / "codex-cli.json"
         config_path.write_text(json.dumps(config, sort_keys=True) + "\n")
@@ -1012,6 +1230,10 @@ _GITHUB_REMOTE_PATTERNS = (
 # hooksPath, clean/smudge/textconv driver, or external diff cannot fire.
 _HARDENED_GIT_FLAGS = (
     "--no-pager",
+    "-c",
+    "core.commitGraph=false",
+    "-c",
+    "advice.graftFileDeprecated=false",
     "-c",
     "core.fsmonitor=",
     "-c",
@@ -1065,12 +1287,21 @@ def _hardened_git_environment(home: Path) -> dict[str, str]:
         "GIT_ATTR_NOSYSTEM": "1",
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_NO_REPLACE_OBJECTS": "1",
+        # An info/grafts file must not rewrite the history the version-bump
+        # check reads, as in version_provenance and cli (axiom-encode#2048).
+        "GIT_GRAFT_FILE": os.devnull,
         "GIT_NO_LAZY_FETCH": "1",
         "GIT_OPTIONAL_LOCKS": "0",
     }
 
 
-def _hardened_git(trusted_git: Path, git_dir: Path, home: Path, *args: str) -> bytes:
+def _hardened_git(
+    trusted_git: Path,
+    git_dir: Path,
+    home: Path,
+    *args: str,
+    stdin: bytes | None = None,
+) -> bytes:
     """Run one read-only, worktree-free Git query against a ROOT-OWNED git dir.
 
     Every invocation targets ``--git-dir`` only (never a worktree), so git never
@@ -1090,6 +1321,7 @@ def _hardened_git(trusted_git: Path, git_dir: Path, home: Path, *args: str) -> b
             ],
             check=True,
             capture_output=True,
+            input=stdin,
             env=_hardened_git_environment(home),
         )
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -1258,7 +1490,14 @@ def _require_snapshot_version_bump(
         "--",
         *_ENCODER_VERSION_FILES,
     ).splitlines()
+    # The same choice as version_provenance.latest_version_commit and cli's
+    # _latest_axiom_encode_version_commit: prefer the bump to the version the
+    # head declares, else the latest increase of any kind.
+    head_version = _encoder_versions_at_ref(trusted_git, git_dir, home, commit).get(
+        "pyproject"
+    )
     version_commit: str | None = None
+    fallback: str | None = None
     for candidate in (line.strip() for line in lines if line.strip()):
         current = _encoder_versions_at_ref(trusted_git, git_dir, home, candidate)
         if not current.get("pyproject") or not current.get("package"):
@@ -1266,13 +1505,16 @@ def _require_snapshot_version_bump(
         parents = _hardened_git_text(
             trusted_git, git_dir, home, "rev-list", "--parents", "-n", "1", candidate
         ).split()
-        if len(parents) <= 1:
-            version_commit = candidate  # root commit that declares a version
-            break
-        previous = _encoder_versions_at_ref(trusted_git, git_dir, home, parents[1])
-        if _encoder_version_increased(current, previous):
+        if len(parents) > 1:  # a root commit that declares a version counts
+            previous = _encoder_versions_at_ref(trusted_git, git_dir, home, parents[1])
+            if not _encoder_version_increased(current, previous):
+                continue
+        if fallback is None:
+            fallback = candidate
+        if current.get("pyproject") == head_version:
             version_commit = candidate
             break
+    version_commit = version_commit or fallback
     if not version_commit:
         raise SystemExit(
             "refusing to provision: no committed encoder version bump is reachable "
@@ -1284,15 +1526,20 @@ def _require_snapshot_version_bump(
         home,
         "diff",
         "--name-only",
-        "--diff-filter=ACMRT",
-        f"{version_commit}..{commit}",
-    ).splitlines()
+        "--no-renames",
+        "--diff-filter=ACDMRT",
+        "-z",
+        version_commit,
+        commit,
+    ).split("\0")
+    # Deletions and both sides of a move count, and -z keeps non-ASCII names
+    # unquoted, so no encoder change escapes the prefix test (axiom-encode#2048).
     unversioned = sorted(
-        {
-            path.strip()
-            for path in changed
-            if path.strip() and _is_encoder_versioned_path(path.strip())
-        }
+        {path for path in changed if path and _is_encoder_versioned_path(path)}
+    )
+    unversioned = sorted(
+        set(unversioned)
+        | _main_history_unversioned(trusted_git, git_dir, home, commit, version_commit)
     )
     if unversioned:
         raise SystemExit(
@@ -1300,6 +1547,102 @@ def _require_snapshot_version_bump(
             f"bump ({version_commit[:12]}) without a bump: {', '.join(unversioned)}"
         )
     return version_commit
+
+
+def _first_parent_pyproject_versions(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str
+) -> list[tuple[str, str | None]]:
+    """(commit, pyproject version) for each first-parent commit of ``commit``
+    that changed pyproject.toml against its first parent, newest first."""
+    commits = _hardened_git_text(
+        trusted_git,
+        git_dir,
+        home,
+        "log",
+        "--first-parent",
+        "--format=%H",
+        commit,
+        "--",
+        "pyproject.toml",
+    ).split()
+    if not commits:
+        return []
+    data = _hardened_git(
+        trusted_git,
+        git_dir,
+        home,
+        "cat-file",
+        "--batch",
+        stdin="".join(f"{each}:pyproject.toml\n" for each in commits).encode(),
+    )
+    offset, history = 0, []
+    for each in commits:
+        end = data.index(b"\n", offset)
+        header = data[offset:end].decode().split()
+        offset = end + 1
+        version = None
+        if len(header) == 3:
+            size = int(header[2])
+            if header[1] == "blob":
+                version = _extract_pyproject_version(
+                    data[offset : offset + size].decode("utf-8", "replace")
+                )
+            offset += size + 1
+        history.append((each, version))
+    return history
+
+
+def _main_history_unversioned(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str, version_commit: str
+) -> set[str]:
+    """The two first-parent rules of version_provenance.main_history_changes
+    (axiom-encode#2051 review), on the root-owned history.
+
+    A head below a version main already declared (or with a version that is
+    not numeric) needs a bump of the version files; so do encoder changes
+    after main first reached the head's version at another commit than the
+    bump found by the latest-bump rule.
+    """
+    history = _first_parent_pyproject_versions(trusted_git, git_dir, home, commit)
+    current = _encoder_versions_at_ref(trusted_git, git_dir, home, commit).get(
+        "pyproject"
+    )
+    unversioned: set[str] = set()
+    keys = [
+        key
+        for _, version in history
+        if version and (key := _parse_numeric_version(version)) is not None
+    ]
+    current_key = _parse_numeric_version(current) if current else None
+    # A head version that is not numeric reads as below every numeric one.
+    if keys and (current_key is None or max(keys) > current_key):
+        unversioned.update(_ENCODER_VERSION_FILES)
+    # The oldest arrival: history is newest first, so walk it from the end.
+    arrival = None
+    for index, (each, version) in reversed(list(enumerate(history))):
+        if version != current:
+            continue
+        older = history[index + 1][1] if index + 1 < len(history) else None
+        if older != current:
+            arrival = each
+            break
+    if arrival is not None and arrival != version_commit:
+        changed = _hardened_git_text(
+            trusted_git,
+            git_dir,
+            home,
+            "diff",
+            "--name-only",
+            "--no-renames",
+            "--diff-filter=ACDMRT",
+            "-z",
+            arrival,
+            commit,
+        ).split("\0")
+        unversioned.update(
+            path for path in changed if path and _is_encoder_versioned_path(path)
+        )
+    return unversioned
 
 
 def _export_encoder_package(
@@ -1561,6 +1904,7 @@ def _publish_runtime_attestation(
     declared_version: str,
     package_tree_sha256: str,
     codex_cli: dict[str, str] | None = None,
+    reviewed_pr_admission: dict | None = None,
 ) -> Path:
     """Atomically publish the attestation into a root-owned prefix, fail-closed.
 
@@ -1595,7 +1939,10 @@ def _publish_runtime_attestation(
         attestation["codex_cli"] = {
             "version": codex_cli["version"],
             "sha256": codex_cli["sha256"],
+            "code_mode_host_sha256": codex_cli["code_mode_host_sha256"],
         }
+    if reviewed_pr_admission is not None:
+        attestation["reviewed_pr_admission"] = reviewed_pr_admission
     payload = json.dumps(attestation, indent=2, sort_keys=True) + "\n"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -1773,6 +2120,32 @@ def _load_retired_apply_inventory(path: Path) -> dict[str, object]:
         raise SystemExit(f"invalid retired apply frozen inventory: {exc}") from exc
 
 
+def _verify_reviewed_pr_selector(
+    encoder_package: Path, selector_path: Path, encoder_commit: str
+) -> dict:
+    """Use only the exported encoder's verifier, never caller approval JSON."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_provisioned_reviewed_pr_admission",
+        encoder_package / "reviewed_pr_admission.py",
+    )
+    if spec is None or spec.loader is None:
+        raise SystemExit("reviewed PR verifier is absent from attested encoder")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    with selector_path.open("rb") as selector_stream:
+        raw_selector = selector_stream.read(4097)
+    if len(raw_selector) > 4096:
+        raise SystemExit("reviewed PR selector is oversized")
+    selector = module.selector_from_payload(json.loads(raw_selector))
+    admission = module.verify_reviewed_pr(selector)
+    if admission["workflow_commit"] != encoder_commit:
+        raise SystemExit("reviewed PR run does not use the attested encoder commit")
+    return admission
+
+
 def provision(
     destination: Path,
     supervisor: Path,
@@ -1792,6 +2165,7 @@ def provision(
     retired_corpus_release_roots: tuple[str, ...] = (),
     retired_apply_roots: tuple[str, ...] = (),
     retired_apply_inventory_path: Path | None = None,
+    reviewed_pr_selector: Path | None = None,
 ) -> None:
     if any(not root.strip() for root in retired_corpus_release_roots):
         raise SystemExit(
@@ -1816,6 +2190,8 @@ def provision(
         encoder_git_root,
     )
     provision_encoder = all(arg is not None for arg in encoder_attestation_args)
+    if reviewed_pr_selector is not None and not provision_encoder:
+        raise SystemExit("reviewed PR admission requires an attested encoder snapshot")
     if (
         any(arg is not None for arg in encoder_attestation_args)
         and not provision_encoder
@@ -1849,8 +2225,32 @@ def provision(
             encoder_staging,
         )
     try:
+        reviewed_pr_admission = None
+        if reviewed_pr_selector is not None:
+            # Only selectors cross from the caller; authority is freshly read by
+            # code exported from the verified encoder commit, under root custody.
+            assert encoder_package is not None
+            reviewed_pr_admission = _verify_reviewed_pr_selector(
+                encoder_package, reviewed_pr_selector, encoder_commit
+            )
         runtime = destination / "python"
         _stage_runtime_tree(source_runtime, runtime, site_packages)
+        interpreter = runtime / source_interpreter.relative_to(source_runtime)
+        # copytree created a fresh prefix. A previously provisioned source can
+        # carry a broker with its old interpreter path, an old attestation and
+        # the old encoder's reviewed RuleSpec records; none of them belongs to
+        # this installation. Remove only those copied entries before probing
+        # the new runtime, then publish fresh ones exclusively.
+        for inherited in (
+            interpreter.parent / "git",
+            runtime / _RUNTIME_ATTESTATION_FILENAME,
+        ):
+            inherited.unlink(missing_ok=True)
+        inherited_refs = runtime / _REVIEWED_RULESPEC_REFS_EXPORT
+        if inherited_refs.is_dir() and not inherited_refs.is_symlink():
+            shutil.rmtree(inherited_refs)
+        else:
+            inherited_refs.unlink(missing_ok=True)
         package_tree_sha256: str | None = None
         if provision_encoder:
             assert encoder_package is not None
@@ -1877,7 +2277,6 @@ def provision(
                         "(install it or pass --patchelf)"
                     )
             _relocate_elf_rpaths(runtime, patchelf)
-        interpreter = runtime / source_interpreter.relative_to(source_runtime)
         _assert_self_contained(runtime, source_runtime, interpreter)
         _install_trusted_git_wrapper(interpreter.parent, interpreter, trusted_git)
         codex_cli = (
@@ -1905,6 +2304,7 @@ def provision(
                 declared_version,
                 package_tree_sha256,
                 codex_cli,
+                reviewed_pr_admission,
             )
         shutil.copy2(supervisor, destination / "axiom-encode-signing-supervisor")
         (destination / "axiom-encode-signing-supervisor").chmod(0o755)
@@ -1913,7 +2313,9 @@ def provision(
             shutil.rmtree(encoder_staging, ignore_errors=True)
 
 
-if __name__ == "__main__":
+def _argument_parser() -> argparse.ArgumentParser:
+    """What ``__main__`` parses. tests/test_verification_site_packages_lock.py
+    reads workflow calls with it, so it checks the values this script acts on."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--destination", type=Path, required=True)
     parser.add_argument("--supervisor", type=Path, required=True)
@@ -1998,7 +2400,16 @@ if __name__ == "__main__":
         "invariant) before its src/axiom_encode is archived into the runtime. Must "
         "have full history (fetch-depth: 0) for the version-bump check.",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--reviewed-pr-selector",
+        type=Path,
+        help="Run-scoped selector only; attested verifier must fetch live GitHub approval before admission.",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    args = _argument_parser().parse_args()
     provision(
         args.destination.resolve(),
         args.supervisor.resolve(),
@@ -2020,4 +2431,5 @@ if __name__ == "__main__":
         tuple(args.retired_corpus_release_root),
         tuple(args.retired_apply_root),
         args.retired_apply_inventory,
+        args.reviewed_pr_selector,
     )

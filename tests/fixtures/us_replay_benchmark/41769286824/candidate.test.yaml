@@ -1,0 +1,240 @@
+- name: fitness_definition_and_verification_meet_title_iv_a_comparability
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.fitness_definition_less_restrictive_than_comparable_title_iv_a_meaning: false
+    us:regulations/7-cfr/273/7#input.fitness_verification_procedure_less_restrictive_than_comparable_title_iv_a_procedure: false
+    us:regulations/7-cfr/273/7#input.fitness_verification_less_restrictive_than_comparable_title_iv_a_determination: false
+  output:
+    us:regulations/7-cfr/273/7#physical_mental_fitness_verification_comparable_to_title_iv_a: holds
+- name: less_restrictive_fitness_definition_fails_comparability
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.fitness_definition_less_restrictive_than_comparable_title_iv_a_meaning: true
+    us:regulations/7-cfr/273/7#input.fitness_verification_procedure_less_restrictive_than_comparable_title_iv_a_procedure: false
+    us:regulations/7-cfr/273/7#input.fitness_verification_less_restrictive_than_comparable_title_iv_a_determination: false
+  output:
+    us:regulations/7-cfr/273/7#physical_mental_fitness_verification_comparable_to_title_iv_a: not_holds
+- name: less_restrictive_fitness_verification_procedure_fails_comparability
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.fitness_definition_less_restrictive_than_comparable_title_iv_a_meaning: false
+    us:regulations/7-cfr/273/7#input.fitness_verification_procedure_less_restrictive_than_comparable_title_iv_a_procedure: true
+    us:regulations/7-cfr/273/7#input.fitness_verification_less_restrictive_than_comparable_title_iv_a_determination: false
+  output:
+    us:regulations/7-cfr/273/7#physical_mental_fitness_verification_comparable_to_title_iv_a: not_holds
+- name: less_restrictive_fitness_verification_fails_comparability
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.fitness_definition_less_restrictive_than_comparable_title_iv_a_meaning: false
+    us:regulations/7-cfr/273/7#input.fitness_verification_procedure_less_restrictive_than_comparable_title_iv_a_procedure: false
+    us:regulations/7-cfr/273/7#input.fitness_verification_less_restrictive_than_comparable_title_iv_a_determination: true
+  output:
+    us:regulations/7-cfr/273/7#physical_mental_fitness_verification_comparable_to_title_iv_a: not_holds
+- name: suitable_offer_federal_or_state_wage_controls
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 10
+    us:regulations/7-cfr/273/7#input.wage_if_flsa_section_6_a_1_applied: 10
+  output:
+    us:regulations/7-cfr/273/7#suitable_offer_required_hourly_wage: 10
+- name: suitable_offer_alternative_wage_controls
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 10
+    us:regulations/7-cfr/273/7#input.wage_if_flsa_section_6_a_1_applied: 15
+  output:
+    us:regulations/7-cfr/273/7#suitable_offer_required_hourly_wage: 12
+- name: comparable_title_iv_a_standards
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.work_requirement_meaning_less_restrictive_than_comparable_title_iv_a_meaning: false
+    us:regulations/7-cfr/273/7#input.compliance_procedure_less_restrictive_than_comparable_title_iv_a_procedure: false
+    us:regulations/7-cfr/273/7#input.compliance_determination_less_restrictive_than_comparable_title_iv_a_determination: false
+  output:
+    us:regulations/7-cfr/273/7#title_iv_a_comparability_requirement_satisfied: holds
+- name: less_restrictive_compliance_procedure
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.work_requirement_meaning_less_restrictive_than_comparable_title_iv_a_meaning: false
+    us:regulations/7-cfr/273/7#input.compliance_procedure_less_restrictive_than_comparable_title_iv_a_procedure: true
+    us:regulations/7-cfr/273/7#input.compliance_determination_less_restrictive_than_comparable_title_iv_a_determination: false
+  output:
+    us:regulations/7-cfr/273/7#title_iv_a_comparability_requirement_satisfied: not_holds
+- name: statutory_work_registration_exemption_for_qualifying_hours
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 30
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_applies: holds
+- name: statutory_work_registration_exemption_for_qualifying_wages
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 217.5
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_applies: holds
+- name: age_60_is_general_work_requirement_exempt
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 60
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt: holds
+- name: age_15_is_general_work_requirement_exempt
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 15
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt: holds
+- name: nonexempt_compliant_member_is_eligible
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 30
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+    us:regulations/7-cfr/273/7#input.member_snap_work_requirements_waived_due_to_pending_ssi_joint_application: false
+    us:regulations/7-cfr/273/7#input.member_registered_for_work_or_registered_by_state: true
+    us:regulations/7-cfr/273/7#input.member_participated_in_snap_et_if_assigned: true
+    us:regulations/7-cfr/273/7#input.member_participated_in_workfare_if_assigned: true
+    us:regulations/7-cfr/273/7#input.member_provided_employment_status_or_availability_information: true
+    us:regulations/7-cfr/273/7#input.member_reported_to_referred_suitable_employer_if_referred: true
+    us:regulations/7-cfr/273/7#input.member_accepted_bona_fide_suitable_employment_offer_if_offered: true
+    us:regulations/7-cfr/273/7#input.member_voluntarily_quit_or_reduced_work_below_30_hours_without_good_cause: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_compliant: holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_eligible: holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_waived: not_holds
+- name: nonexempt_member_fails_work_requirement
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 30
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_or_state_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+    us:regulations/7-cfr/273/7#input.member_snap_work_requirements_waived_due_to_pending_ssi_joint_application: false
+    us:regulations/7-cfr/273/7#input.member_registered_for_work_or_registered_by_state: false
+    us:regulations/7-cfr/273/7#input.member_participated_in_snap_et_if_assigned: true
+    us:regulations/7-cfr/273/7#input.member_participated_in_workfare_if_assigned: true
+    us:regulations/7-cfr/273/7#input.member_provided_employment_status_or_availability_information: true
+    us:regulations/7-cfr/273/7#input.member_reported_to_referred_suitable_employer_if_referred: true
+    us:regulations/7-cfr/273/7#input.member_accepted_bona_fide_suitable_employment_offer_if_offered: true
+    us:regulations/7-cfr/273/7#input.member_voluntarily_quit_or_reduced_work_below_30_hours_without_good_cause: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_compliant: not_holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_eligible: not_holds
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_waived: not_holds
+- name: pending_ssi_application_waives_work_requirements
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_snap_work_requirements_waived_due_to_pending_ssi_joint_application: true
+  output:
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_waived: holds
+- name: qualifying_worker_meets_30_hour_work_registration_threshold
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 30
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_minimum_wage: 7.25
+  output:
+    us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_applies: holds
+- name: qualifying_worker_meets_wage_test
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 217.5
+    us:regulations/7-cfr/273/7#input.federal_minimum_wage: 7.25
+  output:
+    us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_applies: holds
+- name: person_age_60_is_exempt
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 60
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt: holds
+- name: person_age_15_is_exempt
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/7#input.member_age: 15
+    us:regulations/7-cfr/273/7#input.member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time: false
+    us:regulations/7-cfr/273/7#input.member_physically_or_mentally_unfit_for_employment: false
+    us:regulations/7-cfr/273/7#input.member_subject_to_and_complying_with_title_iv_work_requirement: false
+    us:regulations/7-cfr/273/7#input.member_responsible_for_dependent_child_under_six_or_incapacitated_person: false
+    us:regulations/7-cfr/273/7#input.member_receiving_or_applying_for_unemployment_compensation_and_complying: false
+    us:regulations/7-cfr/273/7#input.member_regular_participant_in_drug_or_alcohol_treatment: false
+    us:regulations/7-cfr/273/7#input.member_weekly_work_hours: 0
+    us:regulations/7-cfr/273/7#input.member_weekly_wages: 0
+    us:regulations/7-cfr/273/7#input.federal_minimum_wage: 7.25
+    us:regulations/7-cfr/273/7#input.migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days: false
+    us:regulations/7-cfr/273/7#input.alaska_subsistence_hunts_or_fishes_30_hours_weekly: false
+    us:regulations/7-cfr/273/7#input.member_student_enrolled_at_least_half_time_and_student_eligible: false
+  output:
+    us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt: holds

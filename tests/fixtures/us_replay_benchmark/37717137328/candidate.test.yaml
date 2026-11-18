@@ -1,0 +1,631 @@
+- name: household_with_elderly_or_disabled_member
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#relation.member_of_household:
+    - {}
+  output:
+    us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds
+- name: household_without_elderly_or_disabled_member
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#relation.member_of_household:
+    - {}
+  output:
+    us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: not_holds
+- name: paragraph_2_criteria_satisfied
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: true
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: true
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_A: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_B: holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2: holds
+- name: paragraph_2_criteria_not_satisfied
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: true
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_A: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_B: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2: not_holds
+- name: definition_qualifies_by_age_and_household_relation
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.member_age: 60
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+    us:statutes/7/2012/j#relation.member_of_household:
+    - {}
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_1: holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_A: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_B: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_3: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_4_A: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_4_B: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_4: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_5_A: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_5_B: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_5: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_6_A: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_6_B: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_6: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_7: not_holds
+    us:statutes/7/2012/j#member_meets_elderly_or_disabled_definition: holds
+    us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: holds
+- name: household_without_qualifying_member
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.member_age: 59
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+    us:statutes/7/2012/j#relation.member_of_household: []
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_1: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_A: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_B: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_3: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_4_A: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_4_B: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_4: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_5_A: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_5_B: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_5: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_6_A: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_6_B: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_6: not_holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_7: not_holds
+    us:statutes/7/2012/j#member_meets_elderly_or_disabled_definition: not_holds
+    us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member: not_holds
+- name: qualifying_by_age
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.member_age: 60
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_qualifies: holds
+- name: qualifying_by_supplemental_security_income
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.member_age: 59
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: true
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_qualifies: holds
+- name: paragraph_2_A_receipt
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: true
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_A: holds
+- name: paragraph_2_A_no_receipt
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_A: not_holds
+- name: paragraph_2_B_stringent_criteria
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: true
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: true
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_B: holds
+- name: paragraph_2_B_criteria_not_stringent
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: true
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2_B: not_holds
+- name: paragraph_4_A_total_rating
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.is_veteran: true
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: true
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_4_A: holds
+- name: paragraph_4_B_aid_and_attendance
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.is_veteran: true
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: true
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_4_B: holds
+- name: paragraph_5_A_aid_and_attendance
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: true
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: true
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_5_A: holds
+- name: paragraph_5_B_compensation_and_permanent_disability
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: true
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: true
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: true
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_5_B: holds
+- name: paragraph_6_A_incapable_of_self_support
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.is_child_of_veteran: true
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: true
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_6_A: holds
+- name: paragraph_6_B_pension_and_permanent_disability
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.is_child_of_veteran: true
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: true
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: true
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_6_B: holds
+- name: paragraph_7_service_qualifies
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: true
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: true
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: true
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_7: holds
+- name: paragraph_7_service_does_not_qualify
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: true
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: true
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_7: not_holds
+- name: paragraph_7_application_filed
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: true
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: true
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: true
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_7: holds
+- name: paragraph_7_application_not_filed
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: true
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: true
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_7: not_holds
+- name: paragraph_1_age_qualifies_and_below_threshold_does_not
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.member_age: 60
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_1: holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_qualifies: holds
+- name: paragraph_2_supplemental_security_income_qualifies
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.member_age: 59
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: true
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_2: holds
+    us:statutes/7/2012/j#elderly_or_disabled_member_qualifies: holds
+- name: auto_output_elderly_or_disabled_member_under_paragraph_3
+  period:
+    period_kind: month
+    start: '2008-10-01'
+    end: '2008-10-31'
+  input:
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.member_age: 0
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_3: not_holds
+- name: auto_output_elderly_or_disabled_member_under_paragraph_4
+  period:
+    period_kind: month
+    start: '2008-10-01'
+    end: '2008-10-31'
+  input:
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.member_age: 0
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_4: not_holds
+- name: auto_output_elderly_or_disabled_member_under_paragraph_5
+  period:
+    period_kind: month
+    start: '2008-10-01'
+    end: '2008-10-31'
+  input:
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.member_age: 0
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_5: not_holds
+- name: auto_output_elderly_or_disabled_member_under_paragraph_6
+  period:
+    period_kind: month
+    start: '2008-10-01'
+    end: '2008-10-31'
+  input:
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.member_age: 0
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_6: not_holds
+- name: auto_output_elderly_or_disabled_member_under_paragraph_7
+  period:
+    period_kind: month
+    start: '2008-10-01'
+    end: '2008-10-31'
+  input:
+    us:statutes/7/2012/j#input.benefits_conditioned_on_disability_or_blindness_criteria_at_least_as_stringent_as_title_xvi: false
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: false
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: false
+    us:statutes/7/2012/j#input.is_child_of_veteran: false
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: false
+    us:statutes/7/2012/j#input.is_veteran: false
+    us:statutes/7/2012/j#input.member_age: 0
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: false
+    us:statutes/7/2012/j#input.receives_disability_based_state_general_assistance: false
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: false
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+    us:statutes/7/2012/j#input.receives_interim_assistance_pending_supplemental_security_income: false
+    us:statutes/7/2012/j#input.receives_public_law_93_66_type_supplemental_benefits: false
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: false
+    us:statutes/7/2012/j#input.receives_social_security_act_section_1616_a_type_supplemental_assistance: false
+    us:statutes/7/2012/j#input.receives_title_xix_disability_related_medical_assistance: false
+    us:statutes/7/2012/j#input.receives_title_xvi_supplemental_security_income: false
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: false
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: false
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: false
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: false
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_7: not_holds
+- name: auto_positive_elderly_or_disabled_member_under_paragraph_3
+  period:
+    period_kind: month
+    start: '2008-10-01'
+    end: '2008-10-31'
+  input:
+    us:statutes/7/2012/j#input.receives_disability_or_blindness_payments_under_social_security_act_title_i_ii_x_xiv_or_xvi: true
+    us:statutes/7/2012/j#input.receives_governmental_disability_retirement_benefits_for_permanent_disability: false
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_3: holds
+- name: auto_positive_elderly_or_disabled_member_under_paragraph_4
+  period:
+    period_kind: month
+    start: '2008-10-01'
+    end: '2008-10-31'
+  input:
+    us:statutes/7/2012/j#input.is_veteran: true
+    us:statutes/7/2012/j#input.veteran_has_total_disability_rating_under_title_38: true
+    us:statutes/7/2012/j#input.veteran_is_permanently_housebound_under_title_38: true
+    us:statutes/7/2012/j#input.veteran_needs_regular_aid_and_attendance_under_title_38: true
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_4: holds
+- name: auto_positive_elderly_or_disabled_member_under_paragraph_5
+  period:
+    period_kind: month
+    start: '2008-10-01'
+    end: '2008-10-31'
+  input:
+    us:statutes/7/2012/j#input.is_surviving_spouse_of_veteran: true
+    us:statutes/7/2012/j#input.survivor_has_permanent_disability_under_social_security_act_section_221_i: true
+    us:statutes/7/2012/j#input.survivor_is_permanently_housebound_under_title_38: true
+    us:statutes/7/2012/j#input.survivor_needs_regular_aid_and_attendance_under_title_38: true
+    us:statutes/7/2012/j#input.survivor_receives_title_38_non_service_connected_death_pension: true
+    us:statutes/7/2012/j#input.survivor_receives_title_38_service_connected_death_compensation: true
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_5: holds
+- name: auto_positive_elderly_or_disabled_member_under_paragraph_6
+  period:
+    period_kind: month
+    start: '2008-10-01'
+    end: '2008-10-31'
+  input:
+    us:statutes/7/2012/j#input.child_has_permanent_disability_under_social_security_act_section_221_i: true
+    us:statutes/7/2012/j#input.child_is_permanently_incapable_of_self_support_under_title_38_section_1314: true
+    us:statutes/7/2012/j#input.child_receives_title_38_non_service_connected_death_pension: true
+    us:statutes/7/2012/j#input.child_receives_title_38_service_connected_death_compensation: true
+    us:statutes/7/2012/j#input.is_child_of_veteran: true
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_6: holds
+- name: auto_positive_elderly_or_disabled_member_under_paragraph_7
+  period:
+    period_kind: month
+    start: '2008-10-01'
+    end: '2008-10-31'
+  input:
+    us:statutes/7/2012/j#input.filed_application_for_disability_benefits: true
+    us:statutes/7/2012/j#input.railroad_service_after_1936_would_be_social_security_act_employment: true
+    us:statutes/7/2012/j#input.receives_railroad_retirement_act_section_2_a_1_iv_or_v_annuity: true
+  output:
+    us:statutes/7/2012/j#elderly_or_disabled_member_under_paragraph_7: holds

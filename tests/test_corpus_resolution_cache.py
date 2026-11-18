@@ -31,6 +31,7 @@ from axiom_encode.corpus_resolver import (
     InvalidActiveCorpusSourceError,
     InvalidCorpusCitationError,
     LocalCorpusRelease,
+    RepealedCorpusSourceError,
     iter_active_local_corpus_rows,
     resolve_local_corpus_dependency_artifacts,
     resolve_local_corpus_source,
@@ -250,9 +251,12 @@ def test_cached_outcomes_equal_fresh_release_outcomes(tmp_path: Path):
         CorpusRowStructureError,
         CorpusSourceNotFoundError,
         InactiveCorpusSourceError,
-        InvalidActiveCorpusSourceError,
         InvalidCorpusCitationError,
+        RepealedCorpusSourceError,
     }
+    # A repealed row keeps the broader invalid-active classification for callers
+    # that catch the parent class.
+    assert issubclass(RepealedCorpusSourceError, InvalidActiveCorpusSourceError)
 
     order = list(IDENTIFIERS) * 3
     random.Random(7).shuffle(order)

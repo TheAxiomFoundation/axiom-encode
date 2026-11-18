@@ -81,7 +81,9 @@ def bind_occurrences(
     rules = _named(payload, "rules")
     if rules is None or any(rules.get(n) != r for n, r in principal.items()):
         return ()
-    structure = s._unconflicted_printed_rows(source_text, source_branches)
+    structure = s._unconflicted_printed_rows(
+        source_text, source_branches, corpus_citation_path=citation
+    )
     span = _boundary_span(branch, boundary, source_text, boundary_branches)
     if structure is None or span is None:
         return ()

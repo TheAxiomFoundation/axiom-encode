@@ -1,0 +1,24 @@
+{
+  "schema": "axiom-encode/rejected-candidate-fixture/v1",
+  "citation": "us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-6",
+  "run": "local:a1ac394d",
+  "encoder_version": "0.2.2371",
+  "encoder_commit": "377b90e54529252d269e0369beeb39c6c1fb1852",
+  "recorded_issues": [
+    "module.deferred_outputs[0].output must use an absolute RuleSpec output target such as `us:statutes/26/63/f#additional_amount`.",
+    "[complete-source-unit:deferral] `module.deferred_outputs[0]` identifies source branch (assistant-meals) (`assistant-meals`) but its deferral does not name an exact missing dependency, input, or runtime capability."
+  ],
+  "candidate": {
+    "origin": "rejected/policies/des/faa5/na-medical-expenses-and-deduction/block-6.yaml",
+    "sha256": "b0004101134562b6b6274aa707a2315def27a075e605bdd744a092019359f1dc"
+  },
+  "companion": {
+    "origin": "rejected/policies/des/faa5/na-medical-expenses-and-deduction/block-6.test.yaml",
+    "sha256": "054638929abc4b5ad0c2a992cc928b1e67b6d9b4767d1f21c404efb5daeddcf6"
+  },
+  "source": {
+    "origin": "workspace/source.txt",
+    "corpus_release": "us-rulespec-2026-10-29-ecfr-section-text",
+    "sha256": "b718238906168c762bf613588bff6261da4d98479777c019746052cc9f64d37b"
+  }
+}

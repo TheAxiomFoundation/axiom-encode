@@ -1,0 +1,12 @@
+{
+  "fetch_output": "From https://github.com/TheAxiomFoundation/axiom-rules-engine\n * branch            89571cc2a938707fd60a5489b951135345697296 -> FETCH_HEAD\n",
+  "origin": "https://github.com/TheAxiomFoundation/axiom-rules-engine.git",
+  "head": "89571cc2a938707fd60a5489b951135345697296",
+  "fetched": "89571cc2a938707fd60a5489b951135345697296",
+  "tree": "8ff0a13cd63a56e59c5af3b6f1f19a1e1b8b4a93",
+  "files": {
+    "target/release/axiom-rules-engine": "c79ec2bb24738cecef49fba7b5b7c184cacf248f573795f73ed22c192f8a85e8",
+    "target/release/axiom-rules-engine.provenance.json": "98c5e9bcef3a4e1f1efa7a256794902cc7f29c5ba8c621de10458bc259e9fe98"
+  },
+  "status": ""
+}

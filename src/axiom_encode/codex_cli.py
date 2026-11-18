@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -92,3 +93,56 @@ def codex_auth_error() -> str | None:
         "Run `codex login` (ChatGPT sign-in) to create it, set OPENAI_API_KEY, "
         "or pass an explicit backend such as `--backend claude`."
     )
+
+
+# Short values (``null``-like flags, auth modes) are not credentials, and
+# replacing them would mangle ordinary text. Tokens and keys are far longer.
+_MIN_REDACTED_SECRET_LENGTH = 16
+CODEX_AUTH_REDACTION = "[redacted-codex-auth]"
+
+
+def codex_auth_secrets(codex_home: Path | str | None) -> frozenset[str]:
+    """Return every long string value in ``<codex_home>/auth.json``.
+
+    ``auth.json`` holds the subscription's ID, access and refresh tokens, or a
+    recorded API key. The file's layout is the Codex CLI's, so every string
+    leaf long enough to be a credential is collected rather than named keys.
+    A missing or unreadable file yields nothing; this never raises.
+    """
+    if not codex_home:
+        return frozenset()
+    try:
+        payload = json.loads((Path(codex_home) / "auth.json").read_text())
+    except (OSError, ValueError, RecursionError):
+        return frozenset()
+    secrets: set[str] = set()
+    pending: list[object] = [payload]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, str) and len(value) >= _MIN_REDACTED_SECRET_LENGTH:
+            secrets.add(value)
+    return frozenset(secrets)
+
+
+def redact_codex_auth_secrets(text: str, secrets: frozenset[str]) -> str:
+    """Replace each secret, verbatim and JSON-escaped, before text is kept.
+
+    Codex's ``--json`` event stream carries model output inside JSON strings,
+    so a token can appear escaped there and verbatim once decoded.
+    """
+    if not text or not secrets:
+        return text
+    forms = set()
+    for secret in secrets:
+        forms.add(secret)
+        forms.add(json.dumps(secret)[1:-1])
+        forms.add(json.dumps(secret, ensure_ascii=False)[1:-1])
+    # Longest first, so a secret containing another is replaced whole.
+    for form in sorted(forms, key=len, reverse=True):
+        if form:
+            text = text.replace(form, CODEX_AUTH_REDACTION)
+    return text

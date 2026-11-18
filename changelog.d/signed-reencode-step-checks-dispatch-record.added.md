@@ -1,0 +1,1 @@
+Declare an `infra:<step>` check for every pre-model and publish step of the targeted signed re-encode workflow, lead infra annotations with `[<check id>]`, and write one `axiom-encode/dispatch-record/v1` record per dispatch (trigger kind, `open_pr`, `pr_base_branch`, `repair_run_id`, queue ids) from an unprotected, fail-open job.

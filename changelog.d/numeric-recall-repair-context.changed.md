@@ -1,0 +1,1 @@
+The first complete-source numeric-recall diagnostic now locates every missing value in the authoritative source (character span, bounded line excerpt, grouped by source branch, capped at 6,000 characters) so retry feedback shows the model the full set. Demands, issue counts and all other issue strings are unchanged.

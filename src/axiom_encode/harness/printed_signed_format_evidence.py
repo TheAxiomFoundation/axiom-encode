@@ -327,10 +327,14 @@ def witnesses(
         re.IGNORECASE,
     ):
         return set()
-    structure = s._unconflicted_printed_rows(source_text, source_branches)
+    structure = s._unconflicted_printed_rows(
+        source_text, source_branches, corpus_citation_path=corpus_citation_path
+    )
     if structure is None or (branch.start, branch.end) not in structure.ownership_spans:
         return set()
-    labels = s.bare_outline(source_text) or ()
+    labels = (
+        s.bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
+    )
     boundaries = {
         *(point for b in source_branches for point in (b.start, b.end)),
         *(point for label in labels for point in (label.start, label.marker_end)),

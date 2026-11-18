@@ -1,0 +1,36 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "41073808113",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/41073808113",
+  "bundle_citation": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+  "citation": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility.yaml",
+  "policy_prefix": "us-az",
+  "encoder_commit": "7011d91cfffb55202c7c3efed25ae3d95afc78da",
+  "encoder_version": "0.2.2265",
+  "attempt_count": 4,
+  "corpus_ref": "3b59339d7abcdfd58ffe1c0dc7cd468a07671e7b",
+  "rulespec_ref": "66d891b9df601c35c2edbf7e669529a649141d31",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:source-explicit-conditions": 1,
+    "other": 3
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "files": {
+    "candidate.test.yaml": "e413e52704b797ca5123ddb7fe9b1cfa8912489a8e03c50dcd1941896b404090",
+    "candidate.yaml": "d3aa2031793e14fe6967cc55729520e61f6003fbfba6ee439962c6cd2dc56b26",
+    "issues.json": "f6fa6e52ee01fc8af3ba17eabad4c4fbf6aa2872d9cd29f817b163ad7aaa1c83",
+    "source-metadata.json": "4d2588b91d9bd438cb3f236f6e65f26559dfc673babe17432ca90ae0478ff6f8",
+    "source.txt": "0075187d9085d36c53e41a46c19ebdfeb4ccd1f93f263b97181e6fc8a9449c28"
+  }
+}

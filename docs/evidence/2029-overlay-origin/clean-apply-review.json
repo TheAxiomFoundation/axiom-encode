@@ -1,0 +1,57 @@
+{
+  "status": "PASS full clean-commit actual apply validation through portable provenance",
+  "encoder": "7d4487c4bf14ab27afce29dff3b882ab4378f7e5",
+  "version": "0.2.2271",
+  "seconds": 19.351196667004842,
+  "cases": 21,
+  "typed_CAD_assertions_verified": 143,
+  "all_requests_responses_equal_independent_ordinary": true,
+  "compiled_artifact": "28044aae232c9ef8029d07045ab937b4c47ae745c88128e2666cf465e6e5d0df",
+  "baseline532unchanged": true,
+  "normalization": "Only ordinary lexical single-to-double quoting of1074/82125/93454 formulas; parsed graph/companion unchanged. Source originals remain untouched.",
+  "portable_validation_execution": {
+    "schema": "axiom-encode/apply-validation-execution/v2",
+    "rulespec_scope": "full_checkout",
+    "axiom_encode": {
+      "repository": "github.com/TheAxiomFoundation/axiom-encode",
+      "commit": "7d4487c4bf14ab27afce29dff3b882ab4378f7e5",
+      "identity_source": "git",
+      "version": "0.2.2271"
+    },
+    "axiom_rules_engine": {
+      "repository": "github.com/TheAxiomFoundation/axiom-rules-engine",
+      "commit": "89571cc2a938707fd60a5489b951135345697296"
+    },
+    "policy_pre_apply": {
+      "rulespec_root": "rulespec-ca/ca",
+      "pre_apply_content_sha256": "980e11cfe5754916d2d5262977587e6d8087077755425aa9ec8b11f7f1473822",
+      "pre_apply_file_count": 208,
+      "toolchain_contract_sha256": "60524228914560cd819902e8c5f85953fcf4d916cf06922d101d84b2139b9510",
+      "validation_waiver_set_sha256": "4c6e4e1845684b96d653d03d87ffc02260aa126695aaf2306d63a2b7be625660"
+    },
+    "rulespec_dependencies": []
+  },
+  "engine_binding": {
+    "ref": "89571cc2a938707fd60a5489b951135345697296",
+    "binary": "/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness/independent-t89-preflight/run39536963804/step3-repair-41127692566-diagnosis/overlay-origin-implementation/official-engine/axiom-rules-engine/target/release/axiom-rules-engine",
+    "sha256": "c79ec2bb24738cecef49fba7b5b7c184cacf248f573795f73ed22c192f8a85e8"
+  },
+  "evidence": {
+    "actual-apply-official/result.json": "357c06a4402811185c3b49cfb1be717ea6df00cdb2280da0ed5b5254479df67d",
+    "actual-apply-official/execution-0e99d25967b55dfb34163888121749359c7820f395f0da345e615f59f1bf2847.json": "6bfd79bd242d4330bf164be879aae9c98b05c9f4030d1283637c670a489dcb85",
+    "actual-apply-official/before.json": "4d35ba130ad0c8cb7bfdf3eb1712296f1ade895e73900ad668521b90dbc12a12",
+    "actual-apply-official/after.json": "5dd2815d4d599c9e764d7f55b5ce718ad684b711a4d8692746d96b9c1c3418f9",
+    "actual-apply-official.log": "96318c51da1eb78d6d93404b8b7b1fa41824bd4034255be60876c34e5d24755d",
+    "official-engine-preparation.json": "90263f0512ea5fa1be174ee7e6f4eb1d88e7e6b32503227408016d25dbf3f4a7",
+    "clean-apply-provenance-preflight.json": "2692e404dd9bc80026ce66e52219d0d6e93e43ddc086d4e91b2d0873fe830bcf",
+    "independent-committed-review.json": "56d5f18519335cf6cd706c769c8d2e1b0c82675607081711ba9e8a4a4fa9011d",
+    "actual-apply-official/ci-0e99d25967b55dfb34163888121749359c7820f395f0da345e615f59f1bf2847.json": "7dccfaf924a558b31d32d33e95ca694ecd2fdd56f70f4efb5594e0fc34ac380d",
+    "actual-apply-official/source-issues-0e99d25967b55dfb34163888121749359c7820f395f0da345e615f59f1bf2847.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+  },
+  "limits": [
+    "No signing, native generation or publication performed.",
+    "Corrected signed-proof diagnostic only; latest original failed native artifact remains unchanged and lacks valid signed output.",
+    "Previous dirtyencoder and noncanonicalengine-origin failures preserved; no guard override.",
+    "HostedCI and codeowner review still required before merge/native retry."
+  ]
+}

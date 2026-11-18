@@ -1,0 +1,10 @@
+Current test-only review run; historical logs are separate.
+CWD=/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness/worktrees/ca-reviewed-refresh-head
+PYTHONPATH=src
+COMMAND=/Users/pavelmakarchuk/axiom-api-catalog-readiness/.local/catalog-readiness/worktrees/reviewed-only-related-consumer/.venv/bin/python -m pytest --no-cov -q tests/test_execution_overlay_origin.py tests/test_same_case_execution.py tests/test_cli.py::TestApplyDependencyValidation tests/test_amending_section_context.py tests/test_repair_overlay_failure_is_retryable.py
+........................................................................ [ 23%]
+........................................................................ [ 47%]
+........................................................................ [ 71%]
+........................................................................ [ 95%]
+...............                                                          [100%]
+303 passed in 13.43s

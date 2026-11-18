@@ -1,0 +1,585 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/7
+    source_sha256: 952a224251d50fcb5c69fc765cb1b671ef797021bf00131426f93610a100ccad
+  summary: “As a condition of eligibility for SNAP benefits, each household member
+    not exempt under paragraph (b)(1) of this section must comply with the following
+    SNAP work requirements.” Paragraph (b)(1)(ii) exempts a person physically or mentally
+    unfit for employment and restricts the State agency's fitness definition and verification.
+  deferred_outputs:
+  - output: us:regulations/7-cfr/273/7/c#state_agency_responsibilities
+    reason: us/regulation/7/273/7(c) requires per-participant certification and recertification
+      events, notice delivery dates, E&T provider determinations, and State-agency
+      referral and reporting records; the runtime lacks the event-to-participant relations
+      needed to evaluate those duties.
+  - output: us:regulations/7-cfr/273/7/d#federal_financial_participation
+    reason: us/regulation/7/273/7(d) requires per-State-agency fiscal-year grant and
+      expenditure records and a national relation of State-agency work-registrant
+      and ABAWD counts; those administrative relations are unavailable.
+  - output: us:regulations/7-cfr/273/7/e#employment_and_training_program_requirements
+    reason: us/regulation/7/273/7(e) requires participant-to-component assignments,
+      case-management records, and dated participation hours; those relations are
+      unavailable.
+  - output: us:regulations/7-cfr/273/7/f#failure_to_comply_and_disqualification
+    reason: us/regulation/7/273/7(f) requires dated noncompliance occurrences, good-cause
+      determinations, notices, hearings, and prior disqualification periods; those
+      event histories are unavailable.
+  - output: us:regulations/7-cfr/273/7/g#ending_disqualification
+    reason: us/regulation/7/273/7(g) requires the individual's disqualification-end
+      date, reapplication event, and subsequent compliance determination; that event
+      history is unavailable.
+  - output: us:regulations/7-cfr/273/7/j#voluntary_quit_and_reduction_of_work_effort
+    reason: us/regulation/7/273/7(j) requires the State-selected lookback period and
+      dated job, application, hours, earnings, and good-cause records; that employment
+      history is unavailable.
+  - output: us:regulations/7-cfr/273/7/k#employment_initiatives_program
+    reason: us/regulation/7/273/7(k) requires State qualification and program election,
+      household election, and cash-benefit records; those StateAgency-to-Household
+      program records are unavailable.
+  - output: us:regulations/7-cfr/273/7/m#optional_workfare_program
+    reason: us/regulation/7/273/7(m) requires approved workfare plans, household allotments,
+      participant assignments and hours, and operating-agency records; those program
+      relations are unavailable.
+  - output: us:regulations/7-cfr/273/7/n#workforce_partnerships
+    reason: us/regulation/7/273/7(n) requires partnership certification, participant
+      activities, and partnership-to-State-agency reporting records; those partnership
+      relations are unavailable.
+imports:
+- us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt
+- us:regulations/7-cfr/273/7#snap_member_general_work_requirement_compliant
+- us:regulations/7-cfr/273/7#snap_member_general_work_requirement_waived
+- us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt_scalar_limit
+- us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt_scalar_limit_2
+rules:
+- name: snap_member_general_work_requirement_compliant
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.7(a)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: As a condition of eligibility for SNAP benefits, each household
+            member not exempt under paragraph (b)(1) of this section must comply with
+            the following SNAP work requirements
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: Register for work or be registered by the State agency at the time
+            of application and every 12 months after initial registration.
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: Participate in a Food Stamp Employment and Training (E&T) program
+            if assigned by the State agency
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: Participate in a workfare program if assigned by the State agency
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: Provide the State agency or its designee with sufficient information
+            regarding employment status or availability for work
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: Do not voluntarily and without good cause quit a job of 30 or more
+            hours a week or reduce work effort to less than 30 hours a week
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'member_registered_for_work_or_registered_by_state
+
+      and member_participated_in_snap_et_if_assigned
+
+      and member_participated_in_workfare_if_assigned
+
+      and member_provided_employment_status_or_availability_information
+
+      and member_reported_to_referred_suitable_employer_if_referred
+
+      and member_accepted_bona_fide_suitable_employment_offer_if_offered
+
+      and not member_voluntarily_quit_or_reduced_work_below_30_hours_without_good_cause'
+- name: physical_mental_fitness_verification_comparable_to_title_iv_a
+  kind: derived
+  entity: StateAgency
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.7(b)(1)(ii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: However, the State agency must not use a definition, procedure
+            for verification, or verification that is less restrictive on SNAP recipients
+            than a comparable meaning, procedure, or determination under the State
+            agency's program funded under title IV-A of the Social Security Act.
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'not fitness_definition_less_restrictive_than_comparable_title_iv_a_meaning
+
+      and not fitness_verification_procedure_less_restrictive_than_comparable_title_iv_a_procedure
+
+      and not fitness_verification_less_restrictive_than_comparable_title_iv_a_determination'
+- name: discretionary_abawd_exemption_allotment_share
+  kind: parameter
+  dtype: Rate
+  source: 7 CFR 273.7(d)(3)(i)(D)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: 15 percent ABAWD exemption allotment
+  versions:
+  - effective_from: '2025-10-01'
+    formula: "0.15"
+- name: suitable_offer_alternative_wage_rate
+  kind: parameter
+  dtype: Rate
+  source: 7 CFR 273.7(a)(1)(vi)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: 80 percent of the wage that would have governed
+  versions:
+  - effective_from: '2025-10-01'
+    formula: "0.80"
+- name: suitable_offer_required_hourly_wage
+  kind: derived
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Month
+  source: 7 CFR 273.7(a)(1)(vi)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: at a wage equal to the higher of the Federal or State minimum wage
+            or 80 percent of the wage that would have governed
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/7#suitable_offer_alternative_wage_rate
+          output: suitable_offer_alternative_wage_rate
+          hash: sha256:local
+  versions:
+  - effective_from: '2025-10-01'
+    formula: "max(\n  federal_or_state_minimum_wage,\n  suitable_offer_alternative_wage_rate\
+      \ * wage_if_flsa_section_6_a_1_applied\n)"
+- name: title_iv_a_comparability_requirement_satisfied
+  kind: derived
+  entity: StateAgency
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.7(a)(3)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: A State agency must not use a meaning, procedure, or determination
+            that is less restrictive on SNAP recipients than is a comparable meaning,
+            procedure, or determination under the State agency's program funded under
+            title IV-A of the Social Security Act.
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'not work_requirement_meaning_less_restrictive_than_comparable_title_iv_a_meaning
+
+      and not compliance_procedure_less_restrictive_than_comparable_title_iv_a_procedure
+
+      and not compliance_determination_less_restrictive_than_comparable_title_iv_a_determination'
+- name: et_grant_abawd_allocation_share
+  kind: parameter
+  dtype: Rate
+  source: 7 CFR 273.7(d)(1)(i)(B)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: Ten percent of the annual 100 percent Federal E&T grant
+  versions:
+  - effective_from: '2025-10-01'
+    formula: "0.10"
+- name: snap_member_general_work_requirement_exempt_scalar_limit
+  kind: parameter
+  dtype: Count
+  source: 7 CFR 273.7(b)(1)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: A person younger than 16 years of age
+  versions:
+  - effective_from: '2025-10-01'
+    formula: "16"
+- name: snap_member_general_work_requirement_exempt_scalar_limit_2
+  kind: parameter
+  dtype: Count
+  source: 7 CFR 273.7(b)(1)(i)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: a person 60 years of age or older
+  versions:
+  - effective_from: '2025-10-01'
+    formula: "60"
+- name: snap_member_general_work_requirement_exempt_scalar_limit_3
+  kind: parameter
+  dtype: Count
+  source: 7 CFR 273.7(b)(1)(vii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: working a minimum of 30 hours weekly
+  versions:
+  - effective_from: '2025-10-01'
+    formula: "30"
+- name: snap_member_statutory_work_registration_exemption_scalar_limit
+  kind: parameter
+  dtype: Count
+  source: 7 U.S.C. 2015(d)(2)(E) and 7 CFR 273.7(b)(1)(vii)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/statute/7/2015/d/2
+          excerpt: employed a minimum of thirty hours per week or receiving weekly
+            earnings which equal the minimum hourly rate under the Fair Labor Standards
+            Act of 1938
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: An employed or self-employed person working a minimum of 30 hours
+            weekly or earning weekly wages at least equal to the Federal minimum wage
+            multiplied by 30 hours.
+  versions:
+  - effective_from: '2025-07-04'
+    formula: "30"
+- name: snap_member_statutory_work_registration_exemption_applies
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 U.S.C. 2015(d)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/7#snap_member_statutory_work_registration_exemption_scalar_limit
+          output: snap_member_statutory_work_registration_exemption_scalar_limit
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2015/d/2
+          excerpt: (A) currently subject to and complying with a work registration
+            requirement under title IV of the Social Security Act
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2015/d/2
+          excerpt: or the Federal-State unemployment compensation system
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2015/d/2
+          excerpt: (B) a parent or other member of a household with responsibility
+            for the care of a dependent child under age six or of an incapacitated
+            person
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2015/d/2
+          excerpt: (C) a bona fide student enrolled at least half time in any recognized
+            school, training program, or institution of higher education
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2015/d/2
+          excerpt: (D) a regular participant in a drug addiction or alcoholic treatment
+            and rehabilitation program
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/statute/7/2015/d/2
+          excerpt: (F) a person between the ages of sixteen and eighteen who is not
+            a head of a household or who is attending school, or enrolled in an employment
+            training program, on at least a half-time basis
+  versions:
+  - effective_from: '2025-07-04'
+    formula: 'member_subject_to_and_complying_with_title_iv_work_requirement
+
+      or member_receiving_or_applying_for_unemployment_compensation_and_complying
+
+      or member_responsible_for_dependent_child_under_six_or_incapacitated_person
+
+      or member_student_enrolled_at_least_half_time_and_student_eligible
+
+      or member_regular_participant_in_drug_or_alcohol_treatment
+
+      or member_weekly_work_hours >= snap_member_statutory_work_registration_exemption_scalar_limit
+
+      or member_weekly_wages >= federal_or_state_minimum_wage * snap_member_statutory_work_registration_exemption_scalar_limit
+
+      or member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time'
+- name: snap_member_general_work_requirement_exempt
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.7(b)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: The following persons are exempt from SNAP work requirements
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'member_age < snap_member_general_work_requirement_exempt_scalar_limit
+
+      or member_age >= snap_member_general_work_requirement_exempt_scalar_limit_2
+
+      or member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time
+
+      or member_physically_or_mentally_unfit_for_employment
+
+      or member_subject_to_and_complying_with_title_iv_work_requirement
+
+      or member_responsible_for_dependent_child_under_six_or_incapacitated_person
+
+      or member_receiving_or_applying_for_unemployment_compensation_and_complying
+
+      or member_regular_participant_in_drug_or_alcohol_treatment
+
+      or snap_member_statutory_work_registration_exemption_applies
+
+      or migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days
+
+      or alaska_subsistence_hunts_or_fishes_30_hours_weekly
+
+      or member_student_enrolled_at_least_half_time_and_student_eligible'
+- name: snap_member_general_work_requirement_waived
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.7(a)(6)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/7/273/7
+          excerpt: Household members who are applying for SSI and for SNAP benefits
+            under § 273.2(k)(1)(i) will have SNAP work requirements waived
+  versions:
+  - effective_from: '2025-10-01'
+    formula: member_snap_work_requirements_waived_due_to_pending_ssi_joint_application
+- name: snap_member_general_work_requirement_eligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: 7 CFR 273.7(a)(1), 7 CFR 273.7(b)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/7#snap_member_general_work_requirement_exempt
+          output: snap_member_general_work_requirement_exempt
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/7#snap_member_general_work_requirement_compliant
+          output: snap_member_general_work_requirement_compliant
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:regulations/7-cfr/273/7#snap_member_general_work_requirement_waived
+          output: snap_member_general_work_requirement_waived
+          hash: sha256:local
+  versions:
+  - effective_from: '2025-10-01'
+    formula: 'snap_member_general_work_requirement_exempt
+
+      or snap_member_general_work_requirement_waived
+
+      or snap_member_general_work_requirement_compliant'
+inputs:
+- name: fitness_definition_less_restrictive_than_comparable_title_iv_a_meaning
+  entity: StateAgency
+  dtype: Boolean
+  period: Month
+- name: fitness_verification_procedure_less_restrictive_than_comparable_title_iv_a_procedure
+  entity: StateAgency
+  dtype: Boolean
+  period: Month
+- name: fitness_verification_less_restrictive_than_comparable_title_iv_a_determination
+  entity: StateAgency
+  dtype: Boolean
+  period: Month
+- name: wage_if_flsa_section_6_a_1_applied
+  entity: Person
+  dtype: Money
+  unit: USD
+  period: Month
+- name: work_requirement_meaning_less_restrictive_than_comparable_title_iv_a_meaning
+  entity: StateAgency
+  dtype: Boolean
+  period: Month
+- name: compliance_procedure_less_restrictive_than_comparable_title_iv_a_procedure
+  entity: StateAgency
+  dtype: Boolean
+  period: Month
+- name: compliance_determination_less_restrictive_than_comparable_title_iv_a_determination
+  entity: StateAgency
+  dtype: Boolean
+  period: Month
+- name: member_age
+  entity: Person
+  dtype: Count
+  period: Month
+- name: member_age_16_or_17_is_not_household_head_or_attends_school_or_training_half_time
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_physically_or_mentally_unfit_for_employment
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_subject_to_and_complying_with_title_iv_work_requirement
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_responsible_for_dependent_child_under_six_or_incapacitated_person
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_receiving_or_applying_for_unemployment_compensation_and_complying
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_regular_participant_in_drug_or_alcohol_treatment
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_weekly_work_hours
+  entity: Person
+  dtype: Count
+  period: Week
+- name: member_weekly_wages
+  entity: Person
+  dtype: Money
+  period: Week
+  unit: USD
+- name: federal_or_state_minimum_wage
+  entity: Person
+  dtype: Money
+  period: Week
+  unit: USD
+- name: migrant_or_seasonal_farmworker_under_contract_to_begin_employment_within_30_days
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: alaska_subsistence_hunts_or_fishes_30_hours_weekly
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_student_enrolled_at_least_half_time_and_student_eligible
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_snap_work_requirements_waived_due_to_pending_ssi_joint_application
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_registered_for_work_or_registered_by_state
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_participated_in_snap_et_if_assigned
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_participated_in_workfare_if_assigned
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_provided_employment_status_or_availability_information
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_reported_to_referred_suitable_employer_if_referred
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_accepted_bona_fide_suitable_employment_offer_if_offered
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: member_voluntarily_quit_or_reduced_work_below_30_hours_without_good_cause
+  entity: Person
+  dtype: Boolean
+  period: Month
+- name: federal_minimum_wage
+  entity: Person
+  dtype: Money
+  period: Week
+  unit: USD

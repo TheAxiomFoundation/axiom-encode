@@ -9,6 +9,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
+import re
+import stat
 import subprocess
 import tempfile
 import time
@@ -152,13 +155,168 @@ def _has_consumer(
                 continue
             if s.source_states_explicit_computation(excerpt):
                 return True
-            rows = s._unconflicted_printed_rows(body, ())
+            rows = s._unconflicted_printed_rows(body, (), corpus_citation_path=citation)
             start = body.index(excerpt)
             if rows and any(
                 start <= a < b <= start + len(excerpt) for a, b in rows.additions
             ):
                 return True
     return False
+
+
+def _directory_identity(path: Path) -> tuple[int, int]:
+    # Reject aliases before resolving; a symlink must not launder an origin.
+    if path.resolve(strict=True) != path or not path.is_dir():
+        raise ValueError("execution origin must be an exact directory")
+    directory_stat = path.stat()
+    return directory_stat.st_dev, directory_stat.st_ino
+
+
+def _checkout_head(root: Path) -> str:
+    lines = subprocess.check_output(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"],
+        text=True,
+        stderr=subprocess.DEVNULL,
+        timeout=10,
+    ).splitlines()
+    if (
+        len(lines) != 2
+        or Path(lines[0]) != root
+        or not re.fullmatch(r"[0-9a-f]{40}", lines[1])
+    ):
+        raise ValueError("execution origin is not a checkout root")
+    return lines[1]
+
+
+@dataclass(frozen=True)
+class ExecutionOverlayOrigin:
+    """Private staging capability: Git base is separate from candidate bytes.
+
+    Only trusted eval/apply staging constructs this; no RuleSpec or environment
+    field can grant it. Closure files and all ordinary checks still use overlay.
+    """
+
+    source_content_root: Path
+    overlay_content_root: Path
+    git_head: str
+    directory_identities: tuple[tuple[int, int], ...]
+
+    def fresh(self, root: Path) -> bool:
+        from axiom_encode.repo_routing import canonical_rulespec_root_identity
+
+        try:
+            source, overlay = self.source_content_root, self.overlay_content_root
+            identity = canonical_rulespec_root_identity(source)
+            return (
+                root == overlay.parent
+                and source.parent != overlay.parent
+                and identity is not None
+                and canonical_rulespec_root_identity(overlay) == identity
+                and tuple(
+                    _directory_identity(p)
+                    for p in (source.parent, source, overlay.parent, overlay)
+                )
+                == self.directory_identities
+                and _checkout_head(source.parent) == self.git_head
+            )
+        except (
+            OSError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            subprocess.SubprocessError,
+        ):
+            return False
+
+
+@dataclass(frozen=True)
+class ExecutionGitOrigin:
+    """Original checkout identity captured before the trusted staging copy."""
+
+    source_content_root: Path
+    git_head: str
+    directory_identities: tuple[tuple[int, int], ...]
+
+    def fresh(self) -> bool:
+        try:
+            source = self.source_content_root
+            return (
+                tuple(_directory_identity(p) for p in (source.parent, source))
+                == self.directory_identities
+                and _checkout_head(source.parent) == self.git_head
+            )
+        except (
+            OSError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            subprocess.SubprocessError,
+        ):
+            return False
+
+
+def capture_execution_git_origin(
+    source_content_root: Path,
+) -> ExecutionGitOrigin | None:
+    from axiom_encode.repo_routing import canonical_rulespec_root_identity
+
+    try:
+        source = Path(source_content_root)
+        if canonical_rulespec_root_identity(source) is None:
+            return None
+        origin = ExecutionGitOrigin(
+            source,
+            _checkout_head(source.parent),
+            tuple(_directory_identity(p) for p in (source.parent, source)),
+        )
+        return origin if origin.fresh() else None
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.SubprocessError):
+        return None
+
+
+def bind_execution_overlay_origin(
+    original: ExecutionGitOrigin | None, overlay_content_root: Path
+) -> ExecutionOverlayOrigin | None:
+    """Bind the staged copy only if its pre-copy Git identity is still current."""
+    try:
+        if not isinstance(original, ExecutionGitOrigin) or not original.fresh():
+            return None
+        source, overlay = original.source_content_root, Path(overlay_content_root)
+        origin = ExecutionOverlayOrigin(
+            source,
+            overlay,
+            original.git_head,
+            original.directory_identities
+            + tuple(_directory_identity(p) for p in (overlay.parent, overlay)),
+        )
+        return origin if origin.fresh(overlay.parent) else None
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.SubprocessError):
+        return None
+
+
+def _file_matches(path: Path, raw: bytes) -> bool:
+    """Do not accept a same-byte symlink or a replaced file during reading."""
+    try:
+        if path.resolve(strict=True) != path:
+            return False
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode):
+            return False
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            data = stream.read(len(raw) + 1)
+        after = path.lstat()
+        return (
+            stat.S_ISREG(after.st_mode)
+            and (before.st_dev, before.st_ino)
+            == (opened.st_dev, opened.st_ino)
+            == (after.st_dev, after.st_ino)
+            and path.resolve(strict=True) == path
+            and data == raw
+        )
+    except (OSError, ValueError):
+        return False
 
 
 @dataclass(frozen=True)
@@ -174,6 +332,27 @@ class CaseExecution:
     request_json: str
     response_json: str
     case_index: int | None = None
+
+
+def strict_explain_metadata(request: dict[str, Any], response: dict[str, Any]) -> bool:
+    """Accept only closed explain metadata and a corroborated strict binding."""
+    metadata = response.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    expected = {
+        "requested_mode": "explain",
+        "actual_mode": "explain",
+        "fallback_reason": None,
+    }
+    # Historical engines omitted binding metadata. New engines echo the
+    # strict default; an explicit request must be corroborated by that echo.
+    if request.get("relation_binding", "strict") != "strict":
+        return False
+    if "relation_binding" in metadata:
+        expected["relation_binding"] = "strict"
+    elif "relation_binding" in request:
+        return False
+    return request.get("mode") == "explain" and metadata == expected
 
 
 @dataclass
@@ -192,15 +371,26 @@ class ExecutionCapture:
     artifact: Path | None = None
     artifact_sha256: str | None = None
     records: list[CaseExecution] = field(default_factory=list)
+    overlay_origin: ExecutionOverlayOrigin | None = None
+
+    # Minted only by snapshot materialization from resolver-owned source bodies.
+    # Neither constructor arguments nor RuleSpec/environment metadata grant it.
+    _child_credit_seed: Any = field(default=None, init=False, repr=False)
+    _child_credit_context: Any = field(default=None, init=False, repr=False)
+    _retirement_transfer_seed: Any = field(default=None, init=False, repr=False)
+    _retirement_transfer_context: Any = field(default=None, init=False, repr=False)
 
     def fresh(self) -> bool:
         try:
             return (
-                digest(self.binary.read_bytes()) == self.binary_sha256
+                (
+                    self.overlay_origin is None
+                    or self.overlay_origin.fresh(self.original_root)
+                )
+                and digest(self.binary.read_bytes()) == self.binary_sha256
                 and all(
-                    f.original.read_bytes()
-                    == f.raw
-                    == (self.snapshot_root / f.relative).read_bytes()
+                    _file_matches(f.original, f.raw)
+                    and _file_matches(self.snapshot_root / f.relative, f.raw)
                     for f in self.files
                 )
                 and (
@@ -213,8 +403,55 @@ class ExecutionCapture:
 
     def compiled(self, artifact: Path) -> None:
         self.records.clear()
+        self._child_credit_context = None
+        self._retirement_transfer_context = None
         self.artifact = artifact
-        self.artifact_sha256 = digest(artifact.read_bytes())
+        raw = artifact.read_bytes()
+        self.artifact_sha256 = digest(raw)
+        if (
+            self._child_credit_seed is not None
+            and self._retirement_transfer_seed is not None
+        ):
+            return
+        if self._child_credit_seed is not None:
+            from .child_credit_execution import _bind_capture_context
+
+            root = next(
+                (f for f in self.files if f.relative == self.root_relative), None
+            )
+            companion_path = str(Path(self.root_relative).with_suffix(".test.yaml"))
+            companion = next(
+                (f for f in self.files if f.relative == companion_path), None
+            )
+            if root is not None and companion is not None:
+                self._child_credit_context = _bind_capture_context(
+                    self._child_credit_seed,
+                    root.raw.decode(),
+                    self.root_relative,
+                    self.engine_pin,
+                    raw,
+                    companion.raw,
+                )
+
+        if self._retirement_transfer_seed is not None:
+            from .retirement_transfer_execution import _bind_capture_context
+
+            root = next(
+                (f for f in self.files if f.relative == self.root_relative), None
+            )
+            companion_path = str(Path(self.root_relative).with_suffix(".test.yaml"))
+            companion = next(
+                (f for f in self.files if f.relative == companion_path), None
+            )
+            if root is not None and companion is not None:
+                self._retirement_transfer_context = _bind_capture_context(
+                    self._retirement_transfer_seed,
+                    root.raw.decode(),
+                    self.root_relative,
+                    self.engine_pin,
+                    raw,
+                    companion.raw,
+                )
 
     def stage(
         self,
@@ -227,11 +464,7 @@ class ExecutionCapture:
     ) -> None:
         if binary != self.binary or artifact != self.artifact or not self.fresh():
             return
-        if request.get("mode") != "explain" or response.get("metadata") != {
-            "requested_mode": "explain",
-            "actual_mode": "explain",
-            "fallback_reason": None,
-        }:
+        if not strict_explain_metadata(request, response):
             return
         # Initially one Person query, no nested/table/assessment transport.
         queries = request.get("queries")
@@ -249,7 +482,42 @@ class ExecutionCapture:
         ):
             return
         trace = row.get("trace")
-        if not isinstance(trace, dict) or any(
+        if (
+            self._child_credit_seed is not None
+            and self._retirement_transfer_seed is not None
+        ):
+            return
+        if self._child_credit_seed is not None:
+            context = self._child_credit_context
+            if (
+                context is None
+                or context.binding != self._child_credit_seed
+                or context.root_relative != self.root_relative
+                or context.engine_pin != self.engine_pin
+                or not context.accepts(
+                    self.artifact.read_bytes(), case, request, response, case_index
+                )
+            ):
+                return
+        elif self._retirement_transfer_seed is not None:
+            context = self._retirement_transfer_context
+            companion_path = str(Path(self.root_relative).with_suffix(".test.yaml"))
+            closure = {f.relative: f.raw for f in self.files}
+            if (
+                context is None
+                or len(self.files) != 2
+                or set(closure) != {self.root_relative, companion_path}
+                or context.content.encode() != closure.get(self.root_relative)
+                or context.companion_bytes != closure.get(companion_path)
+                or context.binding != self._retirement_transfer_seed
+                or context.root_relative != self.root_relative
+                or context.engine_pin != self.engine_pin
+                or not context.accepts(
+                    self.artifact.read_bytes(), case, request, response, case_index
+                )
+            ):
+                return
+        elif not isinstance(trace, dict) or any(
             not isinstance(n, dict)
             or n.get("id") != key
             or n.get("entity_id") != q.get("entity_id")
@@ -280,6 +548,7 @@ class ExecutionCapture:
             self.engine_pin,
             self.artifact.read_bytes(),
             tuple(self.records),
+            self.overlay_origin,
         )
 
 
@@ -293,6 +562,7 @@ class SameCaseEvidence:
     engine_pin: str
     artifact_bytes: bytes
     records: tuple[CaseExecution, ...]
+    overlay_origin: ExecutionOverlayOrigin | None = None
 
     def bound(self, content: str, imports: Any) -> bool:
         originals = {str(f.original): f for f in self.files}
@@ -300,10 +570,24 @@ class SameCaseEvidence:
         try:
             if (
                 root is None
+                or (
+                    self.overlay_origin is not None
+                    and (
+                        not self.overlay_origin.fresh(
+                            self.overlay_origin.overlay_content_root.parent
+                        )
+                        or any(
+                            f.original
+                            != self.overlay_origin.overlay_content_root.parent
+                            / f.relative
+                            for f in self.files
+                        )
+                    )
+                )
                 or root.raw.decode() != content
                 or any(
-                    f.original.read_bytes() != f.raw
-                    or (self.snapshot_root / f.relative).read_bytes() != f.raw
+                    not _file_matches(f.original, f.raw)
+                    or not _file_matches(self.snapshot_root / f.relative, f.raw)
                     for f in self.files
                 )
             ):
@@ -424,21 +708,70 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         payload = _payload(content.encode())
         imports = payload.get("imports", [])
         companion = pipe._rulespec_test_path(rules_file)
-        if not imports or pipe.rulespec_dependency_roots or not companion.is_file():
+        if pipe.rulespec_dependency_roots or not companion.is_file():
             return None
-        exports = pipe._complete_source_unit_import_bindings(rules_file)
-        derived = set()
-        for export in exports:
-            provider = _payload(export.content.encode())
-            if any(
-                isinstance(r, dict)
-                and r.get("name") == export.export_name
-                and r.get("kind") == "derived"
-                for r in provider.get("rules", [])
-            ):
-                derived.add(export.export_name)
-        if not derived or not _has_consumer(pipe, content, payload, derived):
-            return None
+        if imports == []:
+            from .actual_floor_evidence import bind_same_page_floors
+            from .bound_form_operands import bind_local_form_snapshot
+
+            sources = (
+                pipe._proof_source_texts_for_rulespec_content(
+                    content,
+                    source_texts=pipe._source_texts_for_rulespec_content(content),
+                )
+                or {}
+            )
+            local_form = bind_local_form_snapshot(
+                content,
+                sources,
+                rules_file.relative_to(root).as_posix(),
+            )
+            if not local_form:
+                from .child_credit_execution import _capture_source_binding
+
+                local_form = (
+                    _capture_source_binding(
+                        content, sources, rules_file.relative_to(root).as_posix()
+                    )
+                    is not None
+                )
+            if not local_form:
+                from .retirement_transfer_execution import (
+                    _capture_source_binding as bind_transfer,
+                )
+
+                local_form = (
+                    bind_transfer(
+                        content, sources, rules_file.relative_to(root).as_posix()
+                    )
+                    is not None
+                )
+            if not local_form:
+                from .actual_floor_evidence import bind_same_page_floors
+
+                local_form = bind_same_page_floors(content, sources)
+            if not local_form:
+                from .actual_local_relation_evidence import (
+                    local_relation_snapshot_eligible,
+                )
+
+                local_form = local_relation_snapshot_eligible(payload)
+            if not local_form:
+                return None
+        else:
+            exports = pipe._complete_source_unit_import_bindings(rules_file)
+            derived = set()
+            for export in exports:
+                provider = _payload(export.content.encode())
+                if any(
+                    isinstance(r, dict)
+                    and r.get("name") == export.export_name
+                    and r.get("kind") == "derived"
+                    for r in provider.get("rules", [])
+                ):
+                    derived.add(export.export_name)
+            if not derived or not _has_consumer(pipe, content, payload, derived):
+                return None
         pending = [rules_file]
         files: dict[Path, ClosureFile] = {}
         while pending:
@@ -469,9 +802,17 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         files[companion] = ClosureFile(
             companion.relative_to(root).as_posix(), companion, companion.read_bytes()
         )
-        head = subprocess.check_output(
-            ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
-        ).strip()
+        origin = getattr(pipe, "execution_overlay_origin", None)
+        if origin is not None:
+            if (
+                not isinstance(origin, ExecutionOverlayOrigin)
+                or not origin.fresh(root)
+                or pipe.policy_repo_path != origin.overlay_content_root
+            ):
+                return None
+            clone_root, head = origin.source_content_root.parent, origin.git_head
+        else:
+            clone_root, head = root, _checkout_head(root)
         binary = pipe._axiom_rules_binary()
         binary_sha = digest(binary.read_bytes())
     except (
@@ -483,13 +824,13 @@ def _snapshot_plan(pipe: Any, rules_file: Path) -> tuple | None:
         subprocess.SubprocessError,
     ):
         return None
-    return root, files, head, binary, binary_sha
+    return root, files, head, binary, binary_sha, clone_root, origin
 
 
 def _materialize_snapshot(
     pipe: Any, rules_file: Path, plan: tuple, directory: str
 ) -> ExecutionCapture | None:
-    root, files, head, binary, binary_sha = plan
+    root, files, head, binary, binary_sha, clone_root, origin = plan
     snapshot_root = Path(directory).resolve() / root.name
     start = time.monotonic()
     cloned = subprocess.run(
@@ -499,7 +840,7 @@ def _materialize_snapshot(
             "--no-local",
             "--no-hardlinks",
             "--no-checkout",
-            str(root),
+            str(clone_root),
             str(snapshot_root),
         ],
         capture_output=True,
@@ -540,9 +881,58 @@ def _materialize_snapshot(
         pipe._declared_engine_pin().sha,
         time.monotonic() - start,
         head,
+        overlay_origin=origin,
     )
     if not capture.fresh():
         return None
+    root_file = next(f for f in capture.files if f.relative == capture.root_relative)
+    content = root_file.raw.decode()
+    if _payload(root_file.raw).get("imports", []) == []:
+        from .bound_form_operands import bind_local_form_snapshot
+        from .child_credit_execution import _capture_source_binding
+
+        sources = (
+            pipe._proof_source_texts_for_rulespec_content(
+                content, source_texts=pipe._source_texts_for_rulespec_content(content)
+            )
+            or {}
+        )
+        from .retirement_transfer_execution import (
+            _capture_source_binding as bind_transfer,
+        )
+
+        seed = _capture_source_binding(content, sources, capture.root_relative)
+        transfer_seed = bind_transfer(content, sources, capture.root_relative)
+        if seed is not None and transfer_seed is not None:
+            return None
+        if transfer_seed is not None:
+            companion = str(Path(capture.root_relative).with_suffix(".test.yaml"))
+            if {f.relative for f in capture.files} != {
+                capture.root_relative,
+                companion,
+            }:
+                return None
+            capture._retirement_transfer_seed = transfer_seed
+        elif seed is not None:
+            companion = str(Path(capture.root_relative).with_suffix(".test.yaml"))
+            if {f.relative for f in capture.files} != {
+                capture.root_relative,
+                companion,
+            }:
+                return None
+            capture._child_credit_seed = seed
+        elif not bind_local_form_snapshot(content, sources, capture.root_relative):
+            from .actual_floor_evidence import bind_same_page_floors
+
+            # An eligible local graph cannot fall back to an unbound same-entity
+            # capture if its resolver selection changed during cloning. A
+            # same-page floor file is eligible through its own binding.
+            from .actual_local_relation_evidence import local_relation_snapshot_eligible
+
+            if not bind_same_page_floors(
+                content, sources
+            ) and not local_relation_snapshot_eligible(_payload(root_file.raw)):
+                return None
     return capture
 
 
@@ -556,11 +946,18 @@ def compilation_snapshot(
         return
     with tempfile.TemporaryDirectory(prefix="axiom-execution-snapshot-") as directory:
         try:
-            capture = _materialize_snapshot(pipe, rules_file, plan, directory)
+            from .local_compile_custody import _materialize_registered
+
+            capture = _materialize_registered(pipe, rules_file, plan, directory)
         except (OSError, ValueError, subprocess.SubprocessError):
             capture = None
         # Never catch exceptions raised by the caller's validation body.
-        yield capture
+        try:
+            yield capture
+        finally:
+            from .local_compile_custody import _expire
+
+            _expire(capture)
 
 
 def formula_witnesses(

@@ -1,0 +1,7 @@
+{
+  "binary_sha256": "c79ec2bb24738cecef49fba7b5b7c184cacf248f573795f73ed22c192f8a85e8",
+  "built_at": "2026-10-06T18:08:12.418221+00:00",
+  "cargo_profile": "release",
+  "engine_commit": "89571cc2a938707fd60a5489b951135345697296",
+  "written_by": "axiom-encode 0.2.2093"
+}

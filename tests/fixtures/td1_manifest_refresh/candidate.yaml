@@ -1,0 +1,1239 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits
+    source_sha256: 080950449d606e54c01c3425190ca79cb97fd8129d2fdd8419515c6174d157b0
+  summary: 'CRA 2026 provincial and territorial TD1 personal credit amounts.
+
+    Each return states the basic personal amount, age amount and income limits,
+
+    pension income amount cap, and disability amount used for 2026 deductions.'
+rules:
+- name: alberta_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Alberta Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/alberta
+          excerpt: 22,769
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '22769'
+- name: alberta_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Alberta Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/alberta
+          excerpt: '2. Age amount – If you will be 65 or older on December 31, 2026,
+            and your net income from all sources will be $47,234 or less, enter
+
+            $6,345. You may enter a partial amount if your net income for the year
+            will be between $47,234 and $89,534. To calculate a partial
+
+            amount, fill out the line 2 section of Form TD1AB-WS, Worksheet for the
+            Alberta 2026 Personal Tax Credits Return.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '6345'
+- name: alberta_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Alberta Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/alberta
+          excerpt: $47,234 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '47234'
+- name: alberta_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Alberta Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/alberta
+          excerpt: between $47,234 and $89,534
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '89534'
+- name: alberta_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Alberta Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/alberta
+          excerpt: $1,753 or your estimated annual pension
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1753'
+- name: alberta_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Alberta Personal Tax Credits Return, line 4
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/alberta
+          excerpt: enter $17,563
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '17563'
+- name: british_columbia_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 British Columbia Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/british-columbia
+          excerpt: 13,216
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '13216'
+- name: british_columbia_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 British Columbia Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/british-columbia
+          excerpt: enter $5,927
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '5927'
+- name: british_columbia_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 British Columbia Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/british-columbia
+          excerpt: $44,119 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '44119'
+- name: british_columbia_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 British Columbia Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/british-columbia
+          excerpt: between $44,119 and $83,633
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '83633'
+- name: british_columbia_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 British Columbia Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/british-columbia
+          excerpt: $1,000 or your estimated annual pension
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1000'
+- name: british_columbia_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 British Columbia Personal Tax Credits Return, line 5
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/british-columbia
+          excerpt: enter $9,913
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '9913'
+- name: manitoba_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Manitoba Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/manitoba
+          excerpt: can enter $15,780
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '15780'
+- name: manitoba_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Manitoba Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/manitoba
+          excerpt: '2. Age amount – If you will be 65 or older on December 31, 2026,
+            and your net income from all sources will be $27,749 or less, enter
+
+            $3,728. You may enter a partial amount if your net income for the year
+            will be between $27,749 and $52,602. To calculate a partial
+
+            amount, fill out the line 2 section of Form TD1MB-WS, Worksheet for the
+            2026 Manitoba Personal Tax Credits Return.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '3728'
+- name: manitoba_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Manitoba Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/manitoba
+          excerpt: $27,749 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '27749'
+- name: manitoba_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Manitoba Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/manitoba
+          excerpt: between $27,749 and $52,602
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '52602'
+- name: manitoba_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Manitoba Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/manitoba
+          excerpt: '3. Pension income amount – If you will receive regular pension
+            payments from a pension plan or fund (not including Canada Pension
+
+            Plan, Quebec Pension Plan, old age security, or guaranteed income supplement
+            payments), enter whichever is less: $1,000 or your
+
+            estimated annual pension.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1000'
+- name: manitoba_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Manitoba Personal Tax Credits Return, line 5
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/manitoba
+          excerpt: enter $6,180
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '6180'
+- name: new_brunswick_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 New Brunswick Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/new-brunswick
+          excerpt: 13,664
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '13664'
+- name: new_brunswick_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 New Brunswick Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/new-brunswick
+          excerpt: '2. Age amount – If you will be 65 or older on December 31, 2026,
+            and your net income from all sources will be $45,844 or less, enter
+
+            $6,158. You may enter a partial amount if your net income for the year
+            will be between $45,844 and $86,898. To calculate a partial
+
+            amount, fill out the line 2 section of Form TD1NB-WS, Worksheet for the
+            2026 New Brunswick Personal Tax Credits Return.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '6158'
+- name: new_brunswick_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 New Brunswick Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/new-brunswick
+          excerpt: $45,844 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '45844'
+- name: new_brunswick_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 New Brunswick Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/new-brunswick
+          excerpt: between $45,844 and $86,898
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '86898'
+- name: new_brunswick_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 New Brunswick Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/new-brunswick
+          excerpt: $1,000 or your estimated annual pension
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1000'
+- name: new_brunswick_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 New Brunswick Personal Tax Credits Return, line 5
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/new-brunswick
+          excerpt: enter $10,210
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '10210'
+- name: newfoundland_and_labrador_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Newfoundland and Labrador Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/newfoundland-and-labrador
+          excerpt: 13,094
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '13094'
+- name: newfoundland_and_labrador_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Newfoundland and Labrador Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/newfoundland-and-labrador
+          excerpt: enter $7,142
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '7142'
+- name: newfoundland_and_labrador_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Newfoundland and Labrador Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/newfoundland-and-labrador
+          excerpt: $39,138 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '39138'
+- name: newfoundland_and_labrador_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Newfoundland and Labrador Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/newfoundland-and-labrador
+          excerpt: between $39,138 and $86,752
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '86752'
+- name: newfoundland_and_labrador_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Newfoundland and Labrador Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/newfoundland-and-labrador
+          excerpt: $1,000 or your estimated annual pension
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1000'
+- name: newfoundland_and_labrador_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Newfoundland and Labrador Personal Tax Credits Return, line 5
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/newfoundland-and-labrador
+          excerpt: enter $7,549
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '7549'
+- name: nova_scotia_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nova Scotia Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nova-scotia
+          excerpt: 11,932
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '11932'
+- name: nova_scotia_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nova Scotia Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nova-scotia
+          excerpt: '2. Age amount – If you will be 65 or older on December 31, 2026,
+            and your net income from all sources will be $30,828 or less, enter
+
+            $5,826. You may enter a partial amount if your net income for the year
+            will be between $30,828 and $69,668.To calculate a partial
+
+            amount, fill out the line 2 section of Form TD1NS-WS.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '5826'
+- name: nova_scotia_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nova Scotia Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nova-scotia
+          excerpt: $30,828 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '30828'
+- name: nova_scotia_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nova Scotia Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nova-scotia
+          excerpt: between $30,828 and $69,668
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '69668'
+- name: nova_scotia_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nova Scotia Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nova-scotia
+          excerpt: $1,173 or your estimated annual pension
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1173'
+- name: nova_scotia_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nova Scotia Personal Tax Credits Return, line 5
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nova-scotia
+          excerpt: enter $7,341
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '7341'
+- name: northwest_territories_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Northwest Territories Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/northwest-territories
+          excerpt: 18,198
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '18198'
+- name: northwest_territories_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Northwest Territories Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/northwest-territories
+          excerpt: '2. Age amount – If you will be 65 or older on December 31, 2026,
+            and your net income from all sources will be $46,432 or less, enter
+
+            $8,902. You may enter a partial amount if your net income for the year
+            will be between $46,432 and $105,779. To calculate a partial
+
+            amount, fill out line 2 section of Form TD1NT-WS, Worksheet for the Northwest
+            Territories 2026 Personal Tax Credits Return.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '8902'
+- name: northwest_territories_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Northwest Territories Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/northwest-territories
+          excerpt: $46,432 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '46432'
+- name: northwest_territories_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Northwest Territories Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/northwest-territories
+          excerpt: between $46,432 and $105,779
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '105779'
+- name: northwest_territories_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Northwest Territories Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/northwest-territories
+          excerpt: $1,000 or your estimated annual pension
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1000'
+- name: northwest_territories_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Northwest Territories Personal Tax Credits Return, line 5
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/northwest-territories
+          excerpt: enter $14,758
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '14758'
+- name: nunavut_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nunavut Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nunavut
+          excerpt: 19,659
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '19659'
+- name: nunavut_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nunavut Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nunavut
+          excerpt: enter $12,550
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '12550'
+- name: nunavut_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nunavut Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nunavut
+          excerpt: $46,432 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '46432'
+- name: nunavut_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nunavut Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nunavut
+          excerpt: between $46,432 and $130,099
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '130099'
+- name: nunavut_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nunavut Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nunavut
+          excerpt: $2,000 or your estimated annual pension
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '2000'
+- name: nunavut_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Nunavut Personal Tax Credits Return, line 5
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/nunavut
+          excerpt: enter $16,733
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '16733'
+- name: ontario_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Ontario Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/ontario
+          excerpt: 12,989
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '12989'
+- name: ontario_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Ontario Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/ontario
+          excerpt: enter $6,342
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '6342'
+- name: ontario_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Ontario Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/ontario
+          excerpt: $47,210 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '47210'
+- name: ontario_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Ontario Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/ontario
+          excerpt: between $47,210 and $89,490
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '89490'
+- name: ontario_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Ontario Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/ontario
+          excerpt: '3. Pension income amount – If you will receive regular pension
+            payments from a pension plan or fund (not including Canada Pension
+
+            Plan, Quebec Pension Plan, Old Age Security, or Guaranteed Income Supplement
+            payments), enter whichever is less: $1,796 or
+
+            your estimated annual pension.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1796'
+- name: ontario_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Ontario Personal Tax Credits Return, line 4
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/ontario
+          excerpt: enter $10,494
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '10494'
+- name: prince_edward_island_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Prince Edward Island Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/prince-edward-island
+          excerpt: 15,000
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '15000'
+- name: prince_edward_island_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Prince Edward Island Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/prince-edward-island
+          excerpt: '2. Age amount – If you will be 65 or older on December 31, 2026,
+            and your net income from all sources will be $36,600 or less, enter
+
+            $6,510. You may enter a partial amount if your net income for the year
+            will be between $36,600 and $80,000. To calculate a partial
+
+            amount, fill out the line 2 section of Form TD1PE-WS, Worksheet for the
+            2026 Prince Edward Island Personal Tax Credits Return.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '6510'
+- name: prince_edward_island_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Prince Edward Island Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/prince-edward-island
+          excerpt: $36,600 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '36600'
+- name: prince_edward_island_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Prince Edward Island Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/prince-edward-island
+          excerpt: between $36,600 and $80,000
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '80000'
+- name: prince_edward_island_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Prince Edward Island Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/prince-edward-island
+          excerpt: '3. Pension income amount – If you will receive regular pension
+            payments from a pension plan or fund (not including Canada Pension
+
+            Plan, Quebec Pension Plan, old age security, or guaranteed income supplement
+            payments), enter whichever is less: $1,000 or your
+
+            estimated annual pension.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1000'
+- name: prince_edward_island_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Prince Edward Island Personal Tax Credits Return, line 5
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/prince-edward-island
+          excerpt: enter $6,890
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '6890'
+- name: saskatchewan_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Saskatchewan Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/saskatchewan
+          excerpt: 20,381
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '20381'
+- name: saskatchewan_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Saskatchewan Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/saskatchewan
+          excerpt: '2. Age amount – If you will be 65 or older on December 31, 2026,
+            and your net income from all sources will be $43,927 or less, enter
+
+            $5,901. You may enter a partial amount if your net income for the year
+            will be between $43,927 and $83,267. To calculate a partial
+
+            amount, fill out the line 2 section of Form TD1SK-WS, Worksheet for the
+            2026 Saskatchewan Personal Tax Credits Return.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '5901'
+- name: saskatchewan_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Saskatchewan Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/saskatchewan
+          excerpt: $43,927 or less
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '43927'
+- name: saskatchewan_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Saskatchewan Personal Tax Credits Return, line 2
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/saskatchewan
+          excerpt: between $43,927 and $83,267
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '83267'
+- name: saskatchewan_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Saskatchewan Personal Tax Credits Return, line 4
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/saskatchewan
+          excerpt: $1000 or your estimated annual pension
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '1000'
+- name: saskatchewan_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Saskatchewan Personal Tax Credits Return, line 5
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/saskatchewan
+          excerpt: enter $14,266
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '14266'
+- name: yukon_td1_2026_basic_personal_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Yukon Personal Tax Credits Return, line 1
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/yukon
+          excerpt: 'basic
+
+            personal amount of $16,452'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '16452'
+- name: yukon_td1_2026_age_amount_maximum
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Yukon Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/yukon
+          excerpt: enter $9,208
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '9208'
+- name: yukon_td1_2026_age_amount_full_income_ceiling
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Yukon Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/yukon
+          excerpt: '3. Age amount – If you will be 65 or older on December 31, 2026,
+            and your net income for the year from all sources will be $46,432
+
+            or less, enter $9,208. You may enter a partial amount if your net income
+            for the year will be between $46,432 and $107,819. To
+
+            calculate a partial amount, fill out the line 3 section of Form TD1YT-WS.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '46432'
+- name: yukon_td1_2026_age_amount_partial_upper_income
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Yukon Personal Tax Credits Return, line 3
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/yukon
+          excerpt: between $46,432 and $107,819
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '107819'
+- name: yukon_td1_2026_pension_income_amount_cap
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Yukon Personal Tax Credits Return, line 4
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/yukon
+          excerpt: $2,000 or your estimated annual pension
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '2000'
+- name: yukon_td1_2026_disability_amount
+  kind: parameter
+  dtype: Money
+  unit: CAD
+  source: CRA 2026 Yukon Personal Tax Credits Return, line 6
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: ca/policy/cra/td1-2026/provincial-territorial-personal-credits/yukon
+          excerpt: enter $10,341
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '10341'

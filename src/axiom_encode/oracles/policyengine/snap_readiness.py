@@ -134,18 +134,18 @@ def build_snap_readiness_item(
         corpus_release,
         jurisdiction=jurisdiction,
     )
-    populace_config = JURISDICTION_CONFIGS.get(jurisdiction)
+    microcosm_config = JURISDICTION_CONFIGS.get(jurisdiction)
     program_module = (
-        populace_config.program_relative_path.as_posix() if populace_config else None
+        microcosm_config.program_relative_path.as_posix() if microcosm_config else None
     )
     program_module_exists = (
-        bool(populace_config)
-        and (module / populace_config.program_relative_path).exists()
+        bool(microcosm_config)
+        and (module / microcosm_config.program_relative_path).exists()
     )
     status, blockers = _classify_status(
         rulespec_files=rulespec_files,
         corpus_snap_provisions=corpus_snap_provisions,
-        populace_configured=populace_config is not None,
+        microcosm_configured=microcosm_config is not None,
         program_module_exists=program_module_exists,
     )
     return SnapReadinessItem(
@@ -156,7 +156,7 @@ def build_snap_readiness_item(
         companion_test_files=companion_test_files,
         executable_outputs=executable_outputs,
         corpus_snap_provisions=corpus_snap_provisions,
-        policyengine_populace_configured=populace_config is not None,
+        policyengine_populace_configured=microcosm_config is not None,
         program_module=program_module,
         program_module_exists=program_module_exists,
         status=status,
@@ -313,7 +313,7 @@ def _classify_status(
     *,
     rulespec_files: int,
     corpus_snap_provisions: int,
-    populace_configured: bool,
+    microcosm_configured: bool,
     program_module_exists: bool,
 ) -> tuple[str, list[str]]:
     blockers: list[str] = []
@@ -325,7 +325,7 @@ def _classify_status(
         return "needs_corpus", blockers
     if corpus_snap_provisions == 0:
         return "rules_without_corpus", blockers
-    if not populace_configured:
+    if not microcosm_configured:
         blockers.append("missing PolicyEngine Populace jurisdiction config")
         return "needs_populace_config", blockers
     if not program_module_exists:

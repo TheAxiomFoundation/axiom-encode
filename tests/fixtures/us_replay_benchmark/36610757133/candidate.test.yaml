@@ -1,0 +1,264 @@
+- name: paragraph_2_tax_positive
+  period:
+    period_kind: tax_year
+    start: '1976-01-01'
+    end: '1976-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#paragraph_2_tax: 900
+- name: paragraph_2_tax_exempt
+  period:
+    period_kind: tax_year
+    start: '1976-01-01'
+    end: '1976-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: true
+  output:
+    us-dc:statutes/47/47-1807/02#paragraph_2_tax: 0
+- name: paragraph_2_ten_percent_period
+  period:
+    period_kind: tax_year
+    start: '1985-01-01'
+    end: '1985-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#paragraph_2_tax: 1000
+- name: exemption_positive_path
+  period:
+    period_kind: tax_year
+    start: '2014-01-01'
+    end: '2014-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 997.5
+- name: exemption_blocking_path
+  period:
+    period_kind: tax_year
+    start: '2014-01-01'
+    end: '2014-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: true
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 0
+- name: first_taxable_year_rate
+  period:
+    period_kind: tax_year
+    start: '1975-01-01'
+    end: '1975-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 1200
+- name: subsequent_nine_percent_rate
+  period:
+    period_kind: tax_year
+    start: '1976-01-01'
+    end: '1976-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 900
+- name: ten_percent_rate
+  period:
+    period_kind: tax_year
+    start: '1985-01-01'
+    end: '1985-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 1000
+- name: first_surtax_only
+  period:
+    period_kind: tax_year
+    start: '1993-01-01'
+    end: '1993-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 1025
+- name: both_surtaxes
+  period:
+    period_kind: tax_year
+    start: '2001-01-01'
+    end: '2001-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 997.5
+- name: paragraph_3_tax_and_surtaxes
+  period:
+    period_kind: tax_year
+    start: '2003-01-01'
+    end: '2003-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 997.5
+- name: paragraph_4_rate
+  period:
+    period_kind: tax_year
+    start: '2004-01-01'
+    end: '2004-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 997.5
+- name: lower_minimum_at_receipts_threshold
+  period:
+    period_kind: tax_year
+    start: '2014-01-01'
+    end: '2014-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 0
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 1000000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 250
+- name: higher_minimum_above_receipts_threshold
+  period:
+    period_kind: tax_year
+    start: '2014-01-01'
+    end: '2014-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 0
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 1000001
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 1000
+- name: later_rate
+  period:
+    period_kind: tax_year
+    start: '2015-01-01'
+    end: '2015-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 940
+- name: transition_window_positive
+  period:
+    period_kind: tax_year
+    start: '1981-07-01'
+    end: '1982-06-30'
+  input:
+    us-dc:statutes/47/47-1807/02#input.tax_year_is_in_transition_window: true
+  output:
+    us-dc:statutes/47/47-1807/02#transition_rules_apply: holds
+- name: transition_window_negative
+  period:
+    period_kind: tax_year
+    start: '1981-07-01'
+    end: '1982-06-30'
+  input:
+    us-dc:statutes/47/47-1807/02#input.tax_year_is_in_transition_window: false
+  output:
+    us-dc:statutes/47/47-1807/02#transition_rules_apply: not_holds
+- name: subsection_a_tax_exemption_positive_path
+  period:
+    period_kind: tax_year
+    start: '2014-01-01'
+    end: '2014-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 997.5
+- name: subsection_a_tax_exemption_blocking_path
+  period:
+    period_kind: tax_year
+    start: '2014-01-01'
+    end: '2014-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: true
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 0
+- name: corporation_tax_with_first_surtax
+  period:
+    period_kind: tax_year
+    start: '2001-01-01'
+    end: '2001-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 997.5
+- name: transition_rules_apply
+  period:
+    period_kind: tax_year
+    start: '1981-07-01'
+    end: '1982-06-30'
+  input:
+    us-dc:statutes/47/47-1807/02#input.tax_year_is_in_transition_window: true
+  output:
+    us-dc:statutes/47/47-1807/02#transition_rules_apply: holds
+- name: minimum_tax_applies_when_receipts_do_not_exceed_threshold
+  period:
+    period_kind: tax_year
+    start: '2014-01-01'
+    end: '2014-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 0
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 1000000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 250
+- name: higher_minimum_when_receipts_exceed_threshold
+  period:
+    period_kind: tax_year
+    start: '2014-01-01'
+    end: '2014-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 0
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 1000001
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 1000
+- name: historical_surtax_period
+  period:
+    period_kind: tax_year
+    start: '2001-01-01'
+    end: '2001-12-31'
+  input:
+    us-dc:statutes/47/47-1807/02#input.taxable_income: 10000
+    us-dc:statutes/47/47-1807/02#input.district_gross_receipts: 500000
+    us-dc:statutes/47/47-1807/02#input.corporation_exempt_under_subchapter_ii: false
+  output:
+    us-dc:statutes/47/47-1807/02#corporation_tax: 997.5
+- name: transition_year_rules
+  period:
+    period_kind: tax_year
+    start: '1981-07-01'
+    end: '1982-06-30'
+  input:
+    us-dc:statutes/47/47-1807/02#input.tax_year_is_in_transition_window: true
+  output:
+    us-dc:statutes/47/47-1807/02#transition_rules_apply: holds

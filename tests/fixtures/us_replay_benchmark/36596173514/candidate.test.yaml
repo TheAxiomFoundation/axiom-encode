@@ -1,0 +1,41 @@
+- name: qualifying_winter_utility_service
+  period: 2027-01
+  input:
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.client_qualifies_for_special_reduced_residential_service_rate: true
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.month_is_in_winter: true
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.service_is_natural_gas_electric_or_water: true
+  output:
+    us-wv:policies/bfa/income-maintenance-manual/page-3#applicable_special_reduced_residential_service_discount_rate: 0.2
+- name: client_does_not_qualify
+  period: 2027-01
+  input:
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.client_qualifies_for_special_reduced_residential_service_rate: false
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.month_is_in_winter: true
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.service_is_natural_gas_electric_or_water: true
+  output:
+    us-wv:policies/bfa/income-maintenance-manual/page-3#applicable_special_reduced_residential_service_discount_rate: 0
+- name: outside_winter_months
+  period: 2027-04
+  input:
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.client_qualifies_for_special_reduced_residential_service_rate: true
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.month_is_in_winter: false
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.service_is_natural_gas_electric_or_water: true
+  output:
+    us-wv:policies/bfa/income-maintenance-manual/page-3#applicable_special_reduced_residential_service_discount_rate: 0
+- name: service_not_listed
+  period: 2027-01
+  input:
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.client_qualifies_for_special_reduced_residential_service_rate: true
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.month_is_in_winter: true
+    us-wv:policies/bfa/income-maintenance-manual/page-3#input.service_is_natural_gas_electric_or_water: false
+  output:
+    us-wv:policies/bfa/income-maintenance-manual/page-3#applicable_special_reduced_residential_service_discount_rate: 0
+- name: winter_utility_program_discount_rate
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-01'
+    end: '2026-07-01'
+  input: {}
+  output:
+    us-wv:policies/bfa/income-maintenance-manual/page-3#special_reduced_residential_service_rate_discount_rate: 0.2

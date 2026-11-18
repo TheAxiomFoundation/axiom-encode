@@ -224,7 +224,16 @@ def actual(repayment, tmp_path):  # noqa: F811
     )
 
 
-def test_actual_sparse_threshold_pair(actual):
+@pytest.mark.parametrize("strict_echo", [False, True])
+def test_actual_sparse_threshold_pair(actual, tmp_path, strict_echo):
+    from tests.test_same_case_execution import restage_witness_records
+
+    actual["evidence"] = restage_witness_records(
+        actual["evidence"],
+        [case for cases in actual["asserted_by_rule"].values() for case in cases],
+        tmp_path,
+        strict_echo,
+    )
     assert len(boundary.witnesses(**actual)) == 1
 
 

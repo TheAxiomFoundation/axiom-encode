@@ -1,0 +1,40 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "41088317595",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/41088317595",
+  "bundle_citation": "us-az/manual/des/faa5/na-categorical-eligibility/block-4",
+  "citation": "us-az/manual/des/faa5/na-categorical-eligibility/block-5",
+  "lane": "dependent",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "policies/des/faa5/na-categorical-eligibility/categorical-eligibility-benefit-calculation.yaml",
+  "policy_prefix": "us-az",
+  "encoder_commit": "eba6146ea0a4165982a809c83ef4e7ce03c85462",
+  "encoder_version": "0.2.2266",
+  "attempt_count": 4,
+  "corpus_ref": "3b59339d7abcdfd58ffe1c0dc7cd468a07671e7b",
+  "rulespec_ref": "66d891b9df601c35c2edbf7e669529a649141d31",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:tests": 1
+  },
+  "context_imports": {
+    "us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility": "context/policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility.yaml"
+  },
+  "context_origins": {
+    "us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility": "workspace"
+  },
+  "provider_git_blob_sha1": {},
+  "files": {
+    "candidate.test.yaml": "0c6f03da1b9ac8753d1c7bbc139ad677f98945f7bef59d7e1a88967c3a73bd85",
+    "candidate.yaml": "3ae7c04190206af4c45f60cbdc7e7ee3f973c9f5a95e7467d94c475295591d3e",
+    "context/policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility.yaml": "0646000a37d99c9142838a9237f14767c7beea33ccc905070f2fe4a8fe9f876a",
+    "issues.json": "86aca87387321f46a3f50c6c1f1ab2192241600a7239b913e92398e0a6986876",
+    "source-metadata.json": "0d6b5f3eb09388a97834dc3e79bc312de11aecbcc772a2ff03d831126f9168aa",
+    "source.txt": "62caf66435f0dcda390414df5f4ce1810c359726c51335cd5cdd30f07057fd4f"
+  }
+}

@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import threading
 import uuid
+from collections import Counter
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -25,6 +26,7 @@ from axiom_encode.corpus_resolver import (
     resolve_scoped_local_corpus_source,
 )
 from axiom_encode.harness import evals as evals_module
+from axiom_encode.harness import source_completeness as source_completeness_module
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.dependency_stubs import UnsafeRulespecContextPath
 from axiom_encode.harness.encoding_db import TokenUsage
@@ -94,6 +96,7 @@ from axiom_encode.harness.evals import (
     _slugify,
     _source_identifier_to_relative_rulespec_path,
     _source_metadata_citation_path,
+    _strict_imported_named_scalar_occurrences,
     _target_rel_for_eval_identifier,
     _target_source_scope_for_heuristics,
     _validate_eval_result_artifacts,
@@ -856,7 +859,8 @@ def test_retry_candidate_formatter_explicitly_handles_missing_tests():
     )
 
     assert "No companion test file was present" in section
-    assert "you may omit unchanged named inputs, named rules" in section
+    assert "you may omit unchanged named units, named inputs, named rules" in section
+    assert "obsolete named unit, input, rule, or companion case" in section
     assert "input removal is accepted only after no repaired rule" in section
     assert "`repair_remove: true`" in section
 
@@ -1018,6 +1022,66 @@ def test_repair_candidate_overlay_restores_omitted_named_items(tmp_path):
     assert "input:omitted_input" in repairs
     assert "test:preserved_case" in repairs
     assert "resolved_deferred_output:us:section#added" in repairs
+
+
+def test_repair_candidate_overlay_removes_only_defined_local_rule_self_imports(
+    tmp_path,
+):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "regulations" / "7-cfr" / "273" / "7.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        "format: rulespec/v1\n"
+        "imports:\n"
+        "  - us:regulations/7-cfr/273/7#new_local_rule\n"
+        "  - us:regulations/7-cfr/273/7#unresolved_rule\n"
+        "  - us-az:regulations/7-cfr/273/7#new_local_rule\n"
+        "  - us:regulations/7-cfr/273/5#external_rule\n"
+        "rules:\n"
+        "  - name: new_local_rule\n"
+        "    kind: parameter\n"
+        "    dtype: Count\n"
+        "    versions: [{effective_from: '2026-01-01', formula: 2}]\n",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=(
+            "format: rulespec/v1\n"
+            "imports:\n"
+            "  - us:regulations/7-cfr/273/7#preserved_local_rule\n"
+            "rules:\n"
+            "  - name: preserved_local_rule\n"
+            "    kind: parameter\n"
+            "    dtype: Count\n"
+            "    versions: [{effective_from: '2026-01-01', formula: 1}]\n"
+        )
+    )
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+        target_ref_prefix="us:regulations/7-cfr/273/7",
+    )
+
+    payload = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    assert payload["imports"] == [
+        "us:regulations/7-cfr/273/7#unresolved_rule",
+        "us-az:regulations/7-cfr/273/7#new_local_rule",
+        "us:regulations/7-cfr/273/5#external_rule",
+    ]
+    assert {rule["name"] for rule in payload["rules"]} == {
+        "new_local_rule",
+        "preserved_local_rule",
+    }
+    assert (
+        "removed_local_rule_self_import:us:regulations/7-cfr/273/7#new_local_rule"
+        in repairs
+    )
+    assert (
+        "removed_local_rule_self_import:us:regulations/7-cfr/273/7#preserved_local_rule"
+        in repairs
+    )
 
 
 def test_repair_candidate_overlay_removes_unreferenced_input(tmp_path):
@@ -1457,7 +1521,10 @@ def test_repair_candidate_overlay_normalizes_destination_root_deferrals(tmp_path
 
 
 def test_run_model_eval_appends_repair_parameters_after_existing_public_parameters():
-    parameters = list(inspect.signature(run_model_eval).parameters)
+    signature = inspect.signature(run_model_eval)
+    parameters = list(signature.parameters)
+    assert parameters.pop() == "producer_review_guidance"
+    assert signature.parameters["producer_review_guidance"].default is None
 
     assert parameters[-8:-1] == [
         "required_import_targets",
@@ -3205,6 +3272,515 @@ def test_model_eval_uses_output_override_for_prompt_and_artifact_path(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_quotes"),
+    (
+        ("az_faa5_medical_block13_run2b708c06_rejected.yaml", ["excerpt:102"]),
+        (None, []),
+    ),
+)
+def test_model_eval_records_encoder_quoted_source_scalars(
+    fixture_name, expected_quotes, tmp_path
+):
+    corpus_release, _source_unit = _write_test_source_unit(
+        tmp_path,
+        "Authoritative source.",
+        citation_path="us-nc/statute/105/105-153.7",
+    )
+    policy_root = _canonical_rulespec_content_root(tmp_path, "us-nc")
+    target_relative = Path("policies/des/block-13.yaml")
+    original = (
+        (
+            Path(__file__).parent / "fixtures" / "generated_yaml_scanner" / fixture_name
+        ).read_text()
+        if fixture_name
+        else "format: rulespec/v1\nrules: []\n"
+    )
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(original)
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    def evaluate(**kwargs):
+        rulespec_file = kwargs["rulespec_file"]
+        try:
+            yaml.safe_load(rulespec_file.read_text())
+        except yaml.YAMLError as exc:
+            issues = [f"{rulespec_file.name} YAML parse failed: {exc}"]
+        else:
+            issues = []
+        return EvalArtifactMetrics(
+            compile_pass=not issues,
+            compile_issues=list(issues),
+            ci_pass=not issues,
+            ci_issues=list(issues),
+            embedded_source_present=False,
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            grounding=[],
+        )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=generate,
+        ),
+        patch("axiom_encode.harness.evals.evaluate_artifact", side_effect=evaluate),
+    ):
+        result = run_model_eval(
+            citations=["us-nc/statute/105/105-153.7"],
+            runner_specs=["openai:model-a"],
+            output_root=tmp_path / "out",
+            policy_path=policy_root,
+            runtime_axiom_rules_path=tmp_path / "engine",
+            corpus_release=corpus_release,
+            mode="repo-augmented",
+            target_relative_output=target_relative,
+        )[0]
+
+    assert result.success is True
+    assert result.auto_repaired_unquoted_source_scalars == expected_quotes
+    assert result.generated_output_repaired_by_encoder is bool(expected_quotes)
+    written = Path(result.output_file).read_bytes()
+    # The digest is of the bytes on disk, which the encoder changed.
+    assert result.generated_output_sha256 == hashlib.sha256(written).hexdigest()
+    assert (written != original.encode()) is bool(expected_quotes)
+    payload = result.to_dict()
+    restored = _eval_result_from_payload(payload)
+    assert restored.auto_repaired_unquoted_source_scalars == expected_quotes
+    assert restored.generated_output_repaired_by_encoder is bool(expected_quotes)
+    if expected_quotes:
+        assert payload["auto_repaired_unquoted_source_scalars"] == expected_quotes
+        assert payload["generated_output_repaired_by_encoder"] is True
+    else:
+        # Results without a repair keep their former payload and digest.
+        assert "auto_repaired_unquoted_source_scalars" not in payload
+        assert "generated_output_repaired_by_encoder" not in payload
+
+
+_QUOTE_REPAIR_SUITE_FIXTURE = (
+    Path(__file__).parent
+    / "fixtures"
+    / "generated_yaml_scanner"
+    / "az_faa5_medical_block13_run2b708c06_rejected.yaml"
+)
+# The `generation` section of signed verdict evidence before the quote-repair
+# record existed. A result without the record must sign exactly these keys.
+_VERDICT_GENERATION_KEYS_BEFORE_QUOTE_REPAIR_RECORD = {
+    "duration_ms",
+    "generation_prompt_sha256",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_creation_tokens",
+    "reasoning_output_tokens",
+    "estimated_cost_usd",
+    "actual_cost_usd",
+    "retry_count",
+    "retrieved_files",
+    "unexpected_accesses",
+}
+
+
+def _yaml_parse_only_metrics(**kwargs) -> EvalArtifactMetrics:
+    """Score one artifact on its YAML parse alone, as the preflight words it."""
+
+    rulespec_file = kwargs["rulespec_file"]
+    try:
+        yaml.safe_load(rulespec_file.read_text())
+    except yaml.YAMLError as exc:
+        issues = [f"{rulespec_file.name} YAML parse failed: {exc}"]
+    else:
+        issues = []
+    return EvalArtifactMetrics(
+        compile_pass=not issues,
+        compile_issues=list(issues),
+        ci_pass=not issues,
+        ci_issues=list(issues),
+        embedded_source_present=False,
+        grounded_numeric_count=0,
+        ungrounded_numeric_count=0,
+        grounding=[],
+    )
+
+
+def _quote_repair_eval_suite(tmp_path: Path, *, needs_repair: bool = True):
+    """Persist one signed suite result through the real eval-time repair.
+
+    Returns the result, the suite output root and a callable that resumes the
+    suite through normal admission without a new generation.
+    """
+
+    generated = (
+        _QUOTE_REPAIR_SUITE_FIXTURE.read_text()
+        if needs_repair
+        else "format: rulespec/v1\nrules: []\n"
+    )
+    output_root = tmp_path / "out"
+    run_kwargs = {
+        "manifest": EvalSuiteManifest(
+            name="Quote repair suite",
+            path=tmp_path / "suite.yaml",
+            runners=["openai:gpt-5.4"],
+            mode="cold",
+            allow_context=[],
+            gates=EvalReadinessGates(),
+            cases=[
+                EvalSuiteCase(
+                    kind="citation",
+                    name="quote-repair",
+                    mode="cold",
+                    citation="us/statute/7/2017",
+                )
+            ],
+        ),
+        "output_root": output_root,
+        "axiom_rules_path": tmp_path / "axiom-rules-engine",
+        "policy_repo_path": _canonical_rulespec_content_root(tmp_path, "us").parent,
+        "corpus_release": _write_test_corpus_provision(tmp_path),
+    }
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(generated)
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    def run(*, resume: bool) -> list[EvalResult]:
+        with (
+            patch(
+                "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+                side_effect=(
+                    AssertionError("resume must keep the completed generation")
+                    if resume
+                    else generate
+                ),
+            ),
+            patch(
+                "axiom_encode.harness.evals.evaluate_artifact",
+                side_effect=_yaml_parse_only_metrics,
+            ),
+        ):
+            return run_eval_suite(**run_kwargs, resume_existing=resume)
+
+    [result] = run(resume=False)
+    return result, output_root, lambda: run(resume=True)
+
+
+def test_quote_repair_record_covers_one_invocation_not_the_retained_file(tmp_path):
+    """A retry that keeps the repaired main file starts with an empty record.
+
+    The record names this invocation's edits. It is not the file's history:
+    the kept file still holds the quotes that the first attempt added.
+    """
+
+    corpus_release, _source_unit = _write_test_source_unit(
+        tmp_path,
+        "Authoritative source.",
+        citation_path="us-nc/statute/105/105-153.7",
+    )
+    run_kwargs = {
+        "citations": ["us-nc/statute/105/105-153.7"],
+        "runner_specs": ["openai:model-a"],
+        "policy_path": _canonical_rulespec_content_root(tmp_path, "us-nc"),
+        "runtime_axiom_rules_path": tmp_path / "engine",
+        "corpus_release": corpus_release,
+        "mode": "repo-augmented",
+        "target_relative_output": Path("policies/des/block-13.yaml"),
+    }
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(_QUOTE_REPAIR_SUITE_FIXTURE.read_text())
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=generate,
+        ),
+        patch(
+            "axiom_encode.harness.evals.evaluate_artifact",
+            side_effect=_yaml_parse_only_metrics,
+        ),
+    ):
+        [first] = run_model_eval(output_root=tmp_path / "first", **run_kwargs)
+    repaired = Path(first.output_file).read_bytes()
+    assert first.auto_repaired_unquoted_source_scalars == ["excerpt:102"]
+    assert first.generated_output_repaired_by_encoder is True
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=AssertionError("an accepted candidate needs no generation"),
+        ),
+        patch(
+            "axiom_encode.harness.evals.evaluate_artifact",
+            side_effect=_yaml_parse_only_metrics,
+        ),
+    ):
+        [retry] = run_model_eval(
+            output_root=tmp_path / "retry",
+            validation_retry_candidate=ValidationRetryCandidate(
+                rulespec=repaired.decode("utf-8"),
+                tests="[]\n",
+            ),
+            accept_valid_retry_candidate=True,
+            **run_kwargs,
+        )
+
+    assert retry.success is True
+    assert Path(retry.output_file).read_bytes() == repaired
+    assert retry.generated_output_sha256 == first.generated_output_sha256
+    assert retry.auto_repaired_unquoted_source_scalars == []
+    assert retry.generated_output_repaired_by_encoder is False
+    payload = retry.to_dict()
+    assert "auto_repaired_unquoted_source_scalars" not in payload
+    assert "generated_output_repaired_by_encoder" not in payload
+
+
+def _rehash_quote_repair_suite_row(output_root: Path, mutate) -> None:
+    """Edit the persisted result and recompute its public `result_sha256`."""
+
+    ledger_path = output_root / "suite-results.jsonl"
+    row = json.loads(ledger_path.read_text())
+    mutate(row["result"])
+    row["result"] = _bind_eval_result_payload(row["result"])
+    ledger_path.write_text(json.dumps(row, sort_keys=True) + "\n")
+
+
+def test_eval_suite_signs_the_encoder_quote_repair_record(tmp_path):
+    result, output_root, resume = _quote_repair_eval_suite(tmp_path)
+
+    assert result.success is True
+    assert result.auto_repaired_unquoted_source_scalars == ["excerpt:102"]
+    assert result.generated_output_repaired_by_encoder is True
+    ledger = json.loads((output_root / "suite-results.jsonl").read_text())
+    assert ledger["result"]["auto_repaired_unquoted_source_scalars"] == ["excerpt:102"]
+    assert ledger["result"]["generated_output_repaired_by_encoder"] is True
+    signed = json.loads(Path(result.verdict_file).read_text())
+    assert signed["schema"] == "axiom-encode/eval-result-verdict/v6"
+    assert signed["generation"]["auto_repaired_unquoted_source_scalars"] == [
+        "excerpt:102"
+    ]
+    assert signed["generation"]["generated_output_repaired_by_encoder"] is True
+    assert set(signed["generation"]) == (
+        _VERDICT_GENERATION_KEYS_BEFORE_QUOTE_REPAIR_RECORD
+        | {
+            "auto_repaired_unquoted_source_scalars",
+            "generated_output_repaired_by_encoder",
+        }
+    )
+
+    [resumed] = resume()
+
+    assert resumed.to_dict() == result.to_dict()
+
+
+def test_eval_suite_result_without_a_quote_repair_keeps_its_signed_shape(tmp_path):
+    result, output_root, resume = _quote_repair_eval_suite(tmp_path, needs_repair=False)
+
+    assert result.success is True
+    ledger = json.loads((output_root / "suite-results.jsonl").read_text())
+    assert "auto_repaired_unquoted_source_scalars" not in ledger["result"]
+    assert "generated_output_repaired_by_encoder" not in ledger["result"]
+    signed = json.loads(Path(result.verdict_file).read_text())
+    assert signed["schema"] == "axiom-encode/eval-result-verdict/v6"
+    # Evidence signed before the record existed has exactly these keys, so a
+    # former signature still verifies against the payload rebuilt today.
+    assert set(signed["generation"]) == (
+        _VERDICT_GENERATION_KEYS_BEFORE_QUOTE_REPAIR_RECORD
+    )
+
+    [resumed] = resume()
+
+    assert resumed.to_dict() == result.to_dict()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    (
+        # Each edit also recomputes the public `result_sha256`.
+        (
+            lambda payload: (
+                payload.pop("auto_repaired_unquoted_source_scalars"),
+                payload.pop("generated_output_repaired_by_encoder"),
+            ),
+            "authenticated generation",
+        ),
+        (
+            lambda payload: payload.update(
+                auto_repaired_unquoted_source_scalars=["excerpt:103"]
+            ),
+            "authenticated generation",
+        ),
+        (
+            lambda payload: payload.update(
+                auto_repaired_unquoted_source_scalars=["excerpt:102", "excerpt:106"]
+            ),
+            "authenticated generation",
+        ),
+        (
+            lambda payload: payload.pop("auto_repaired_unquoted_source_scalars"),
+            "inconsistent encoder quote-repair record",
+        ),
+        (
+            lambda payload: payload.pop("generated_output_repaired_by_encoder"),
+            "inconsistent encoder quote-repair record",
+        ),
+        (
+            lambda payload: payload.update(generated_output_repaired_by_encoder=False),
+            "inconsistent encoder quote-repair record",
+        ),
+        (
+            lambda payload: payload.update(auto_repaired_unquoted_source_scalars=[]),
+            "inconsistent encoder quote-repair record",
+        ),
+    ),
+    ids=(
+        "delete-both",
+        "change-line",
+        "add-line",
+        "delete-lines",
+        "delete-flag",
+        "flag-false",
+        "lines-empty",
+    ),
+)
+def test_eval_suite_resume_rejects_a_rehashed_quote_repair_record(
+    mutation, expected_error, tmp_path
+):
+    _result, output_root, resume = _quote_repair_eval_suite(tmp_path)
+    _rehash_quote_repair_suite_row(output_root, mutation)
+
+    with pytest.raises(ValueError, match=expected_error):
+        resume()
+
+
+def test_eval_suite_resume_rejects_a_quote_repair_record_added_after_signing(
+    tmp_path,
+):
+    _result, output_root, resume = _quote_repair_eval_suite(
+        tmp_path, needs_repair=False
+    )
+    _rehash_quote_repair_suite_row(
+        output_root,
+        lambda payload: payload.update(
+            auto_repaired_unquoted_source_scalars=["excerpt:102"],
+            generated_output_repaired_by_encoder=True,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="authenticated generation"):
+        resume()
+
+
+@pytest.mark.parametrize(
+    "record",
+    (
+        {"auto_repaired_unquoted_source_scalars": ["excerpt:102"]},
+        {"generated_output_repaired_by_encoder": True},
+        {
+            "auto_repaired_unquoted_source_scalars": [],
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["excerpt:102"],
+            "generated_output_repaired_by_encoder": False,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["excerpt:102"],
+            "generated_output_repaired_by_encoder": "true",
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["excerpt:102"],
+            "generated_output_repaired_by_encoder": 1,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": "excerpt:102",
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": [102],
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["header:3"],
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["excerpt:0"],
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": ["excerpt:102\n"],
+            "generated_output_repaired_by_encoder": True,
+        },
+        {
+            "auto_repaired_unquoted_source_scalars": None,
+            "generated_output_repaired_by_encoder": None,
+        },
+    ),
+)
+def test_persisted_eval_result_rejects_a_malformed_quote_repair_record(record):
+    payload = _fake_eval_result("runner", "citation").to_dict()
+    payload.pop("result_sha256")
+    payload.update(record)
+
+    with pytest.raises(ValueError, match="inconsistent encoder quote-repair record"):
+        _eval_result_from_payload(_bind_eval_result_payload(payload))
+
+
+def test_persisted_quote_repair_record_requires_a_generated_rulespec():
+    payload = _fake_eval_result("runner", "citation").to_dict()
+    payload.pop("result_sha256")
+    payload.update(
+        success=False,
+        error="No RuleSpec content returned",
+        failure_kind="error",
+        metrics=None,
+        output_file="",
+        generated_output_sha256=None,
+        auto_repaired_unquoted_source_scalars=["excerpt:102"],
+        generated_output_repaired_by_encoder=True,
+    )
+
+    with pytest.raises(ValueError, match="inconsistent encoder quote-repair record"):
+        _eval_result_from_payload(_bind_eval_result_payload(payload))
+
+
+@pytest.mark.parametrize(
+    ("lines", "flag"),
+    ((["excerpt:102"], False), ([], True), (["header:3"], True)),
+)
+def test_verdict_evidence_refuses_an_inconsistent_quote_repair_record(lines, flag):
+    result = _fake_eval_result("runner", "citation")
+    result.admission = {"schema": "test-admission"}
+    result.auto_repaired_unquoted_source_scalars = lines
+    result.generated_output_repaired_by_encoder = flag
+
+    with pytest.raises(ValueError, match="inconsistent encoder quote-repair record"):
+        evals_module._eval_result_verdict_evidence_payload(result, result.admission)
+
+
 def test_model_eval_marks_each_encode_try_phase_in_order(tmp_path):
     """Inside an encode try, one generation walks prepare -> model call ->
     staging -> validation -> result recording, each a timeline phase."""
@@ -3518,6 +4094,284 @@ rules:
 """
 
     assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
+
+
+def test_admin_agency_aggregate_scopes_mixed_regulation_to_rule_paragraph():
+    source_text = (
+        "(a) Work requirements. Each household member who is not exempt must "
+        "comply with SNAP work requirements.\n"
+        "(i) Register for work or be registered by the State agency.\n"
+        "(b) State agency quality control. The State agency shall calculate "
+        "its payment error rate from the quality control sample.\n"
+        "(c) Other requirements.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_paths:
+      - us/regulation/7/273/7
+      - us/statute/7/2015/d/2
+rules:
+  - name: snap_member_work_requirement_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 CFR 273.7(a)(1)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: member_not_exempt
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Year
+    source: 7 CFR 273.7(b)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: payment_error_rate
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_uses_statutory_rule_proof_in_mixed_source():
+    source_text = (
+        "(a) Each household member must comply with SNAP work requirements.\n"
+        "(b) State agency quality control. The State agency shall calculate "
+        "its payment error rate from the quality control sample.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/7
+rules:
+  - name: snap_member_statutory_work_registration_exemption_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: 7 U.S.C. 2015(d)(2)
+    versions:
+      - effective_from: '2025-07-04'
+        formula: member_cares_for_dependent_child_under_six
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2015/d/2
+              excerpt: a parent or other member of a household with responsibility for the care of a dependent child under age six
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2015/d/2
+              excerpt: a bona fide student enrolled at least half time in any recognized school
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2015/d/2
+              excerpt: a person between the ages of sixteen and eighteen who is not a head of a household
+"""
+
+    assert find_admin_agency_aggregate_entity_issues(content, source_text) == []
+
+
+def test_admin_agency_aggregate_incomplete_proof_keeps_source_context():
+    source_text = (
+        "The State agency's payment error rate determines its liability. "
+        "The amount is multiplied by 6 percent, and 10 percent."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate_liability
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    source: 7 CFR 275.23(d)(2)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: issued_allotments * payment_error_rate * 0.10
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/7/275/23
+              excerpt: 6 percent, and 10 percent.
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate_liability`" in issues[0]
+
+
+def test_admin_agency_aggregate_paragraph_keeps_governing_introduction():
+    source_text = (
+        "The State agency's payment error rate determines its liability.\n"
+        "(a) The amount is multiplied by 6 percent, and 10 percent.\n"
+        "(b) Other requirements.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate_liability
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    source: 7 CFR 275.23(a)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: issued_allotments * payment_error_rate * 0.10
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate_liability`" in issues[0]
+
+
+def test_admin_agency_aggregate_same_statute_proof_keeps_source_context():
+    source_text = (
+        "The State agency's payment error rate is calculated using the "
+        "allotments issued to each household member."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/7/2025
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Household
+    dtype: Decimal
+    period: Year
+    source: 7 U.S.C. 2025(c)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: payment_error_rate
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2025
+              excerpt: allotments issued to each household member
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_cross_statute_fragment_keeps_source_context():
+    source_text = (
+        "The State agency's payment error rate is calculated using the "
+        "allotments issued to each household member."
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Household
+    dtype: Decimal
+    period: Year
+    source: 7 U.S.C. 2025(c)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: payment_error_rate
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/7/2025
+              excerpt: allotments issued to each household member
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_nested_roman_does_not_end_paragraph():
+    source_text = (
+        "".join(f"({letter}) Other requirements.\n" for letter in "abcdefg")
+        + "(h) Each household member is counted for the following State agency measure.\n"
+        + "(1) Calculation.\n"
+        + "(i) The State agency shall calculate its payment error rate from the quality control sample.\n"
+        + "(i) Other rules.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/275/23
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Year
+    source: 7 CFR 275.23(h)(1)(i)
+    versions:
+      - effective_from: '2003-10-01'
+        formula: payment_error_rate
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
+
+
+def test_admin_agency_aggregate_mixed_citation_disables_person_scope():
+    source_text = (
+        "(a) Each household member must comply with work requirements.\n"
+        "(b) The following persons are exempt from work requirements.\n"
+        "(c) Other requirements.\n"
+        "(h) The State agency shall calculate its payment error rate from "
+        "the quality control sample.\n"
+    )
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/7
+rules:
+  - name: state_agency_payment_error_rate
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Year
+    source: 7 CFR 273.7(a)(1); 7 CFR 273.7(h)
+    versions:
+      - effective_from: '2025-10-01'
+        formula: payment_error_rate
+"""
+
+    issues = find_admin_agency_aggregate_entity_issues(content, source_text)
+
+    assert len(issues) == 1
+    assert "`state_agency_payment_error_rate`" in issues[0]
 
 
 def test_source_identifier_maps_federal_regulation_to_cfr_repo_path():
@@ -9583,6 +10437,130 @@ rules: []
             for call in mock_repair.call_args_list
         )
 
+    # Run 2b708c06 (encoder 0.2.2371) recorded this issue for its candidate.
+    _TRAILING_COLON_PARSE_ISSUE = (
+        "block-13.yaml YAML parse failed: mapping values are not allowed here\n"
+        '  in "<unicode string>", line 102, column 128:\n'
+        "     ... ll of the following requirements:\n"
+        "                                         ^"
+    )
+    _TRAILING_COLON_FIXTURE = (
+        Path(__file__).parent
+        / "fixtures"
+        / "generated_yaml_scanner"
+        / "az_faa5_medical_block13_run2b708c06_rejected.yaml"
+    )
+
+    def test_generated_eval_repairs_quote_a_trailing_colon_excerpt(self, tmp_path):
+        rulespec_file = tmp_path / "block-13.yaml"
+        original = self._TRAILING_COLON_FIXTURE.read_text()
+        rulespec_file.write_text(original)
+
+        repairs = evals_module._apply_generated_eval_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            issues=[self._TRAILING_COLON_PARSE_ISSUE],
+            local_corpus_release=object(),
+        )
+
+        assert repairs == ["source_scalar_quote:excerpt:102"]
+        repaired = rulespec_file.read_text()
+        assert repaired == original.replace(
+            "excerpt: Discuss and document the case file(g) whether the service "
+            "animal meets all of the following requirements:\n",
+            "excerpt: 'Discuss and document the case file(g) whether the service "
+            "animal meets all of the following requirements:'\n",
+        )
+        assert yaml.safe_load(repaired)["format"] == "rulespec/v1"
+
+    @pytest.mark.parametrize(
+        "issue",
+        (
+            # The parse issue of another file, here the companion tests.
+            _TRAILING_COLON_PARSE_ISSUE.replace("block-13.yaml", "block-13.test.yaml"),
+            # Another parse problem.
+            "block-13.yaml YAML parse failed: found duplicate key 'rules'",
+        ),
+    )
+    def test_generated_eval_repairs_quote_only_for_the_rulespec_colon_issue(
+        self, issue, tmp_path
+    ):
+        rulespec_file = tmp_path / "block-13.yaml"
+        original = self._TRAILING_COLON_FIXTURE.read_text()
+        rulespec_file.write_text(original)
+
+        repairs = evals_module._apply_generated_eval_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            issues=[issue],
+            local_corpus_release=object(),
+        )
+
+        assert repairs == []
+        assert rulespec_file.read_text() == original
+
+    def test_generated_eval_repairs_leave_a_refused_colon_line_unchanged(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "block-13.yaml"
+        original = "format: rulespec/v1\nrules:\n  - header: The tax is:\n"
+        rulespec_file.write_text(original)
+
+        repairs = evals_module._apply_generated_eval_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            issues=[
+                "block-13.yaml YAML parse failed: mapping values are not "
+                'allowed here\n  in "<unicode string>", line 3, column 25:'
+            ],
+            local_corpus_release=object(),
+        )
+
+        assert repairs == []
+        assert rulespec_file.read_text() == original
+
+    def test_generated_eval_rescores_after_quoting_a_trailing_colon_excerpt(
+        self, tmp_path
+    ):
+        rulespec_file = tmp_path / "block-13.yaml"
+        rulespec_file.write_text(self._TRAILING_COLON_FIXTURE.read_text())
+        rejected = SimpleNamespace(
+            compile_pass=False,
+            compile_issues=[self._TRAILING_COLON_PARSE_ISSUE],
+            ci_pass=False,
+            ci_issues=[self._TRAILING_COLON_PARSE_ISSUE],
+        )
+        parsed = SimpleNamespace(
+            compile_pass=True, compile_issues=[], ci_pass=True, ci_issues=[]
+        )
+        seen_parseable = []
+
+        def evaluate(**kwargs):
+            try:
+                yaml.safe_load(kwargs["rulespec_file"].read_text())
+            except yaml.YAMLError:
+                seen_parseable.append(False)
+                return rejected
+            seen_parseable.append(True)
+            return parsed
+
+        with patch(
+            "axiom_encode.harness.evals.evaluate_artifact", side_effect=evaluate
+        ):
+            result = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path / "rulespec-us",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                source_text="Source body",
+                local_corpus_release=object(),
+            )
+
+        assert result is parsed
+        assert seen_parseable == [False, True]
+
     def test_generated_eval_repair_rounds_are_bounded(self, tmp_path):
         rulespec_file = tmp_path / "artifact.yaml"
         rulespec_file.write_text("initial\n")
@@ -10666,6 +11644,783 @@ rules:
         assert metrics.numeric_occurrence_issues == [
             "Source numeric value 1 appears 1 time(s), but only 0 named scalar "
             "definition(s) with that value were found."
+        ]
+
+    @pytest.mark.parametrize(
+        ("candidate_overrides", "provider_rules", "expected_missing_values"),
+        [
+            pytest.param(
+                {"imports": "us-az:policies/example/provider#expense_disregard"},
+                (("expense_disregard", 35),),
+                (),
+                id="imported-symbol-with-source-value",
+            ),
+            pytest.param(
+                {"imports": "policies/example/provider#expense_disregard"},
+                (("expense_disregard", 35),),
+                (35,),
+                id="unprefixed-import-the-engine-cannot-load",
+            ),
+            pytest.param(
+                {
+                    "module_sibling": """x-base: &base
+  imports:
+    - us-az:policies/example/provider#expense_disregard
+<<: *base
+""",
+                    "rules": """  - name: expense_after_disregard
+    kind: derived
+    entity: Household
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2020-01-01'
+        formula: max(0, claimed_expense - expense_disregard)
+""",
+                    "loaded_imports": True,
+                },
+                (("expense_disregard", 35),),
+                (35,),
+                id="imports-supplied-only-by-a-yaml-merge-key",
+            ),
+            pytest.param(
+                {
+                    "imports": "us-az:policies/example/provider#expense_disregard",
+                    "rules": """  - name: expense_after_disregard
+    kind: derived
+    entity: Household
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2020-01-01'
+        formula: max(0, claimed_expense - expense_disregard)
+""",
+                },
+                (("expense_disregard", 35),),
+                (),
+                id="imported-symbol-used-in-a-formula",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/provider#expense_disregard"},
+                (("expense_disregard", 36),),
+                (35,),
+                id="imported-symbol-with-different-value",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/provider#expense_disregard"},
+                (("expense_disregard", 36), ("unimported_amount", 35)),
+                (35,),
+                id="value-only-on-unimported-sibling",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/provider#expense_disregard_limit"},
+                (("expense_disregard", 35),),
+                (35,),
+                id="imported-symbol-longer-than-parameter-name",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/provider#expense"},
+                (("expense_disregard", 35),),
+                (35,),
+                id="imported-symbol-is-a-prefix-of-parameter-name",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/provider#Expense_Disregard"},
+                (("expense_disregard", 35),),
+                (35,),
+                id="imported-symbol-differs-in-case",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/provider"},
+                (("expense_disregard", 35),),
+                (35,),
+                id="file-level-import-without-symbol",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/provider #expense_disregard"},
+                (("expense_disregard", 35),),
+                (35,),
+                id="yaml-comment-after-file-level-import",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/provider # expense_disregard"},
+                (("expense_disregard", 35),),
+                (35,),
+                id="yaml-spaced-comment-after-file-level-import",
+            ),
+            pytest.param(
+                {"imports": '"us-az:policies/example/provider # expense_disregard"'},
+                (("expense_disregard", 35),),
+                (35,),
+                id="quoted-item-with-whitespace-beside-hash",
+            ),
+            pytest.param(
+                {"imports": '"us-az:policies/example/provider#expense_disregard "'},
+                (("expense_disregard", 35),),
+                (35,),
+                id="quoted-item-with-trailing-whitespace",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/provider#junk#expense_disregard"},
+                (("expense_disregard", 35),),
+                (35,),
+                id="more-than-one-hash",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/provider#expense-disregard"},
+                (("expense-disregard", 35),),
+                (35,),
+                id="symbol-is-not-an-identifier",
+            ),
+            pytest.param(
+                {"imports": "us-az:policies/example/absent#expense_disregard"},
+                (("expense_disregard", 35),),
+                (35,),
+                id="unresolved-import-target",
+            ),
+            pytest.param(
+                {},
+                (("expense_disregard", 35),),
+                (35,),
+                id="no-import-and-no-parameter",
+            ),
+            pytest.param(
+                {
+                    "module": """  summary: |
+    imports:
+      - us-az:policies/example/provider#expense_disregard
+"""
+                },
+                (("expense_disregard", 35),),
+                (35,),
+                id="imports-text-inside-summary-block-scalar",
+            ),
+            pytest.param(
+                {
+                    "module": """  imports:
+    - us-az:policies/example/provider#expense_disregard
+"""
+                },
+                (("expense_disregard", 35),),
+                (35,),
+                id="imports-key-nested-under-module",
+            ),
+            pytest.param(
+                {
+                    "rules": """    description: |
+      imports:
+        - us-az:policies/example/provider#expense_disregard
+"""
+                },
+                (("expense_disregard", 35),),
+                (35,),
+                id="imports-text-inside-rule-description",
+            ),
+        ],
+    )
+    def test_complete_mode_occurrences_credit_only_exact_imported_scalars(
+        self,
+        tmp_path,
+        candidate_overrides,
+        provider_rules,
+        expected_missing_values,
+    ):
+        citation_path = "us-az/manual/example/block-1"
+        source_text = "A $35 disregard applies to the combined expenses."
+        corpus_release = _write_test_corpus_provision(
+            tmp_path,
+            citation_path=citation_path,
+            body=source_text,
+        )
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us-az")
+        provider = policy_repo_root / "policies/example/provider.yaml"
+        provider.parent.mkdir(parents=True)
+        provider.write_text(
+            "format: rulespec/v1\nrules:\n"
+            + "".join(
+                f"""  - name: {name}
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2020-01-01'
+        formula: {value}
+"""
+                for name, value in provider_rules
+            ),
+            encoding="utf-8",
+        )
+        import_item = candidate_overrides.get("imports")
+        imports_block = f"imports:\n  - {import_item}\n" if import_item else ""
+        rulespec_file = policy_repo_root / "policies/example/block-1.yaml"
+        candidate = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation_path}
+{candidate_overrides.get("module", "")}{candidate_overrides.get("module_sibling", "")}{imports_block}rules:
+  - name: claimed_expense
+    kind: input
+    entity: Household
+    dtype: Money
+    unit: USD
+{candidate_overrides.get("rules", "")}"""
+        rulespec_file.write_text(candidate, encoding="utf-8")
+        payload = yaml.safe_load(candidate)
+        assert isinstance(payload["rules"], list)
+        if candidate_overrides.get("loaded_imports"):
+            # PyYAML applies the merge key; the rules engine does not.
+            assert payload["imports"] == [
+                "us-az:policies/example/provider#expense_disregard"
+            ]
+        elif import_item is None:
+            # The fake-block cases carry the import text but no real import.
+            assert "imports" not in payload
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                return_value=ValidationResult("ci", passed=True),
+            ),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=policy_repo_root,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                source_text=source_text,
+                local_corpus_release=corpus_release,
+                source_citation_path=citation_path,
+                require_complete_source_unit=True,
+                skip_reviewers=True,
+            )
+
+        assert metrics.source_numeric_occurrence_count == 1
+        assert metrics.numeric_occurrence_issues == [
+            f"Source numeric value {value} appears 1 time(s), but only 0 named "
+            "scalar definition(s) with that value were found."
+            for value in expected_missing_values
+        ]
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "  - us-az:policies/example/provider#expense_disregard\n"
+                "rules: [unterminated\n",
+                id="unparsable-yaml",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "  item: us-az:policies/example/provider#expense_disregard\n"
+                "rules: []\n",
+                id="imports-is-a-mapping",
+            ),
+            pytest.param(
+                "format: rulespec/v1\n"
+                "imports: us-az:policies/example/provider#expense_disregard\n"
+                "rules: []\n",
+                id="imports-is-a-string",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "  - [us-az:policies/example/provider#expense_disregard]\n"
+                "rules: []\n",
+                id="import-item-is-a-list",
+            ),
+            pytest.param(
+                "- imports:\n    - us-az:policies/example/provider#expense_disregard\n",
+                id="document-is-not-a-mapping",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "  - policies/example/../example/provider#expense_disregard\n"
+                "rules: []\n",
+                id="unsafe-parent-directory-target",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "  - us-az:/policies/example/provider#expense_disregard\n"
+                "rules: []\n",
+                id="prefixed-target-rejected-by-target-parser",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "  - policies/example/provider#junk#expense_disregard\n"
+                "rules: []\n",
+                id="unprefixed-target-with-more-than-one-hash",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                '  - "policies/example/provider #expense_disregard"\n'
+                "rules: []\n",
+                id="unprefixed-quoted-target-with-whitespace-before-hash",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                '  - " policies/example/provider#expense_disregard"\n'
+                "rules: []\n",
+                id="unprefixed-quoted-target-with-leading-whitespace",
+            ),
+            pytest.param(
+                'format: rulespec/v1\nimports:\n  - "#expense_disregard"\nrules: []\n',
+                id="symbol-without-target",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-base: &base\n  imports:\n    - us-az:policies/example/provider#expense_disregard\n<<: *base\nrules: []\n",
+                id="merge-key-supplies-imports",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-base: &base\n  module: {}\n<<: *base\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="merge-key-beside-direct-imports",
+            ),
+            pytest.param(
+                "format: rulespec/v1\n<<:\n  module: {}\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="merge-key-without-alias-beside-direct-imports",
+            ),
+            pytest.param(
+                'format: rulespec/v1\n"<<":\n  module: {}\nimports:\n'
+                "  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="quoted-merge-key-beside-direct-imports",
+            ),
+            pytest.param(
+                "format: rulespec/v1\n? [a, b]\n: 1\n<<:\n  module: {}\nimports:\n"
+                "  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="merge-key-after-a-non-scalar-key",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="duplicate-imports-key",
+            ),
+            pytest.param(
+                'format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\n"imports": []\nrules: []\n',
+                id="duplicate-imports-key-with-quoted-spelling",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-list: &list\n  - us-az:policies/example/provider#expense_disregard\nimports: *list\nrules: []\n",
+                id="imports-value-is-an-alias",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports: &list\n  - us-az:policies/example/provider#expense_disregard\nx-list: *list\nrules: []\n",
+                id="imports-list-is-aliased-elsewhere",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-item: &item us-az:policies/example/provider#expense_disregard\nimports:\n  - *item\nrules: []\n",
+                id="import-item-is-an-alias",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-a: &a 1\nx-b: *a\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="alias-anywhere-in-the-file",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n---\nformat: rulespec/v1\nrules: []\n",
+                id="multi-document-file",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nrules: []\n---\nformat: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="multi-document-file-with-imports-in-the-second",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - !!str us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="tagged-import-item",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports: !!seq\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="tagged-imports-sequence",
+            ),
+            pytest.param(
+                "format: rulespec/v1\n!!str imports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="tagged-imports-key",
+            ),
+            pytest.param(
+                "!!map\nformat: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="tagged-document-root",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-note: !custom note\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="explicit-tag-anywhere-in-the-file",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\n  - 5\nrules: []\n",
+                id="non-string-item-beside-a-valid-item",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\n  - null\nrules: []\n",
+                id="null-item-beside-a-valid-item",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\n  - [us-az:policies/example/provider#expense_disregard]\nrules: []\n",
+                id="nested-list-item-beside-a-valid-item",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - policies/example/provider#expense_disregard\nrules: []\n",
+                id="unprefixed-target",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - policies/example/provider.yaml#expense_disregard\nrules: []\n",
+                id="unprefixed-target-with-yaml-suffix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - \"'policies/example/provider'#expense_disregard\"\nrules: []\n",
+                id="unprefixed-target-in-inner-quotes",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - \"'us-az:policies/example/provider'#expense_disregard\"\nrules: []\n",
+                id="prefixed-target-in-inner-quotes",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider.yaml#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-yaml-suffix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider.YAML#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-uppercase-yaml-suffix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider.yml#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-yml-suffix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider.test#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-test-suffix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/./example/provider#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-current-directory-segment",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/extra/../provider#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-parent-directory-segment",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/prov+ider#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-refused-character",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "  - us-az:policies/ex\u00e4mple/provider#expense_disregard\n"
+                "rules: []\n",
+                id="prefixed-target-with-non-ascii-letter",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="target-with-two-prefixes",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - US-AZ:policies/example/provider#expense_disregard\nrules: []\n",
+                id="uppercase-prefix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - usa:policies/example/provider#expense_disregard\nrules: []\n",
+                id="three-letter-country-prefix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies#expense_disregard\nrules: []\n",
+                id="target-with-one-path-segment",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:tests/example/provider#expense_disregard\nrules: []\n",
+                id="target-outside-the-atomic-roots",
+            ),
+        ],
+    )
+    def test_strict_imported_scalar_occurrences_refuse_malformed_imports(
+        self, tmp_path, content
+    ):
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us-az")
+        provider = policy_repo_root / "policies/example/provider.yaml"
+        provider.parent.mkdir(parents=True)
+        provider.write_text(
+            """format: rulespec/v1
+rules:
+  - name: expense_disregard
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2020-01-01'
+        formula: 35
+""",
+            encoding="utf-8",
+        )
+        for sibling in (
+            "../ex\u00e4mple/provider.yaml",
+            "provider.test.yaml",
+            "provider.yml.yaml",
+            "prov+ider.yaml",
+            "extra/placeholder.yaml",
+        ):
+            sibling_path = provider.parent / sibling
+            sibling_path.parent.mkdir(parents=True, exist_ok=True)
+            sibling_path.write_text(provider.read_text(), encoding="utf-8")
+        tests_root_copy = policy_repo_root / "tests/example/provider.yaml"
+        tests_root_copy.parent.mkdir(parents=True)
+        tests_root_copy.write_text(provider.read_text(), encoding="utf-8")
+        valid = (
+            "format: rulespec/v1\nimports:\n"
+            "  - us-az:policies/example/provider#expense_disregard\n"
+            "rules: []\n"
+        )
+
+        assert _strict_imported_named_scalar_occurrences(
+            valid, policy_repo_root
+        ) == Counter({35.0: 1})
+        assert (
+            _strict_imported_named_scalar_occurrences(content, policy_repo_root)
+            == Counter()
+        )
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param(
+                "format: rulespec/v1\n"
+                "imports: [us-az:policies/example/provider#expense_disregard]\n"
+                "rules: []\n",
+                id="flow-sequence",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "- us-az:policies/example/provider#expense_disregard\n"
+                "rules: []\n",
+                id="block-sequence-at-key-indent",
+            ),
+            pytest.param(
+                'format: rulespec/v1\n"imports":\n'
+                "  - us-az:policies/example/provider#expense_disregard\n"
+                "rules: []\n",
+                id="quoted-imports-key",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                '  - "us-az:policies/example/provider#expense_disregard"\n'
+                "rules: []\n",
+                id="quoted-item",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "  - us-az:policies/example/provider#expense_disregard\n"
+                "  - us-az:policies/example/provider\n"
+                "  - us-az:policies/example/absent#other\n"
+                "rules: []\n",
+                id="valid-item-beside-uncredited-string-items",
+            ),
+        ],
+    )
+    def test_strict_imported_scalar_occurrences_accept_in_place_import_lists(
+        self, tmp_path, content
+    ):
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us-az")
+        provider = policy_repo_root / "policies/example/provider.yaml"
+        provider.parent.mkdir(parents=True)
+        provider.write_text(
+            """format: rulespec/v1
+rules:
+  - name: expense_disregard
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2020-01-01'
+        formula: 35
+""",
+            encoding="utf-8",
+        )
+
+        assert _strict_imported_named_scalar_occurrences(
+            content, policy_repo_root
+        ) == Counter({35.0: 1})
+
+    @pytest.mark.parametrize(
+        ("import_target", "expected"),
+        [
+            ("us-az:policies/example/provider", True),
+            ("us:statutes/7/2014", True),
+            ("uk:legislation/ukpga-2012-5/s.1~a_b", True),
+            ("us-az-x1:regulations/a/b", True),
+            ("policies/example/provider", False),
+            ("us-az:us-az:policies/example/provider", False),
+            ("us-az:policies/example:provider", False),
+            (":policies/example/provider", False),
+            ("u:policies/example/provider", False),
+            ("usa:policies/example/provider", False),
+            ("US-AZ:policies/example/provider", False),
+            ("us-AZ:policies/example/provider", False),
+            ("us_az:policies/example/provider", False),
+            ("us-:policies/example/provider", False),
+            ("us-az:policies", False),
+            ("us-az:tests/example/provider", False),
+            ("us-az:programs/example/provider", False),
+            ("us-az:/policies/example/provider", False),
+            ("us-az:policies//example/provider", False),
+            ("us-az:policies/example/provider/", False),
+            ("us-az:policies/./example/provider", False),
+            ("us-az:policies/../policies/example/provider", False),
+            ("us-az:policies/example/prov+ider", False),
+            ("us-az:policies/ex\u00e4mple/provider", False),
+            ("us-az:policies/example/provider\u0661", False),
+            ("us-az:policies/example/prov ider", False),
+            ("us-az:policies/example/provider#junk", False),
+            ("us-az:policies/example/'provider'", False),
+            ("us-az:policies/example/provider\n", False),
+            ("us-az:policies/example/provider.yaml", False),
+            ("us-az:policies/example/provider.YAML", False),
+            ("us-az:policies/example/provider.yml", False),
+            ("us-az:policies/example/provider.Yml", False),
+            ("us-az:policies/example/provider.test", False),
+            ("us-az:policies/example/provider.TEST", False),
+            ("us-az:policies/example.yaml/provider", True),
+        ],
+    )
+    def test_strict_import_target_mirrors_the_engine_module_target_rule(
+        self, import_target, expected
+    ):
+        assert (
+            evals_module._strict_import_target_is_engine_loadable(import_target)
+            is expected
+        )
+
+    def test_strict_imported_scalar_occurrences_give_no_credit_for_unsafe_root(
+        self, tmp_path
+    ):
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us-az")
+        provider = policy_repo_root / "policies/example/provider.yaml"
+        provider.parent.mkdir(parents=True)
+        provider.write_text(
+            """format: rulespec/v1
+rules:
+  - name: expense_disregard
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2020-01-01'
+        formula: 35
+""",
+            encoding="utf-8",
+        )
+        content = (
+            "format: rulespec/v1\nimports:\n"
+            "  - us-az:policies/example/provider#expense_disregard\n"
+            "rules: []\n"
+        )
+        checkout_root = policy_repo_root.parent
+        assert _strict_imported_named_scalar_occurrences(
+            content, policy_repo_root
+        ) == Counter({35.0: 1})
+
+        # The same provider also exists at the flat path under the unsafe root,
+        # so only the refusal of the root keeps the value uncredited.
+        flat_provider = checkout_root / "policies/example/provider.yaml"
+        flat_provider.parent.mkdir(parents=True)
+        flat_provider.write_text(provider.read_text(), encoding="utf-8")
+        with pytest.raises(UnsafeRulespecContextPath):
+            _candidate_import_rule_files(
+                "us-az:policies/example/provider", checkout_root
+            )
+
+        assert (
+            _strict_imported_named_scalar_occurrences(content, checkout_root)
+            == Counter()
+        )
+
+    def test_strict_imported_scalar_occurrences_require_a_parsed_prefixed_target(
+        self, tmp_path
+    ):
+        # Outside a canonical checkout the file resolver falls back to a plain
+        # path join, which would accept a prefixed target the parser rejects.
+        policy_repo_root = tmp_path / "plain-policy-root"
+        provider = policy_repo_root / "policies/example/provider.yaml"
+        provider.parent.mkdir(parents=True)
+        provider.write_text(
+            """format: rulespec/v1
+rules:
+  - name: expense_disregard
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2020-01-01'
+        formula: 35
+""",
+            encoding="utf-8",
+        )
+        malformed_target = "us-az:policies//example/provider"
+        assert _candidate_import_rule_files(malformed_target, policy_repo_root) == [
+            provider.resolve()
+        ]
+
+        assert (
+            _strict_imported_named_scalar_occurrences(
+                "format: rulespec/v1\nimports:\n"
+                f"  - {malformed_target}#expense_disregard\n"
+                "rules: []\n",
+                policy_repo_root,
+            )
+            == Counter()
+        )
+
+    def test_strict_imported_scalar_occurrences_match_typed_recall_for_tables(
+        self, tmp_path
+    ):
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us-az")
+        provider = policy_repo_root / "policies/example/provider.yaml"
+        provider.parent.mkdir(parents=True)
+        provider_content = """format: rulespec/v1
+rules:
+  - name: allowance_by_size
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2020-01-01'
+        values:
+          1: 35
+          2: 60
+  - name: allowance_by_size_cap
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2020-01-01'
+        formula: 99
+"""
+        provider.write_text(provider_content, encoding="utf-8")
+        content = (
+            "format: rulespec/v1\nimports:\n"
+            "  - us-az:policies/example/provider#allowance_by_size\n"
+            "  - us-az:policies/example/provider#allowance_by_size\n"
+            "rules: []\n"
+        )
+
+        occurrences = _strict_imported_named_scalar_occurrences(
+            content, policy_repo_root
+        )
+
+        assert occurrences == Counter({1.0: 1, 35.0: 1, 2.0: 1, 60.0: 1})
+        assert occurrences == Counter(
+            value
+            for _name, value in source_completeness_module.collect_artifact_numeric_bindings(
+                "format: rulespec/v1\nrules: []\n",
+                extract_named_scalars=(
+                    validator_pipeline.extract_named_scalar_occurrences
+                ),
+                imported_symbol_contents=(("allowance_by_size", provider_content),),
+            )
+        )
+
+    def test_extract_import_targets_strips_symbols_from_regex_import_lines(self):
+        content = (
+            "format: rulespec/v1\nimports:\n"
+            "  - us-az:policies/example/provider#expense_disregard\n"
+            "  - 'policies/example/other#amount'\n"
+            "  - us:statutes/7/2014\n"
+            "rules: []\n"
+        )
+
+        assert evals_module._extract_import_targets(content) == [
+            "us-az:policies/example/provider",
+            "policies/example/other",
+            "us:statutes/7/2014",
         ]
 
     def test_complete_mode_numeric_recall_is_summary_invariant(self, tmp_path):
@@ -14359,6 +16114,59 @@ class TestEvalPrompt:
         assert "Do not use Python inline ternaries" in prompt
         assert "`x if cond else y`" in prompt
 
+    def test_build_eval_prompt_rulespec_puts_a_gated_cap_in_its_own_rule(
+        self, tmp_path
+    ):
+        from axiom_encode.prompts.encoder import _FORMULA_PROTOCOL, _TESTS_PROTOCOL
+
+        def bullet(block: str, start: str) -> str:
+            begin = block.index(start)
+            end = block.find("\n- ", begin)
+            return " ".join(block[begin : end if end != -1 else None].split())
+
+        workspace = prepare_eval_workspace(
+            citation="us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text=(
+                "Up to $40 per day for lodging is allowed when the participant "
+                "must travel over 50 miles to obtain medical treatments or services."
+            ),
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us-az"),
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = " ".join(
+            _build_eval_prompt(
+                "us-az/manual/des/faa5/na-medical-expenses-and-deduction/block-8",
+                "cold",
+                workspace,
+                [],
+                target_file_name="block-8.yaml",
+                include_tests=True,
+            ).split()
+        )
+
+        # The eval prompt carries the same two rules as the encoder prompt.
+        formula_rule = bullet(_FORMULA_PROTOCOL, '- When a source limit ("up to"')
+        tests_rule = bullet(
+            _TESTS_PROTOCOL, "- When a cap is encoded in its own derived rule"
+        )
+        assert "with no comparison" in formula_rule
+        assert (
+            "Do not put a comparison gate and the cap `min(...)` in one formula."
+            in formula_rule
+        )
+        assert "so the clamp is applied to one name" in formula_rule
+        assert "Use one clamp rule per source cap value" in formula_rule
+        assert "carries its own proof atom quoting the cap sentence" in formula_rule
+        assert "in every companion case that sets the capped amount" in tests_rule
+        assert "any derived rule that computes the capped amount" in tests_rule
+        assert "exactly at the limit" in tests_rule
+        assert formula_rule in prompt
+        assert tests_rule in prompt
+
     def test_build_eval_prompt_requires_rulespec_conditional_expression_syntax(
         self, tmp_path
     ):
@@ -16379,8 +18187,13 @@ rules:
 class TestOpenAIEvalRequest:
     @pytest.mark.parametrize(
         ("model", "expected_max_output_tokens", "explicit_cache"),
-        [("gpt-5.6-sol", 32768, True), ("gpt-4o", 16384, False)],
-        ids=["extended-gpt-5", "compatible-fallback"],
+        [
+            ("gpt-6-luna", 128000, True),
+            ("gpt-6-sol", 128000, True),
+            ("gpt-6-luna-unknown", 32768, True),
+            ("gpt-5.6-sol", 32768, True),
+            ("gpt-4o", 16384, False),
+        ],
     )
     def test_openai_prompt_eval_requests_full_rulespec_output_budget(
         self,
@@ -23313,6 +25126,125 @@ rules: []
     assert observed_amendment_sources == [{amendment_citation_path: amendment_body}]
 
 
+@pytest.mark.parametrize(
+    ("skip_reviewers", "ci_passes", "expected_phases"),
+    [
+        (False, True, ["validate", "review"]),
+        (True, True, ["validate"]),
+        # A deterministically rejected candidate never reaches the reviewer,
+        # so the live run must not claim it is in review.
+        (False, False, ["validate"]),
+    ],
+)
+def test_evaluate_artifact_reports_validate_and_review_phases(
+    tmp_path, monkeypatch, skip_reviewers, ci_passes, expected_phases
+):
+    source_citation_path = "us/statute/7/2017/a"
+    source_text = "The source amount is 100."
+    corpus_release = _write_test_corpus_provision(
+        tmp_path,
+        citation_path=source_citation_path,
+        body=source_text,
+    )
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    rules_file = policy_repo / "statutes/7/2017/a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {source_citation_path}\n"
+        "rules: []\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        ValidatorPipeline,
+        "_run_compile_check",
+        lambda _self, _path: ValidationResult("compile", passed=True),
+    )
+    monkeypatch.setattr(
+        ValidatorPipeline,
+        "_run_ci",
+        lambda _self, _path: ValidationResult(
+            "ci", passed=ci_passes, issues=[] if ci_passes else ["ci rejected"]
+        ),
+    )
+    # The autouse _mock_generalist_reviewer fixture already stubs a passing
+    # reviewer. Re-patching it with monkeypatch would restore that stub after
+    # the fixture's own teardown and leak it into later test files.
+    phases: list[str] = []
+    monkeypatch.setattr("axiom_encode.harness.evals.report_phase", phases.append)
+
+    evaluate_artifact(
+        rulespec_file=rules_file,
+        policy_repo_root=policy_repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        source_text=source_text,
+        skip_reviewers=skip_reviewers,
+        reviewers_require_deterministic_pass=True,
+        local_corpus_release=corpus_release,
+        source_citation_path=source_citation_path,
+    )
+
+    assert phases == expected_phases
+
+
+def test_run_model_eval_reports_generate_before_the_model_call(tmp_path):
+    corpus_release = _write_test_corpus_provision(
+        tmp_path,
+        citation_path="us/statute/7/2017/a",
+        body="The source amount is 100.",
+    )
+    policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+    events: list[str] = []
+
+    def prompt_eval(*_args, **_kwargs):
+        events.append("model_call")
+        response = Mock()
+        response.text = (
+            "=== FILE: a.yaml ===\n"
+            "format: rulespec/v1\n"
+            "rules: []\n"
+            "=== FILE: a.test.yaml ===\n"
+            "[]\n"
+        )
+        response.duration_ms = 1
+        response.tokens = None
+        response.estimated_cost_usd = None
+        response.actual_cost_usd = None
+        response.trace = {}
+        response.unexpected_accesses = []
+        response.error = None
+        return response
+
+    def evaluate(**_kwargs):
+        events.append("evaluate_artifact")
+        return None
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.report_phase",
+            side_effect=lambda phase: events.append(f"phase:{phase}"),
+        ),
+        patch("axiom_encode.harness.evals._run_prompt_eval", side_effect=prompt_eval),
+        patch("axiom_encode.harness.evals.evaluate_artifact", side_effect=evaluate),
+    ):
+        run_model_eval(
+            citations=["us/statute/7/2017/a"],
+            runner_specs=["codex:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_repo_root,
+            runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
+            corpus_release=corpus_release,
+            mode="cold",
+            include_tests=True,
+            skip_reviewers=True,
+        )
+
+    assert events[:2] == ["phase:generate", "model_call"]
+    assert events.count("phase:generate") == 1
+
+
 class TestSourceEval:
     def test_run_model_eval_passes_validation_options_to_evaluate_artifact(
         self,
@@ -24639,22 +26571,21 @@ def test_older_openai_models_reuse_stable_prefix_key_across_retries(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("model", "extended", "explicit_cache"),
+    ("model", "expected_tokens", "explicit_cache"),
     [
-        ("gpt-6-luna", True, True),
-        ("gpt-6-sol", True, True),
-        ("gpt-5.6-terra", True, True),
-        ("gpt-5.4", True, False),
-        ("gpt-60-luna", False, False),
-        ("gpt-4.1", False, False),
+        ("gpt-6-luna", 128000, True),
+        ("gpt-6-sol", 128000, True),
+        ("gpt-6-luna-unknown", 32768, True),
+        ("gpt-6.1-sol", 16384, False),
+        ("gpt-5.6-terra", 32768, True),
+        ("gpt-5.4", 32768, False),
+        ("gpt-60-luna", 16384, False),
+        ("gpt-4.1", 16384, False),
     ],
 )
-def test_openai_generation_gates_cover_gpt_6_models(model, extended, explicit_cache):
-    expected_tokens = (
-        evals_module._OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS
-        if extended
-        else evals_module._OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS
-    )
+def test_openai_generation_gates_cover_gpt_6_models(
+    model, expected_tokens, explicit_cache
+):
     assert evals_module._openai_prompt_max_output_tokens(model) == expected_tokens
     assert (
         evals_module._openai_model_supports_explicit_prompt_cache(model)
@@ -24729,3 +26660,80 @@ def test_eval_numeric_coverage_keeps_unrecognized_armenian_parenthetical(
     metrics = _armenian_minimum_wage_metrics(tmp_path, source, complete=complete)
 
     assert any("500" in issue for issue in metrics.numeric_occurrence_issues)
+
+
+@pytest.mark.parametrize(
+    "details", [{"reason": "max_output_tokens"}, None, "malformed"]
+)
+def test_openai_incomplete_response_retains_evidence_not_artifact(monkeypatch, details):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    payload = {
+        "status": "incomplete",
+        "incomplete_details": details,
+        "output_text": "format: rulespec/v1\nrules: []\n",
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 128000,
+            "output_tokens_details": {"reasoning_tokens": 20000},
+        },
+    }
+    response = Mock(status_code=200, headers={"x-request-id": "incomplete-test"})
+    response.json.return_value = payload
+    with patch(
+        "axiom_encode.harness.evals._post_openai_eval_request", return_value=response
+    ) as post:
+        result = evals_module._run_openai_prompt_eval(
+            parse_runner_spec("openai:gpt-6-luna"), SimpleNamespace(), "complete policy"
+        )
+    assert post.call_count == 1
+    assert result.text == ""
+    assert result.error.startswith("OpenAI response incomplete:")
+    assert result.tokens.output_tokens == 128000
+    assert result.tokens.reasoning_output_tokens == 20000
+    assert result.trace["json_result"] == payload
+    assert result.trace["request_id"] == "incomplete-test"
+    assert result.estimated_cost_usd is not None
+
+
+@pytest.mark.parametrize("reason", ["max_output_tokens", "content_filter"])
+def test_openai_incomplete_response_caller_does_not_publish_or_retry(
+    monkeypatch, tmp_path, reason
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    output = tmp_path / "artifacts" / "sample.yaml"
+    output.parent.mkdir()
+    payload = {
+        "status": "incomplete",
+        "incomplete_details": {"reason": reason},
+        "output_text": "format: rulespec/v1\nrules: []\n",
+        "usage": {"input_tokens": 100, "output_tokens": 128000},
+    }
+    response = Mock(status_code=200, headers={})
+    response.json.return_value = payload
+    with patch(
+        "axiom_encode.harness.evals._post_openai_eval_request",
+        return_value=response,
+    ) as post:
+        result, wrote, retries, paths = (
+            evals_module._run_prompt_eval_with_empty_artifact_retry(
+                parse_runner_spec("openai:gpt-6-luna"),
+                SimpleNamespace(root=workspace),
+                "complete policy",
+                output,
+                "source",
+                output.name,
+                True,
+                artifact_root=output.parent,
+            )
+        )
+    assert post.call_count == 1
+    assert result.error == f"OpenAI response incomplete: {reason}"
+    assert result.trace["json_result"] == payload
+    assert result.tokens.output_tokens == 128000
+    assert wrote is False
+    assert retries == 0
+    assert paths == frozenset()
+    assert not output.exists()
+    assert not output.with_suffix(".test.yaml").exists()

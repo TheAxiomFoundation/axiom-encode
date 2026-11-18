@@ -1,0 +1,1 @@
+Preserve child-credit and retirement-transfer evidence alongside main's separate source-obligation reservations and stricter form-caption checks. Refresh the replay snapshot and retain the valid NL479 producer record.

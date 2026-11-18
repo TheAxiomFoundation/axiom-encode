@@ -971,3 +971,55 @@ def test_publish_and_staleness_tolerate_corrupt_line(tmp_path):
     assert meta["skipped_malformed_lines"] >= 1
     status = rx.check_staleness(out_dir, log_dir)  # guard must not crash
     assert status["ok"] is True
+
+
+_PRE_ENCODE_BLOCKED_OUTCOME = {
+    "status": "pre_encode_blocked",
+    "final_success": False,
+    "standalone_validation_success": None,
+    "primary_error": "Pre-encode gate blocked the target before any model call",
+    "pre_encode_gate": {"blocked": True, "findings": [{"check": "toc_page"}]},
+}
+
+
+def test_live_pre_encode_block_skips_generate_and_apply(tmp_path):
+    writer = rx.emit_pre_encode_blocked_events(
+        "blockedrun",
+        dict(_PRE_ENCODE_BLOCKED_OUTCOME),
+        citation="us-or/manual/odhs/open/page-13",
+        backend="codex",
+        model="gpt-5.5",
+        log_dir=tmp_path,
+    )
+
+    assert writer.last_error is None
+    events = list(rl.iter_events(tmp_path / "blockedrun.jsonl"))
+    assert [(e.stage, e.status, e.reason_code) for e in events] == [
+        ("generate", "skipped", "pre_encode_blocked"),
+        ("apply", "skipped", "pre_encode_blocked"),
+    ]
+    assert events[0].attrs["pre_encode_gate"]["blocked"] is True
+    record = rl.fold_run(events)
+    assert (record.citation, record.backend, record.model) == (
+        "us-or/manual/odhs/open/page-13",
+        "codex",
+        "gpt-5.5",
+    )
+
+
+def test_backfill_pre_encode_block_claims_no_generation_or_gate():
+    events = rx.synthesize_backfill_events(
+        _fake_run(outcome=dict(_PRE_ENCODE_BLOCKED_OUTCOME)), None
+    )
+
+    assert [(e.stage, e.status) for e in events] == [
+        ("generate", rl.StageStatus.skipped.value),
+        ("apply", rl.StageStatus.skipped.value),
+    ]
+    assert all(e.attrs["backfilled"] is True for e in events)
+    record = rl.fold_run(events)
+    assert (record.citation, record.backend, record.model) == (
+        "us-ct/statute/17b-104",
+        "codex:encoder",
+        "gpt-5.5",
+    )

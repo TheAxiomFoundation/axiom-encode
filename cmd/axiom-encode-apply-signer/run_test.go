@@ -237,6 +237,81 @@ func TestLauncherForwardsCompleteSourceUnitArgumentToSupervisor(t *testing.T) {
 	}
 }
 
+func TestLauncherForwardsCodexSubscriptionPathsToSupervisor(t *testing.T) {
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedB64 := base64.StdEncoding.EncodeToString(private.Seed())
+	dump := filepath.Join(t.TempDir(), "supervisor-argv.bin")
+	supervisor := stubSupervisorArgv(t, dump)
+	auth := filepath.Join(t.TempDir(), "auth.json")
+	outbox := filepath.Join(t.TempDir(), "auth.json.refreshed")
+	config := "/opt/axiom-verification/codex-cli.json"
+	command := exec.Command(applySignerBinary,
+		"run",
+		"--scope", "apply_ed25519",
+		"--key-env", "APPLY_SIGNER_TEST_KEY",
+		"--supervisor", supervisor,
+		"--trusted-signing-roots", "/dev/null",
+		"--codex-subscription-auth", auth,
+		"--codex-auth-outbox", outbox,
+		"--trusted-codex-cli-config", config,
+		"--expected-github-repository", "TheAxiomFoundation/rulespec-uk",
+		"--allowed-workflow-ref", "TheAxiomFoundation/rulespec-uk/.github/workflows/bulk-encode.yml@refs/heads/main",
+		"--allowed-event-name", "workflow_dispatch",
+		"--", "/opt/axiom-signing/axiom-encode", "encode", "uk/statute/toy", "--backend", "codex", "--apply",
+	)
+	command.Env = append(ciEnvironmentPairs(), "APPLY_SIGNER_TEST_KEY="+seedB64)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("launcher failed: %v\n%s", err, output)
+	}
+	raw, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatalf("supervisor stub did not run: %v", err)
+	}
+	got := strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00")
+	want := []string{
+		"--apply-signer-fd", "3",
+		"--trusted-signing-roots", "/dev/null",
+		"--codex-subscription-auth", auth,
+		"--codex-auth-outbox", outbox,
+		"--trusted-codex-cli-config", config,
+		"--", "/opt/axiom-signing/axiom-encode", "encode", "uk/statute/toy", "--backend", "codex", "--apply",
+	}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("supervisor argv mismatch:\n got: %q\nwant: %q", got, want)
+	}
+	if strings.Contains(string(output), seedB64) || strings.Contains(string(raw), seedB64) {
+		t.Fatal("Codex path forwarding leaked the apply signing key")
+	}
+}
+
+func TestLauncherRequiresCompleteCodexSubscriptionPathSet(t *testing.T) {
+	base := []string{
+		"--scope", "apply_ed25519",
+		"--key-env", "APPLY_SIGNER_TEST_KEY",
+		"--supervisor", "/bin/true",
+		"--trusted-signing-roots", "/dev/null",
+		"--", "/opt/axiom-signing/axiom-encode", "encode", "uk/statute/toy", "--apply",
+	}
+	for _, partial := range [][]string{
+		{"--codex-subscription-auth", "/tmp/auth.json"},
+		{"--codex-auth-outbox", "/tmp/auth.json.refreshed"},
+		{"--trusted-codex-cli-config", "/opt/axiom-verification/codex-cli.json"},
+		{"--codex-subscription-auth", "/tmp/auth.json", "--codex-auth-outbox", "/tmp/auth.json.refreshed"},
+		{"--codex-subscription-auth", "/tmp/auth.json", "--trusted-codex-cli-config", "/opt/axiom-verification/codex-cli.json"},
+		{"--codex-auth-outbox", "/tmp/auth.json.refreshed", "--trusted-codex-cli-config", "/opt/axiom-verification/codex-cli.json"},
+	} {
+		arguments := append(append([]string{}, base[:8]...), partial...)
+		arguments = append(arguments, base[8:]...)
+		if _, err := parseRunOptions(arguments); err == nil || !strings.Contains(err.Error(), "Codex subscription auth requires") {
+			t.Fatalf("partial Codex path set %q was not refused: %v", partial, err)
+		}
+	}
+}
+
 func TestAwaitSignerReadyFailsClosedOnEarlyExit(t *testing.T) {
 	// A signer that exits without signaling (e.g. a context refusal) closes its
 	// write end: awaitSignerReady must observe EOF and refuse to deliver the key.

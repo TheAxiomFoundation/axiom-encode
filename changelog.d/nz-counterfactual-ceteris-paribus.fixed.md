@@ -1,0 +1,1 @@
+Stop counting a counterfactual rate's "(and their other circumstances were unchanged)" as a second factual gate when "that would apply to them" directly governs a subjunctive "if they were <status>" with matching pronouns, as in NZ Social Security Act 2018 Schedule 4 Part 7 clause 6A. Every other shape keeps its gates.

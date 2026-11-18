@@ -1,0 +1,10 @@
+{
+  "cases": 21,
+  "CAD_assertions": 143,
+  "source_findings": [],
+  "seconds": 154.2779894169944,
+  "unchanged_files": 534,
+  "case_index": "onebased pipeline index",
+  "result_sha256": "e394ca724ecd5245c9c4ed8c4ea98c9548392525ce7d6814399b91c4f063f25c",
+  "scope": "Genuine947clone/unchangedbcd7/895; metadata-onlycopy. Not nativeoverlay/signature/publicationproof"
+}

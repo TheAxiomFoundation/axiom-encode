@@ -1,0 +1,56 @@
+{
+  "actual-eval": {
+    "case_count": 21,
+    "full_requests_responses_equal_root_ordinary": true,
+    "artifact_equal": true,
+    "artifact_sha256": "28044aae232c9ef8029d07045ab937b4c47ae745c88128e2666cf465e6e5d0df",
+    "base532unchanged": true,
+    "base_count": 532,
+    "generated_changes": [],
+    "capture_sha256": "6bfd79bd242d4330bf164be879aae9c98b05c9f4030d1283637c670a489dcb85",
+    "ci": {
+      "passed": true,
+      "issues": [],
+      "details": {
+        "same_case_snapshot": {
+          "clone_seconds": 0.0663540420064237,
+          "closure_files": 3,
+          "executed_cases": 21
+        }
+      }
+    }
+  },
+  "actual-apply-bound": {
+    "case_count": 21,
+    "full_requests_responses_equal_root_ordinary": true,
+    "artifact_equal": true,
+    "artifact_sha256": "28044aae232c9ef8029d07045ab937b4c47ae745c88128e2666cf465e6e5d0df",
+    "base532unchanged": true,
+    "base_count": 532,
+    "generated_changes": [
+      "openai-gpt-6-sol/policies/cra/t1-2025/t1-income-net-taxable-income/step-3.yaml"
+    ],
+    "capture_sha256": "6bfd79bd242d4330bf164be879aae9c98b05c9f4030d1283637c670a489dcb85",
+    "ci": {
+      "passed": true,
+      "issues": [],
+      "details": {
+        "same_case_snapshot": {
+          "clone_seconds": 0.060693415987771004,
+          "closure_files": 3,
+          "executed_cases": 21
+        }
+      }
+    }
+  },
+  "apply_normalization": {
+    "semantic_equal": true,
+    "unified_diff": "--- \n+++ \n@@ -49,7 +49,7 @@\n   versions:\n   - effective_from: '2025-01-01'\n     effective_to: '2025-12-31'\n-    formula: '1074'\n+    formula: \"1074\"\n - name: capped_enhanced_cpp_qpp_deduction_line_22215\n   kind: derived\n   entity: Person\n@@ -220,7 +220,7 @@\n   versions:\n   - effective_from: '2025-01-01'\n     effective_to: '2025-12-31'\n-    formula: '82125'\n+    formula: \"82125\"\n - name: old_age_security_supplements_repayment_income_threshold_2025\n   kind: parameter\n   dtype: Money\n@@ -265,7 +265,7 @@\n   versions:\n   - effective_from: '2025-01-01'\n     effective_to: '2025-12-31'\n-    formula: '93454'\n+    formula: \"93454\"\n - name: social_benefits_repayment_line_23500\n   kind: derived\n   entity: Person\n",
+    "explanation": "Ordinary apply normalizes three quoted parameter formula scalars from single to double quotes; no parsed field or formula change. The harness strict byte assertion was overbroad for this normal path; original inputs and532baseline bytes stay immutable."
+  },
+  "limits": {
+    "eval": "actual deterministic compile/source/runtime pass, reviewers explicitly skipped",
+    "apply": "actual source/runtime21 pass, final successful validation snapshot refused by unmodified dirty-encoder provenance guard; not fullapplypass. No signing performed.",
+    "initial_apply_fixture": "Fresh resolver source-attestation was not generation-bound to retained context; rejected before runtime, preserved separate result."
+  }
+}

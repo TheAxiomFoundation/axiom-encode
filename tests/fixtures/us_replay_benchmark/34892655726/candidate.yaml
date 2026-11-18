@@ -1,0 +1,278 @@
+format: rulespec/v1
+inputs:
+- name: qualifying_child_count
+  entity: TaxUnit
+  dtype: Count
+  period: Year
+- name: aggregate_investment_income
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+- name: low_income_unit_count
+  entity: StateAgency
+  dtype: Count
+  period: Year
+- name: state_population
+  entity: StateAgency
+  dtype: Count
+  period: Year
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+    source_sha256: b48dc019bca26a248de96d991ee68655d0aae255a8929c0953447a6ce29affec
+  summary: 'For 2026, the source publishes earned income credit amounts by number
+    of
+
+    qualifying children and provides that the credit is not allowed if certain
+
+    investment income exceeds $12,200. For calendar year 2026, the per
+
+    low-income-unit qualified-basis amount is $8,700, and the State housing
+
+    credit ceiling uses the greater of $3.416 multiplied by State population
+
+    or $3,953,600.'
+  deferred_outputs:
+  - output: us:policies/irs/rev-proc-2025-32/page-15#earned_income_amount_for_qualifying_child_count
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#joint_return_completed_phaseout_amount
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#joint_return_threshold_phaseout_amount
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#maximum_credit_amount_for_qualifying_child_count
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#other_return_completed_phaseout_amount
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#other_return_threshold_phaseout_amount
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#earned_income_credit_allowed_under_investment_income_limit
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_completed_phaseout_amount_joint
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_completed_phaseout_amount_other
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_completed_phaseout_amounts_joint
+    reason: Generated rule used a local name that collides with a sibling RuleSpec
+      export. This output is deferred until it can be encoded with a semantic branch-specific
+      name without creating ambiguous sibling imports.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_completed_phaseout_amounts_other
+    reason: Generated rule used a local name that collides with a sibling RuleSpec
+      export. This output is deferred until it can be encoded with a semantic branch-specific
+      name without creating ambiguous sibling imports.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_earned_income_amount
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_earned_income_amounts
+    reason: Generated rule used a local name that collides with a sibling RuleSpec
+      export. This output is deferred until it can be encoded with a semantic branch-specific
+      name without creating ambiguous sibling imports.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_maximum_credit_amount
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_maximum_credit_amounts
+    reason: Generated rule used a local name that collides with a sibling RuleSpec
+      export. This output is deferred until it can be encoded with a semantic branch-specific
+      name without creating ambiguous sibling imports.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_maximum_investment_income
+    reason: Generated rule used a local name that collides with a sibling RuleSpec
+      export. This output is deferred until it can be encoded with a semantic branch-specific
+      name without creating ambiguous sibling imports.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_threshold_phaseout_amount_joint
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_threshold_phaseout_amount_other
+    reason: Generated rule depends on an output that validation deferred because it
+      flattened thresholded, capped, base-limited, or cross-referenced mechanics,
+      or borrowed an unrelated same-named section term.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_threshold_phaseout_amounts_joint
+    reason: Generated rule used a local name that collides with a sibling RuleSpec
+      export. This output is deferred until it can be encoded with a semantic branch-specific
+      name without creating ambiguous sibling imports.
+  - output: us:policies/irs/rev-proc-2025-32/page-15#eitc_threshold_phaseout_amounts_other
+    reason: Generated rule used a local name that collides with a sibling RuleSpec
+      export. This output is deferred until it can be encoded with a semantic branch-specific
+      name without creating ambiguous sibling imports.
+rules:
+- name: rehabilitation_expenditure_qualified_basis_per_low_income_unit
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.07
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: per low-income unit qualified basis amount under § 42(e)(3)(A)(ii)(II)
+            is $8,700
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '8700'
+- name: low_income_housing_credit_ceiling_per_state_resident
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.08
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: $3.416 multiplied by the State population
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '3.416'
+- name: low_income_housing_credit_minimum_state_ceiling
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.08
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: $3,953,600
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '3953600'
+- name: eitc_qualifying_child_table_index
+  kind: derived
+  entity: TaxUnit
+  dtype: Count
+  period: Year
+  source: Rev. Proc. 2025-32 section 3.06(1), earned income credit table
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: ordering
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: Number of Qualifying Children Item One Two Three or More None
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: 'if qualifying_child_count >= 3: 3 else: qualifying_child_count'
+- name: rehabilitation_expenditure_qualified_basis
+  kind: derived
+  entity: StateAgency
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.07
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: per low-income unit qualified basis amount under § 42(e)(3)(A)(ii)(II)
+            is $8,700
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:policies/irs/rev-proc-2025-32/page-15#rehabilitation_expenditure_qualified_basis_per_low_income_unit
+          output: rehabilitation_expenditure_qualified_basis_per_low_income_unit
+          hash: sha256:local
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: rehabilitation_expenditure_qualified_basis_per_low_income_unit * low_income_unit_count
+- name: state_low_income_housing_credit_ceiling
+  kind: derived
+  entity: StateAgency
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.08
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: greater of (1) $3.416 multiplied by the State population, or (2)
+            $3,953,600
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:policies/irs/rev-proc-2025-32/page-15#low_income_housing_credit_ceiling_per_state_resident
+          output: low_income_housing_credit_ceiling_per_state_resident
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:policies/irs/rev-proc-2025-32/page-15#low_income_housing_credit_minimum_state_ceiling
+          output: low_income_housing_credit_minimum_state_ceiling
+          hash: sha256:local
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: "max(\n    low_income_housing_credit_ceiling_per_state_resident * state_population,\n\
+      \    low_income_housing_credit_minimum_state_ceiling\n)"

@@ -1,0 +1,150 @@
+- name: transition_2000
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1938
+    us:statutes/42/416/l#input.is_widow_or_widower_benefit: false
+  output:
+    us:statutes/42/416/l#old_age_early_retirement_age_calendar_year: 2000
+    us:statutes/42/416/l#benefit_early_retirement_age_calendar_year: 2000
+    us:statutes/42/416/l#retirement_age_increase_factor_transition_one_months: 2
+    us:statutes/42/416/l#retirement_age_total_months: 782
+    us:statutes/42/416/l#retirement_age_for_insurance_benefit_total_months: 782
+    us:statutes/42/416/l#retirement_age_year_component: 65
+    us:statutes/42/416/l#retirement_age_month_component: 2
+- name: transition_2004
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1942
+    us:statutes/42/416/l#input.is_widow_or_widower_benefit: false
+  output:
+    us:statutes/42/416/l#old_age_early_retirement_age_calendar_year: 2004
+    us:statutes/42/416/l#benefit_early_retirement_age_calendar_year: 2004
+    us:statutes/42/416/l#retirement_age_increase_factor_transition_one_months: 10
+    us:statutes/42/416/l#retirement_age_total_months: 790
+    us:statutes/42/416/l#retirement_age_for_insurance_benefit_total_months: 790
+    us:statutes/42/416/l#retirement_age_year_component: 65
+    us:statutes/42/416/l#retirement_age_month_component: 10
+- name: transition_2017
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1955
+    us:statutes/42/416/l#input.is_widow_or_widower_benefit: false
+  output:
+    us:statutes/42/416/l#old_age_early_retirement_age_calendar_year: 2017
+    us:statutes/42/416/l#benefit_early_retirement_age_calendar_year: 2017
+    us:statutes/42/416/l#retirement_age_increase_factor_transition_two_months: 2
+    us:statutes/42/416/l#retirement_age_total_months: 794
+    us:statutes/42/416/l#retirement_age_for_insurance_benefit_total_months: 794
+    us:statutes/42/416/l#retirement_age_year_component: 66
+    us:statutes/42/416/l#retirement_age_month_component: 2
+- name: transition_2021
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1959
+    us:statutes/42/416/l#input.is_widow_or_widower_benefit: false
+  output:
+    us:statutes/42/416/l#old_age_early_retirement_age_calendar_year: 2021
+    us:statutes/42/416/l#benefit_early_retirement_age_calendar_year: 2021
+    us:statutes/42/416/l#retirement_age_increase_factor_transition_two_months: 10
+    us:statutes/42/416/l#retirement_age_total_months: 802
+    us:statutes/42/416/l#retirement_age_for_insurance_benefit_total_months: 802
+    us:statutes/42/416/l#retirement_age_year_component: 66
+    us:statutes/42/416/l#retirement_age_month_component: 10
+- name: widow_and_old_age_distinction
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2000-01-01'
+    end: '2000-12-31'
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1940
+    us:statutes/42/416/l#input.is_widow_or_widower_benefit: true
+  output:
+    us:statutes/42/416/l#old_age_early_retirement_age_calendar_year: 2002
+    us:statutes/42/416/l#benefit_early_retirement_age_calendar_year: 2000
+    us:statutes/42/416/l#retirement_age_increase_factor_transition_one_months: 6
+    us:statutes/42/416/l#retirement_age_increase_factor_transition_two_months: 0
+    us:statutes/42/416/l#retirement_age_total_months: 786
+    us:statutes/42/416/l#retirement_age_for_insurance_benefit_total_months: 782
+    us:statutes/42/416/l#retirement_age_year_component: 65
+    us:statutes/42/416/l#retirement_age_month_component: 6
+- name: old_age_1937
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1937
+    us:statutes/42/416/l#input.is_widow_or_widower_benefit: false
+  output:
+    us:statutes/42/416/l#old_age_early_retirement_age_calendar_year: 1999
+    us:statutes/42/416/l#benefit_early_retirement_age_calendar_year: 1999
+    us:statutes/42/416/l#retirement_age_total_months: 780
+    us:statutes/42/416/l#retirement_age_for_insurance_benefit_total_months: 780
+    us:statutes/42/416/l#retirement_age_year_component: 65
+    us:statutes/42/416/l#retirement_age_month_component: 0
+- name: adjoining_2005
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1943
+    us:statutes/42/416/l#input.is_widow_or_widower_benefit: false
+  output:
+    us:statutes/42/416/l#old_age_early_retirement_age_calendar_year: 2005
+    us:statutes/42/416/l#benefit_early_retirement_age_calendar_year: 2005
+    us:statutes/42/416/l#retirement_age_total_months: 792
+    us:statutes/42/416/l#retirement_age_for_insurance_benefit_total_months: 792
+    us:statutes/42/416/l#retirement_age_year_component: 66
+    us:statutes/42/416/l#retirement_age_month_component: 0
+- name: adjoining_2016
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1954
+    us:statutes/42/416/l#input.is_widow_or_widower_benefit: false
+  output:
+    us:statutes/42/416/l#old_age_early_retirement_age_calendar_year: 2016
+    us:statutes/42/416/l#benefit_early_retirement_age_calendar_year: 2016
+    us:statutes/42/416/l#retirement_age_total_months: 792
+    us:statutes/42/416/l#retirement_age_for_insurance_benefit_total_months: 792
+    us:statutes/42/416/l#retirement_age_year_component: 66
+    us:statutes/42/416/l#retirement_age_month_component: 0
+- name: adjoining_2022
+  period:
+    period_kind: custom
+    name: calendar_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/42/416/l#input.year_of_birth: 1960
+    us:statutes/42/416/l#input.is_widow_or_widower_benefit: false
+  output:
+    us:statutes/42/416/l#old_age_early_retirement_age_calendar_year: 2022
+    us:statutes/42/416/l#benefit_early_retirement_age_calendar_year: 2022
+    us:statutes/42/416/l#retirement_age_total_months: 804
+    us:statutes/42/416/l#retirement_age_for_insurance_benefit_total_months: 804
+    us:statutes/42/416/l#retirement_age_year_component: 67
+    us:statutes/42/416/l#retirement_age_month_component: 0

@@ -56,6 +56,12 @@ const (
 	evalPublicEnv          = "AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY"
 	corpusReleasePublicEnv = "AXIOM_CORPUS_RELEASE_PUBLIC_KEY"
 
+	waiverAuditWorkersEnv = "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS"
+	// A strict subset of cli._waiver_audit_worker_count: at most two ASCII
+	// digits, 0..32 inclusive. Python interprets 0 as 1 and caps by module count.
+	waiverAuditWorkersMax       = 32
+	waiverAuditWorkersMaxDigits = 2
+
 	brokerFDEnv     = "AXIOM_ENCODE_SIGNING_BROKER_FD"
 	brokerPIDEnv    = "AXIOM_ENCODE_SIGNING_BROKER_PID"
 	brokerActiveEnv = "AXIOM_ENCODE_SIGNING_BROKER_ACTIVE"
@@ -92,6 +98,14 @@ var parentOnlyEnvironmentNames = []string{
 	"GITHUB_ACTIONS",
 	"GITHUB_SHA",
 	"GITHUB_WORKSPACE",
+	// Non-secret workflow-run identity, recorded by encoder telemetry so a run
+	// row joins to the Actions run that produced it. Not read by any trust
+	// decision in the encoder.
+	"GITHUB_REPOSITORY",
+	"GITHUB_RUN_ATTEMPT",
+	"GITHUB_RUN_ID",
+	"GITHUB_SERVER_URL",
+	"GITHUB_WORKFLOW",
 	"OTEL_EXPORTER_OTLP_ENDPOINT",
 	"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
 	"OTEL_EXPORTER_OTLP_HEADERS",
@@ -118,10 +132,12 @@ type options struct {
 }
 
 type trustedCodexCLI struct {
-	Schema  string `json:"schema"`
-	Version string `json:"version"`
-	SHA256  string `json:"sha256"`
-	Path    string `json:"path"`
+	Schema             string `json:"schema"`
+	Version            string `json:"version"`
+	SHA256             string `json:"sha256"`
+	Path               string `json:"path"`
+	CodeModeHostSHA256 string `json:"code_mode_host_sha256"`
+	CodeModeHostPath   string `json:"code_mode_host_path"`
 }
 
 type brokerOptions struct {
@@ -593,6 +609,12 @@ func parseBrokerOptions(arguments []string) (brokerOptions, error) {
 }
 
 func supervise(arguments []string) error {
+	// Snapshot this one validated setting before starting any broker or child,
+	// including supervised help/probe and Codex subscription command paths.
+	waiverAuditWorkers, err := waiverAuditWorkersFromEnvironment()
+	if err != nil {
+		return err
+	}
 	if err := hardenProcess(); err != nil {
 		return fmt.Errorf("could not harden supervisor process: %w", err)
 	}
@@ -699,6 +721,7 @@ func supervise(arguments []string) error {
 		capabilityFD,
 		filepath.Dir(parsed.command[0]),
 		trustedHome,
+		waiverAuditWorkers,
 	)
 	if parsed.codexAuthPath != "" {
 		return superviseWithCodexSubscription(
@@ -740,8 +763,10 @@ func loadTrustedCodexCLI(path string) (trustedCodexCLI, error) {
 	if err := json.Unmarshal(raw, &config); err != nil {
 		return trustedCodexCLI{}, fmt.Errorf("Codex CLI config is malformed: %w", err)
 	}
-	if config.Schema != "axiom-encode/trusted-codex-cli/v1" || config.Version == "" ||
-		len(config.SHA256) != 64 || !filepath.IsAbs(config.Path) {
+	if config.Schema != "axiom-encode/trusted-codex-cli/v2" || config.Version == "" ||
+		len(config.SHA256) != 64 || !filepath.IsAbs(config.Path) ||
+		len(config.CodeModeHostSHA256) != 64 || !filepath.IsAbs(config.CodeModeHostPath) ||
+		config.CodeModeHostPath != filepath.Join(filepath.Dir(config.Path), "codex-code-mode-host") {
 		return trustedCodexCLI{}, errors.New("Codex CLI config has invalid fields")
 	}
 	trustedPath, binary, err := inspectTrustedRegularFile(config.Path, true)
@@ -759,6 +784,24 @@ func loadTrustedCodexCLI(path string) (trustedCodexCLI, error) {
 	}
 	config.Path = trustedPath
 	config.SHA256 = actual
+	// Validate the sibling used by Codex tool execution before any subscription
+	// credential is copied or any model process can start. Legacy main-binary-only
+	// configs require reprovisioning, not an implicit unverified companion lookup.
+	hostPath, host, err := inspectTrustedRegularFile(config.CodeModeHostPath, true)
+	if err != nil {
+		return trustedCodexCLI{}, fmt.Errorf("pinned Codex Code Mode host is not protected: %w", err)
+	}
+	defer host.Close()
+	hostDigest := sha256.New()
+	if _, err := io.Copy(hostDigest, host); err != nil {
+		return trustedCodexCLI{}, fmt.Errorf("could not hash pinned Codex Code Mode host: %w", err)
+	}
+	hostActual := fmt.Sprintf("%x", hostDigest.Sum(nil))
+	if !strings.EqualFold(hostActual, config.CodeModeHostSHA256) {
+		return trustedCodexCLI{}, errors.New("pinned Codex Code Mode host sha256 mismatch")
+	}
+	config.CodeModeHostPath = hostPath
+	config.CodeModeHostSHA256 = hostActual
 	return config, nil
 }
 
@@ -1390,11 +1433,43 @@ func validateStatus(
 	return nil
 }
 
+func validateWaiverAuditWorkers(raw string) error {
+	invalid := func() error {
+		return fmt.Errorf("%s must be 1-%d ASCII decimal digits with a value from 0 through %d", waiverAuditWorkersEnv, waiverAuditWorkersMaxDigits, waiverAuditWorkersMax)
+	}
+	if len(raw) == 0 || len(raw) > waiverAuditWorkersMaxDigits {
+		return invalid()
+	}
+	value := 0
+	for index := 0; index < len(raw); index++ {
+		if raw[index] < '0' || raw[index] > '9' {
+			return invalid()
+		}
+		value = value*10 + int(raw[index]-'0')
+	}
+	if value > waiverAuditWorkersMax {
+		return invalid()
+	}
+	return nil
+}
+
+func waiverAuditWorkersFromEnvironment() (string, error) {
+	raw, present := os.LookupEnv(waiverAuditWorkersEnv)
+	if !present {
+		return "", nil
+	}
+	if err := validateWaiverAuditWorkers(raw); err != nil {
+		return "", err
+	}
+	return raw, nil
+}
+
 func cleanChildEnvironment(
 	brokerPID int,
 	capabilityFD int,
 	trustedToolDirectory string,
 	trustedHome string,
+	waiverAuditWorkers string,
 ) []string {
 	// Build from empty. No ambient PATH, Git configuration, proxy, cloud
 	// credential, Supabase, or telemetry value crosses the trust boundary.
@@ -1411,6 +1486,11 @@ func cleanChildEnvironment(
 		"PYTHONDONTWRITEBYTECODE": "1",
 		"XDG_CONFIG_HOME":         filepath.Join(trustedHome, ".empty-config"),
 		"XDG_DATA_HOME":           filepath.Join(trustedHome, ".empty-data"),
+	}
+	// The caller supplies the validated snapshot; empty means absent, since an
+	// explicitly empty ambient setting is refused before any process startup.
+	if waiverAuditWorkers != "" {
+		clean[waiverAuditWorkersEnv] = waiverAuditWorkers
 	}
 	clean[brokerActiveEnv] = "1"
 	clean[trustedRuntimeEnv] = "1"

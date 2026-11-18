@@ -58,6 +58,8 @@ RUNS_PER_PAGE = 100
 # must not feed back into the streak.
 ENCODE_JOB_NAME = "Queue protected signed RuleSpec re-encode"
 ENCODE_STEP_NAME = "Encode, review, validate, and apply"
+MODEL_FREE_STEP_NAME = "Record model-free signing transaction"
+MODEL_SUCCESS_STEP_NAME = "Record completed model-capable generation"
 # At most this many per-run jobs lookups per evaluation; beyond the cap a
 # failure is counted without verification (conservative toward blocking).
 MAX_JOB_LOOKUPS = 10
@@ -155,8 +157,11 @@ def make_encode_job_checker(
 ) -> Callable[[dict], bool]:
     """Build a ``spent_model_tokens`` classifier backed by the jobs API.
 
-    A run counts as model-spending only when its encode job contains the
-    actual encode step with a non-skipped conclusion. Looking only at the
+    Failures conservatively count when the generic encode step was not
+    skipped, unless a completed queue-derived model-free marker proves no
+    generation was scheduled. Success resets require the distinct completed
+    model-capable queue marker; legacy generic successes are ambiguous.
+    Looking only at the
     enclosing job is insufficient: trusted-repair and other preflight steps
     can fail that job before the model runs. Past ``max_lookups`` (or on
     lookup errors) the classification is conservative toward blocking in both
@@ -186,6 +191,31 @@ def make_encode_job_checker(
         ]
         if not encode_jobs:
             return False
+        steps = [
+            step
+            for job in encode_jobs
+            for step in (job.get("steps") or [])
+            if isinstance(step, dict)
+        ]
+        # The legacy generic step also promotes existing bytes without a model.
+        # Its historical success is ambiguous and cannot erase failed attempts.
+        # New workflow markers are derived from the constructed operation queue,
+        # not a caller assertion. Unknown/error evidence retains conservative
+        # failure counting and never grants a success reset.
+        model_free = any(
+            step.get("name") == MODEL_FREE_STEP_NAME
+            and step.get("conclusion") == "success"
+            for step in steps
+        )
+        model_success = any(
+            step.get("name") == MODEL_SUCCESS_STEP_NAME
+            and step.get("conclusion") == "success"
+            for step in steps
+        )
+        if model_free:
+            return _unverified(run) if model_success else False
+        if run.get("conclusion") == "success":
+            return model_success
         encode_steps = [
             step
             for job in encode_jobs
@@ -354,6 +384,18 @@ def main() -> int:
     workflow_file = os.environ.get("WORKFLOW_FILE", "targeted-signed-reencode.yml")
     queue_id = os.environ.get("QUEUE_ID", "").strip()
     repair_run_id = os.environ.get("REPAIR_RUN_ID", "").strip()
+    # A reviewed exact patch is deliberately not the replay budget exemption.
+    # This is conservative routing only; the protected parser validates every
+    # wrapper field and registry binding before artifact acquisition.
+    try:
+        source_request = json.loads(os.environ.get("SOURCE_BUNDLE_JSON", ""))
+    except (ValueError, RecursionError):
+        source_request = None
+    reviewed_repair = (
+        isinstance(source_request, dict)
+        and source_request.get("schema")
+        == "axiom-encode/reviewed-repair-transaction/v1"
+    )
     metadata_migration = is_retired_source_metadata_plan(
         os.environ.get("SOURCE_BUNDLE_JSON", "")
     )
@@ -419,9 +461,9 @@ def main() -> int:
     )
     enforced = (
         queue_id == ""
-        and repair_run_id == ""
+        and (repair_run_id == "" or reviewed_repair)
         and not metadata_migration
-        and override != "true"
+        and (override != "true" or reviewed_repair)
     )
     blocked = enforced and decision.exhausted
     print(
@@ -434,9 +476,11 @@ def main() -> int:
                 decision, citation=citation, enforced=enforced, blocked=blocked
             )
         )
-    if override == "true":
+    if override == "true" and not reviewed_repair:
         print("attempt-budget: override set by dispatcher; not blocking.")
-    if repair_run_id:
+    elif override == "true":
+        print("attempt-budget: reviewed repair does not accept budget override.")
+    if repair_run_id and not reviewed_repair:
         print(
             "attempt-budget: repair replay is authenticated by the protected "
             "resolver; not blocking."

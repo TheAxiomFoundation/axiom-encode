@@ -142,6 +142,8 @@ class BoardRunnerStats:
     admission_refusal_count: int = 0
     admission_prerequisite_count: int = 0
     admission_scorer_error_count: int = 0
+    admission_not_applicable_count: int = 0
+    infrastructure_error_count: int = 0
     durations_ms: list[int] = field(default_factory=list)
     costs_usd: list[float] = field(default_factory=list)
 
@@ -1096,7 +1098,7 @@ def _payload_runner_identities(payload: dict, source: str) -> list[dict]:
         name = identity.get("name") if isinstance(identity, dict) else None
         if _is_nonempty_string(name):
             backend = identity.get("backend")
-            if backend not in {"claude", "codex", "openai"}:
+            if backend not in {"claude", "claude-api", "codex", "openai"}:
                 raise EvalBoardError(
                     f"Suite results declare runner {name!r} without a "
                     f"valid backend: {source}"
@@ -1248,6 +1250,9 @@ def _payload_execution_identity(payload: dict, source: str) -> tuple[dict, str]:
         "policyengine_runtime",
         "rulespec_roots",
     }
+    if "skip_reviewers" in identity:
+        allowed_fields.add("skip_reviewers")
+        _require_bool(identity["skip_reviewers"], context="skip_reviewers")
     if "admission_score" in identity:
         allowed_fields.add("admission_score")
         options = identity["admission_score"]
@@ -2026,6 +2031,17 @@ def _payload_admission_scoring(
         )
         if score.get("failure_kind") not in expected_kinds:
             raise EvalBoardError(f"{context} has inconsistent failure classification")
+        if score.get("applicable") is False:
+            from .admission import CLAUDE_API_ADMISSION_NOT_APPLICABLE_REASON
+
+            if (
+                result.get("backend") != "claude-api"
+                or not prerequisite
+                or score.get("not_applicable_reason")
+                != CLAUDE_API_ADMISSION_NOT_APPLICABLE_REASON
+            ):
+                raise EvalBoardError(f"{context} has invalid not-applicable evidence")
+            continue
         identity = score.get("identity")
         if not isinstance(identity, dict) or not identity:
             raise EvalBoardError(f"{context} carries no admission identity")
@@ -2318,6 +2334,23 @@ def fold_eval_board(
                 continue
             cell = _cell_for_result(result)
             cells[(case.index, name)] = cell
+            admission_score = result.get("admission_score")
+            not_applicable = (
+                isinstance(admission_score, dict)
+                and admission_score.get("applicable") is False
+            )
+            if not_applicable:
+                stats.admission_not_applicable_count += 1
+            if (
+                result.get("backend") == "claude-api"
+                and result.get("failure_kind") == "error"
+                and not result.get("output_file")
+                and "context overflow" in (result.get("error") or "").lower()
+            ):
+                # The provider rejected the exam size before a complete
+                # artifact existed. Keep its diagnostic, exclude model scoring.
+                stats.infrastructure_error_count += 1
+                continue
             stats.cases_run += 1
             if cell.duration_ms is not None:
                 stats.durations_ms.append(cell.duration_ms)
@@ -2330,8 +2363,7 @@ def fold_eval_board(
                 stats.gate_pass_count += 1
             if cell.state == "timeout":
                 stats.timeout_count += 1
-            admission_score = result.get("admission_score")
-            if isinstance(admission_score, dict):
+            if isinstance(admission_score, dict) and not not_applicable:
                 stats.admission_case_count += 1
                 if admission_score["prerequisite_failure"]:
                     stats.admission_prerequisite_count += 1
@@ -2446,6 +2478,8 @@ def eval_board_to_json(board: EvalBoard) -> dict:
                 "admission_refusal_count": stats.admission_refusal_count,
                 "admission_prerequisite_count": stats.admission_prerequisite_count,
                 "admission_scorer_error_count": stats.admission_scorer_error_count,
+                "admission_not_applicable_count": stats.admission_not_applicable_count,
+                "infrastructure_error_count": stats.infrastructure_error_count,
                 "success_count": stats.success_count,
                 "compile_pass_rate": stats.compile_pass_rate,
                 "ci_pass_rate": stats.ci_pass_rate,
@@ -2534,6 +2568,14 @@ def render_eval_board_markdown(board: EvalBoard) -> str:
             "denominator includes prerequisite failures and scorer errors, "
             "which have their own counts and are not refusals."
         )
+        if any(stats.admission_not_applicable_count for stats in ordered):
+            from .admission import CLAUDE_API_ADMISSION_NOT_APPLICABLE_REASON
+
+            lines.append("Admission N/A: " + CLAUDE_API_ADMISSION_NOT_APPLICABLE_REASON)
+    if any(stats.infrastructure_error_count for stats in ordered):
+        lines.append(
+            "Context overflow is an infrastructure error excluded from model scores."
+        )
     lines.append("")
     # Boards never scored for admission keep the four-gate columns only.
     admission_columns = (
@@ -2562,8 +2604,12 @@ def render_eval_board_markdown(board: EvalBoard) -> str:
                 gate=f"{stats.gate_pass_count}/{stats.cases_run} "
                 f"({_format_percent(stats.gate_pass_rate)})",
                 admission_cells=(
-                    f"{stats.admitted_count}/{stats.admission_case_count} | "
-                    f"{stats.admission_prerequisite_count} | "
+                    (
+                        "N/A | "
+                        if stats.admission_not_applicable_count
+                        else f"{stats.admitted_count}/{stats.admission_case_count} | "
+                    )
+                    + f"{stats.admission_prerequisite_count} | "
                     f"{stats.admission_scorer_error_count} | "
                     if board.admission_scored
                     else ""
@@ -2630,8 +2676,12 @@ def render_eval_board_text(board: EvalBoard) -> str:
             f"gate {stats.gate_pass_count}/{stats.cases_run} "
             f"({_format_percent(stats.gate_pass_rate)})  "
             + (
-                f"admission {stats.admitted_count}/{stats.admission_case_count}  "
-                f"prerequisites {stats.admission_prerequisite_count}  "
+                (
+                    "admission N/A  "
+                    if stats.admission_not_applicable_count
+                    else f"admission {stats.admitted_count}/{stats.admission_case_count}  "
+                )
+                + f"prerequisites {stats.admission_prerequisite_count}  "
                 f"scorer errors {stats.admission_scorer_error_count}  "
                 if board.admission_scored
                 else ""

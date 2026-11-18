@@ -315,7 +315,7 @@ def test_snap_readiness_propagates_missing_named_release(tmp_path):
         build_snap_readiness_report(root, corpus_root=tmp_path / "axiom-corpus")
 
 
-def test_snap_readiness_reports_populace_ready_for_configured_program_module(tmp_path):
+def test_snap_readiness_reports_microcosm_ready_for_configured_program_module(tmp_path):
     root = tmp_path / "rulespec-us"
     corpus_root = tmp_path / "axiom-corpus"
     module = root / "us-co"

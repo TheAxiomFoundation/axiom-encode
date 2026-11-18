@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-04-29",
+    "generation_input_sha256": "846140bd0e210be0f69a81dc1006c3914c81b0dd7faebedcdd978be7526601b3",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "de25d2b32f261e92405a553f65dfc90b47b032a4d1a80b1b585857b7fd342d1e",
+    "requested_corpus_citation_path": "us/regulation/7/273/4",
+    "resolved_corpus_citation_path": "us/regulation/7/273/4",
+    "resolved_text_sha256": "846140bd0e210be0f69a81dc1006c3914c81b0dd7faebedcdd978be7526601b3",
+    "row": {
+      "body_sha256": "846140bd0e210be0f69a81dc1006c3914c81b0dd7faebedcdd978be7526601b3",
+      "citation_path": "us/regulation/7/273/4",
+      "document_class": "regulation",
+      "expression_date": "2026-04-29",
+      "jurisdiction": "us",
+      "line_number": 9,
+      "provision_file": "data/corpus/provisions/us/regulation/2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained.jsonl",
+      "provision_file_sha256": "de25d2b32f261e92405a553f65dfc90b47b032a4d1a80b1b585857b7fd342d1e",
+      "record_id": "3c7f0bf5-cc4e-5a8b-b1fd-2ee868a41be8",
+      "source_as_of": "2026-04-29",
+      "source_path": "sources/us/regulation/2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained/official-documents/release-scope-us-regulation-2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained",
+      "version": "2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us",
+    "source_as_of": "2026-04-29",
+    "source_sha256": "846140bd0e210be0f69a81dc1006c3914c81b0dd7faebedcdd978be7526601b3"
+  }
+}

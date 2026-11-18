@@ -1,0 +1,33 @@
+{
+  "source_attestation": {
+    "component_rows": [],
+    "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+    "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+    "corpus_release_selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+    "corpus_source": "local",
+    "expression_date": "2026-07-21",
+    "generation_input_sha256": "57cedd89b8f52cfe56c2a993f0c944b84010b55b74102d6847e5271d7f837557",
+    "provision_file": "data/corpus/provisions/us-wa/manual/2026-07-21-wa-eaz-manual.jsonl",
+    "provision_file_sha256": "7dfd6337e8e9c5ca8c3ca129b34b6d378e06045ed95334126e0378fc7aa5a51b",
+    "requested_corpus_citation_path": "us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5",
+    "resolved_corpus_citation_path": "us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5",
+    "resolved_text_sha256": "57cedd89b8f52cfe56c2a993f0c944b84010b55b74102d6847e5271d7f837557",
+    "row": {
+      "body_sha256": "57cedd89b8f52cfe56c2a993f0c944b84010b55b74102d6847e5271d7f837557",
+      "citation_path": "us-wa/manual/dshs/eaz/esa-applications-assistance-expedited-service-basic-food/block-5",
+      "document_class": "manual",
+      "expression_date": "2026-07-21",
+      "jurisdiction": "us-wa",
+      "line_number": 99,
+      "provision_file": "data/corpus/provisions/us-wa/manual/2026-07-21-wa-eaz-manual.jsonl",
+      "provision_file_sha256": "7dfd6337e8e9c5ca8c3ca129b34b6d378e06045ed95334126e0378fc7aa5a51b",
+      "record_id": "31618eb4-9f8f-5fa7-a897-caecf29235e4",
+      "source_as_of": "2026-07-21",
+      "source_path": "sources/us-wa/manual/2026-07-21-wa-eaz-manual/official-documents/wa-dshs-eaz-018-esa-applications-assistance-expedited-service-basic-food.html",
+      "version": "2026-07-21-wa-eaz-manual"
+    },
+    "rulespec_root": "/home/runner/work/axiom-encode/axiom-encode/rulespec-us/us-wa",
+    "source_as_of": "2026-07-21",
+    "source_sha256": "57cedd89b8f52cfe56c2a993f0c944b84010b55b74102d6847e5271d7f837557"
+  }
+}

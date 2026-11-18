@@ -40,6 +40,50 @@ sys.modules[_SPEC.name] = provisioner
 _SPEC.loader.exec_module(provisioner)
 
 
+def test_reviewed_pr_selector_requires_attested_encoder(tmp_path, monkeypatch):
+    monkeypatch.setattr(provisioner, "_signing_trust_roots_payload", lambda *args: {})
+    with pytest.raises(SystemExit, match="requires an attested encoder snapshot"):
+        provisioner.provision(
+            tmp_path / "destination",
+            tmp_path / "supervisor",
+            tmp_path / "site",
+            "apply",
+            "eval",
+            "corpus",
+            Path("/usr/bin/git"),
+            reviewed_pr_selector=tmp_path / "selector",
+        )
+
+
+@pytest.mark.parametrize("mismatch", [False, True])
+def test_reviewed_pr_uses_exported_verifier_and_binds_workflow_commit(
+    tmp_path, mismatch
+):
+    package = tmp_path / "exported"
+    package.mkdir()
+    # Only this exported module can interpret the selector. No caller receipt
+    # is used as admission; the stub stands in for its trusted GitHub reader.
+    (package / "reviewed_pr_admission.py").write_text(
+        "def selector_from_payload(value):\n"
+        "    assert value == {'pr': 42}\n"
+        "    return value\n"
+        "def verify_reviewed_pr(selector):\n"
+        "    return {'workflow_commit': '" + "e" * 40 + "', 'checked_live': True}\n"
+    )
+    selector = tmp_path / "selector.json"
+    selector.write_text('{"pr":42}')
+    if mismatch:
+        with pytest.raises(SystemExit, match="attested encoder commit"):
+            provisioner._verify_reviewed_pr_selector(package, selector, "f" * 40)
+    else:
+        assert (
+            provisioner._verify_reviewed_pr_selector(package, selector, "e" * 40)[
+                "checked_live"
+            ]
+            is True
+        )
+
+
 class TestPathInside:
     def test_absolute_outside(self, tmp_path):
         runtime = (tmp_path / "runtime").resolve()
@@ -85,10 +129,16 @@ class TestPathInside:
 
 
 class TestPinnedCodexCLI:
-    def _archive(self, tmp_path: Path, binary: bytes) -> Path:
-        source = tmp_path / "package/vendor/aarch64-apple-darwin/bin/codex"
+    def _archive(
+        self,
+        tmp_path: Path,
+        binary: bytes,
+        member: str = "package/vendor/aarch64-apple-darwin/bin/codex",
+    ) -> Path:
+        source = tmp_path / member
         source.parent.mkdir(parents=True)
         source.write_bytes(binary)
+        (source.parent / "codex-code-mode-host").write_bytes(b"reviewed host")
         archive = tmp_path / "codex.tgz"
         with tarfile.open(archive, "w:gz") as bundle:
             bundle.add(tmp_path / "package", arcname="package")
@@ -108,19 +158,93 @@ class TestPinnedCodexCLI:
             "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a"
         )
 
-    @pytest.mark.parametrize("machine", ["arm64", "aarch64"])
-    def test_installs_exact_hash_pinned_binary(self, tmp_path, monkeypatch, machine):
-        binary = b"#!/bin/sh\necho codex-cli-test\n"
-        archive = self._archive(tmp_path, binary)
+    def test_reviewed_linux_x64_release_pin(self):
+        pin = provisioner._CODEX_CLI_PINS[("linux", "x64")]
+        assert provisioner._CODEX_CLI_VERSION == "0.159.0"
+        assert pin["url"] == (
+            "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-linux-x64.tgz"
+        )
+        assert pin["member"] == "package/vendor/x86_64-unknown-linux-musl/bin/codex"
+        assert pin["archive_sha256"] == (
+            "27a80e1904c7337fe65d94f881779ba7700f42a8a87f3d06352b543b0115df98"
+        )
+        assert pin["sha256"] == (
+            "d2752c52353401f7f6efbfcea68796f4f7a3d3e4769f5d1da53fa49d4856b72f"
+        )
+
+    @pytest.mark.parametrize(
+        ("key", "digest"),
+        [
+            (
+                ("darwin", "arm64"),
+                "c83b50d881ea5153fa9855cad6763fd7f847b24e60931b26513311fed3f71fbd",
+            ),
+            (
+                ("linux", "x64"),
+                "160c7ea08738447582821fbb2611ee016d6dd628853401bbc441767cb4e95ef8",
+            ),
+        ],
+    )
+    def test_reviewed_host_pins(self, key, digest):
+        pin = provisioner._CODEX_CLI_PINS[key]
+        assert pin["host_member"] == pin["member"] + "-code-mode-host"
+        assert pin["host_sha256"] == digest
+
+    @pytest.mark.parametrize("fault", ["missing", "symlink", "digest", "duplicate"])
+    def test_host_failure_does_not_publish_config(self, tmp_path, monkeypatch, fault):
+        pin = provisioner._CODEX_CLI_PINS[("darwin", "arm64")]
+        binary = b"reviewed binary"
+        self._archive(tmp_path, binary)
+        host = tmp_path / pin["host_member"]
+        if fault in {"missing", "symlink"}:
+            host.unlink()
+        if fault == "symlink":
+            host.symlink_to("codex")
+        archive = tmp_path / "changed.tgz"
+        with tarfile.open(archive, "w:gz") as bundle:
+            bundle.add(tmp_path / "package", arcname="package")
+            if fault == "duplicate":
+                bundle.add(host, arcname=pin["host_member"])
         monkeypatch.setattr(provisioner.sys, "platform", "darwin")
+        monkeypatch.setattr(provisioner.platform, "machine", lambda: "arm64")
+        monkeypatch.setitem(pin, "sha256", hashlib.sha256(binary).hexdigest())
+        monkeypatch.setitem(
+            pin, "archive_sha256", hashlib.sha256(archive.read_bytes()).hexdigest()
+        )
+        monkeypatch.setitem(pin, "host_sha256", "0" * 64)
+        destination = tmp_path / "runtime"
+        destination.mkdir()
+        with pytest.raises(SystemExit):
+            provisioner._install_pinned_codex_cli(destination, archive)
+        assert not (destination / "codex-cli.json").exists()
+
+    @pytest.mark.parametrize(
+        ("platform_name", "machine", "pin_key"),
+        [
+            ("darwin", "arm64", ("darwin", "arm64")),
+            ("darwin", "aarch64", ("darwin", "arm64")),
+            ("linux", "x86_64", ("linux", "x64")),
+            ("linux", "amd64", ("linux", "x64")),
+        ],
+    )
+    def test_installs_exact_hash_pinned_binary(
+        self, tmp_path, monkeypatch, platform_name, machine, pin_key
+    ):
+        binary = b"#!/bin/sh\necho codex-cli-test\n"
+        pin = provisioner._CODEX_CLI_PINS[pin_key]
+        archive = self._archive(tmp_path, binary, pin["member"])
+        monkeypatch.setattr(provisioner.sys, "platform", platform_name)
         monkeypatch.setattr(provisioner.platform, "machine", lambda: machine)
         monkeypatch.setitem(
-            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            pin,
             "sha256",
             provisioner.hashlib.sha256(binary).hexdigest(),
         )
         monkeypatch.setitem(
-            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            pin, "host_sha256", hashlib.sha256(b"reviewed host").hexdigest()
+        )
+        monkeypatch.setitem(
+            pin,
             "archive_sha256",
             hashlib.sha256(archive.read_bytes()).hexdigest(),
         )
@@ -131,11 +255,16 @@ class TestPinnedCodexCLI:
         assert installed.read_bytes() == binary
         assert stat.S_IMODE(installed.stat().st_mode) == 0o755
         assert config == {
-            "schema": "axiom-encode/trusted-codex-cli/v1",
+            "schema": "axiom-encode/trusted-codex-cli/v2",
             "version": "0.159.0",
             "sha256": hashlib.sha256(binary).hexdigest(),
             "path": str(installed),
+            "code_mode_host_path": str(destination / "bin/codex-code-mode-host"),
+            "code_mode_host_sha256": hashlib.sha256(b"reviewed host").hexdigest(),
         }
+        host = destination / "bin/codex-code-mode-host"
+        assert host.read_bytes() == b"reviewed host"
+        assert stat.S_IMODE(host.stat().st_mode) == 0o755
         identity = destination / "codex-cli.json"
         assert json.loads(identity.read_text()) == config
         assert stat.S_IMODE(identity.stat().st_mode) == 0o444
@@ -344,6 +473,229 @@ class TestStageRuntimeTree:
         site = runtime / "lib" / version / "site-packages"
         assert (site / "yaml.py").read_text() == "legit = True"
         assert not (site / "toolcache-only.txt").exists()
+
+
+class TestReprovisionRuntime:
+    """Exercise real staging/publication with only synthetic interpreter bytes."""
+
+    @pytest.mark.parametrize(
+        "inherited_git,inherited_attestation,attest_encoder,preplaced",
+        [
+            (True, False, False, None),
+            (False, True, True, None),
+            (True, True, True, None),
+            (False, True, False, None),
+            (True, True, True, "git"),
+            (True, True, True, "attestation"),
+        ],
+    )
+    def test_rebuilds_only_installer_owned_files_in_fresh_copy(
+        self,
+        tmp_path,
+        monkeypatch,
+        inherited_git,
+        inherited_attestation,
+        attest_encoder,
+        preplaced,
+    ):
+        source = TestStageRuntimeTree()._make_source(tmp_path)
+        interpreter = source / "bin/python3"
+        old_git = source / "bin/git"
+        old_attestation = source / "runtime-attestation.json"
+        if inherited_git:
+            old_git.write_text(f"#!{interpreter} -I\n# stale synthetic broker\n")
+        if inherited_attestation:
+            old_attestation.write_text('{"synthetic_stale_identity": true}\n')
+            old_attestation.chmod(0o444)
+        (source / "bin/keep-tool").write_text("preserved unrelated tool\n")
+        (source / "keep-metadata.json").write_text('{"keep": true}\n')
+        source_bytes = {
+            path.relative_to(source): path.read_bytes()
+            for path in source.rglob("*")
+            if path.is_file()
+        }
+        staged = tmp_path / "staged"
+        staged.mkdir()
+        supervisor = tmp_path / "supervisor"
+        supervisor.write_text("synthetic supervisor; never executed\n")
+        package = tmp_path / "exported-package"
+        package.mkdir()
+        (package / "__init__.py").write_text('__version__ = "9.9.9"\n')
+        monkeypatch.setattr(provisioner.sys, "base_prefix", str(source))
+        monkeypatch.setattr(provisioner.sys, "executable", str(interpreter))
+
+        def export_snapshot(*args):
+            # The real export also stages the reviewed RuleSpec records that
+            # provisioning copies into the runtime prefix.
+            (args[-1] / provisioner._REVIEWED_RULESPEC_REFS_EXPORT).mkdir()
+            return "9.9.9", package
+
+        monkeypatch.setattr(
+            provisioner, "_verify_and_export_encoder_snapshot", export_snapshot
+        )
+        probed = []
+        preplaced_paths = []
+
+        def probe(runtime, source_runtime, new_interpreter):
+            # The fake interpreter is never executed. Capture what exists at
+            # the first real-runtime execution boundary in production.
+            probed.append(
+                (
+                    (new_interpreter.parent / "git").exists(),
+                    (runtime / "runtime-attestation.json").exists(),
+                )
+            )
+            if preplaced:
+                path = (
+                    new_interpreter.parent / "git"
+                    if preplaced == "git"
+                    else runtime / "runtime-attestation.json"
+                )
+                path.write_text("preplaced after inherited copies were removed\n")
+                preplaced_paths.append(path)
+
+        monkeypatch.setattr(provisioner, "_assert_self_contained", probe)
+        destination = tmp_path / "new-runtime"
+        kwargs = (
+            {
+                "encoder_origin_repository": "github.com/TheAxiomFoundation/axiom-encode",
+                "encoder_commit": "a" * 40,
+                "encoder_git_root": tmp_path / "synthetic-source",
+            }
+            if attest_encoder
+            else {}
+        )
+
+        def run():
+            provisioner.provision(
+                destination,
+                supervisor,
+                staged,
+                "test-apply",
+                "test-eval",
+                "test-corpus",
+                Path("/usr/bin/git"),
+                patchelf="unused-for-non-ELF-test-files",
+                **kwargs,
+            )
+
+        if preplaced:
+            with pytest.raises(SystemExit, match="path already exists"):
+                run()
+            assert (
+                preplaced_paths[0].read_text()
+                == "preplaced after inherited copies were removed\n"
+            )
+        else:
+            run()
+
+        runtime = destination / "python"
+        new_interpreter = runtime / "bin/python3"
+        assert probed == [(False, False)]
+        if preplaced != "git":
+            assert (runtime / "bin/git").read_text().splitlines()[
+                0
+            ] == f"#!{new_interpreter} -I"
+        assert (runtime / "bin/keep-tool").read_bytes() == source_bytes[
+            Path("bin/keep-tool")
+        ]
+        assert (runtime / "keep-metadata.json").read_bytes() == source_bytes[
+            Path("keep-metadata.json")
+        ]
+        attestation = runtime / "runtime-attestation.json"
+        if attest_encoder and not preplaced:
+            metadata = json.loads(attestation.read_text())
+            assert metadata["axiom_encode"]["commit"] == "a" * 40
+            assert metadata["axiom_encode"]["version"] == "9.9.9"
+            assert "synthetic_stale_identity" not in metadata
+            assert stat.S_IMODE(attestation.stat().st_mode) == 0o444
+        elif not preplaced:
+            assert not attestation.exists()
+        assert {
+            path.relative_to(source): path.read_bytes()
+            for path in source.rglob("*")
+            if path.is_file()
+        } == source_bytes
+
+    @pytest.mark.parametrize("attest_encoder", [True, False])
+    @pytest.mark.parametrize("inherited_shape", ["directory", "file"])
+    def test_replaces_inherited_reviewed_rulespec_refs(
+        self, tmp_path, monkeypatch, attest_encoder, inherited_shape
+    ):
+        """A runtime provisioned with the encoder holds reviewed RuleSpec
+        records. Reprovisioning from it keeps none of them: encoder mode
+        installs only the new export, and the other mode installs none."""
+        source = TestStageRuntimeTree()._make_source(tmp_path)
+        interpreter = source / "bin/python3"
+        refs_name = provisioner._REVIEWED_RULESPEC_REFS_EXPORT
+        inherited = source / refs_name
+        if inherited_shape == "directory":
+            inherited.mkdir()
+            (inherited / "stale.json").write_text('{"stale": true}\n')
+        else:
+            inherited.write_text("stale record file\n")
+        source_bytes = {
+            path.relative_to(source): path.read_bytes()
+            for path in source.rglob("*")
+            if path.is_file()
+        }
+        staged = tmp_path / "staged"
+        staged.mkdir()
+        supervisor = tmp_path / "supervisor"
+        supervisor.write_text("synthetic supervisor; never executed\n")
+        package = tmp_path / "exported-package"
+        package.mkdir()
+        (package / "__init__.py").write_text('__version__ = "9.9.9"\n')
+        monkeypatch.setattr(provisioner.sys, "base_prefix", str(source))
+        monkeypatch.setattr(provisioner.sys, "executable", str(interpreter))
+
+        def export_snapshot(*args):
+            export = args[-1] / refs_name
+            export.mkdir()
+            (export / "fresh.json").write_text('{"fresh": true}\n')
+            return "9.9.9", package
+
+        monkeypatch.setattr(
+            provisioner, "_verify_and_export_encoder_snapshot", export_snapshot
+        )
+        monkeypatch.setattr(provisioner, "_assert_self_contained", lambda *a: None)
+        destination = tmp_path / "new-runtime"
+        kwargs = (
+            {
+                "encoder_origin_repository": "github.com/TheAxiomFoundation/axiom-encode",
+                "encoder_commit": "a" * 40,
+                "encoder_git_root": tmp_path / "synthetic-source",
+            }
+            if attest_encoder
+            else {}
+        )
+
+        provisioner.provision(
+            destination,
+            supervisor,
+            staged,
+            "test-apply",
+            "test-eval",
+            "test-corpus",
+            Path("/usr/bin/git"),
+            patchelf="unused-for-non-ELF-test-files",
+            **kwargs,
+        )
+
+        refs = destination / "python" / refs_name
+        if attest_encoder:
+            assert sorted(
+                path.relative_to(refs).as_posix() for path in refs.rglob("*")
+            ) == ["fresh.json"]
+            assert (refs / "fresh.json").read_text() == '{"fresh": true}\n'
+        else:
+            assert not refs.exists()
+            assert not refs.is_symlink()
+        assert {
+            path.relative_to(source): path.read_bytes()
+            for path in source.rglob("*")
+            if path.is_file()
+        } == source_bytes
 
 
 class TestSanePrefixPreflight:
@@ -1957,7 +2309,7 @@ class TestEncoderSnapshotProvisioning:
 
     GIT = Path(shutil.which("git") or "git")
     OFFICIAL = "github.com/TheAxiomFoundation/axiom-encode"
-    CODEX = {"version": "0.test", "sha256": "c" * 64}
+    CODEX = {"version": "0.test", "sha256": "c" * 64, "code_mode_host_sha256": "d" * 64}
 
     def _git(self, path: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -2396,6 +2748,19 @@ class TestEncoderSnapshotProvisioning:
             provisioner._publish_runtime_attestation(
                 runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64, self.CODEX
             )
+
+    def test_publishes_run_scoped_admission_in_readonly_attestation(self, tmp_path):
+        runtime = tmp_path / "python"
+        runtime.mkdir()
+        admission = {
+            "schema": "axiom-encode/live-reviewed-pr-admission/v1",
+            "selector": {"run_id": "123"},
+        }
+        out = provisioner._publish_runtime_attestation(
+            runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64, self.CODEX, admission
+        )
+        assert json.loads(out.read_text())["reviewed_pr_admission"] == admission
+        assert stat.S_IMODE(out.stat().st_mode) == 0o444
 
     def test_publish_refuses_preplaced_symlink(self, tmp_path):
         runtime = tmp_path / "python"

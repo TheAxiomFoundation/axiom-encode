@@ -87,7 +87,7 @@ def _build_rule_name_index(
     """Build a {rule_name: adapter} lookup from the adapter catalog.
 
     When multiple adapters declare the same rule_name (rare), the first one
-    in iteration order wins, matching Populace comparison precedence.
+    in iteration order wins, matching Microcosm comparison precedence.
     """
     index: dict[str, PolicyEngineUSVarAdapter] = {}
     for adapter in adapters:
