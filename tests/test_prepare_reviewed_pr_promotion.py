@@ -13,6 +13,7 @@ import yaml
 
 from axiom_encode import prepare_signed_backfill as helper
 from axiom_encode import reviewed_pr_admission as admission
+from tests.environment_assertions import Names, hides_environment
 
 
 def test_workflow_preflight_uses_locked_runtime_before_identity_checks():
@@ -58,7 +59,7 @@ def test_preflight_helper_resolves_canonical_path_in_installed_runtime(tmp_path)
             str(script_path),
         ],
         cwd=tmp_path,
-        env=env,
+        env=Names(env),
         text=True,
         capture_output=True,
         check=True,
@@ -133,7 +134,9 @@ def test_prepare_derives_only_selector(script, monkeypatch, tmp_path):
         "load",
         lambda name: verifier if name == "reviewed_pr_admission" else helper,
     )
-    monkeypatch.setattr(script.subprocess, "check_output", lambda *a, **kw: "a" * 40)
+    monkeypatch.setattr(
+        script.subprocess, "check_output", hides_environment(lambda *a, **kw: "a" * 40)
+    )
     monkeypatch.setenv("DISPATCH_JSON", json.dumps(dispatch()))
     script.main()
     selector = json.loads((tmp_path / "selector.json").read_text())
@@ -190,7 +193,7 @@ def test_preflight_refuses_mixed_or_unbound_inputs(
     monkeypatch.setattr(
         script.subprocess,
         "check_output",
-        lambda *a, **kw: "b" * 40 if change == "head" else "a" * 40,
+        hides_environment(lambda *a, **kw: "b" * 40 if change == "head" else "a" * 40),
     )
     monkeypatch.setenv("DISPATCH_JSON", json.dumps(payload))
     with pytest.raises(ValueError):

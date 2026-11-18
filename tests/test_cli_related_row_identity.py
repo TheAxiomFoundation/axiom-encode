@@ -9,6 +9,7 @@ import yaml
 from axiom_encode.cli import _execute_rulespec_test_case, _execute_rulespec_test_file
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from tests.environment_assertions import Names
 
 
 def _request(tmp_path, lengths, *, current_slot=1):
@@ -165,7 +166,7 @@ def test_distinct_relation_amounts_execute_without_coalescing(
         rulespec_roots=[root],
         output=artifact,
         cwd=real_engine.root,
-        env=os.environ.copy(),
+        env=Names(os.environ),
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(artifact.read_text())
@@ -174,7 +175,7 @@ def test_distinct_relation_amounts_execute_without_coalescing(
             test_file,
             binary=real_engine.binary,
             axiom_rules_path=real_engine.root,
-            env=os.environ.copy(),
+            env=Names(os.environ),
             rulespec_roots=[root],
             tmp_path=tmp_path,
             compiled_cache={module: (artifact, payload)},

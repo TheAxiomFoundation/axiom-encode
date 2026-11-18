@@ -465,6 +465,7 @@ def test_local_codex_reviewer_redacts_its_own_codex_home_tokens(
     )
     calls = []
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         calls.append(kwargs)
         return validator_pipeline._SubprocessRunResult(output=event, returncode=0)
@@ -515,6 +516,7 @@ def test_local_codex_reviewer_redacts_tokens_from_the_account_codex_home(
     )
     calls = []
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         calls.append(kwargs)
         return validator_pipeline._SubprocessRunResult(output=event, returncode=0)

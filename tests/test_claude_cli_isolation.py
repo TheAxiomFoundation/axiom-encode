@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from axiom_encode.harness import backends, evals, validator_pipeline
+from tests.environment_assertions import hides_environment
 
 
 def _upstream_environment():
@@ -16,6 +17,7 @@ def test_claude_eval_cli_removes_only_anthropic_api_key(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(evals, "scrub_attestation_signing_keys", _upstream_environment)
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
         return SimpleNamespace(stdout='{"result": "ok"}', stderr="", returncode=0)
@@ -55,6 +57,7 @@ def test_claude_reviewer_cli_removes_only_anthropic_api_key(
         lambda executables: _upstream_environment(),
     )
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
         return SimpleNamespace(output="ok", returncode=0)
@@ -76,6 +79,7 @@ def test_claude_encoder_cli_removes_only_anthropic_api_key(monkeypatch, tmp_path
         backends, "scrub_attestation_signing_keys", _upstream_environment
     )
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
         return SimpleNamespace(stdout="ok", stderr="", returncode=0)

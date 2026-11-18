@@ -4,6 +4,7 @@ import pytest
 
 from axiom_encode.notary.identity import IdentityRefusal
 from axiom_encode.notary.remote import GitHubReader, RemoteRepository, _bounded
+from tests.environment_assertions import hides_environment
 
 from .conftest import GitRepoBuilder
 from .lineage_fixtures import LANE
@@ -116,6 +117,7 @@ def test_chain_reader_rejects_merge_history():
 def test_fetch_has_clean_environment_and_does_not_echo_credentials(monkeypatch):
     with RemoteRepository(LANE, read_token="fixture-secret") as remote:
 
+        @hides_environment
         def execute(command, **kwargs):
             assert "fixture-secret" not in " ".join(command)
             assert kwargs["env"]["GIT_CONFIG_GLOBAL"] == "/dev/null"

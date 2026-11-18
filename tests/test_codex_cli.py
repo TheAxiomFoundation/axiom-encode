@@ -73,6 +73,7 @@ def test_only_the_codex_reviewer_receives_the_supervisor_codex_home(monkeypatch)
     monkeypatch.setattr(validator_pipeline, "resolve_codex_cli", lambda: "codex")
     calls = []
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
         return SimpleNamespace(output="", returncode=0)

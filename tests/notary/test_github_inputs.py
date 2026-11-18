@@ -13,7 +13,7 @@ from axiom_encode.notary.identity import IdentityRefusal, JobIdentity
 from .chain_fixtures import Epoch
 from .lineage_fixtures import LANE
 from .test_administration import genesis_args
-from .test_protection import environment, ruleset
+from .test_protection import deployment_settings, ruleset
 from .test_signer import archive
 
 
@@ -23,7 +23,7 @@ class API:
         self.base = epoch.active
         self.chain_tip = epoch.history[-1].commit
         self.candidate, self.report = candidate, report
-        self.env = environment()
+        self.env = deployment_settings()
         self.branches = {
             "total_count": 1,
             "branch_policies": [{"name": "main", "type": "branch"}],

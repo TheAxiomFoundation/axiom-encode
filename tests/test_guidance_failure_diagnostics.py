@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.environment_assertions import Names
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -118,22 +120,24 @@ def test_later_upload_failure_retains_exact_guard_or_refuses(tmp_path, mutation)
         ["bash", "-c", command],
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "CITATION": "ca/policy/example",
-            "CORPUS_REF": "corpus-ref",
-            "COUNTRY": "ca",
-            "GITHUB_RUN_ATTEMPT": "1",
-            "GITHUB_RUN_ID": "1234",
-            "GITHUB_SHA": "c" * 40,
-            "RULES_ENGINE_REF": "engine-ref",
-            "RULESPEC_REF": "rulespec-ref",
-            "RUNNER_TEMP": str(tmp_path),
-            "VERIFY_GENERATED_PROVENANCE_CONCLUSION": "success",
-            "VERIFY_GENERATED_PROVENANCE_OUTCOME": "success",
-            "UPLOAD_SIGNED_REENCODE_ARTIFACT_CONCLUSION": "failure",
-            "UPLOAD_SIGNED_REENCODE_ARTIFACT_OUTCOME": "failure",
-        },
+        env=Names(
+            {
+                **os.environ,
+                "CITATION": "ca/policy/example",
+                "CORPUS_REF": "corpus-ref",
+                "COUNTRY": "ca",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_RUN_ID": "1234",
+                "GITHUB_SHA": "c" * 40,
+                "RULES_ENGINE_REF": "engine-ref",
+                "RULESPEC_REF": "rulespec-ref",
+                "RUNNER_TEMP": str(tmp_path),
+                "VERIFY_GENERATED_PROVENANCE_CONCLUSION": "success",
+                "VERIFY_GENERATED_PROVENANCE_OUTCOME": "success",
+                "UPLOAD_SIGNED_REENCODE_ARTIFACT_CONCLUSION": "failure",
+                "UPLOAD_SIGNED_REENCODE_ARTIFACT_OUTCOME": "failure",
+            }
+        ),
     )
     archive = tmp_path / "targeted-reencode-failure.tar"
     if mutation not in {None, "canonical_colon", "legacy_success", "legacy_failure"}:

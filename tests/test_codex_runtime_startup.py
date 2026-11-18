@@ -11,6 +11,7 @@ from axiom_encode.harness.evals import (
     parse_runner_spec,
     prepare_eval_workspace,
 )
+from tests.environment_assertions import hides_environment
 
 
 @pytest.mark.parametrize(
@@ -71,6 +72,7 @@ def test_runtime_error_cannot_be_hidden_by_completed_turn_or_final_file(
     ]
 
     class FakeProcess:
+        @hides_environment
         def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
             self.returncode = 0
             stdout.write("\n".join(json.dumps(event) for event in events))

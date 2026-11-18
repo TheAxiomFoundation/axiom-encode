@@ -23,6 +23,7 @@ from scripts.prepare_signed_backfill import (
 from scripts.prepare_signed_backfill import (
     main as prepare_signed_backfill_main,
 )
+from tests.environment_assertions import Names, environment_variable, hides_environment
 
 LANE_BRANCH = "axiom/signed-backfill-us-123-1"
 WORKFLOW_TOOLCHAIN = """# Immutable checkout identities.
@@ -929,7 +930,7 @@ def _publish_fixture(tmp_path: Path) -> dict[str, Any]:
             for key, value in os.environ.items()
             if not key.startswith(("GIT_", "GH_", "GITHUB_"))
         },
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "PATH": f"{bin_dir}{os.pathsep}{environment_variable('PATH')}",
         "AXIOM_TEST_PYTHON": sys.executable,
         "GIT_CONFIG_GLOBAL": str(gitconfig),
         "GH_TOKEN": "test-token",
@@ -966,7 +967,7 @@ def _publish_fixture(tmp_path: Path) -> dict[str, Any]:
         "base": base,
         "head": head,
         "runner_temp": runner_temp,
-        "env": env,
+        "env": Names(env),
         "tmp_path": tmp_path,
     }
 
@@ -987,6 +988,7 @@ def _advance_remote(fixture: dict[str, Any], changes: dict[str, str]) -> str:
     return tip
 
 
+@hides_environment
 def _run_publish(
     fixture: dict[str, Any], **extra_env: str
 ) -> subprocess.CompletedProcess[str]:
@@ -995,7 +997,7 @@ def _run_publish(
     outputs: dict[str, dict[str, str]] = {}
     result: subprocess.CompletedProcess[str] | None = None
     for step in _publication_steps():
-        step_env = {**fixture["env"], **extra_env}
+        step_env = dict(extra_env)
         for name, value in (step.get("env") or {}).items():
             match = re.fullmatch(
                 r"\$\{\{ steps\.(?P<step>[a-z_]+)\.outputs\.(?P<key>[a-z0-9_]+) \}\}",
@@ -1009,7 +1011,7 @@ def _run_publish(
         result = subprocess.run(
             ["bash", "-c", str(step["run"])],
             cwd=fixture["workspace"],
-            env=step_env,
+            env=Names({**fixture["env"], **step_env}),
             capture_output=True,
             text=True,
             check=False,

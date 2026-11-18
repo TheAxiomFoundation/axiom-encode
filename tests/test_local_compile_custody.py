@@ -14,6 +14,8 @@ from axiom_encode.harness.actual_local_relation_evidence import (
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
 
+# The PATH of the engine environment the fixture pipeline gives its compiles.
+ENGINE_PATH = "/usr/bin:/bin:/usr/local/bin"
 LOCAL_RELATION_MODULE = """format: rulespec/v1
 module: {}
 imports: []
@@ -114,7 +116,7 @@ def make_world(tmp_path, artifact='{"compiled":true}', *, real_engine=None):
     assert capture is not None
     pipeline = SimpleNamespace(
         _rulespec_compile_roots=lambda: (capture.snapshot_root,),
-        _rulespec_engine_env=lambda: {"PATH": "/usr/bin:/bin:/usr/local/bin"},
+        _rulespec_engine_env=lambda: {"PATH": ENGINE_PATH},
         axiom_rules_path=capture.snapshot_root,
     )
     return (
@@ -355,7 +357,8 @@ def test_executable_override_cannot_claim_pinned_binary(world):
             text=True,
             timeout=60,
             cwd=str(capture.snapshot_root),
-            env=pipeline._rulespec_engine_env(),
+            # The pipeline's own engine environment, built as the fixture builds it.
+            env={"PATH": ENGINE_PATH},
             executable=str(alternate),
         )
     assert result.returncode == 0

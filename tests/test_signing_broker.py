@@ -255,20 +255,28 @@ def test_scrub_preserves_only_supervisor_captured_codex_home(
         include_supervisor_codex_home=True,
     )
 
-    assert environment == {
-        "CODEX_HOME": "/supervisor/isolated-codex-home",
-        "HOME": "/protected/python",
-        "PATH": "/protected/runtime",
-    }
-    assert "CODEX_HOME" not in scrub_private_signing_environment(
-        {"CODEX_HOME": "/caller/override"}
+    changed = changed_names(
+        {
+            "CODEX_HOME": "/supervisor/isolated-codex-home",
+            "HOME": "/protected/python",
+            "PATH": "/protected/runtime",
+        },
+        environment,
     )
+    assert changed == []
+    scrubbed_names = set(
+        scrub_private_signing_environment({"CODEX_HOME": "/caller/override"})
+    )
+    assert "CODEX_HOME" not in scrubbed_names
 
     monkeypatch.setattr(signing_broker, "_trusted_codex_home", None)
-    assert "CODEX_HOME" not in scrub_private_signing_environment(
-        {"CODEX_HOME": "/caller/override"},
-        include_supervisor_codex_home=True,
+    scrubbed_names = set(
+        scrub_private_signing_environment(
+            {"CODEX_HOME": "/caller/override"},
+            include_supervisor_codex_home=True,
+        )
     )
+    assert "CODEX_HOME" not in scrubbed_names
 
 
 _ENV_NAMES = st.sampled_from(
@@ -310,12 +318,16 @@ def test_scrub_codex_home_is_only_ever_the_captured_supervisor_value(
             caller, include_supervisor_codex_home=include
         )
 
-    assert "CODEX_HOME" not in without
+    without_names = set(without)
+    assert "CODEX_HOME" not in without_names
     if include and captured:
-        assert scrubbed.pop("CODEX_HOME") == captured
+        codex_home = scrubbed.pop("CODEX_HOME")
+        assert codex_home == captured
     else:
-        assert "CODEX_HOME" not in scrubbed
-    assert scrubbed == without
+        scrubbed_names = set(scrubbed)
+        assert "CODEX_HOME" not in scrubbed_names
+    changed = changed_names(without, scrubbed)
+    assert changed == []
 
 
 def test_attach_captures_supervisor_codex_home(monkeypatch) -> None:

@@ -5,7 +5,6 @@ import copy
 import hashlib
 import importlib.util
 import json
-import os
 import re
 import subprocess
 import sys
@@ -15,6 +14,8 @@ from typing import Any
 
 import pytest
 import yaml
+
+from tests.environment_assertions import environment_variable
 
 ROOT = Path(__file__).parents[1]
 SCRIPT = ROOT / "scripts" / "snap_dispatch_queue.py"
@@ -745,7 +746,7 @@ def test_queue_state_checkout_keeps_the_version_check_passing(tmp_path):
         capture_output=True,
         cwd=workspace,
         env={
-            "PATH": os.environ["PATH"],
+            "PATH": environment_variable("PATH"),
             "HOME": str(tmp_path),
             "ACTION": "tick",
             "STATE_BRANCH": "snap-queue-state",

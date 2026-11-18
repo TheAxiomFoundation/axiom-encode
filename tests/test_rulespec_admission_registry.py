@@ -12,6 +12,7 @@ import pytest
 from axiom_encode import cli
 from axiom_encode import rulespec_admission_registry as registry
 from axiom_encode.harness import coverage_exemptions as ce
+from tests.environment_assertions import Names
 
 ENV = {
     **os.environ,
@@ -28,7 +29,7 @@ def _git(repo: Path, *args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
-        env=ENV,
+        env=Names(ENV),
     ).stdout.strip()
 
 
@@ -234,7 +235,7 @@ def test_export_refuses_a_shallow_checkout(tmp_path):
     subprocess.run(
         ["git", "clone", "-q", "--depth", "1", f"file://{source}", str(clone)],
         check=True,
-        env=ENV,
+        env=Names(ENV),
     )
     _git(
         clone,

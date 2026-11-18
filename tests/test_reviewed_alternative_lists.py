@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from axiom_encode.harness import reviewed_alternative_lists as registry
+from tests.environment_assertions import unset_variable
 
 ROOT = Path(__file__).parent.parent
 REPLAY = Path(__file__).parent / "fixtures" / "us_replay_benchmark"
@@ -326,7 +327,7 @@ def test_the_owner_review_gate_reads_the_process_environment(tmp_path, monkeypat
         "GITHUB_EVENT_PATH", _event(tmp_path, {"pull_request": {"draft": True}})
     )
     assert registry.owner_review_is_required() is False
-    monkeypatch.delenv("GITHUB_EVENT_NAME")
+    unset_variable(monkeypatch, "GITHUB_EVENT_NAME")
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     assert registry.owner_review_is_required() is False
     monkeypatch.setenv("GITHUB_ACTIONS", "true")

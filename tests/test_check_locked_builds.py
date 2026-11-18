@@ -22,6 +22,7 @@ from hypothesis import strategies as st
 from packaging.tags import Tag, compatible_tags, cpython_tags
 
 import scripts.check_locked_builds as gate
+from tests.environment_assertions import hides_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
@@ -360,6 +361,7 @@ class FakeWorld:
         self.fail_build_of = overrides.get("fail_build_of")
         self.editable = overrides.get("editable", ["fast"])
 
+    @hides_environment
     def run(self, command, **kwargs):
         self.calls.append(command)
         self.envs.append(kwargs.get("env", {}))

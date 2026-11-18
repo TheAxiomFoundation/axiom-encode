@@ -1618,7 +1618,7 @@ def test_supervised_run_cli_forwards_validated_ambient_audit_workers(
     # Compare one value so a failure can't print the rest of the environment.
     forwarded = record["environ"].get(WAIVER_AUDIT_WORKERS_ENV)
     assert forwarded == workers
-    assert os.environ[WAIVER_AUDIT_WORKERS_ENV] == workers
+    assert environment_variable(WAIVER_AUDIT_WORKERS_ENV) == workers
 
 
 @pytest.mark.parametrize("source", ["ambient", "step"])
@@ -1681,7 +1681,7 @@ def test_waiver_gate_models_the_steps_declared_audit_workers(
 
     assert result.status == "PASS", result.output
     assert seen == [workers] * len(run.plan.matrix)
-    assert os.environ[WAIVER_AUDIT_WORKERS_ENV] == "32"
+    assert environment_variable(WAIVER_AUDIT_WORKERS_ENV) == "32"
 
 
 def test_unsupervised_run_cli_keeps_ambient_axiom_environment(
@@ -2036,6 +2036,7 @@ def test_run_cli_isolated_bounds_the_synthetic_audit_workers(
 ) -> None:
     seen: dict[str, Any] = {}
 
+    @hides_environment
     def worker(command, **kwargs):
         seen.update(json.loads(kwargs["input"]))
         return subprocess.CompletedProcess(command, 0, b"", b"")

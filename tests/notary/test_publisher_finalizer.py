@@ -27,6 +27,7 @@ from axiom_encode.notary.publisher import Publisher
 from axiom_encode.notary.remote import RemoteRepository
 from axiom_encode.notary.signer import NotarySigner, ReceiptInputs, make_candidate
 from axiom_encode.notary.verification import verify_snapshots
+from tests.environment_assertions import hides_environment
 
 from .chain_fixtures import Epoch
 from .lineage_fixtures import LANE, generation
@@ -51,6 +52,7 @@ def deployed(tmp_path, monkeypatch, policy, rsa_key):
             setup._run("init", "--bare", str(origin), in_repo=False)
             origins[repository] = origin
 
+    @hides_environment
     def connect(repository, **kwargs):
         result = RemoteRepository(repository)
         result._run("config", "remote.origin.url", str(origins[repository]))
@@ -222,7 +224,7 @@ def deployed(tmp_path, monkeypatch, policy, rsa_key):
     )
     inputs = GitHubSignerInputs(config, api)
     audits = []
-    inputs._audit = lambda environment="notary-signing": audits.append(environment)
+    inputs._audit = lambda deployment="notary-signing": audits.append(deployment)
     for module in ("github_inputs", "publisher", "finalizer"):
         monkeypatch.setattr(f"axiom_encode.notary.{module}.RemoteRepository", connect)
     monkeypatch.setattr(

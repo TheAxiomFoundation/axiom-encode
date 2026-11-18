@@ -72,9 +72,10 @@ PUBLIC_ENV_NAMES = (
 SIGNATURE_DOMAIN = b"axiom-encode/external-signer-sign/v2\0"
 
 
+@hides_environment
 def _run_targeted_inline_package(*args, **kwargs):
     """Give legacy packaging fixtures the workflow event present on a real runner."""
-    env = dict(kwargs["env"])
+    env = kwargs["env"]
     event_path = Path(kwargs["cwd"]) / "original-inline-workflow-event.json"
     inputs = {
         "citation": env["CITATION"],
@@ -84,8 +85,7 @@ def _run_targeted_inline_package(*args, **kwargs):
         "axiom-producer-review-guidance-ref:"
     )
     event_path.write_text(json.dumps({"inputs": inputs}), encoding="utf-8")
-    env["GITHUB_EVENT_PATH"] = str(event_path)
-    env["GITHUB_SHA"] = "a" * 40
+    env = Names({**env, "GITHUB_EVENT_PATH": str(event_path), "GITHUB_SHA": "a" * 40})
     return subprocess.run(*args, **{**kwargs, "env": env})
 
 

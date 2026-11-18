@@ -18,6 +18,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.environment_assertions import Names
+
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "dispatch_record.py"
 WORKFLOW = REPO / ".github" / "workflows" / "targeted-signed-reencode.yml"
@@ -308,7 +310,7 @@ def test_script_always_exits_zero_and_writes_the_record(tmp_path, dispatch_json)
         [sys.executable, "-I", str(SCRIPT), str(tmp_path / "record")],
         capture_output=True,
         text=True,
-        env=env,
+        env=Names(env),
     )
     assert completed.returncode == 0
     assert completed.stderr == ""
