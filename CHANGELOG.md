@@ -1,3 +1,9 @@
+## 0.2.2386
+
+- Keep See Example reference ordinals out of numeric recall (#2291)
+- Credit exact imported scalars in the complete-mode numeric-occurrence check (#2290)
+- Guide the encoder to put a gated cap in its own derived rule (#2284)
+
 ## 0.2.2385
 
 - Let a sole table row witness a direct nonnegative clamp (#2288)
