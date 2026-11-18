@@ -16150,7 +16150,7 @@ class TestEvalPrompt:
     ):
         from axiom_encode.prompts.encoder import _FORMULA_PROTOCOL
 
-        start = "- The zero floors above are for differences"
+        start = "- A single source-stated amount or a bare input that a rule returns"
         begin = _FORMULA_PROTOCOL.index(start)
         end = _FORMULA_PROTOCOL.index("\n- ", begin)
         rule = " ".join(_FORMULA_PROTOCOL[begin:end].split())
@@ -16178,9 +16178,11 @@ class TestEvalPrompt:
 
         # The eval prompt carries the same rule as the encoder prompt, after
         # the floors that the validators require.
-        assert "keep `max(0, ...)` on the difference" in rule
-        assert "Floor a single amount only when the source states the floor" in rule
-        assert "do not add a second floor around an imported amount" in rule
+        assert "unless the source states a floor for it" in rule
+        assert "If the rule returns that amount, return it without a floor" in rule
+        assert rule.endswith(
+            "an excess, or a cap: those keep the forms required above and below."
+        )
         assert "`if amount_qualifies: stated_amount else: 0`" in rule
         assert rule in prompt
         assert prompt.index("Wrap the final selected branch at zero") < prompt.index(

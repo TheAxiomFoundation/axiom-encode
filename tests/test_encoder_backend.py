@@ -104,52 +104,44 @@ def test_encoder_prompt_puts_a_gated_cap_in_its_own_rule():
         assert block in " ".join(ENCODER_PROMPT.split())
 
 
-def test_encoder_prompt_does_not_ask_for_a_floor_the_source_does_not_state():
-    # A single source amount wrapped in `max(0, ...)` invents a floor. The
-    # prompt keeps the floor on every difference and on the named forms, and
-    # stops it on a single amount unless the source states it.
+_UNSTATED_FLOOR_START = (
+    "- A single source-stated amount or a bare input that a rule returns as its result"
+)
+_UNSTATED_FLOOR_SCOPE = (
+    "(not a difference, not an operand of the floor rules above, and not the "
+    "cap clamp or excess forms below)"
+)
+_UNSTATED_FLOOR_LAST = (
+    "This bullet does not change any rule about a difference, a subtraction, "
+    "an income base, taxable income, an excess, or a cap: those keep the forms "
+    "required above and below."
+)
+
+
+def _unstated_floor_bullet() -> str:
     formula = " ".join(_FORMULA_PROTOCOL.split())
-    assert (
-        "The zero floors above are for differences, for an income base inside "
-        "`min(...)`, and for taxable income." in formula
+    begin = formula.index(_UNSTATED_FLOOR_START)
+    return formula[begin : formula.index(" - ", begin + 2)]
+
+
+def test_encoder_prompt_does_not_ask_for_a_floor_the_source_does_not_state():
+    # A single returned amount wrapped in `max(0, ...)` invents a floor. The
+    # bullet changes that one thing and no other floor rule.
+    formula = " ".join(_FORMULA_PROTOCOL.split())
+    bullet = _unstated_floor_bullet()
+    assert bullet == (
+        f"{_UNSTATED_FLOOR_START} {_UNSTATED_FLOOR_SCOPE} gets no zero floor of "
+        "its own: do not wrap it in `max(0, ...)` unless the source states a "
+        'floor for it ("not less than zero", "but not below zero", "cannot be '
+        'negative") or the existing encoding of the same rule already has one. '
+        "If the rule returns that amount, return it without a floor, e.g. "
+        "`if amount_qualifies: stated_amount else: 0`, not "
+        "`if amount_qualifies: max(0, stated_amount) else: 0`. "
+        f"{_UNSTATED_FLOOR_LAST}"
     )
-    assert (
-        "When a benefit, allotment, credit, deduction, allowance, or subsidy "
-        "formula subtracts one amount from another and the result can go below "
-        "zero, keep `max(0, ...)` on the difference, also when the source "
-        "states no floor: that is how the formula never emits negative money."
-        in formula
-    )
-    assert (
-        'The excluded-excess and "in excess of" forms below, `max(0, '
-        "source_amount - cap)` and `max(0, measured_value - limit)`, are such "
-        "differences and keep their forms, and the cap clamp rule below keeps "
-        "its form." in formula
-    )
-    assert (
-        "A single source-stated amount or a bare input is different: do not "
-        "wrap it in `max(0, ...)` just to keep an output nonnegative." in formula
-    )
-    assert (
-        "Floor a single amount only when the source states the floor "
-        '("not less than zero", "but not below zero", "cannot be negative", '
-        '"if the result is less than zero, enter zero").' in formula
-    )
-    assert (
-        "Keep a floor that the existing encoding of the same rule already has; "
-        "do not add a second floor around an imported amount." in formula
-    )
-    assert (
-        "e.g. `if amount_qualifies: stated_amount else: 0`, not "
-        "`if amount_qualifies: max(0, stated_amount) else: 0`." in formula
-    )
-    assert (
-        "A floor on a single amount that the source does not state invents "
-        "amount semantics and adds a below-zero branch that needs its own "
-        "companion case." in formula
-    )
+    assert bullet.endswith(_UNSTATED_FLOOR_LAST)
     # The general guard and the floors the validators require stay, before
-    # the new rule; the forms it names as unchanged come after it.
+    # the bullet; the excess and cap forms come after it.
     guard = formula.index(
         "Benefit, allotment, credit, deduction, allowance, and subsidy formulas "
         "must never emit negative money."
@@ -157,14 +149,34 @@ def test_encoder_prompt_does_not_ask_for_a_floor_the_source_does_not_state():
     reduction = formula.index("floor the result with `max(0, ...)`")
     income_base = formula.index("use `rate * min(max(0, earned_income), cap)`")
     taxable = formula.index("Wrap the final selected branch at zero")
-    scope = formula.index("The zero floors above are for differences")
+    scope = formula.index(_UNSTATED_FLOOR_START)
     excess = formula.index("The excluded excess is `max(0, source_amount - cap)`")
     cap_rule = formula.index("whose formula is only the clamp")
     assert guard < reduction < income_base < taxable < scope < excess < cap_rule
-    assert "`max(0, measured_value - limit)` or the source-stated equivalent" in (
-        " ".join(ENCODER_PROMPT.split())
-    )
     assert formula in " ".join(ENCODER_PROMPT.split())
+
+
+def test_unstated_floor_bullet_says_nothing_new_about_other_floor_rules():
+    # Outside its scope parenthesis and its last sentence, the bullet gives no
+    # instruction about differences, imports, income bases, excesses or caps.
+    bullet = _unstated_floor_bullet()
+    assert bullet.count(_UNSTATED_FLOOR_SCOPE) == 1
+    assert bullet.count(_UNSTATED_FLOOR_LAST) == 1
+    rest = bullet.replace(_UNSTATED_FLOOR_SCOPE, "").replace(_UNSTATED_FLOOR_LAST, "")
+    for word in (
+        "difference",
+        "subtract",
+        "import",
+        "income",
+        "excess",
+        "cap",
+        "reduction",
+        "every",
+        "keep",
+        " - ",
+    ):
+        assert word not in rest.lower(), word
+    assert rest.count("max(0") == 2  # the "do not wrap" form and the bad example
 
 
 def test_assemble_strips_blocks_and_cannot_glue_or_stack():

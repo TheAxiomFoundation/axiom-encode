@@ -6,9 +6,10 @@ behavior that guidance relies on: the unfloored shape is clean, the unstated
 floor costs a below-zero companion case, and the floors the validators do
 require (a reduction subtracted from a maximum) are unchanged.
 
-The prompt keeps the floor on every difference. The floor check sees only some
-differences, so for the others the prompt is the only guard; a floor on a
-difference needs no below-zero companion case.
+The guidance says nothing new about differences. The floor check sees only
+some differences; for the others the prompt's general "never emit negative
+money" sentence is the only guard, as before. A floor on a difference needs no
+below-zero companion case.
 """
 
 from __future__ import annotations
@@ -161,7 +162,7 @@ UNCHECKED_DIFFERENCES = [
 
 @pytest.mark.parametrize("difference", UNCHECKED_DIFFERENCES)
 def test_floor_check_does_not_see_these_differences(difference):
-    # No validator asks for the floor here; the prompt rule is the guard.
+    # No validator asks for the floor here; the general prompt sentence is.
     content = yaml.safe_dump(_payload(difference), sort_keys=False)
     assert find_nonnegative_amount_reduction_issues(content) == []
     content = yaml.safe_dump(_payload(f"max(0, {difference})"), sort_keys=False)
