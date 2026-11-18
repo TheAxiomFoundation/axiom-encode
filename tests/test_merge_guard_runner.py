@@ -2053,7 +2053,7 @@ DOC_SENTENCES = {
             'ended"; X5, the parts "a `merge_group` run starts" and "the '
             '`merge_group` run prints the marker of the pinned commit" |',
             '| Adjusting, run again | X18 (change: the runner loses its inert path, or reads the value that names the target); X11 (change: the workflow takes the bundle commit from the value that names the source commit); X5, the payload fields, and X15 (c), the identity of the group\'s check (change: the runner reads the real fields); X12 (change: the head binding of the runner and case 49); X14 (change: lock 3 of draft #2289 reads the real response shape; step 13 waits for it); X10 (change: `"protected": true` in the ruleset); X21 (change: the ruleset target, or a standing check of the default branch); the set-up record "the API accepts `sha` with no `ref`" (change, in three places together: the request body of `docs/merge-guard-key-protection.md` §5, its pin test, and lock 3 of draft #2289, which refuses an entry with `ref`) | The mechanism can hold, after the named change. Do the change through a review cycle, run the step again, and record both results |',
-            '| Adjusting, no second run | X3 (change: the procedure after an approval becomes "close and reopen" or "update the branch", written into step 14 and into the table of human steps); X6 (change: the shadow period of steps 6 and 7 takes another form, named in the runbook); X20 (change: the queue trial of step 8 moves to the first `Active` landing, step 12); X4 (change: none in the runner; a decision of Max: the fallback, which ends the ruleset path, or a read-only token, which is a stored secret) | The mechanism can hold with another procedure. Record the result, and do the named change of this checklist through a review cycle. No second run: it would give the same result |',
+            '| Adjusting, no second run | X3 (change: the procedure after an approval becomes "close and reopen" or "update the branch", written into step 14 and into the table of human steps); X6 (change: the shadow period of steps 6 and 7 takes another form, named in the runbook); X20 (change: the queue trial of step 8 moves to the first `Active` landing, step 12. The same reviewed change replaces the trial clause of the step 11 precondition, and moves the stop rule for the inert path on a merge group from step 8 to step 12, before any second landing); X4 (change: none in the runner; a decision of Max: the fallback, which ends the ruleset path, or a read-only token, which is a stored secret. No such token is designed. It would have to meet the stored-credential precondition of step 11: for example a fine-grained read-only token of an account that is not enrolled, not an administrator and not an organization owner, which Max accepts by name) | The mechanism can hold with another procedure. Record the result, and do the named change of this checklist through a review cycle. No second run: it would give the same result |',
             "| Informational | X7, X9, X13, X16, X17, X19, X22; X8 (c); X15 (d); X23; "
             'the set-up records "the web form offers a SHA pin" and "how the web '
             'form names the target" | Record the result.',
@@ -2134,11 +2134,27 @@ DOC_SENTENCES = {
         "stored credentials, installed Apps and Actions": [
             "| Write collaborator who reads a credential that is stored where a workflow of a branch can read it | **No**, when the credential belongs to an enrolled identity, an administrator, an organization owner, or an App that can write checks or contents |",
             "All three only while no stored credential gives the collaborator another identity (next row) |",
-            "no merge and no review is needed [docs D23: any user with write access to a repository can read every secret that is configured in it]. The collaborator then acts as the credential's owner: every control of this design that rests on that identity is void for that collaborator [inferred from the documented secret semantics; not tested].",
+            'no merge and no review is needed [docs D23 for a repository secret: any user with write access to a repository can read every secret that is configured in it; the organization secret and "no merge is needed" are inferred]. The collaborator then acts as the credential\'s owner: every control of this design that rests on that identity is void for that collaborator [inferred from the documented secret semantics; not tested].',
+            "That a workflow on a pushed branch is enough, with no merge, and that the same holds for an organization secret that the repository can use, is [inferred].",
+            "**A removal alone does not last:** a repository administrator can add an App that an organization owner has already installed to the repositories that this administrator administers, whatever the App's permissions are [docs source D26]. It lasts only when an organization owner also restricts the installation of Apps by repository administrators, which the same text names. So the read of the installed Apps is repeated at each health check.",
+            "- **The exception is required reviewers only.** A secret in an environment that has a branch policy and no required reviewers does not have it. The environments `apply-signing` and `encoder-version-bump` of axiom-encode are of that kind [live read 2026-11-18]. Their secrets are judged like repository secrets, and until a maintainer states whose credential each is, the precondition is not met for them.",
+            "A fifth row, the installed Apps, needs the account of an organization owner; a session whose token belongs to a non-owner cannot run it and reports that.",
+            "| The installed Apps are the recorded ones | `gh api orgs/TheAxiomFoundation/installations",
+            "An App that is new, or that has `rulespec-us` again after its removal, goes to a maintainer |",
+            "Also, a repository administrator can add an App that an organization owner has already installed to the repositories that this administrator administers, whatever the App's permissions are [docs source D26]; so removing an App from `rulespec-us` lasts only with that restriction.",
+            "A deleted run loses its log, which is the record of who dispatched and who approved it [inferred]: save the output of this listing and the log of each run before the deletion.",
+            "- **Change 4 has two modes, and the choice needs a maintainer's decision.**",
+            "(1) *Pinned mode*, which `rulespec-us` uses today: a pin cannot move past the producer of any manifest that is already on `main`.",
+            "So change 4 as a plain pin move fails CI.",
+            "So change 4 in practice depends on rulespec-us#2059.",
+            '(3) **In verifier-main mode `rulespec-us` verifies with encoder `main`. Then `V6_READER_ENABLED = True` on encoder `main` (change 2b) takes effect on `rulespec-us` when it merges; no separate reader pin exists to move or to revert; and the rollback "revert the reader pin" becomes "set `V6_READER_ENABLED` back to `False` on encoder `main`", a reviewed encoder change.**',
+            "This step and the rollback order at the top are written for pinned mode; under verifier-main mode they need a reviewed rewrite first.",
+            "The shared workflow refuses a pin pull request that changes anything beyond the pin files, so a waiver edit cannot ride with the pin move.",
+            '**"Revert the reader pin" is the pinned-mode form.** If `rulespec-us` verifies with encoder `main` (verifier-main mode, checklist step 9), no reader pin exists, and the same act is a reviewed change on encoder `main` that sets `V6_READER_ENABLED` back to `False` [author-reported, pin trial 2026-11-18, rulespec-us#2304; interim].',
             "GitHub cannot restrict a repository secret to one workflow file [inferred: no page read offers it]; an environment with required reviewers can hold a secret back [docs D24].",
             "**This exposure exists today and does not depend on the guard**: `rulespec-us` has the repository secret `BULK_ENCODE_TOKEN`",
             "Not read: its owner, its real scopes and whether it is still valid. It also touches today's promotion lane: whoever holds an enrolled owner's token can approve. Hard precondition of checklist steps 11 and 13;",
-            "**no stored secret that a workflow of a branch can read is a credential of an enrolled identity, an administrator, an organization owner or an App that can write checks or contents, and an owner has read the installed Apps**",
+            "**no stored secret outside an environment with required reviewers is a credential of an enrolled identity, an administrator, an organization owner or an App that can write checks or contents, and an owner has read the installed Apps**",
             "Actions are enabled in `rulespec-us`; and Max has decided question 0 of §10",
             "- **Precondition check: stored credentials and installed Apps.**",
             "- **Must hold.** No secret outside an environment with required reviewers is a credential of an enrolled identity, of an administrator of `rulespec-us`, of an organization owner, or of an App that can write checks or contents on `rulespec-us`.",
@@ -2149,7 +2165,7 @@ DOC_SENTENCES = {
             '**Hard precondition: the check "Stored credentials and installed Apps" of step 11 is repeated now and holds.**',
             "Step E removes a stored token of `rulespec-us` that every write collaborator can read through a workflow of a branch",
             "| The stored secrets are the recorded ones | `gh api repos/TheAxiomFoundation/rulespec-us/actions/secrets --jq '[.secrets[].name]'`",
-            "exactly the list of names that §11 records at step 11.",
+            "exactly the list of names that §11 records. The first run of this check before step 11 makes that record, with the maintainer's statement of step 11; each later run is compared with it.",
             "| Actions are enabled in `rulespec-us` | `gh api repos/TheAxiomFoundation/rulespec-us/actions/permissions --jq .enabled` | `true`",
             "If a head with no guard run can merge while Actions are disabled, an administrator merges without the guard and enables Actions again; nothing blocks it, and the health check reads only the state at its own time [inferred].",
             "**Three more acts of an administrator are outside that count.** (6) **Installing a GitHub App.**",
@@ -2251,8 +2267,8 @@ DOC_SENTENCES = {
             "without the merge-group evaluation, and the rule still shows in "
             "`rules/branches/main`**",
             "The lock of draft #2289 cannot see it: it does not read bypass lists",
-            "- **R13. After the v6 writer is on, a rollback of the ruleset has an "
-            "order.**",
+            "- **R13. After the v6 writer is on, a rollback of the ruleset is a last resort and is not durable; it has an order.**",
+            '"Revert the reader pin" is the pinned-mode form: if `rulespec-us` verifies with encoder `main` (verifier-main mode, draft rulespec-us#2059), no reader pin exists, and the same act is a reviewed change that sets `V6_READER_ENABLED` back to `False` on encoder `main` [author-reported, pin trial 2026-11-18, rulespec-us#2304; interim]',
             "**A signing run that was dispatched before the writer-off commit still "
             "has the writer on.**",
             "So no enrolled owner may re-run such a run or approve it for "
@@ -2261,7 +2277,7 @@ DOC_SENTENCES = {
             "**This order is not a durable rollback. Once the ruleset is weak, nothing technical protects `rulespec-us` from signed v6 bytes.**",
             "So any account with write access can move the reader pin forward again in the same pull request that lands signed v6 bytes [inferred]. Not tested: whether validation refuses a pull request that moves the pin and adds a manifest together.",
             "**The recommended response to a guard problem after step 13 is therefore not to weaken the ruleset**: (a) repair forward, with a pin move to a fixed guard while the ruleset is `Active`; or (b) turn the writer off and keep the ruleset `Active`, which blocks every merge of `rulespec-us` when the guard cannot pass (the fail-closed state).",
-            "(c) Weakening the ruleset is the last resort. It reopens the exposure that existed before the guard, now for signed v6 bytes, and three standing conditions then hold as rules for people: no pin to an encoder commit with the reader on merges while the ruleset is weak; for 30 days after the writer-off commit no enrolled owner re-runs or approves an older signing run, or a maintainer deletes those runs [docs D25]; and signed v6 bytes that never landed stay valid indefinitely [inferred].",
+            "(c) Weakening the ruleset is the last resort. It reopens the exposure that existed before the guard, now for signed v6 bytes, and three standing conditions then hold as rules for people: no pin to an encoder commit with the reader on merges while the ruleset is weak; for 30 days after the writer-off commit no enrolled owner re-runs or approves an older signing run, or a maintainer deletes those runs after saving the run list and the logs [docs D25]; and signed v6 bytes that never landed stay valid indefinitely [inferred].",
             "**Durable options, not designed:** enforced code-owner review of `.axiom/workflow-toolchain.toml` on `rulespec-us` before the ruleset is weakened, or a new signing key.",
             "- **R14. A credential that is stored where a workflow of a branch can read it.**",
             "A write collaborator pushes a branch with a workflow that reads a repository secret, or an organization secret that the repository can use; no merge and no review is needed. The collaborator then acts as the owner of that credential.",
@@ -2274,7 +2290,9 @@ DOC_SENTENCES = {
             "must print `true` [live read 2026-11-18: `true`]. It is a row of the health check and a precondition of `Active` (design §8).",
             "Three more acts of an administrator are outside that count:",
             '- (f) **Installing a GitHub App.** A repository administrator can install a GitHub App in the organization when the App asks for no organization permission and not for the "Repository administration" permission, and only on repositories that this administrator administers; an organization owner can restrict that [docs source D26].',
-            "So a `rulespec-us` administrator alone can install an App that has the right to write checks there, which is the untested case of R5. Precondition of `Active`: an organization owner reads the installations (§5 step 11);",
+            "**Also, a repository administrator can add an App that an organization owner has already installed to the repositories that this administrator administers, whatever the App's permissions are** [docs source D26]. So removing an installed App from `rulespec-us` does not last against one administrator. It lasts only when an organization owner restricts the installation of Apps by repository administrators, which the same text names.",
+            "So a `rulespec-us` administrator alone can install an App that has the right to write checks there, which is the untested case of R5. Precondition of `Active`: an organization owner reads the installations (§5 step 11), and the read is repeated at each health check (design §8);",
+            "and a `rulespec-us` administrator can add an App that an owner installed to `rulespec-us` again after its removal (R12 (f)).",
             "four Apps are installed; three of them have all repositories and `checks: write`",
             "- (g) **Renaming or transferring the repository.**",
             "An organization owner can also rename a targeted branch without restriction [docs D22], which takes `main` out of a rule on `refs/heads/main`.",
@@ -2347,9 +2365,10 @@ DOC_SENTENCES = {
             "11. **Precondition of `Active` and of change 6: the stored secrets and the installed Apps (R14, R12 (f)).**",
             "**None of the secrets may be a credential of an enrolled identity, of an administrator of `rulespec-us`, of an organization owner, or of an App that can write checks or contents on `rulespec-us`, except inside an environment with required reviewers.**",
             "A name does not show the owner of a credential: a maintainer states it for each secret, and the names with that statement go into the design's §11.",
-            "Each installed App that can write checks on `rulespec-us` is removed from it, or Max accepts it by name as a residual (R5). On 2026-11-18 this precondition did not hold (R14, R12 (f)).",
+            "Each installed App that can write checks on `rulespec-us` is removed from it, or Max accepts it by name as a residual (R5). A removal alone does not last against a repository administrator (R12 (f)): it needs the owner's restriction of installations too.",
+            "**The exception is required reviewers only**: `apply-signing` and `encoder-version-bump` of axiom-encode hold secrets with a branch policy and no required reviewers [live read 2026-11-18], so their secrets are judged like repository secrets, and the precondition is not met for them until a maintainer states whose credential each is. On 2026-11-18 this precondition did not hold (R14, R12 (f)).",
             "So must the reads of step 11, and `gh api repos/TheAxiomFoundation/rulespec-us/actions/permissions --jq .enabled` must print `true` (R12 (d)).",
-            "a read of the stored secrets and the installed Apps: no secret that a workflow of a branch can read is a credential of an enrolled identity, an administrator, an organization owner or an App that can write checks or contents (R14, R12 (f); §5 step 11).",
+            "a read of the stored secrets and the installed Apps: no stored secret outside an environment with required reviewers is a credential of an enrolled identity, an administrator, an organization owner or an App that can write checks or contents (R14, R12 (f); §5 step 11).",
         ],
     },
     EXPERIMENT_DOC: {
@@ -2422,6 +2441,8 @@ DOC_SENTENCES = {
             "A marker other than `A`: the pin does not fix the file that a merge group runs,",
             "- Not covered: a transfer of the repository to another owner.",
             "- Anything about stored credentials. The lab stores no secret.",
+            "That change must also replace the trial clause of the precondition of checklist step 11, which nothing can meet in this case, and move the stop rule for the inert path on a merge group from step 8 to step 12, before any second landing.",
+            "No such token is designed. It would have to meet the stored-credential precondition of checklist step 11: not a credential of an enrolled identity, an administrator or an organization owner.",
         ],
     },
 }
@@ -2635,6 +2656,18 @@ DOC_INVERSIONS = [
         EXPERIMENT_DOC,
         "does not depend on any pull request",
         "depends on every pull request",
+    ),
+    # Review round 5 and the pin trial.
+    (
+        DESIGN_DOC,
+        "no separate reader pin exists to move or to revert",
+        "the reader pin of step 9 still exists",
+    ),
+    (DESIGN_DOC, "**A removal alone does not last:**", "**A removal lasts:**"),
+    (
+        KEY_PROTECTION_DOC,
+        "is a last resort and is not durable; it has an order.**",
+        "is durable; it has an order.**",
     ),
 ]
 

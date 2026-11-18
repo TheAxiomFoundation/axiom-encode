@@ -556,7 +556,9 @@ Class: adjusting, no second run (the change is a decision, not code).
   of the evaluator). Without that read the v6 lane cannot pass under (g').
   Use the fallback, or decide on a read-only fine-grained token for
   axiom-encode; that adds a stored secret, which this option set out to
-  avoid.
+  avoid. No such token is designed. It would have to meet the
+  stored-credential precondition of checklist step 11: not a credential
+  of an enrolled identity, an administrator or an organization owner.
 
 ### X2. A check with the same name does not satisfy the rule
 
@@ -866,6 +868,10 @@ trial, design checklist step 8).
   checklist step 8 cannot observe the guard on a merge group before
   `Active`. The trial then moves to the first `Active` landing (checklist
   step 12, with its stop rule), in a reviewed change of the checklist.
+  That change must also replace the trial clause of the precondition of
+  checklist step 11, which nothing can meet in this case, and move the
+  stop rule for the inert path on a merge group from step 8 to step 12,
+  before any second landing.
 - Set the ruleset to `Active` again before the next step.
 
 ### X21. A change of the default branch

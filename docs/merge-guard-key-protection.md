@@ -29,10 +29,10 @@ App, environment, secret or ruleset, and satisfies no activation condition.
   lane live at the pinned commit before the switch (R9; checklist step 10),
   an organization owner's read of the organization's "Runners" setting
   (R12 (c); checklist step 11), and a read of the stored secrets and the
-  installed Apps: no secret that a workflow of a branch can read is a
-  credential of an enrolled identity, an administrator, an organization
-  owner or an App that can write checks or contents (R14, R12 (f); §5
-  step 11). On 2026-11-18 that last precondition did not hold.
+  installed Apps: no stored secret outside an environment with required
+  reviewers is a credential of an enrolled identity, an administrator, an
+  organization owner or an App that can write checks or contents (R14,
+  R12 (f); §5 step 11). On 2026-11-18 that last precondition did not hold.
 - **What Max should know before he answers.** (1) The merge queue is a
   repository setting that a `rulespec-us` administrator can turn off; the
   organization ruleset cannot require it (§4.4, R12). (2) Once the v6 writer is
@@ -53,7 +53,9 @@ App, environment, secret or ruleset, and satisfies no activation condition.
   not test one imitation: a check with the guard's name that another
   GitHub App publishes (§4.4, R5). Three Apps that are installed on all
   repositories of the organization have the right to write checks
-  [live read 2026-11-18] (R12 (f)). (7) **A stored token exists today that
+  [live read 2026-11-18], and a `rulespec-us` administrator can add an
+  App that an owner installed to `rulespec-us` again after its removal
+  (R12 (f)). (7) **A stored token exists today that
   every write collaborator of `rulespec-us` can read**: the repository
   secret `BULK_ENCODE_TOKEN`. If its owner is an enrolled identity, an
   administrator or an organization owner, a collaborator who reads it acts
@@ -784,11 +786,16 @@ exist today (§5 "Now") and for the second fallback:
     organization permission and not for the "Repository administration"
     permission, and only on repositories that this administrator
     administers; an organization owner can restrict that
-    [docs source D26]. Organization owners can install any App. So a
+    [docs source D26]. **Also, a repository administrator can add an App that an organization owner has already installed to the repositories that this administrator administers, whatever the App's permissions are**
+    [docs source D26]. So removing an installed App from `rulespec-us`
+    does not last against one administrator. It lasts only when an
+    organization owner restricts the installation of Apps by repository
+    administrators, which the same text names. So a
     `rulespec-us` administrator alone can install an App that has the
     right to write checks there, which is the untested case of R5.
     Precondition of `Active`: an organization owner reads the
-    installations (§5 step 11); the call needs an owner's account
+    installations (§5 step 11), and the read is repeated at each health
+    check (design §8); the call needs an owner's account
     [docs: REST "List app installations for an organization"]. State on
     2026-11-18 [live read 2026-11-18, with the maintainer's token, whose
     account is an owner]: four Apps are installed; three of them have all
@@ -800,8 +807,8 @@ exist today (§5 "Now") and for the second fallback:
     [experiment X10]. A transfer out of the organization is in no
     experiment step and was not read in the documentation; a repository
     outside the organization is outside its rulesets [inferred].
-- **R13. After the v6 writer is on, a rollback of the ruleset has an
-  order.** With the writer on and the guard not required, an enrolled
+- **R13. After the v6 writer is on, a rollback of the ruleset is a last
+  resort and is not durable; it has an order.** With the writer on and the guard not required, an enrolled
   dispatcher lands an unreviewed candidate, and any write account lands the
   signed v6 bytes of an open pull request (the switch rule of the design's
   §8). The writer's lock stops new signing runs only. So every weakening of
@@ -833,6 +840,12 @@ exist today (§5 "Now") and for the second fallback:
   access can move the reader pin forward again in the same pull request
   that lands signed v6 bytes [inferred]. Not tested: whether validation
   refuses a pull request that moves the pin and adds a manifest together.
+  "Revert the reader pin" is the pinned-mode form: if `rulespec-us`
+  verifies with encoder `main` (verifier-main mode, draft
+  rulespec-us#2059), no reader pin exists, and the same act is a reviewed
+  change that sets `V6_READER_ENABLED` back to `False` on encoder `main`
+  [author-reported, pin trial 2026-11-18, rulespec-us#2304; interim]
+  (design §8, step 9).
   **The recommended response to a guard problem after step 13 is
   therefore not to weaken the ruleset**: (a) repair forward, with a pin
   move to a fixed guard while the ruleset is `Active`; or (b) turn the
@@ -843,7 +856,8 @@ exist today (§5 "Now") and for the second fallback:
   standing conditions then hold as rules for people: no pin to an encoder
   commit with the reader on merges while the ruleset is weak; for 30 days
   after the writer-off commit no enrolled owner re-runs or approves an
-  older signing run, or a maintainer deletes those runs [docs D25]; and
+  older signing run, or a maintainer deletes those runs after saving the
+  run list and the logs [docs D25]; and
   signed v6 bytes that never landed stay valid indefinitely [inferred].
   **Durable options, not designed:** enforced code-owner review of
   `.axiom/workflow-toolchain.toml` on `rulespec-us` before the ruleset is
@@ -1117,7 +1131,14 @@ the candidate SHA (checklist step 5).
     owner of a credential: a maintainer states it for each secret, and the
     names with that statement go into the design's §11. Each installed App
     that can write checks on `rulespec-us` is removed from it, or Max
-    accepts it by name as a residual (R5). On 2026-11-18 this precondition
+    accepts it by name as a residual (R5). A removal alone does not last
+    against a repository administrator (R12 (f)): it needs the owner's
+    restriction of installations too. **The exception is required
+    reviewers only**: `apply-signing` and `encoder-version-bump` of
+    axiom-encode hold secrets with a branch policy and no required
+    reviewers [live read 2026-11-18], so their secrets are judged like
+    repository secrets, and the precondition is not met for them until a
+    maintainer states whose credential each is. On 2026-11-18 this precondition
     did not hold (R14, R12 (f)).
 
 **Switch to `Active`** (activation checklist step 11): edit the ruleset and
