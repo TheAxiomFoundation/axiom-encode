@@ -104,6 +104,46 @@ def test_encoder_prompt_puts_a_gated_cap_in_its_own_rule():
         assert block in " ".join(ENCODER_PROMPT.split())
 
 
+def test_encoder_prompt_does_not_ask_for_a_floor_the_source_does_not_state():
+    # A bare source amount wrapped in `max(0, ...)` invents a floor; the prompt
+    # limits zero floors to the named cases, a source-stated floor, or an
+    # imported or existing convention.
+    formula = " ".join(_FORMULA_PROTOCOL.split())
+    assert (
+        "The zero floors above are for the cases they name: a subtraction of an "
+        "income, contribution, or other reduction, an income base inside "
+        "`min(...)`, and taxable income; the cap clamp rule below also keeps its "
+        "form." in formula
+    )
+    assert (
+        "Add `max(0, ...)` in any other place only when the source states the "
+        'floor ("not less than zero", "but not below zero", "cannot be '
+        'negative", "if the result is less than zero, enter zero") or when an '
+        "imported rule or an existing encoding of the same amount already "
+        "applies it." in formula
+    )
+    assert (
+        "Do not wrap a source-stated amount or a bare input in `max(0, ...)` "
+        "just to keep an output nonnegative" in formula
+    )
+    assert (
+        "e.g. `if fee_is_mandatory: fee_amount else: 0`, not "
+        "`if fee_is_mandatory: max(0, fee_amount) else: 0`." in formula
+    )
+    assert (
+        "A floor the source does not state invents amount semantics and adds a "
+        "below-zero branch that needs its own companion case." in formula
+    )
+    # The floors the validators require stay, before the new rule.
+    reduction = formula.index("floor the result with `max(0, ...)`")
+    income_base = formula.index("use `rate * min(max(0, earned_income), cap)`")
+    taxable = formula.index("Wrap the final selected branch at zero")
+    scope = formula.index("The zero floors above are for the cases they name")
+    cap_rule = formula.index("whose formula is only the clamp")
+    assert reduction < income_base < taxable < scope < cap_rule
+    assert formula in " ".join(ENCODER_PROMPT.split())
+
+
 def test_assemble_strips_blocks_and_cannot_glue_or_stack():
     assembled = _assemble("- alpha statement.", "  - beta statement.  ", "", "- gamma.")
     assert assembled == "- alpha statement.\n\n- beta statement.\n\n- gamma."

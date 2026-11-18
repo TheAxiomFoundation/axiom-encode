@@ -16145,6 +16145,48 @@ class TestEvalPrompt:
         assert formula_rule in prompt
         assert tests_rule in prompt
 
+    def test_build_eval_prompt_rulespec_does_not_ask_for_an_unstated_floor(
+        self, tmp_path
+    ):
+        from axiom_encode.prompts.encoder import _FORMULA_PROTOCOL
+
+        start = "- The zero floors above are for the cases they name"
+        begin = _FORMULA_PROTOCOL.index(start)
+        end = _FORMULA_PROTOCOL.index("\n- ", begin)
+        rule = " ".join(_FORMULA_PROTOCOL[begin:end].split())
+
+        workspace = prepare_eval_workspace(
+            citation="us/guidance/example/fee",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="Mandatory association fees are an allowable expense.",
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us"),
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = " ".join(
+            _build_eval_prompt(
+                "us/guidance/example/fee",
+                "cold",
+                workspace,
+                [],
+                target_file_name="fee.yaml",
+                include_tests=True,
+            ).split()
+        )
+
+        # The eval prompt carries the same rule as the encoder prompt, after
+        # the floors that the validators require.
+        assert "only when the source states the floor" in rule
+        assert "Do not wrap a source-stated amount or a bare input" in rule
+        assert "`if fee_is_mandatory: fee_amount else: 0`" in rule
+        assert rule in prompt
+        assert prompt.index("Wrap the final selected branch at zero") < prompt.index(
+            rule
+        )
+        assert "must never emit negative money" in prompt
+
     def test_build_eval_prompt_requires_rulespec_conditional_expression_syntax(
         self, tmp_path
     ):
