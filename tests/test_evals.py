@@ -12080,6 +12080,12 @@ module:
                 id="prefixed-target-with-refused-character",
             ),
             pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "  - us-az:policies/ex\u00e4mple/provider#expense_disregard\n"
+                "rules: []\n",
+                id="prefixed-target-with-non-ascii-letter",
+            ),
+            pytest.param(
                 "format: rulespec/v1\nimports:\n  - us-az:us-az:policies/example/provider#expense_disregard\nrules: []\n",
                 id="target-with-two-prefixes",
             ),
@@ -12120,6 +12126,7 @@ rules:
             encoding="utf-8",
         )
         for sibling in (
+            "../ex\u00e4mple/provider.yaml",
             "provider.test.yaml",
             "provider.yml.yaml",
             "prov+ider.yaml",
@@ -12231,6 +12238,8 @@ rules:
             ("us-az:policies/./example/provider", False),
             ("us-az:policies/../policies/example/provider", False),
             ("us-az:policies/example/prov+ider", False),
+            ("us-az:policies/ex\u00e4mple/provider", False),
+            ("us-az:policies/example/provider\u0661", False),
             ("us-az:policies/example/prov ider", False),
             ("us-az:policies/example/provider#junk", False),
             ("us-az:policies/example/'provider'", False),
@@ -12276,6 +12285,15 @@ rules:
             "rules: []\n"
         )
         checkout_root = policy_repo_root.parent
+        assert _strict_imported_named_scalar_occurrences(
+            content, policy_repo_root
+        ) == Counter({35.0: 1})
+
+        # The same provider also exists at the flat path under the unsafe root,
+        # so only the refusal of the root keeps the value uncredited.
+        flat_provider = checkout_root / "policies/example/provider.yaml"
+        flat_provider.parent.mkdir(parents=True)
+        flat_provider.write_text(provider.read_text(), encoding="utf-8")
         with pytest.raises(UnsafeRulespecContextPath):
             _candidate_import_rule_files(
                 "us-az:policies/example/provider", checkout_root
@@ -12285,9 +12303,6 @@ rules:
             _strict_imported_named_scalar_occurrences(content, checkout_root)
             == Counter()
         )
-        assert _strict_imported_named_scalar_occurrences(
-            content, policy_repo_root
-        ) == Counter({35.0: 1})
 
     def test_strict_imported_scalar_occurrences_require_a_parsed_prefixed_target(
         self, tmp_path
