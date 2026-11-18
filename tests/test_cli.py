@@ -136,6 +136,7 @@ from axiom_encode.cli import (
     _qualify_deferred_output_subsection_paths,
     _quote_unquoted_source_scalars,
     _quoted_review_finding_excerpts,
+    _quoted_source_scalars_match,
     _read_only_guard_encoder_execution_identity,
     _reanchor_legacy_exact_dependent_proof_excerpts,
     _record_successful_apply_validation,
@@ -38936,26 +38937,238 @@ rules:
         assert repaired == []
         assert generated.read_text() == original
 
-    def test_generated_yaml_source_evidence_repair_preserves_inline_comments(
-        self, tmp_path
+    @pytest.mark.parametrize(
+        "original",
+        (
+            "excerpt: valid evidence # reviewer: note\n"
+            "source: changes at age: 65 # source: note\n",
+            # In source text ` #` is literal; YAML would cut the value there.
+            "source: Arizona DES FAA5: NA Medical Expenses and Deduction, "
+            "Change #02-2022, block 13\n",
+            "source:\n  excerpt: Rule 5: see Change #02-2022, which adds:\n",
+            "source:\n  excerpt: Item 4: costs\t#4 and #5\n",
+        ),
+    )
+    def test_generated_yaml_source_evidence_repair_refuses_a_space_hash(
+        self, original, tmp_path
     ):
         generated = tmp_path / "generated.yaml"
-        original = """excerpt: valid evidence # reviewer: note
-source: changes at age: 65 # source: note
-"""
         generated.write_text(original)
 
         repaired = _quote_unquoted_source_scalars(rules_file=generated)
 
-        assert repaired == ["source:2"]
-        assert generated.read_text() == (
-            "excerpt: valid evidence # reviewer: note\n"
-            "source: 'changes at age: 65' # source: note\n"
+        assert repaired == []
+        assert generated.read_text() == original
+
+    def test_generated_yaml_repair_refuses_a_run_candidate_with_a_space_hash(
+        self, tmp_path
+    ):
+        original = (
+            Path(__file__).parent
+            / "fixtures"
+            / "generated_yaml_scanner"
+            / "az_faa5_medical_block13_run69afe785_rejected.yaml"
+        ).read_text()
+        source_line = (
+            "    source: Arizona DES FAA5, NA Medical Expenses and Deduction, "
+            "block 13\n"
         )
-        assert yaml.safe_load(generated.read_text()) == {
-            "excerpt": "valid evidence",
-            "source": "changes at age: 65",
+        assert original.count(source_line) == 1
+        # The review's variant of the candidate's rule source: quoting it at
+        # the YAML comment would cut "#02-2022, block 13" from the value.
+        changed = original.replace(
+            source_line,
+            "    source: Arizona DES FAA5: NA Medical Expenses and Deduction, "
+            "Change #02-2022, block 13\n",
+        )
+        generated = tmp_path / "block-13.yaml"
+        generated.write_text(changed)
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == []
+        assert generated.read_text() == changed
+
+    @pytest.mark.parametrize(
+        ("original", "expected"),
+        (
+            (
+                b"source:\r\n  excerpt: one of the following:\r\n  path: x\r\n",
+                b"source:\r\n  excerpt: 'one of the following:'\r\n  path: x\r\n",
+            ),
+            (
+                b"source:\r\n  excerpt: age: 65 \r\n",
+                b"source:\r\n  excerpt: 'age: 65' \r\n",
+            ),
+        ),
+    )
+    def test_generated_yaml_source_evidence_repair_keeps_crlf_line_endings(
+        self, original, expected, tmp_path
+    ):
+        generated = tmp_path / "generated.yaml"
+        generated.write_bytes(original)
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == ["excerpt:2"]
+        assert generated.read_bytes() == expected
+
+    @pytest.mark.parametrize(
+        ("fixture_name", "fixture_sha256", "parse_error_line", "repaired_lines"),
+        (
+            # Rejected RuleSpecs from local Arizona SNAP runs 69afe785,
+            # 2b708c06 and 7bc07eb9 (encoder 0.2.2371): each excerpt that ends
+            # a list lead-in with ':' failed the YAML parse.
+            (
+                "az_faa5_medical_block13_run69afe785_rejected.yaml",
+                "db45b21ff32498723404180bd1e1e7fb8f109f71a72d3a1837fd0e4acaad4624",
+                96,
+                (96, 106),
+            ),
+            (
+                "az_faa5_medical_block13_run2b708c06_rejected.yaml",
+                "e2397628ecd4ddc519a3e83d47a8671920f76fee1041d3446d6055dc8e2b7047",
+                102,
+                (102,),
+            ),
+            (
+                "az_faa5_utility_block9_run7bc07eb9_rejected.yaml",
+                "1eafcc04163baeed29625760abc113e7bf421366ea323b2a70a16b76b3e8a47e",
+                85,
+                (85, 120, 169),
+            ),
+        ),
+    )
+    def test_generated_yaml_repair_quotes_trailing_colon_excerpts_from_runs(
+        self,
+        fixture_name,
+        fixture_sha256,
+        parse_error_line,
+        repaired_lines,
+        tmp_path,
+    ):
+        original = (
+            Path(__file__).parent / "fixtures" / "generated_yaml_scanner" / fixture_name
+        ).read_text()
+        assert hashlib.sha256(original.encode()).hexdigest() == fixture_sha256
+        with pytest.raises(yaml.scanner.ScannerError) as exc_info:
+            yaml.safe_load(original)
+        assert exc_info.value.problem == "mapping values are not allowed here"
+        mark = exc_info.value.problem_mark
+        offending_line = original.splitlines()[mark.line]
+        assert mark.line + 1 == parse_error_line
+        assert mark.column == len(offending_line) - 1
+        assert offending_line.endswith(":")
+        generated = tmp_path / "block.yaml"
+        generated.write_text(original)
+
+        repaired = _quote_unquoted_source_scalars(rules_file=generated)
+
+        assert repaired == [f"excerpt:{line}" for line in repaired_lines]
+        expected_lines = original.splitlines(keepends=True)
+        excerpts = {}
+        for line_number in repaired_lines:
+            prefix, text = (
+                expected_lines[line_number - 1].rstrip("\n").split("excerpt: ", 1)
+            )
+            assert text.endswith(":") and "'" not in text
+            excerpts[line_number] = text
+            expected_lines[line_number - 1] = f"{prefix}excerpt: '{text}'\n"
+        repaired_text = generated.read_text()
+        # Only quotes were added; every other byte is the model's output.
+        assert repaired_text == "".join(expected_lines)
+        payload = yaml.safe_load(repaired_text)
+        assert payload["format"] == "rulespec/v1"
+        parsed_excerpts = []
+        pending = [payload]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, dict):
+                parsed_excerpts.extend(
+                    value for key, value in node.items() if key == "excerpt"
+                )
+                pending.extend(node.values())
+            elif isinstance(node, list):
+                pending.extend(node)
+        assert set(excerpts.values()) <= set(parsed_excerpts)
+
+    @pytest.mark.parametrize(
+        "original",
+        (
+            # Not a source-text key: the value's type is not known.
+            "description: The tax is:\nexcerpt: valid\n",
+            "rules:\n  - header: one of the following:\n",
+            # A sequence item: the repair reads only `key: value` lines.
+            "atoms:\n  - excerpt: one of the following:\n",
+            # A deeper next line may continue a multi-line plain value.
+            "source:\n  excerpt: one of the following:\n    more source text\n",
+            "source:\n  excerpt: one: two\n\n    # note\n    more source text\n",
+            # Anchored, tagged, flow and block values are not plain text.
+            "source:\n  excerpt: &a one of the following:\n",
+            "source:\n  excerpt: !!str one of the following:\n",
+            # A trailing colon on a later non-source line still fails parsing.
+            "excerpt: one of the following:\nformula: if x: 1\n",
+            # An unrelated error after a quotable excerpt.
+            "excerpt: one of the following:\nkey: [unclosed\n",
+        ),
+    )
+    def test_generated_yaml_source_evidence_repair_refuses_ambiguous_lines(
+        self, original, tmp_path
+    ):
+        generated = tmp_path / "generated.yaml"
+        generated.write_text(original)
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == []
+        assert generated.read_text() == original
+
+    @pytest.mark.parametrize(
+        "original",
+        (
+            "excerpt: 'one of the following:'\nsource: plain text\n",
+            'excerpt: "one of the following:"\n',
+            "excerpt: |-\n  one of the following:\n",
+            "excerpt: a:b\nsource: x # y: z\n",
+        ),
+    )
+    def test_generated_yaml_source_evidence_repair_leaves_valid_yaml_alone(
+        self, original, tmp_path
+    ):
+        yaml.safe_load(original)
+        generated = tmp_path / "generated.yaml"
+        generated.write_text(original)
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == []
+        assert generated.read_text() == original
+
+    def test_generated_yaml_source_evidence_repair_quotes_apostrophes_exactly(
+        self, tmp_path
+    ):
+        generated = tmp_path / "generated.yaml"
+        generated.write_text(
+            "source:\n"
+            "  excerpt: The participant's costs include:\n"
+            "  corpus_citation_path: us-az/manual/x\n"
+        )
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == ["excerpt:2"]
+        assert generated.read_text() == (
+            "source:\n"
+            "  excerpt: 'The participant''s costs include:'\n"
+            "  corpus_citation_path: us-az/manual/x\n"
+        )
+        assert yaml.safe_load(generated.read_text())["source"] == {
+            "excerpt": "The participant's costs include:",
+            "corpus_citation_path": "us-az/manual/x",
         }
+
+    def test_quoted_source_scalar_check_requires_exact_quoted_text(self):
+        candidate = "source:\n  excerpt: 'one: two'\n  other: 'one: two'\n"
+
+        assert _quoted_source_scalars_match(candidate, {1: ("excerpt", "one: two")})
+        assert not _quoted_source_scalars_match(
+            candidate, {1: ("excerpt", "one: three")}
+        )
+        assert not _quoted_source_scalars_match(candidate, {2: ("excerpt", "one: two")})
+        assert not _quoted_source_scalars_match(
+            "excerpt: one\n", {0: ("excerpt", "one")}
+        )
+        assert not _quoted_source_scalars_match("[", {0: ("excerpt", "one")})
 
     def test_encode_apply_blocks_non_validation_generation_failure(
         self, capsys, tmp_path
@@ -56793,6 +57006,32 @@ def test_initial_encode_outcome_success_omits_validation_failure_keys():
     )
 
     assert not any(key.startswith("validation_failure") for key in outcome)
+
+
+def test_initial_encode_outcome_records_eval_time_source_scalar_quotes():
+    from axiom_encode.cli import _initial_encode_outcome
+
+    repaired = _initial_encode_outcome(
+        SimpleNamespace(
+            success=True,
+            error=None,
+            metrics=None,
+            auto_repaired_unquoted_source_scalars=["excerpt:96", "excerpt:106"],
+        ),
+        apply_requested=False,
+    )
+    untouched = _initial_encode_outcome(
+        SimpleNamespace(success=True, error=None, metrics=None),
+        apply_requested=False,
+    )
+
+    assert repaired["auto_repaired_unquoted_source_scalars"] == [
+        "excerpt:96",
+        "excerpt:106",
+    ]
+    assert repaired["generated_output_repaired_by_encoder"] is True
+    assert "auto_repaired_unquoted_source_scalars" not in untouched
+    assert "generated_output_repaired_by_encoder" not in untouched
 
 
 def test_initial_encode_outcome_telemetry_error_never_propagates():

@@ -1,0 +1,1 @@
+Tell the encoder to put a source cap ("up to", "no more than") in its own comparison-free derived rule when the same provision also has a comparison gate, and to assert that rule in every companion case that sets the capped amount, so the at-limit companion case is credited as boundary evidence; the `boundary-unexercised` fix text points to the same shape.

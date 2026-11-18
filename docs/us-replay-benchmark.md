@@ -8,12 +8,15 @@ snapshot and guards clean fixtures against regressions.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` runs `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` checks in the CI validator) over 57 fixtures in
+(the `[complete-source-unit:*]` checks in the CI validator) over 65 fixtures in
 `tests/fixtures/us_replay_benchmark/`. It supplies the citation's numeric
 profile, companion test cases, imported symbol contents, resolved deferral
 providers and same-act aliases from source metadata, as
 `ValidatorPipeline._complete_source_unit_issues` does. `--no-context` leaves
 out imported symbols, deferral providers and aliases.
+Replay also supplies the source metadata's `source_as_of` and `expression_date`
+to the date-silent start check. It supplies no amendment context because
+fixtures record no amendment documents.
 
 Hosted fixtures retain candidates from `targeted-reencode-failure` artifacts
 of signed runs:
@@ -131,27 +134,110 @@ companion preserves the public JSON
 origin, JSON pointer and hashes. Offline replay retains findings that require
 live execution evidence.
 
+### Arizona and date evidence diagnostics
+
+The six Arizona utility fixtures (`local-az-utility-block-*`) retain the
+`gates-collapsed` findings that encoder 0.2.2361 reported on bulleted
+alternative lists. The current analyzer uses the exact-text readings in
+`docs/reviewed-alternative-lists.md` and no longer raises those findings.
+Each fixture supplies unsigned `source-metadata.json`, including
+`source_as_of: 2026-07-17`, which supports its candidate's `2026-08-01` start.
+Without that metadata, replay reports an effective-date finding on all six
+fixtures, including the four that otherwise replay clean.
+
+The author reports comparing these metadata files with the local run
+workspaces on 2026-11-17 and changing only `rulespec_root` to
+`<local-run-root>/rulespec-us/us-az`. The repository lacks those workspaces;
+reviewers can check the retained citations, dates and `resolved_text_sha256`
+against each fixture's `source.txt` but cannot repeat that historical
+workspace comparison from the repository alone.
+
+Every manual fixture supplies `source-metadata.json`. Replay runs the
+date-silent start check with missing attestation when a fixture omits that
+file. The pipeline skips that check when it has neither source metadata nor
+a corpus release, so such a fixture can receive a finding outside the
+pipeline's corresponding configuration.
+
+`local-date-silent-merge-41088317595` mutates public fixture `41088317595`,
+an Arizona manual unit that prints no date. No encoder run produced the
+mutation. It moves the `0001-01-01` start and formula `3` of
+`minimum_allotment_actual_benefit_participant_cutoff` from an explicit
+version onto the rule. It adds an unused `<<` mapping with a version starting
+on `2025-10-01`, which the source never prints. The source, companion,
+metadata and imported context retain the parent's bytes, including its
+`source_as_of` of 2026-07-17. Its formulas and companion expectations remain
+unchanged.
+
+The retained engine comparison at `363c6a6c` produced identical compiled
+bytes for parent and mutation, and all 14 companion cases passed for each.
+`fixture.json` identifies the mutation and its public origins;
+`tests/fixtures/date_silent_merge_start/candidate.yaml` retains the same
+candidate. The fixture's `issues.json` records one start-date finding from
+encoder `36deb0c9`. The current analyzer reports none on parent or mutation,
+and the snapshot pins both clean. These retained inputs do not track current
+Arizona law.
+
+`local-date-proof-alias-41648809989` mutates the proof fields of
+`41648809989-control`. It moves `metadata.proof` to `proof` on
+`expanded_categorical_eligibility_fpl_limit_rate` and changes that rule's
+`effective_period` atom from `source.excerpt` to `source.quote`. Reversing
+those aliases recovers the parent's parsed values and types. Source,
+metadata and companion retain the parent's bytes; neither fixture supplies
+imported context. Its metadata records the mutation recipe and origins, and
+`tests/fixtures/date_silent_proof_alias/candidate.yaml` retains the same
+candidate.
+
+Its `issues.json` records one unsupported `2026-03-01` start from the replay
+CLI at encoder `e85c629eb`. The analyzer at `b89c050a` reports no finding on
+parent or mutation, so the snapshot pins the mutation clean. The maintained
+real-engine control
+`test_real_engine_public_proof_alias_preserves_program_and_companion`
+requires identical compiled bytes and runs both unchanged 15-case companions
+with the bound engine. It does not assert an output size.
+
+The author recorded identical 19,982-byte outputs on 2026-11-15 using an
+engine from `axiom-encode engine-bind --pin
+363c6a6c56f7ad130996b63f7a09cfd4c3d9b021` and
+`axiom-rules-engine compile --program <candidate>
+--rulespec-root <checkout> --output <file>`, with the checkout's
+`.axiom/toolchain.toml` set to that commit. The maintained control does not
+verify that historical size. Separate proof controls accept all 20 atoms
+structurally and report four unresolved-source findings for
+`us-az/manual/des/archived-policy/2026-03-23-whats-changed` with the retained
+source-text map. The fixture lacks that change-notice body, so those results
+grant no full release-bound proof authentication.
+
 ### Snapshot and fixture size
 
-The snapshot covers 47 distinct citations, including federal statutes, CFR
+The snapshot covers 50 distinct citations, including federal statutes, CFR
 regulations, IRS and FNS guidance, state statutes, manuals, Canadian guidance
-and forms, and one Israeli statute. Its 57 fixtures include one Arizona
+and forms, and one Israeli statute. Its 65 fixtures include one Arizona
 control whose candidate passed validation before a provenance guard refused
-the run. The snapshot pins 12 clean fixtures, 45 refused fixtures and 3,463
+the run. The snapshot pins 18 clean fixtures, 47 refused fixtures and 2,710
 findings, with no replay errors or regression allowances.
 
-The snapshot preserves all 56 rows from
-`d4292fb5e7aa78af75912ff97fcd34c0ff535c0a` and all 54 rows from integration
-base `5218e0fbe47a63dac406c7d891cacdb9b72a7289` without changing any row
-field. The derived printed-table fixture adds its 35 findings. Compare clean counts and individual findings as well as totals.
+All 62 rows from main `0ced889636144abfe1e504339bb10c84b1e111e3` retain every
+field. The three T1170 and Schedule N fixtures add 48, 35 and 35 findings.
+Their counts match the previous snapshot; the current analyzer adds source
+clauses and fact-selector details to their source-explicit-condition
+findings. Compare individual findings as well as totals.
 
-`tests/test_us_replay_benchmark.py` caps the derived printed-table fixture at
-786,432 bytes, or twelve 64 KiB blocks. That fixture occupies 762,124 bytes.
-All other fixture directories together occupy 5,237,565 bytes and retain
-their combined 5 MiB limit of 5,242,880 bytes. The full set occupies
-5,999,689 bytes against a 6,029,312-byte ceiling. The test enforces the named
-fixture allowance and the other-fixture subtotal separately; another fixture
-cannot consume the printed-table allowance.
+`tests/test_us_replay_benchmark.py` checks these named fixture allowances
+separately:
+
+| Fixture | Retained bytes | Allowance |
+|---|---:|---:|
+| `local-t1170-printed-tables-20261115` | 762,124 | 786,432 |
+| `local-schedule-n-20261113` | 236,974 | 262,144 |
+| `local-date-silent-merge-41088317595` | 61,524 | 65,536 |
+| `local-date-proof-alias-41648809989` | 38,278 | 65,536 |
+
+The Schedule N allowance rounds its unchanged diagnostic up to four 64 KiB
+blocks. All other fixture directories total 5,209,785 bytes under their
+unchanged 5 MiB cap of 5,242,880 bytes. The full set occupies 6,308,685 bytes
+under 6,422,528. The test checks each named fixture and the shared subtotal;
+other fixtures cannot consume a named allowance. It counts files inside
+fixture directories and excludes the root snapshot.
 
 ## Public fixtures and the private held-out set
 
