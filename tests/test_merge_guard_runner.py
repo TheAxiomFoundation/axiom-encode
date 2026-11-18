@@ -2026,7 +2026,7 @@ DOC_SENTENCES = {
             "| Blocking | X1; X2 (a) to (e); X8 (a) and (b); X24; X15 (a) and (b); "
             'X15 (c), the part "the pull request merges only after the guard job has '
             'ended"; X5, the parts "a `merge_group` run starts" and "the '
-            '`merge_group` run prints the marker of the pinned commit" | The',
+            '`merge_group` run prints the marker of the pinned commit" |',
             "| Adjusting | X18 (change: the runner loses its inert path, or reads the "
             "value that names the target); X11 (change: the workflow takes the "
             "bundle commit from the value that names the source commit); X5, the "
