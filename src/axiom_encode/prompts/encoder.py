@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 5
+__version__ = 6
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -1292,6 +1292,19 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   be negative. Wrap the final selected branch at zero, including both sides of
   conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`,
   not `if condition: branch_a else: branch_b`.
+- The zero floors above are for the cases they name: a subtraction of an
+  income, contribution, or other reduction, an income base inside `min(...)`,
+  and taxable income; the cap clamp rule below also keeps its form. Add `max(0,
+  ...)` in any other place only when the source states the floor ("not less
+  than zero", "but not below zero", "cannot be negative", "if the result is
+  less than zero, enter zero") or when an imported rule or an existing encoding
+  of the same amount already applies it. Do not wrap a source-stated amount or
+  a bare input in `max(0, ...)` just to keep an output nonnegative: when the
+  source only says that an expense, payment, fee, or other amount is allowable,
+  countable, or deductible, return the amount as stated, e.g. `if
+  fee_is_mandatory: fee_amount else: 0`, not `if fee_is_mandatory: max(0,
+  fee_amount) else: 0`. A floor the source does not state invents amount
+  semantics and adds a below-zero branch that needs its own companion case.
 - Taxpayer elections such as electing to itemize deductions are legitimate
   election-state inputs to the legal computation. Do not mark a taxable-income
   rule unsupported merely because the taxpayer could optimize that election
