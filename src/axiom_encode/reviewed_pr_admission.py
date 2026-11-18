@@ -74,7 +74,8 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 #    refuses, also with lock 1 open.
 # 3. ``_require_guard_workflow_ruleset``: a live read of the active branch
 #    rules of ``main`` of the RuleSpec repository, at every admission and
-#    every revalidation. It refuses unless the listing shows exactly one
+#    every revalidation of a candidate-lane run (the reviewed lane never
+#    calls it). It refuses unless the listing shows exactly one
 #    ``workflows`` rule, from a ruleset of the organization, that pins the
 #    recorded workflow at a recorded commit, and a ``merge_queue`` rule of
 #    the RuleSpec repository's own ruleset.
@@ -636,7 +637,12 @@ def _require_guard_workflow_ruleset(
     """
 
     recorded = _recorded_guard_workflow()
-    if re.fullmatch(r"TheAxiomFoundation/rulespec-[a-z]{2}", str(repository)) is None:
+    # An exact ``str``: the queue rule below is compared with this value, and
+    # an object with its own ``__eq__`` could match another repository's rule.
+    if (
+        type(repository) is not str
+        or re.fullmatch(r"TheAxiomFoundation/rulespec-[a-z]{2}", repository) is None
+    ):
         raise AdmissionError("invalid repository for the merge guard requirement")
     try:
         rules = _pages(fetch, f"/repos/{repository}/rules/branches/main")

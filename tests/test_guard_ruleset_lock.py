@@ -1215,6 +1215,36 @@ def test_ruleset_form_refuses_a_repository_outside_the_promotion_lane(
         admission.require_guard_enforced(repository, fetch=fetch)
 
 
+class _LyingRepository:
+    """Prints as ``rulespec-us`` and compares equal to every value."""
+
+    name = "TheAxiomFoundation/rulespec-us"
+
+    def __str__(self):
+        return self.name
+
+    def __format__(self, spec):
+        return self.name
+
+    def __eq__(self, other):
+        return True
+
+    def __hash__(self):
+        return hash(self.name)
+
+
+def test_ruleset_form_refuses_a_repository_that_is_not_an_exact_str(ruleset_on, world):
+    """Review round 2, P3-1: the queue rule is compared with the argument, so
+    an object that only prints as the repository must not reach that compare.
+    Without the type check this listing, whose queue belongs to another
+    repository, is accepted."""
+    world[RULES][1]["ruleset_source"] = "evil/other"
+    fetch = Recorder(world)
+    with pytest.raises(AdmissionError, match="invalid repository"):
+        admission.require_guard_enforced(_LyingRepository(), fetch=fetch)
+    assert fetch.calls == []
+
+
 # --- admission and revalidation carry the record of either form -------------------
 
 
