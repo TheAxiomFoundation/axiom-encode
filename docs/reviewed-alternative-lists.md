@@ -77,14 +77,22 @@ committed entry fail in CI.
 
 A manual list can hold a `NOTE` paragraph between two of its items. The items
 after the note belong to the chapeau of the list, not to a condition inside
-the note. The check reads the gates of such a note from the note's own
-paragraph (`_list_interjected_note_end`). This is a rule on the physical shape
-only: a one-line `NOTE` at the left margin that ends with a full stop and
-refers to nothing after it, after at least one item of a list whose chapeau
-has no condition cue and no requirement word, and before a new item with the
-same marker. `tests/test_source_list_note_gates.py` lists the shapes that are
-read as before. An entry cannot express this shape: no line after the cue is
-an alternative of the cue.
+the note. For one listed shape the check reads the gates of such a note from
+the note's own paragraph (`_list_interjected_note_end`). Every condition is
+positive; any other wording is read as before:
+
+- the chapeau is one line that wholly matches "The following ... are|is [not]
+  allowable|allowed [as] ...:" or "Allow ..., including the following:";
+- the note is one line, starts with `NOTE`, one space and a capital letter,
+  ends with a full stop after an open-class word, and refers to nothing after
+  it;
+- every item before the note, and every paragraph after it to the end of the
+  list, starts a new capitalised item, does not start with a connector and
+  does not dangle.
+
+`tests/test_source_list_note_gates.py` lists the shapes that are read as
+before. An entry cannot express this shape: no line after the cue is an
+alternative of the cue.
 
 ## The current entries
 

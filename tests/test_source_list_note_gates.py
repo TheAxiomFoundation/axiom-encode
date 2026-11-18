@@ -363,7 +363,10 @@ def test_no_other_shape_is_a_list_note(name):
     + ["one of", ":", ";"],
 )
 def test_note_with_a_forward_reference_is_not_a_list_note(word):
-    note = NOTE.replace("covers.", f"covers ({word}).")
+    note = NOTE.replace("spread the fee", f"spread the {word} fee")
+    if word in ":;":
+        note = NOTE.replace("months, spread", f"months{word} spread")
+    assert note != NOTE
     assert _note_end(_source(note=note), note) is None
 
 
@@ -372,7 +375,7 @@ def test_note_with_a_forward_reference_is_not_a_list_note(word):
     "if when whenever unless provided only except until while".split(),
 )
 def test_chapeau_line_with_a_condition_cue_is_not_a_list_chapeau(word):
-    chapeau = f"Storage costs ({word}) are billed. " + CHAPEAU
+    chapeau = f"The following storage costs {word} billed are allowable:"
     assert _note_end(_source(chapeau=chapeau)) is None
 
 
@@ -383,7 +386,7 @@ def test_chapeau_line_with_a_condition_cue_is_not_a_list_chapeau(word):
     "circumstance circumstances situation situations occur occurs".split(),
 )
 def test_chapeau_sentence_with_a_requirement_word_is_not_a_list_chapeau(word):
-    chapeau = f"The following storage costs ({word}) are allowable:"
+    chapeau = f"The following {word} storage costs are allowable:"
     assert _note_end(_source(chapeau=chapeau)) is None
 
 
@@ -395,14 +398,262 @@ def test_item_after_the_note_that_starts_with_a_connector_is_not_a_new_item(word
     assert _note_end(_source(later=later)) is None
 
 
-def test_requirement_words_before_the_chapeau_sentence_do_not_count():
-    chapeau = (
-        "To get the cost, the unit must be leased. (See Leases for the "
-        "criteria.) Storage costs include the following:"
-    )
+@pytest.mark.parametrize(
+    "chapeau",
+    [
+        CHAPEAU,
+        "The following are allowable storage costs:",
+        "The following are not allowed as storage costs:",
+        "The following payments are allowable storage costs:",
+        "The following storage cost is not allowable:",
+        "Allow storage costs for the leased unit, including the following:",
+    ],
+)
+def test_listed_enumeration_chapeaus_are_accepted(chapeau):
     source = _source(chapeau=chapeau)
     assert _note_end(source) is not None
     assert _collapsed(source) == []
+
+
+# Round 1 review: chapeaus of joint requirements that two deny lists let pass.
+JOINT_REQUIREMENT_CHAPEAUS = [
+    "The household needs the following to get the storage deduction:",
+    "The household gets the deduction where it has the following:",
+    "The household gets the deduction as long as it has the following:",
+    "The household gets the deduction once it has the following:",
+    "The household gets the deduction after it shows the following:",
+    "The household gets the deduction in case of the following:",
+    "The household gets the deduction given the following:",
+    "The household gets the deduction with the following:",
+    "The following are needed:",
+    "The following are necessary:",
+    "The following are prerequisites:",
+    "The following are mandatory:",
+    "The household has to show the following:",
+    "The household should have the following:",
+    "The following tests are satisfied:",
+    "The following two tests are used:",
+    "The deduction rests on the following three facts:",
+    "The household provides proof of the following:",
+    "The household demonstrates the following:",
+    "The following factors are present together:",
+    # Abbreviation full stops used to cut the sentence before its requirement.
+    "The applicant must meet, under A.R.S. 46-292, the following:",
+    "All of the tests in 7 C.F.R. 273.9 and the following:",
+    "Each household must meet (see Sec. 4) the following:",
+    "A household must show, e.g. for a storage unit, the following:",
+    # A requirement in an earlier sentence of the chapeau line.
+    "The household must have these to get the cost. They include the following:",
+    "To get the cost, the unit must be leased. Storage costs include the following:",
+    "The following tests are used:",
+    # Forms next to the listed ones.
+    "The Following storage costs are allowable:",
+    "the following storage costs are allowable:",
+    "The following storage costs are allowable",
+    "The following storage costs are allowable: ",
+    "The following storage costs are payable:",
+    "The following storage costs were allowable:",
+    "The following storage costs are allowable when leased:",
+    "The following storage costs that are leased are allowable:",
+    "The following storage costs are allowable for those who have a lease:",
+    "The following storage costs (leased) are allowable:",
+    "The following storage costs for the unit are allowable:",
+    "The following costs of storage are allowable:",
+    "The following are allowable costs for the unit:",
+    "Following storage costs are allowable:",
+    "Storage costs include the following:",
+    "Allow storage costs including the following:",
+    "Allow storage costs that are leased, including the following:",
+    "Allow, including the following:",
+    "Disallow storage costs, including the following:",
+]
+
+
+@pytest.mark.parametrize("chapeau", JOINT_REQUIREMENT_CHAPEAUS)
+def test_any_other_chapeau_keeps_the_later_items_as_facts(chapeau):
+    source = _source(
+        chapeau=chapeau,
+        first="● The household leases the storage unit.",
+        later=(
+            "● The member is insured for the unit.",
+            "● The member is employed by the depot.",
+        ),
+    )
+    assert _note_end(source) is None
+    assert len(_collapsed(source)) == 1
+
+
+def test_requirement_in_an_earlier_paragraph_with_another_chapeau_is_refused():
+    source = _source(
+        lead="A household is eligible when it meets every test in this section.",
+        chapeau="The following tests are used:",
+    )
+    assert _note_end(source) is None
+    assert len(_collapsed(source)) == 1
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "NOTE Spread the locker fee when the household has the remaining entries.",
+        "NOTE Spread the locker fee when the household also has.",
+        "NOTE This applies only when the client is.",
+        "NOTE When the fee covers several months and.",
+        "NOTE Spread the locker fee when the household has the rest.",
+        "NOTE Spread the locker fee when the household has the other ones.",
+        "NOTE Spread the locker fee when the member is insured for.",
+        "NOTE Spread the locker fee when the member is insured and the.",
+        "NOTE Spread the locker fee when the member is insured only.",
+        "NOTE Spread the locker fee when the member is insured also.",
+        "NOTE Spread the locker fee when the member has the remaining.",
+        "NOTE Spread the locker fee when the member insured IS.",
+        "NOTE Spread the locker fee when the member is insured For.",
+        "NOTE Spread the locker fee when the member is insured (unit).",
+        "NOTE Spread the locker fee when the member is insured in 2026.",
+    ],
+)
+def test_note_that_does_not_end_on_its_own_content_is_not_a_list_note(note):
+    source = _source(note=note)
+    assert _note_end(source, note) is None
+    excerpt = note.removeprefix("NOTE ")
+    if "insured" in note or "has the" in note:
+        assert len(_collapsed(source, excerpt)) == 1
+
+
+@pytest.mark.parametrize(
+    "head",
+    ["NOTE.", "NOTE -", "NOTE\t", "NOTES", "NOTE:", "NOTE  ", "NOTE w", "NOTE 2"],
+)
+def test_only_the_documented_note_head_is_a_note(head):
+    note = head.rstrip("w2") + NOTE.removeprefix("NOTE")
+    if head.endswith(("w", "2")):
+        note = "NOTE " + head[-1] + NOTE.removeprefix("NOTE W")
+    assert _note_end(_source(note=note), note) is None
+
+
+CONNECTORS = (
+    "And Or Nor But Also Additionally Plus Then If When Whenever While Until "
+    "Unless Where Once Because Provided Only Except Not Either Neither Both"
+).split() + ["In addition", "As long as"]
+
+
+@pytest.mark.parametrize("word", CONNECTORS)
+@pytest.mark.parametrize("place", ["next", "last", "before", "unmarked"])
+def test_connector_anywhere_in_the_list_keeps_the_old_reading(word, place):
+    item = f"● {word} the member is insured for the unit."
+    if place == "next":
+        source = _source(later=(item, *LATER[1:]))
+    elif place == "last":
+        source = _source(later=(*LATER, item))
+    elif place == "before":
+        source = _source(first=item + "\n\n" + FIRST)
+    else:
+        source = _source(later=(*LATER, item.removeprefix("● ")))
+    assert _note_end(source) is None
+
+
+@pytest.mark.parametrize(
+    "later",
+    [
+        (*LATER, "● and the member is insured."),
+        (*LATER, "and the member is insured for the unit."),
+        (LATER[0].removesuffix(".") + ", and", *LATER[1:]),
+        (LATER[0], LATER[1].removesuffix(".") + ", or", LATER[2]),
+        (LATER[0], LATER[1].removesuffix(".") + ";", LATER[2]),
+        (LATER[0], LATER[1].removesuffix(".") + " and", LATER[2]),
+        (LATER[0], LATER[1].removesuffix(".") + " or", LATER[2]),
+        (LATER[0], LATER[1].removesuffix(".") + ",", LATER[2]),
+        (*LATER, "●Gate insurance for the unit."),
+        (*LATER, "●  Gate insurance for the unit."),
+        (*LATER, "• Gate insurance for the unit."),
+        (*LATER, "  ● Gate insurance for the unit."),
+        (*LATER, "● Gate insurance\nfor the unit."),
+        (*LATER, "Gate insurance\nfor the unit."),
+    ],
+)
+def test_every_later_paragraph_of_the_list_is_checked(later):
+    source = _source(later=later)
+    assert _note_end(source) is None
+    assert len(_collapsed(source)) == 1
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        "• Gate fees for the unit.\n\n" + FIRST,
+        "●Gate fees for the unit.\n\n" + FIRST,
+        "● gate fees for the unit.\n\n" + FIRST,
+        "● Gate fees for the unit, and\n\n" + FIRST,
+        "● Gate fees for the unit;\n\n" + FIRST,
+        "● Gate fees for the unit:\n\n" + FIRST,
+        FIRST.removesuffix(".") + ":",
+        FIRST.removesuffix(".") + ", or",
+        "●" + FIRST[2:],
+    ],
+)
+def test_every_item_before_the_note_is_checked(first):
+    assert _note_end(_source(first=first)) is None
+
+
+def test_paragraph_after_the_note_must_be_an_item():
+    source = _source(later=("Flood insurance is a storage cost.", *LATER))
+    assert _note_end(source) is None
+
+
+@pytest.mark.parametrize("marker", ["-", "*", "X", "1.", "o"])
+def test_other_list_markers_are_not_items(marker):
+    source = _source().replace("●", marker)
+    assert _note_end(source) is None
+
+
+def test_list_shapes_that_are_still_accepted():
+    # The list at the very start of the text, and the item after the note as
+    # the last paragraph of the text.
+    source = "\n\n".join([CHAPEAU, FIRST, NOTE, LATER[0]])
+    assert source.startswith(CHAPEAU)
+    assert _note_end(source) == source.index(NOTE) + len(NOTE)
+    assert _collapsed(source + "\n\n" + LATER[1]) == []
+    # Blank lines that hold spaces or tabs.
+    spaced = _source().replace("\n\n", "\n \t\n")
+    assert _note_end(spaced) == spaced.index(NOTE) + len(NOTE)
+    # An item that starts with a digit.
+    digit = _source(later=("● 24-hour gate insurance for the unit.", *LATER))
+    assert _note_end(digit) is not None
+    # An item that opens unmarked sub-items, and a later note in the list.
+    nested = _source(
+        later=(
+            LATER[0],
+            "● Other insurance for the unit, which includes any of the following:",
+            "Shed insurance",
+            "Gate insurance",
+            "NOTE Count gate insurance in the month of the bill.",
+            LATER[2],
+        )
+    )
+    assert _note_end(nested) is not None
+    # The list ends at the next chapeau: text after it is not examined.
+    ended = _source() + "\n\nand other costs that the worker lists."
+    assert _note_end(ended) is not None
+
+
+def test_note_is_not_read_when_the_clause_has_no_gates(monkeypatch):
+    """The rule can only remove gates that the whole clause had."""
+    from axiom_encode.harness import source_completeness as completeness
+
+    calls = []
+    real = completeness._list_interjected_note_end
+
+    def recording(source_text, start, end):
+        calls.append((start, end))
+        return real(source_text, start, end)
+
+    monkeypatch.setattr(completeness, "_list_interjected_note_end", recording)
+    plain = _source(later=("● Flood cover.", "● Shed cover."))
+    assert _note_end(plain) is not None
+    assert _collapsed(plain) == []
+    assert calls == []
+    assert _collapsed(_source()) == []
+    assert len(calls) == 1
 
 
 def test_clause_that_ends_inside_the_note_is_not_cut():

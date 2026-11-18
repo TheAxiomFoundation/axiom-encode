@@ -20552,13 +20552,30 @@ def _concessive_form_completion_condition(text: str) -> str | None:
     return "If " + condition + "."
 
 
+# A NOTE paragraph between two items of an enumeration (see
+# ``_list_interjected_note_end``). Every condition is positive: a wording
+# that is not listed here keeps the reading it had before.
+_LIST_NOTE_CLOSED_CLASS_WORDS = frozenset(
+    """
+    a an the this that these those each every any all some no both either
+    neither such another other
+    of to in on at by for with from as into onto over under about after before
+    between through during until upon within without than per via among above
+    below except
+    is are was were be been being am has have had do does did will would shall
+    should may might can could must
+    and or nor but if when whenever while unless because although though since
+    so yet where once whether provided
+    also only not then too still again additionally plus
+    it they them he she we you i its their his her our your which who whom
+    whose what
+    remaining following
+    """.split()
+)
 _LIST_NOTE_FORWARD_REFERENCE = re.compile(
     r"\b(?:following|follows|below|next|subsequent|these|those|lists?|listed|"
-    r"items?|bullets?|either|both|all|any|each|every|one\s+of)\b|[:;]",
-    flags=re.IGNORECASE,
-)
-_LIST_NOTE_CHAPEAU_CUE = re.compile(
-    r"\b(?:if|when|whenever|unless|provided|only|except|until|while)\b",
+    r"items?|bullets?|entries|entry|ones|rest|either|both|all|any|each|every|"
+    r"one\s+of)\b|[:;]",
     flags=re.IGNORECASE,
 )
 _LIST_NOTE_CHAPEAU_REQUIREMENT = re.compile(
@@ -20567,14 +20584,60 @@ _LIST_NOTE_CHAPEAU_REQUIREMENT = re.compile(
     r"situations?|occurs?)\b",
     flags=re.IGNORECASE,
 )
+_LIST_NOTE_WORD = r"[A-Za-z][A-Za-z&'’/-]*"
+# The only chapeau forms: an enumeration of what is, or is not, allowable.
+_LIST_NOTE_CHAPEAU_FORMS = (
+    re.compile(
+        rf"The following(?P<head>(?: {_LIST_NOTE_WORD}){{0,8}}) (?:are|is)(?: not)? "
+        rf"(?:allowable|allowed)(?: as)?(?P<tail>(?: {_LIST_NOTE_WORD}){{0,8}}):"
+    ),
+    re.compile(
+        rf"Allow(?P<head>(?: {_LIST_NOTE_WORD}){{1,12}}), including the following:"
+    ),
+)
+_LIST_NOTE_CHAPEAU_OBJECT_WORDS = frozenset({"for", "of", "the"})
 _LIST_NOTE_ITEM_CONNECTOR = re.compile(
-    r"(?:and|or|nor|but|if|when|unless|provided|only|except)\b",
+    r"(?:and|or|nor|but|also|additionally|in\s+addition|plus|then|if|when|"
+    r"whenever|while|until|unless|where|once|as\s+long\s+as|because|provided|"
+    r"only|except|not|either|neither|both)\b",
     flags=re.IGNORECASE,
 )
+_LIST_NOTE_DANGLING_END = re.compile(r"(?:[;,]|\b(?:and|or|nor))\s*$", re.IGNORECASE)
+
+
+def _list_note_chapeau_is_enumeration(chapeau: str) -> bool:
+    """Accept one whole-line sentence of a listed enumeration form."""
+
+    # A form matches the whole line and its words hold letters only, so a
+    # second sentence, a parenthesis or a number never matches. Closed-class
+    # words (every condition cue is one) are refused below.
+    if _LIST_NOTE_CHAPEAU_REQUIREMENT.search(chapeau):
+        return False
+    for index, form in enumerate(_LIST_NOTE_CHAPEAU_FORMS):
+        match = form.fullmatch(chapeau)
+        if match is None:
+            continue
+        allowed = _LIST_NOTE_CHAPEAU_OBJECT_WORDS if index else frozenset()
+        words = " ".join(match.groupdict().values()).casefold().split()
+        return not any(
+            word in _LIST_NOTE_CLOSED_CLASS_WORDS and word not in allowed
+            for word in words
+        )
+    return False
+
+
+def _list_note_paragraph_starts_a_new_item(text: str) -> bool:
+    """A paragraph of the list starts its own text and does not dangle."""
+
+    return (
+        re.match(r"[A-Z0-9]", text) is not None
+        and _LIST_NOTE_ITEM_CONNECTOR.match(text) is None
+        and _LIST_NOTE_DANGLING_END.search(text) is None
+    )
 
 
 def _list_interjected_note_end(source_text: str, start: int, end: int) -> int | None:
-    """Return the end of a NOTE paragraph that interrupts an open item list.
+    """Return the end of a NOTE paragraph that interrupts an open enumeration.
 
     The DES manuals put a ``NOTE`` paragraph between two items of a list. The
     note belongs to the item before it; the items after it belong to the list
@@ -20582,24 +20645,33 @@ def _list_interjected_note_end(source_text: str, start: int, end: int) -> int | 
     physical shape is recognized, and every other shape keeps its bounds:
 
     - the clause ``[start, end)`` starts inside a one-line paragraph that
-      begins with ``NOTE`` at the left margin, and runs past its end;
-    - the note ends with a full stop and holds no colon, semicolon or forward
-      reference (``following``, ``these``, ``all``, ``listed``, ...);
+      begins with ``NOTE``, one space and a capital letter at the left margin,
+      and runs past its end;
+    - the note ends with a full stop after an open-class word, and holds no
+      colon, semicolon or forward reference (``following``, ``these``,
+      ``all``, ``listed``, ``entries``, ...);
     - the paragraphs before the note are one or more one-line left-margin
-      bullets, none of which ends with a colon, and the paragraph before them
-      is a one-line chapeau that ends
-      with a colon, with no condition cue on its line, and whose last
-      sentence says ``following`` and holds no requirement word;
-    - the paragraph after the note is a left-margin bullet with the same
-      marker that starts a new capitalised item, not a connector.
+      bullets (marker and one space), each a new capitalised item that does
+      not start with a connector, dangle or end with a colon;
+    - the paragraph before them is the chapeau: one line and one sentence
+      that wholly matches a listed enumeration form ("The following ... are
+      [not] allowable|allowed [as] ...:", "Allow ..., including the
+      following:"), whose free words are open-class words and hold no
+      requirement word;
+    - the paragraph after the note is a bullet with the same marker, and every
+      paragraph from there to the end of the list (the next unmarked line
+      that ends with a colon, or the end of the text) is one line, starts
+      with a capital letter or a digit, does not start with a connector and
+      does not dangle; a bullet in that range has the same marker.
     """
 
-    # A paragraph is the text between blank lines. Other line endings give
-    # no one-line paragraphs, so they never match.
+    # A paragraph is a run of lines that are not blank. Other line endings
+    # give no one-line paragraphs, so they never match.
     paragraphs = [
         (match.start(), match.end())
-        for match in re.finditer(r"[^\n]+(?:\n(?![ \t]*\n)[^\n]*)*", source_text)
-        if source_text[match.start() : match.end()].strip()
+        for match in re.finditer(
+            r"(?m)^[^\n]*\S[^\n]*(?:\n[^\n]*\S[^\n]*)*", source_text
+        )
     ]
     index = next(
         (i for i, (a, b) in enumerate(paragraphs) if a <= start < b),
@@ -20617,46 +20689,50 @@ def _list_interjected_note_end(source_text: str, start: int, end: int) -> int | 
     if (
         note is None
         or end <= paragraphs[index][1]
-        or re.match(r"NOTE\b", note) is None
-        or not note.endswith(".")
+        or re.match(r"NOTE [A-Z]", note) is None
         or _LIST_NOTE_FORWARD_REFERENCE.search(note)
     ):
         return None
-    previous = line(index - 1)
-    marker = re.match(r"[●•](?=[ \t]+\S)", previous or "")
-    if marker is None:
-        return None
-    following = line(index + 1)
-    item = re.match(r"([●•])[ \t]+(?=[A-Z0-9])", following or "")
+    last_word = re.search(r"([A-Za-z]+)\.$", note)
     if (
-        item is None
-        or item.group(1) != marker.group()
-        or _LIST_NOTE_ITEM_CONNECTOR.match(following[item.end() :])
+        last_word is None
+        or last_word.group(1).casefold() in _LIST_NOTE_CLOSED_CLASS_WORDS
     ):
         return None
+    marker = (line(index - 1) or "")[:1]
+    if marker not in {"●", "•"}:
+        return None
+
+    def item_text(i: int) -> str | None:
+        text = line(i)
+        if text is None or not text.startswith(marker + " "):
+            return None
+        return text[2:]
+
     cursor = index - 1
-    while cursor >= 0:
-        candidate = line(cursor)
-        if candidate is None or not candidate.startswith(marker.group() + " "):
-            break
-        if candidate.endswith(":"):
+    while cursor >= 0 and (item := item_text(cursor)) is not None:
+        if item.endswith(":") or not _list_note_paragraph_starts_a_new_item(item):
             # An item that opens a list of its own may own the later items.
             return None
         cursor -= 1
     chapeau = line(cursor) if cursor >= 0 else None
-    if (
-        chapeau is None
-        or chapeau[:1].isspace()
-        or re.match(r"[●•]|NOTE\b", chapeau)
-        or not chapeau.endswith(":")
-        or _LIST_NOTE_CHAPEAU_CUE.search(chapeau)
-    ):
+    if chapeau is None or not _list_note_chapeau_is_enumeration(chapeau):
         return None
-    last_sentence = re.split(r"[.!?][)\"”]?\s+", chapeau)[-1]
-    if not re.search(
-        r"\bfollowing\b", last_sentence, flags=re.IGNORECASE
-    ) or _LIST_NOTE_CHAPEAU_REQUIREMENT.search(last_sentence):
+    if item_text(index + 1) is None:
         return None
+    for later in range(index + 1, len(paragraphs)):
+        text = line(later)
+        if text is None:
+            return None
+        if text[:1] in {"●", "•"}:
+            text = item_text(later)
+            if text is None:
+                return None
+        elif text.endswith(":"):
+            # The next chapeau: the list has ended.
+            break
+        if not _list_note_paragraph_starts_a_new_item(text):
+            return None
     return paragraphs[index][1]
 
 
