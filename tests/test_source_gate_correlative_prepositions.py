@@ -15,6 +15,7 @@ import functools
 import pytest
 import yaml
 
+from axiom_encode.harness import source_completeness as completeness
 from axiom_encode.harness import validator_pipeline as vp
 from axiom_encode.harness.source_completeness import (
     CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
@@ -22,6 +23,7 @@ from axiom_encode.harness.source_completeness import (
     _source_gate_split_conjunctive_conditions,
     analyze_complete_source_unit,
 )
+from tests import test_source_credit_difference_conditions as credit
 
 CITATION = "us-zz/manual/synthetic/travel-allowance/block-1"
 ROUND_TRIP = (
@@ -220,3 +222,97 @@ def test_only_the_correlative_and_is_kept():
 
 def test_case_is_not_significant():
     assert _gate_count(ROUND_TRIP.replace("both to and from", "Both To And From")) == 0
+
+
+def test_phrase_on_a_later_line_is_kept_at_its_own_offset():
+    """Offsets are per physical line: the phrase on line two is still found."""
+    body = (
+        " the member is employed and insured\n"
+        " the member drives both to and from a provider and is a resident"
+    )
+    kept = _source_gate_split_conjunctive_conditions(
+        body, keep_correlative_prepositions=True
+    )
+    assert kept == [
+        (None, " the member is employed "),
+        ("and", " insured"),
+        (None, " the member drives both to and from a provider "),
+        ("and", " is a resident"),
+    ]
+
+
+def test_phrase_after_a_yet_boundary_is_kept():
+    """A ``yet`` boundary becomes a line break before the split."""
+    body = (
+        " the member is employed, yet the member drives both to and from a "
+        "provider and is a resident"
+    )
+    kept = _source_gate_split_conjunctive_conditions(
+        body, keep_correlative_prepositions=True
+    )
+    assert len(kept) == 3
+    assert [connector for connector, _segment in kept] == [None, None, "and"]
+    assert "both to and from a provider" in kept[1][1]
+    # The same text with the phrase on the first line, for the offsets.
+    shifted = _source_gate_split_conjunctive_conditions(
+        " the member drives both to and from a provider, yet the member is "
+        "employed and is a resident",
+        keep_correlative_prepositions=True,
+    )
+    assert len(shifted) == 3
+    assert "both to and from a provider" in shifted[0][1]
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "both to and  from",
+        "both to  and from",
+        "both  to and from",
+        "both to and\tfrom",
+        "both to\tand from",
+        "both\tto and from",
+        "both to and\u00a0from",
+        "both to\u00a0and from",
+        "both\u00a0to and from",
+        # Not the word "both".
+        "_both to and from",
+        "2both to and from",
+    ],
+)
+def test_other_spacing_and_other_tokens_stay_split(phrase):
+    body = f" a member drives their dependent {phrase} a provider."
+    kept = _source_gate_split_conjunctive_conditions(
+        body, keep_correlative_prepositions=True
+    )
+    assert len(kept) == 2
+    assert kept == _source_gate_split_conjunctive_conditions(body)
+
+
+def test_credit_difference_reader_still_splits_the_phrase(monkeypatch):
+    """The other caller of the split keeps the default: the phrase splits."""
+    calls = []
+    split = completeness._source_gate_split_conjunctive_conditions
+
+    def recording_split(text, **keywords):
+        segments = split(text, **keywords)
+        calls.append((text, keywords, segments))
+        return segments
+
+    monkeypatch.setattr(
+        completeness, "_source_gate_split_conjunctive_conditions", recording_split
+    )
+    clause = credit.CLAUSE.replace(
+        "has a federal tax liability", "is driven both to and from work"
+    )
+    payload, cases = credit._credit_candidate(source=clause)
+    credit._public_gate(payload, clause, cases)
+    with_phrase = [call for call in calls if "both to and from" in call[0]]
+    by_default = [call for call in with_phrase if not call[1]]
+    assert by_default, "the credit-difference reader was not reached"
+    assert all(len(segments) == 2 for _text, _keywords, segments in by_default)
+    assert all(
+        keywords == {"keep_correlative_prepositions": True} and len(segments) == 1
+        for _text, keywords, segments in with_phrase
+        if keywords
+    )
