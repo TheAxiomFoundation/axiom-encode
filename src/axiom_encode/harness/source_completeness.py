@@ -16660,6 +16660,91 @@ def _armenian_amendment_history_numeric_recall_spans(
         yield candidate.start("body"), candidate.end("body")
 
 
+# A cross-reference to a numbered worked example: `(See Example 1 )`, `see
+# Example 12.`, `See Examples 1, 2 and 3;`. The ordinal names the example; it
+# is not a value of the rule. Three things must hold together:
+#
+# * `See` comes directly before `Example` on the same line. A worked-example
+#   label (`Example 1: ...`) or the words `for example, 1 month` are not
+#   matched, because their numbers can be content.
+# * The ordinal is a bare integer below 100 with no sign, currency or decimal.
+# * The reference is closed right after the ordinal(s) by `)`, `]`, `.`, `;`
+#   or `,`. Other text after the ordinal (`See Example 1 month`, `See Example
+#   1 and pay 2`) leaves every number demanded.
+# * The text after a `.`, `;` or `,` closer is of a known safe kind (see
+#   `_example_cross_reference_is_closed`). This is a positive condition: the
+#   number tokenizer joins digits across separators in ways this pattern does
+#   not model (`1.５`, `1,,000`, `1,.5`, `1,\n000`), so anything that is not
+#   positively recognized keeps every demand.
+#
+# A list is read only after the plural `Examples`, and only as a whole. A
+# comma in a list needs a blank after it: `1,5` can be one number.
+_EXAMPLE_CROSS_REFERENCE_ORDINAL = r"[1-9][0-9]?"
+_EXAMPLE_CROSS_REFERENCE = re.compile(
+    r"(?<![A-Za-z0-9])See[ \t]+(?:"
+    r"Example[ \t]+(?P<one>" + _EXAMPLE_CROSS_REFERENCE_ORDINAL + r")|"
+    r"Examples[ \t]+(?P<many>" + _EXAMPLE_CROSS_REFERENCE_ORDINAL + r"(?:(?:"
+    r"[ \t]*,[ \t]+(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+)"
+    + _EXAMPLE_CROSS_REFERENCE_ORDINAL
+    + r")+))"
+    r"(?=[ \t]*(?P<closer>[)\].;,]))",
+    flags=re.IGNORECASE | re.ASCII,
+)
+_EXAMPLE_REFERENCE_END = ")]\"'”’"
+_EXAMPLE_CROSS_REFERENCE_LIST_ORDINAL = re.compile(_EXAMPLE_CROSS_REFERENCE_ORDINAL)
+
+
+def _example_cross_reference_is_closed(
+    source_text: str, reference: re.Match[str]
+) -> bool:
+    """Whether the text after the reference's closer is positively safe.
+
+    After `.` or `;` the next character is the end of the text, whitespace or
+    a closing bracket or quote. After `,` the next character, across optional
+    whitespace, is an ASCII letter or the end of the text. `)` and `]` end the
+    reference by themselves.
+    """
+
+    closer = reference.group("closer")
+    after = source_text[reference.end("closer") :]
+    if closer in ".;":
+        return not after or after[0].isspace() or after[0] in _EXAMPLE_REFERENCE_END
+    if closer == ",":
+        following = after.lstrip()[:1]
+        return not following or (following.isascii() and following.isalpha())
+    return True
+
+
+def _example_cross_reference_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Yield only the ordinals of a closed `See Example N` cross-reference."""
+
+    for reference in _EXAMPLE_CROSS_REFERENCE.finditer(source_text):
+        if not _example_cross_reference_is_closed(source_text, reference):
+            continue
+        if reference.group("one") is not None:
+            yield reference.span("one")
+            continue
+        for ordinal in _EXAMPLE_CROSS_REFERENCE_LIST_ORDINAL.finditer(
+            source_text, reference.start("many"), reference.end("many")
+        ):
+            yield ordinal.span()
+
+
+def mask_example_cross_references(source_text: str) -> str:
+    """Mask `See Example N` reference ordinals in place with spaces.
+
+    The eval numeric-coverage metric uses this so it agrees with complete-
+    source numeric recall. It applies only this recognizer, so every other
+    source number keeps its obligation.
+    """
+
+    return _mask_numeric_spans(
+        source_text, _example_cross_reference_numeric_recall_spans(source_text)
+    )
+
+
 def mask_armenian_amendment_history(source_text: str) -> str:
     """Mask fully validated standalone ARLIS ledgers in place with spaces.
 
@@ -18281,6 +18366,9 @@ def authoritative_numeric_recall_text(
     )
     source_text = mask(
         source_text, _english_subdivision_numeric_recall_spans(source_text)
+    )
+    source_text = mask(
+        source_text, _example_cross_reference_numeric_recall_spans(source_text)
     )
     source_text = mask(
         source_text, _contiguous_states_numeric_recall_spans(source_text)
@@ -23383,7 +23471,10 @@ CHECK_TESTS_BOUNDARY_UNEXERCISED = _declare_companion_test_check(
     requires="Every source-stated boundary value is exercised by a companion case.",
     fix=(
         "Add cases at each listed boundary value (and just across it) that "
-        "assert the affected principal output."
+        "assert the affected principal output. If the listed value is a cap "
+        "whose `min(...)` shares a formula with a comparison, move the clamp "
+        "into its own derived rule with no comparison and assert that rule in "
+        "every case that sets the capped amount."
     ),
 )
 CHECK_TESTS_EXCEPTION_PAIR_MISSING = _declare_companion_test_check(

@@ -198,6 +198,7 @@ from .source_completeness import (
     _rulespec_target_base,
     collect_artifact_numeric_values,
     mask_armenian_amendment_history,
+    mask_example_cross_references,
 )
 from .start_date_evidence import (
     is_manual_citation,
@@ -9044,13 +9045,15 @@ def _evaluate_artifact_in_scope(
     # but generated literals are grounded only in authoritative source text and
     # separately parsed proof evidence below — never in module.summary.
     numeric_validation_source_text = embedded_source or numeric_source_text or ""
-    numeric_recall_source_text = mask_armenian_amendment_history(
-        (
-            evaluation_source_text
-            if require_complete_source_unit
-            else numeric_validation_source_text
+    numeric_recall_source_text = mask_example_cross_references(
+        mask_armenian_amendment_history(
+            (
+                evaluation_source_text
+                if require_complete_source_unit
+                else numeric_validation_source_text
+            )
+            or ""
         )
-        or ""
     )
     # Complete-source recall deliberately inventories the whole authoritative
     # unit.  Generated-number grounding remains scoped exactly as it is in the
@@ -9748,6 +9751,101 @@ def _imported_named_scalar_occurrences(
     return occurrences
 
 
+_STRICT_IMPORT_SYMBOL_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_STRICT_IMPORT_PATH_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9_.~-]+")
+_STRICT_IMPORT_REFUSED_FILENAME_SUFFIXES = (".yaml", ".yml", ".test")
+_YAML_STRING_TAG = "tag:yaml.org,2002:str"
+
+
+def _strict_top_level_import_strings(content: str) -> list[str]:
+    """Return the import strings written in place in the top-level mapping.
+
+    The rules engine does not apply YAML merge keys, so a loaded payload can
+    show an ``imports`` list that the engine never sees. This reader works on
+    the event and node level and credits nothing for the whole file unless the
+    file is one document with no alias and no explicit tag, whose top-level
+    mapping has no merge key and exactly one ``imports`` key, valued by a
+    sequence of string scalars.
+    """
+
+    try:
+        events = list(yaml.parse(content, Loader=yaml.SafeLoader))
+        documents = list(yaml.compose_all(content, Loader=yaml.SafeLoader))
+    except (yaml.YAMLError, TypeError, ValueError):
+        return []
+    for event in events:
+        if isinstance(event, yaml.AliasEvent):
+            return []
+        if isinstance(event, yaml.NodeEvent) and event.tag is not None:
+            return []
+    if len(documents) != 1 or not isinstance(documents[0], yaml.MappingNode):
+        return []
+    import_values: list[yaml.Node] = []
+    for key_node, value_node in documents[0].value:
+        # A non-scalar key has a list value, so neither comparison matches it.
+        if key_node.value == "<<":
+            return []
+        if key_node.value == "imports":
+            import_values.append(value_node)
+    if len(import_values) != 1 or not isinstance(import_values[0], yaml.SequenceNode):
+        return []
+    items: list[str] = []
+    for item_node in import_values[0].value:
+        if (
+            not isinstance(item_node, yaml.ScalarNode)
+            or item_node.tag != _YAML_STRING_TAG
+        ):
+            return []
+        items.append(item_node.value)
+    return items
+
+
+def _strict_import_target_is_engine_loadable(import_target: str) -> bool:
+    """Mirror the rules engine's exact absolute module-target rule."""
+
+    prefix, separator, relative = import_target.partition(":")
+    if not separator or ":" in relative:
+        return False
+    if re.fullmatch(r"[a-z]{2}(?:-[a-z0-9]+)*", prefix) is None:
+        return False
+    segments = relative.split("/")
+    if len(segments) < 2 or segments[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
+        return False
+    for segment in segments:
+        if segment in {".", ".."}:
+            return False
+        if _STRICT_IMPORT_PATH_SEGMENT_PATTERN.fullmatch(segment) is None:
+            return False
+    return not segments[-1].lower().endswith(_STRICT_IMPORT_REFUSED_FILENAME_SUFFIXES)
+
+
+def _strict_symbol_import_items(content: str) -> list[tuple[str, str]]:
+    """Return exact `(target, symbol)` pairs the rules engine would load.
+
+    An item counts only when it is exactly one whitespace-free, prefixed
+    `target#symbol` reference whose target the engine accepts.
+    """
+
+    items: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw_item in _strict_top_level_import_strings(content):
+        if raw_item.count("#") != 1 or any(char.isspace() for char in raw_item):
+            continue
+        import_target, imported_symbol = raw_item.split("#", 1)
+        if not _STRICT_IMPORT_SYMBOL_PATTERN.fullmatch(imported_symbol):
+            continue
+        if not _strict_import_target_is_engine_loadable(import_target):
+            continue
+        target_ref = _parse_rulespec_target(raw_item)
+        if target_ref is None or target_ref.symbol != imported_symbol:
+            continue
+        if (import_target, imported_symbol) in seen:
+            continue
+        seen.add((import_target, imported_symbol))
+        items.append((import_target, imported_symbol))
+    return items
+
+
 def _strict_imported_named_scalar_occurrences(
     content: str,
     policy_repo_root: Path,
@@ -9755,11 +9853,13 @@ def _strict_imported_named_scalar_occurrences(
     """Count only direct scalar definitions for explicitly imported symbols."""
 
     occurrences: Counter[float] = Counter()
-    for import_target in _extract_import_targets(content):
-        if "#" not in import_target:
+    for import_target, imported_symbol in _strict_symbol_import_items(content):
+        try:
+            paths = _candidate_import_rule_files(import_target, policy_repo_root)
+        except UnsafeRulespecContextPath:
+            # An unsafe target earns no credit; the source number stays missing.
             continue
-        imported_symbol = import_target.rsplit("#", 1)[1]
-        for path in _candidate_import_rule_files(import_target, policy_repo_root):
+        for path in paths:
             with contextlib.suppress(OSError):
                 imported_content = path.read_text()
                 occurrences.update(
@@ -12374,6 +12474,7 @@ Test file rules:
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
 - Never assign an imported module's computed `#rule_name` output in `input:`. If this file imports that rule, the compiled program computes it. To make an imported output true, false, or equal a value, mirror the imported file's companion test pattern by setting its underlying `#input.<fact>` and `#relation.<name>` keys.
 - When a test is meant to exercise a threshold, cap, or boundary on an imported derived output, do not assume one upstream raw input equals that imported output. First compute the imported formula from the upstream inputs you set; if the upstream formula has deductions, rates, or offsets that make the exact boundary awkward, choose clearly below/above-boundary inputs instead of an exact boundary case.
+- When a cap is encoded in its own derived rule because the provision also has a comparison gate, assert that cap rule's output, and the output of any derived rule that computes the capped amount, in every companion case that sets the capped amount, not only in the at-limit case. Include a case with the amount exactly at the limit, and keep below-limit and above-limit cases, plus a negative-amount case when the clamp floors at zero.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not `<jurisdiction>:<repo-path>#input.imported_judgment`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
 - A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `<jurisdiction>:<repo-path>#relation.member_of_household: [- true]`. Good: `<jurisdiction>:<repo-path>#relation.member_of_household:` followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.
@@ -13356,6 +13457,19 @@ RuleSpec requirements:
   `min(source_amount, cap)`. The excluded excess is
   `max(0, source_amount - cap)`, but do not return `source_amount - cap` or
   `source_amount - remaining_cap` as the included amount.
+- When a source limit ("up to", "no more than", "a maximum of", "cannot
+  exceed") applies to an amount and the same provision also has a comparison
+  condition (a gate such as a distance, age, date, or count test), encode the
+  capped amount in its own `kind: derived` rule whose formula is only the
+  clamp, e.g. `min(max(0, amount), cap)`, with no comparison, and reference
+  that rule from the gated principal formula, e.g.
+  `if gate_measure > gate_threshold: capped_amount else: 0`. Do not put a
+  comparison gate and the cap `min(...)` in one formula. If the capped amount
+  is itself computed (a sum, a rate), compute it in its own derived rule first
+  so the clamp is applied to one name. Use one clamp rule per source cap
+  value, with that cap parameter as the direct second argument of `min`, and
+  select between the clamp rules in the principal formula. Each clamp rule
+  carries its own proof atom quoting the cap sentence.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
