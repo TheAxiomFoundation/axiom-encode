@@ -12,6 +12,8 @@ All source text here is synthetic.
 from __future__ import annotations
 
 import functools
+import itertools
+from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
@@ -58,6 +60,17 @@ MASKED = (
     ("The unit pays $50 for 3 months. (See Example 1 )", [50.0, 3.0]),
     ("(See Example 1 ) The unit pays $1 for 1 month.", [1.0, 1.0]),
     ("(See Example 2 ) Allow $20 when 2 persons pay.", [20.0, 2.0]),
+    # A closed reference ends its sentence; the next sentence keeps its number.
+    ("See Example 2. 3 months of costs are allowed.", [3.0]),
+    ("See Example 2.\n3 months of costs are allowed.", [3.0]),
+    ('The cost is allowed. "See Example 2."', []),
+    ("The cost is allowed. \u201cSee Example 2.\u201d", []),
+    ("The cost is allowed. (See Example 2;)", []),
+    ("The cost is allowed. 'See Example 2.'", []),
+    ("The cost is allowed. \u2018See Example 2.\u2019", []),
+    ("The cost is allowed. [See Example 2.]", []),
+    ("The cost is allowed; see Example 2,", []),
+    ("See Example 2,\nwhere the cost is allowed.", []),
 )
 
 # Nothing in these is a closed reference to an example: every number stays.
@@ -133,6 +146,38 @@ NOT_A_CLOSED_REFERENCE = (
     "See Examples1 and 2)",
     "See Example 4\n)",
     "See Examples 1 and 2\n)",
+    # After `.` or `;` only whitespace, a closing bracket or quote, or the end.
+    "See Example 1.Note(2) end",
+    "See Example 1.a",
+    "See Example 1;a",
+    "See Example 1.,5",
+    "See Example 1.-5",
+    "See Example 1;-5",
+    "See Example 1.(5)",
+    "See Example 1.$5",
+    "See Example 1..5",
+    # After `,` only an ASCII letter or the end: the tokenizer joins a number
+    # across a run of separators.
+    "Pay $50. See Example 1,,000 end",
+    "See Example 1,.5",
+    "See Example 1,,5",
+    "See Example 1,,.5",
+    "See Example 1,,,000",
+    "See Example 1,.\uff15",
+    "See Example 1, ,000",
+    "See Example 1,-5",
+    "See Example 1, $5",
+    "See Example 1,(5)",
+    "See Example 1,)",
+    "See Example 1, \u00e9lectricit\u00e9",
+    "See Examples 1 and 2,,000",
+    # A list comma needs a blank after it: `1,5` can be one number.
+    "See Examples 1,5)",
+    "See Examples 1,2)",
+    "See Examples 1 ,2 and 3)",
+    "See Examples 4\n,5)",
+    "See Examples 4\n, 5)",
+    "See Examples 4, and\n5)",
     # Only `,`, `and` and `or` join a list, on one line.
     "See Examples 4 to 6)",
     "See Examples 4-5)",
@@ -248,6 +293,56 @@ def test_recall_masks_examples_after_subdivisions_through_the_source_map(
     assert source_map.offsets[ordinal + 1] == ordinal + 1
     amount = source.index("50")
     assert source_map.source_span(amount, amount + 2) == (amount, amount + 2)
+
+
+def test_reference_closed_by_a_bracket_keeps_the_number_after_it():
+    assert sc.mask_example_cross_references("(See Example 1)5") == "(See Example  )5"
+    assert sc.mask_example_cross_references("See Example 2. 3 months") == (
+        "See Example  . 3 months"
+    )
+
+
+_DIFFERENTIAL_ALPHABET = tuple("05\uff15\u0665,.;-+$%()[]aN \n")
+_DIFFERENTIAL_HEADS = (
+    "Pay $50. See Example 1",
+    "Pay $50. (See Example 12",
+    "Pay $50. See Examples 1 and 2",
+    "Pay $50. (See Examples 3, 4, or 7",
+)
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("head", _DIFFERENTIAL_HEADS)
+@pytest.mark.parametrize("closer", (")", "]", ".", ";", ",", " )", " .", " ,"))
+def test_mask_removes_exactly_the_ordinals_from_the_inventory(head, closer, profile):
+    """Whatever follows the closer, the mask never cuts or creates a number."""
+
+    def values(text):
+        return Counter(
+            item.value
+            for item in extract_typed_numeric_inventory_occurrences_from_text(
+                text, profile=profile
+            )
+        )
+
+    masked_count = 0
+    for depth in range(3):
+        for suffix in itertools.product(_DIFFERENTIAL_ALPHABET, repeat=depth):
+            for tail in ("", " end"):
+                text = head + closer + "".join(suffix) + tail
+                masked = sc.mask_example_cross_references(text)
+                if masked == text:
+                    continue
+                masked_count += 1
+                ordinals = Counter(
+                    float(text[start:end])
+                    for start, end in sc._example_cross_reference_numeric_recall_spans(
+                        text
+                    )
+                )
+                assert values(text) - values(masked) == ordinals, text
+                assert not values(masked) - values(text), text
+    assert masked_count
 
 
 def test_recall_view_agrees_with_the_public_mask():
