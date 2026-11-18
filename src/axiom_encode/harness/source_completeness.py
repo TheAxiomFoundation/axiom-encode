@@ -19648,11 +19648,163 @@ _SOURCE_GATE_INCOME_NEGATION_MARKERS = frozenset(
         "zero",
     }
 )
-# The exact noun phrase ``income test`` or ``income tests`` in normalized
-# clause text: one space, no hyphen, and no longer word such as ``testing``.
-_SOURCE_GATE_INCOME_TEST_NAME = re.compile(
-    r"(?<![a-z0-9'’-])income tests?(?![a-z0-9'’-])",
+# ``income test`` names a test (``the gross income test``); it states neither
+# the existence nor the absence of income. A gate or an input gets the marker
+# below only when its whole text is one of these closed, positive forms. Every
+# other text keeps the income-fact reading, which no input can match.
+_SOURCE_GATE_INCOME_TEST_MARKER_PREFIX = "income_test_name:"
+_SOURCE_GATE_INCOME_TEST_WORD = r"[a-z]+"
+_SOURCE_GATE_INCOME_TEST_VERB = (
+    r"(?:passes|pass|passed|meets|meet|met|satisfies|satisfy|satisfied)"
 )
+_SOURCE_GATE_INCOME_TEST_SUBJECT_HEAD = (
+    r"(?:applicants?|cases?|claimants?|families|family|groups?|households?|"
+    r"individuals?|persons?|taxpayers?|units?)"
+)
+# The name of the test: at most two words (a program name, the test's own
+# modifier), then ``income test`` or ``income tests``.
+_SOURCE_GATE_INCOME_TEST_NAME = (
+    rf"(?P<modifiers>(?:{_SOURCE_GATE_INCOME_TEST_WORD} ){{0,2}})"
+    r"income (?P<number>tests?)"
+)
+_SOURCE_GATE_INCOME_TEST_OBJECT = (
+    rf"(?:the|a|an|its|their) {_SOURCE_GATE_INCOME_TEST_NAME}"
+)
+# ``the <0-2 words> <subject noun> passes the [<0-2 words>] income test``.
+# The subject noun stands directly before the verb, and the verb directly
+# before the test name, so no adverb or auxiliary can stand between them.
+_SOURCE_GATE_INCOME_TEST_STATEMENT = re.compile(
+    rf"(?:the|a|an|each|every) "
+    rf"(?P<subject>(?:{_SOURCE_GATE_INCOME_TEST_WORD} ){{0,2}})"
+    rf"{_SOURCE_GATE_INCOME_TEST_SUBJECT_HEAD} "
+    rf"{_SOURCE_GATE_INCOME_TEST_VERB} {_SOURCE_GATE_INCOME_TEST_OBJECT}"
+)
+# After such a statement and ``and``: a second verb phrase of the same
+# subject (``and passes the net income test``) or a second object of the same
+# verb (``and the net income test``).
+_SOURCE_GATE_INCOME_TEST_CONTINUATION = re.compile(
+    rf"(?:{_SOURCE_GATE_INCOME_TEST_VERB} )?{_SOURCE_GATE_INCOME_TEST_OBJECT}"
+)
+# ``[<subject noun>] passes [the] [<0-2 words>] income test``. A name has no
+# determiner, so it has no open subject slot: a free word before the subject
+# noun could change the statement.
+_SOURCE_GATE_INCOME_TEST_INPUT_STATEMENT = re.compile(
+    rf"(?:{_SOURCE_GATE_INCOME_TEST_SUBJECT_HEAD} )?"
+    rf"{_SOURCE_GATE_INCOME_TEST_VERB} (?:the )?"
+    rf"{_SOURCE_GATE_INCOME_TEST_NAME}"
+)
+# ``[the] [<subject noun>] [<0-2 words>] income test passes`` / ``... is met``.
+_SOURCE_GATE_INCOME_TEST_INPUT_RESULT = re.compile(
+    rf"(?:the )?(?:{_SOURCE_GATE_INCOME_TEST_SUBJECT_HEAD} )?"
+    rf"{_SOURCE_GATE_INCOME_TEST_NAME} "
+    r"(?:(?:is|are|was|were) )?(?:passes|pass|passed|met|satisfied)"
+)
+_SOURCE_GATE_INCOME_TEST_DESCRIPTION_LEAD = re.compile(
+    r"^(?:whether|true if|true when) "
+)
+# No open word slot of a form may hold one of these words. The forms are the
+# positive condition; this closed list only keeps the open slots (a subject
+# adjective, a program name, the test's own modifier) from carrying a negation,
+# a restriction or a second income word.
+_SOURCE_GATE_INCOME_TEST_BLOCKED_SLOT_WORDS = (
+    _SOURCE_GATE_INCOME_NEGATION_MARKERS
+    | _SOURCE_GATE_INCOME_BASES
+    | _SOURCE_GATE_INCOME_BLOCKERS
+    | frozenset(
+        {
+            "almost",
+            "barely",
+            "but",
+            "cannot",
+            "denied",
+            "except",
+            "exempt",
+            "failing",
+            "half",
+            "hardly",
+            "if",
+            "ineligible",
+            "nearly",
+            "neither",
+            "non",
+            "nor",
+            "only",
+            "other",
+            "partial",
+            "partly",
+            "scarcely",
+            "than",
+            "unable",
+            "unless",
+        }
+    )
+)
+
+
+def _source_gate_income_test_markers(
+    text: str,
+    patterns: tuple[re.Pattern[str], ...],
+) -> frozenset[str] | None:
+    """Return the test-name marker of a text that is one closed form.
+
+    The marker holds the test name exactly as the text states it: every word
+    before ``income`` and the number of ``test``. Two texts name the same test
+    only when their markers are equal.
+    """
+
+    normalized = _normalized_source_gate_polarity_text(text).strip(" ,.")
+    for pattern in patterns:
+        match = pattern.fullmatch(normalized)
+        if match is None:
+            continue
+        groups = match.groupdict()
+        modifiers = groups["modifiers"].split()
+        slot_words = (groups.get("subject") or "").split() + modifiers
+        if _SOURCE_GATE_INCOME_TEST_BLOCKED_SLOT_WORDS.intersection(slot_words):
+            return None
+        return frozenset(
+            {
+                _SOURCE_GATE_INCOME_TEST_MARKER_PREFIX
+                + " ".join((*modifiers, "income", groups["number"]))
+            }
+        )
+    return None
+
+
+def _source_gate_income_test_input_markers(
+    name: str, description: str
+) -> frozenset[str]:
+    """Marker of an input whose name, and description if any, state the test."""
+
+    patterns = (
+        _SOURCE_GATE_INCOME_TEST_INPUT_STATEMENT,
+        _SOURCE_GATE_INCOME_TEST_INPUT_RESULT,
+    )
+    markers = _source_gate_income_test_markers(name.replace("_", " "), patterns)
+    if markers is None:
+        return frozenset()
+    if description.strip():
+        described = _SOURCE_GATE_INCOME_TEST_DESCRIPTION_LEAD.sub(
+            "", _normalized_source_gate_polarity_text(description).strip(" ,.")
+        )
+        if (
+            _source_gate_income_test_markers(
+                described, (_SOURCE_GATE_INCOME_TEST_STATEMENT, *patterns)
+            )
+            != markers
+        ):
+            return frozenset()
+    return markers
+
+
+def _source_gate_income_test_requirement(predicates: frozenset[str]) -> frozenset[str]:
+    return frozenset(
+        predicate
+        for predicate in predicates
+        if predicate.startswith(_SOURCE_GATE_INCOME_TEST_MARKER_PREFIX)
+    )
+
+
 _SOURCE_GATE_DEPENDENT_OBJECT = (
     r"(?:(?:a|an|another|any|other|the)\s+)?"
     r"(?:(?:other|taxpayer|taxpayers|taxpayer\s+s)\s+)*dependent"
@@ -19830,7 +19982,6 @@ def _source_gate_income_reading(
     wrapper_parity: int,
     out_of_window_negation: bool,
     has_temporal_yet: bool,
-    names_income_test: bool = False,
 ) -> _SourceGatePredicateReading | None:
     if _source_gate_local_blocked(
         tokens,
@@ -19878,11 +20029,6 @@ def _source_gate_income_reading(
     if _SOURCE_GATE_INCOME_NEGATION_MARKERS.intersection(local_prefix):
         return _SourceGatePredicateReading("income", None)
     if index + 1 < len(tokens) and tokens[index + 1] == "fact":
-        return None
-    # ``income test`` names a test (``the gross income test``). It does not
-    # state that income exists or is absent, so it carries no income polarity.
-    # Every reading above this line still applies first.
-    if names_income_test:
         return None
     return _SourceGatePredicateReading("income", None)
 
@@ -19952,16 +20098,9 @@ def _source_gate_predicate_readings(
     )
     readings: list[_SourceGatePredicateReading] = []
     for clause in _source_gate_polarity_clauses(text):
-        clause_words = list(_SOURCE_GATE_WORD.finditer(clause))
         clause_tokens, wrapper_parity = _source_gate_unwrap_negation(
-            [word.group(0) for word in clause_words]
+            _SOURCE_GATE_WORD.findall(clause)
         )
-        # The unwrap removes only leading tokens, so the kept tokens are the
-        # last ``len(clause_tokens)`` words of the clause.
-        kept_words = clause_words[len(clause_words) - len(clause_tokens) :]
-        income_test_name_starts = {
-            match.start() for match in _SOURCE_GATE_INCOME_TEST_NAME.finditer(clause)
-        }
         has_ambiguous_yet = _SOURCE_GATE_AMBIGUOUS_YET_MARKER in clause_tokens
         # Independent and ambiguous uses were replaced before tokenization, so
         # every literal ``yet`` remaining in this clause is temporal state.
@@ -19987,9 +20126,6 @@ def _source_gate_predicate_readings(
                     wrapper_parity=wrapper_parity,
                     out_of_window_negation=(income_negation_prefix[prefix_start] > 0),
                     has_temporal_yet=has_temporal_yet,
-                    names_income_test=(
-                        kept_words[index].start() in income_test_name_starts
-                    ),
                 )
             elif token in {"dependence", "dependency", "dependent"}:
                 reading = _source_gate_dependent_reading(
@@ -20803,7 +20939,31 @@ def _source_conjunctive_fact_gates(
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
     inherited_entities: frozenset[str] = frozenset()
-    for connector, segment in segments:
+    # A run of income-test statements starts only at the first words of a plain
+    # ``if`` / ``when`` condition: no reading above changed the condition, so no
+    # wrapper, exception or earlier fact can stand before the first statement.
+    income_test_run_open = (
+        conditional.group("cue").strip().casefold() in {"if", "when"}
+        and nested_reason_body is None
+        and membership_body == conditional.group("body")
+    )
+    for segment_index, (connector, segment) in enumerate(segments):
+        income_test_markers = None
+        if income_test_run_open:
+            income_test_markers = _source_gate_income_test_markers(
+                segment,
+                (
+                    (_SOURCE_GATE_INCOME_TEST_STATEMENT,)
+                    if segment_index == 0
+                    else (
+                        _SOURCE_GATE_INCOME_TEST_STATEMENT,
+                        _SOURCE_GATE_INCOME_TEST_CONTINUATION,
+                    )
+                    if connector == "and"
+                    else ()
+                ),
+            )
+        income_test_run_open = income_test_markers is not None
         if re.search(
             r"\b(?:is|are|be)\s*(?:[-–—]|:)\s*$",
             segment,
@@ -20814,6 +20974,11 @@ def _source_conjunctive_fact_gates(
             segment,
             care_source_text=text if care_source_text is None else care_source_text,
         )
+        if income_test_markers is not None:
+            # The gate keeps its ``unknown_income`` word. Only the matcher's
+            # own branch for this marker can match it, and only with an input
+            # that carries the same marker.
+            tokens = tokens | income_test_markers
         if (
             connector == "and"
             and "unknown_dependent" in tokens
@@ -21853,6 +22018,10 @@ def _terminal_gate_evidence(
                 tokens.add(polarity_predicate)
             else:
                 tokens.add(polarity_predicate if negative else base_predicate)
+        # The name keeps its ``unknown_income`` word and its polarity conflict,
+        # so it still matches no other gate. The marker only lets it match a
+        # gate that names the same income test.
+        tokens.update(_source_gate_income_test_input_markers(name, description))
         return _TerminalGateEvidence(
             frozenset(tokens) & _SOURCE_GATE_ENTITIES,
             frozenset(tokens) - _SOURCE_GATE_ENTITIES,
@@ -21993,6 +22162,20 @@ def _source_gates_without_distinct_terminal(
                         tokens and tokens <= evidence.entities | evidence.predicates
                         for tokens in alternative_reasons
                     )
+                )
+            )
+            continue
+        income_test_requirement = _source_gate_income_test_requirement(predicates)
+        if income_test_requirement:
+            # A gate that names an income test is matched only by an input
+            # that states the same test by the same words.
+            candidates.append(
+                tuple(
+                    name
+                    for name in sorted(names)
+                    if (evidence := terminal_evidence.get(name)) is not None
+                    and _source_gate_income_test_requirement(evidence.predicates)
+                    == income_test_requirement
                 )
             )
             continue

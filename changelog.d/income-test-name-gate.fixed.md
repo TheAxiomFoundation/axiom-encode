@@ -1,1 +1,1 @@
-Stop reading the words "income test" (as in "the gross income test") as an income fact of unknown polarity in the gates-collapsed check, so a source gate that names an income test can be matched by an input or import named for that test.
+Let the gates-collapsed check match a positive, exactly stated "the unit passes the gross income test" source gate with an input that states the same test by the same words; every other gate that holds the words "income test" keeps its earlier result.
