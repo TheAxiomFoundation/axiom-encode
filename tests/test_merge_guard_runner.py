@@ -2153,7 +2153,10 @@ DOC_SENTENCES = {
             "| Actions are enabled in `rulespec-us` | `gh api repos/TheAxiomFoundation/rulespec-us/actions/permissions --jq .enabled` | `true`",
             "If a head with no guard run can merge while Actions are disabled, an administrator merges without the guard and enables Actions again; nothing blocks it, and the health check reads only the state at its own time [inferred].",
             "**Three more acts of an administrator are outside that count.** (6) **Installing a GitHub App.**",
-            "unless an organization owner restricts it [docs source D26].",
+            "A repository administrator can install an App that asks for no "
+            'organization permission and not for "Repository administration", on the '
+            "repositories that the administrator administers, unless an organization "
+            "owner restricts it [docs source D26].",
             "An owner's read of the installed Apps is a precondition of `Active` (checklist step 11). (7) **Renaming the repository** [experiment X10]. (8) **Transferring the repository.**",
             "An organization owner can also rename a targeted branch without restriction [docs D22], which takes `main` out of a rule on `refs/heads/main`.",
             "Four rows need more than an anonymous read (the runners, the bypass list, the secret names and the Actions permission)",
