@@ -148,12 +148,13 @@ def test_note_between_list_items_ends_at_its_own_paragraph():
     assert _collapsed(source) == []
 
 
-def test_second_sentence_of_the_note_ends_at_the_same_place():
+def test_note_of_two_sentences_is_not_a_list_note():
     note = NOTE.replace(
         "NOTE ", "NOTE When the locker fee is paid once, allow it when billed. "
     )
     source = _source(note=note)
-    assert _collapsed(source) == []
+    assert _note_end(source, note) is None
+    assert len(_collapsed(source)) == 1
 
 
 def test_facts_inside_the_note_are_still_counted():
@@ -374,18 +375,27 @@ CLOSED_CLASS_WORDS = (
     "you your "
 ).split()
 FORWARD_WORDS = (
-    "additional after all any below both bullet bullets described each "
-    "either entries entry every following follows further given hereafter "
-    "item items later list listed lists named next ones other remaining "
-    "rest shown subsequent such these those "
+    "additional after afterwards all any below beneath both bullet bullets "
+    "described detailed each eight either entries entry every five "
+    "following follows four further given hereafter hereunder identified "
+    "indicated item items later list listed lists mentioned named next nine "
+    "noted ones other outlined remaining rest same seven shown six "
+    "specified stated subsequent succeeding such ten these those three two "
+    "underneath "
 ).split()
 REQUIREMENT_WORDS = (
-    "absent applied applies apply assuming circumstance circumstances "
-    "combination combined condition conditions criteria criterion "
-    "eligibility eligible given joint jointly mandatory meet meets met "
-    "necessary needed occur occurs prerequisite prerequisites qualified "
-    "qualifies qualify qualifying require required requirement requirements "
-    "requires set situation situations together wherever "
+    "absent applied applies apply assuming bundled circumstance "
+    "circumstances collective combination combined concurrent condition "
+    "conditional conditions criteria criterion cumulative eight eligibility "
+    "eligible five four given joint jointly linked mandatory meet meets met "
+    "necessary needed nine occur occurs paired prerequisite prerequisites "
+    "qualified qualifies qualify qualifying require required requirement "
+    "requirements requires requisite set seven situation situations six ten "
+    "three together two wherever "
+).split()
+CUE_WORDS = (
+    "although assuming because before except if once provided providing "
+    "since though unless until when whenever where wherever whether while "
 ).split()
 CONNECTORS = (
     "And Or Nor But Also Additionally Plus Then If When Whenever While Until "
@@ -397,6 +407,7 @@ def test_vocabularies_are_the_ones_tested_word_by_word():
     assert set(CLOSED_CLASS_WORDS) == completeness._LIST_NOTE_CLOSED_CLASS_WORDS
     assert set(FORWARD_WORDS) == completeness._LIST_NOTE_FORWARD_WORDS
     assert set(REQUIREMENT_WORDS) == completeness._LIST_NOTE_REQUIREMENT_WORDS
+    assert set(CUE_WORDS) == completeness._LIST_NOTE_CUE_WORDS
     assert {word.casefold() for word in CONNECTORS} == set(
         completeness._LIST_NOTE_CONNECTORS
     )
@@ -978,3 +989,147 @@ def test_excerpt_scope_helper():
     assert not inside(text, "", *clause, note_end)
     assert not inside(text, "  \n ", *clause, note_end)
     assert not inside(text, "not in the text", *clause, note_end)
+
+
+# Round 3 review: a condition at the end of the note that the later items
+# complete, with a word that no list holds.
+POINTING_ENDS = [
+    "specified",
+    "stated",
+    "mentioned",
+    "indicated",
+    "identified",
+    "outlined",
+    "noted",
+    "detailed underneath",
+    "afterwards",
+    "beneath",
+    "hereunder",
+    "in the schedule",
+    "for the unit",
+    "of this kind",
+]
+POINTING_OBJECTS = ["the succeeding costs", "the two costs", "the same costs"]
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [f"the costs {end}" for end in POINTING_ENDS] + POINTING_OBJECTS + ["the costs"],
+)
+def test_note_with_a_condition_at_its_end_keeps_the_later_items(tail):
+    note = f"NOTE Spread the fee when the household has {tail}."
+    source = _source(
+        first="● Locker fees for the storage unit itself.",
+        note=note,
+        later=(
+            "● The household leases the unit.",
+            "● The member is insured for the unit.",
+        ),
+    )
+    assert _note_end(source, note) is None
+    assert len(_collapsed(source, note.removeprefix("NOTE "))) == 1
+
+
+@pytest.mark.parametrize("word", CUE_WORDS)
+def test_condition_cue_outside_the_one_form_is_refused(word):
+    for note in (
+        f"NOTE Spread the locker fee {word} the bill covers the months.",
+        f"NOTE Spread the locker fee {word.upper()} the bill covers the months.",
+        f"NOTE {word.capitalize()} the bill covers months, spread the locker fee.",
+        f"NOTE When the bill covers months, spread the fee {word} the unit has a lease.",
+    ):
+        if note.startswith("NOTE When ") and word == "when" and "fee when" not in note:
+            continue
+        assert _note_end(_source(note=note), note) is None
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        # A cue phrase.
+        "NOTE Spread the locker fee as long as the bill covers the months.",
+        "NOTE Spread the locker fee so long as the bill covers the months.",
+        "NOTE Spread the locker fee in case the bill covers the months.",
+        # The one form, damaged.
+        "NOTE When the bill covers months spread the locker fee.",
+        "NOTE When the bill covers months, spread.",
+        "NOTE When the bill covers months, spread the fee, monthly.",
+        "NOTE When, spread the locker fee.",
+        "NOTE When the bill covers months, spread the fee",
+        "NOTE When the bill covers months, spread the fee. Count it once.",
+        "NOTE WHEN the bill covers months, spread the locker fee.",
+        "NOTE when the bill covers months, spread the locker fee.",
+        "NOTE If the bill covers months, spread the locker fee.",
+        # A last word in -ed.
+        "NOTE Spread the locker fee over the months that the bill covered.",
+        "NOTE When the bill covers months, spread the fee as billed.",
+        "NOTE Spread the locker fee over the months Billed.",
+    ],
+)
+def test_note_outside_the_accepted_forms_is_refused(note):
+    assert _note_end(_source(note=note), note) is None
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        NOTE,
+        PLAIN_NOTE,
+        "NOTE When the bill covers months, spread it.".replace(
+            "spread it", "spread fees monthly"
+        ),
+        "NOTE Spread the locker fee over the months of the bill.",
+    ],
+)
+def test_accepted_note_forms(note):
+    assert _note_end(_source(note=note), note) is not None
+
+
+def test_note_with_trailing_whitespace_is_refused():
+    for space in (" ", "\t"):
+        source = _source(note=NOTE + space)
+        assert (
+            _list_interjected_note_end(source, source.index(NOTE), len(source)) is None
+        )
+
+
+@pytest.mark.parametrize(
+    "later",
+    [
+        ("●XGate insurance for the unit.", *LATER),
+        (LATER[0], "●XGate insurance for the unit."),
+        (LATER[0].removesuffix(".") + ", AND", *LATER[1:]),
+        (LATER[0].removesuffix(".") + " OR", *LATER[1:]),
+        (LATER[0].removesuffix(".") + " Nor", *LATER[1:]),
+        (LATER[0], "A) Gate insurance for the unit."),
+        (LATER[0], "IV. Gate insurance for the unit."),
+        (LATER[0], "Step 1. Gate insurance for the unit."),
+        (LATER[0], "Item 2: Gate insurance for the unit."),
+        (LATER[0], "Part IV) Gate insurance for the unit."),
+        (LATER[0], "12) Gate insurance for the unit."),
+    ],
+)
+def test_round_three_item_and_enumerator_shapes_are_refused(later):
+    assert _note_end(_source(later=later)) is None
+
+
+def test_first_item_marker_needs_its_space():
+    assert _note_end(_source(first="●XLocker fees for the storage unit.")) is None
+
+
+@pytest.mark.parametrize(
+    "chapeau",
+    [
+        CHAPEAU.upper(),
+        CHAPEAU.replace("are allowable", "Are Allowable"),
+        CHAPEAU.replace("expenses", "Expenses"),
+        "The following Payments are allowable:",
+        "The following payments are allowable storage Expenses:",
+        "allow storage expenses for the leased unit, including the following:",
+        "Allow storage Expenses for the leased unit, including the following:",
+        "Allow storage expenses For The leased unit, including the following:",
+        "Allow storage expenses for the leased unit, Including The Following:",
+    ],
+)
+def test_chapeau_forms_are_case_sensitive(chapeau):
+    assert _note_end(_source(chapeau=chapeau)) is None

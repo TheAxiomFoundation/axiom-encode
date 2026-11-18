@@ -20666,8 +20666,23 @@ _LIST_NOTE_FORWARD_WORDS = frozenset(
     following follows below next subsequent these those list lists listed item
     items bullet bullets entry entries ones rest either both all any each every
     remaining other additional further such after shown described given named
-    hereafter later
+    hereafter later specified stated mentioned indicated identified outlined
+    noted detailed underneath succeeding same afterwards beneath hereunder two
+    three four five six seven eight nine ten
     """.split()
+)
+# Condition cues. A note may hold exactly one, as its first word, in the form
+# "NOTE When <clause>, <main clause>."; a condition at the end of a sentence
+# could be completed by the items after the note.
+_LIST_NOTE_CUE_WORDS = frozenset(
+    """
+    if when whenever where wherever unless once while until provided providing
+    assuming whether although though because since before except
+    """.split()
+)
+_LIST_NOTE_CUE_PHRASES = re.compile(r"\b(?:as|so)\s+long\s+as\b|\bin\s+case\b")
+_LIST_NOTE_CONDITIONAL_FORM = re.compile(
+    r"NOTE When [^,.;:!?]+, [^,.;:!?]+ [^,.;:!?]+\."
 )
 # A second layer for the chapeau: words of joint requirements and of
 # conditions that are not closed-class words.
@@ -20678,7 +20693,9 @@ _LIST_NOTE_REQUIREMENT_WORDS = frozenset(
     qualifies qualified qualifying eligible eligibility apply applies applied
     circumstance circumstances situation situations occur occurs together
     jointly combined combination set joint necessary mandatory needed
-    prerequisite prerequisites wherever given assuming absent
+    prerequisite prerequisites wherever given assuming absent conditional
+    requisite paired linked cumulative concurrent bundled collective two three
+    four five six seven eight nine ten
     """.split()
 )
 _LIST_NOTE_CONNECTORS = (
@@ -20768,9 +20785,12 @@ def _list_interjected_note_end(source_text: str, start: int, end: int) -> int | 
     - the clause ``[start, end)`` starts inside a one-line paragraph that
       begins with ``NOTE``, one space and a capital letter at the left margin,
       and runs past its end;
-    - the note ends with a full stop after an open-class word, and holds no
-      colon, semicolon or word that points at later text (``following``,
-      ``these``, ``all``, ``listed``, ``remaining``, ``other``, ...);
+    - the note ends with a full stop after an open-class word that does not
+      end in ``ed``, and holds no colon, semicolon or word that points at
+      later text (``following``, ``these``, ``all``, ``listed``,
+      ``remaining``, ``specified``, a number word, ...);
+    - the note holds no condition cue, or exactly one: it is the one sentence
+      "NOTE When <clause>, <main clause>.", so no condition ends the note;
     - the paragraphs before the note are one or more one-line left-margin
       bullets (marker and one space), each a new capitalised item that does
       not start with a connector, dangle or end with a colon;
@@ -20785,7 +20805,7 @@ def _list_interjected_note_end(source_text: str, start: int, end: int) -> int | 
       does not dangle and does not end with a colon;
     - the list ends at the end of the text or at a paragraph without a marker
       that is one line, starts with a capital letter, is not an enumerator
-      ("1.", "A.") and does not start with a connector.
+      ("1.", "A)", "IV.", "Step 1.") and does not start with a connector.
 
     The caller cuts only for a proof excerpt that lies inside the note.
     """
@@ -20823,7 +20843,13 @@ def _list_interjected_note_end(source_text: str, start: int, end: int) -> int | 
     if (
         last_word is None
         or last_word.group(1).casefold() in _LIST_NOTE_CLOSED_CLASS_WORDS
+        or last_word.group(1).casefold().endswith("ed")
         or any(word in _LIST_NOTE_FORWARD_WORDS for word in note_words)
+    ):
+        return None
+    cues = sum(word in _LIST_NOTE_CUE_WORDS for word in note_words)
+    if _LIST_NOTE_CUE_PHRASES.search(note.casefold()) or (
+        cues and (cues != 1 or _LIST_NOTE_CONDITIONAL_FORM.fullmatch(note) is None)
     ):
         return None
     marker = (line(index - 1) or "")[:1]
@@ -20858,7 +20884,9 @@ def _list_interjected_note_end(source_text: str, start: int, end: int) -> int | 
         if (
             text is None
             or re.match(r"[A-Z]", text) is None
-            or re.match(r"[A-Za-z0-9]{1,3}[.)]", text)
+            or re.match(
+                r"[A-Za-z0-9]{1,4}[.)]|[A-Za-z]+ (?:\d{1,3}|[IVXivx]{1,4})[.):]", text
+            )
             or not _list_note_paragraph_starts_a_new_item(text)
         ):
             return None
