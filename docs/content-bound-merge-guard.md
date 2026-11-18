@@ -1174,6 +1174,14 @@ ruleset. The step that tests each point is named:
 - what the branch-rules endpoint returns for the rule
   [experiment X14], and what a dismissal does to a queued pull request
   [experiment X15];
+- what the repository's own settings do to the rule: a changed default
+  branch [experiment X21], a repository-level self-hosted runner with the
+  label `ubuntu-latest` [experiment X23], and a pull request whose base is
+  changed to `main` [experiment X24];
+- what a pin move does to a pull request that is already green
+  [experiment X19], which of two conclusions on one head counts
+  [experiment X22], and whether an `Evaluate` ruleset starts the workflow
+  on a merge group [experiment X20];
 - the behaviour on rate limiting and the limit a job token of a RuleSpec
   repository really has (1,000 or 15,000 an hour). The experiment does not
   test these; the shadow period and the queue trial do (checklist steps 7
@@ -1551,7 +1559,15 @@ and this checklist needs a reviewed rewrite first.
 >
 > The lock of the writer stops new signing runs only. It does not stop an
 > open pull request that already holds a signed v6 manifest: with the guard
-> not required, any account with write access merges it. No shortcut
+> not required, any account with write access merges it. Closing a pull
+> request does not remove its signed bytes: the switch rule names signed v6
+> bytes "from a closed pull request", and a branch can hold them too. So
+> the first form of point 2 is enough only when every signed v6 manifest
+> that exists has landed or was never pushed. In every other case revert
+> the reader pin. That has a cost once a v6 manifest is on `main`:
+> validation of `main` then refuses it, and no pull request of
+> `rulespec-us` gets a green `validate / validate` until the pin moves
+> forward again (closed, and heavy) [inferred]. No shortcut
 > exists for an emergency: a ruleset or queue that is weakened first is
 > exactly the state that the switch rule describes. **Before step 13 the
 > ruleset rollback is free**: no v6 writer exists, so nothing new can land
@@ -1881,10 +1897,11 @@ rollback.
      and, as anyone, that the queue is required:
      `gh api repos/TheAxiomFoundation/rulespec-us/rules/branches/main --jq '[.[].type]'`
      contains `merge_queue`. On 2026-11-17 it printed `[]`
-     [live read 2026-11-17]. If the queue is configured through classic
-     branch protection, this call does not list it; then configure it as a
-     repository ruleset, because the lock of draft #2289 reads this call
-     [author-reported, draft #2289].
+     [live read 2026-11-17]. The call lists rules of rulesets; that it
+     also lists a queue that classic branch protection requires is not
+     documented on the pages read [inferred]. Configure the queue as a
+     repository ruleset, as the experiment does (X5), because the lock of
+     draft #2289 reads this call [author-reported, draft #2289].
    - Rollback: turn the queue off. **WARNING:** allowed only while the
      ruleset is not `Active`. From step 11 on, a queue that is off silently
      reopens the stale-green window (§9, "Dismissal just after a pass"),

@@ -1879,6 +1879,7 @@ DOC_SENTENCES = {
             "in `rulespec-us`, so that validation refuses every v6 manifest again.",
             "3. Only then weaken the ruleset or the queue. The lock of the writer stops "
             "new signing runs only.",
+            "Closing a pull request does not remove its signed bytes",
             "**Before step 13 the ruleset rollback is free**",
             "- Rollback: turn the queue off. **WARNING:** allowed only while the "
             "ruleset is not `Active`.",

@@ -664,7 +664,10 @@ exist today (§5 "Now") and for the second fallback:
   the ruleset or the queue after checklist step 13 comes last: first
   `V6_WRITER_ENABLED` back to `False` on encoder `main`, then no open pull
   request with a signed v6 manifest or the reader pin of `rulespec-us`
-  reverted, only then the ruleset or the queue. Before checklist step 13
+  reverted, only then the ruleset or the queue. Closing a pull request
+  does not remove its signed bytes; when a signed v6 manifest exists that
+  has not landed, reverting the reader pin is the reliable form (design §8,
+  the rule at the top of the checklist). Before checklist step 13
   the rollback is free. An owner who sets the ruleset to `Disabled` first
   creates exactly the forbidden state; nothing technical prevents it.
 
