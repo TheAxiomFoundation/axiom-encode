@@ -19648,6 +19648,11 @@ _SOURCE_GATE_INCOME_NEGATION_MARKERS = frozenset(
         "zero",
     }
 )
+# The exact noun phrase ``income test`` or ``income tests`` in normalized
+# clause text: one space, no hyphen, and no longer word such as ``testing``.
+_SOURCE_GATE_INCOME_TEST_NAME = re.compile(
+    r"(?<![a-z0-9'’-])income tests?(?![a-z0-9'’-])",
+)
 _SOURCE_GATE_DEPENDENT_OBJECT = (
     r"(?:(?:a|an|another|any|other|the)\s+)?"
     r"(?:(?:other|taxpayer|taxpayers|taxpayer\s+s)\s+)*dependent"
@@ -19825,6 +19830,7 @@ def _source_gate_income_reading(
     wrapper_parity: int,
     out_of_window_negation: bool,
     has_temporal_yet: bool,
+    names_income_test: bool = False,
 ) -> _SourceGatePredicateReading | None:
     if _source_gate_local_blocked(
         tokens,
@@ -19872,6 +19878,11 @@ def _source_gate_income_reading(
     if _SOURCE_GATE_INCOME_NEGATION_MARKERS.intersection(local_prefix):
         return _SourceGatePredicateReading("income", None)
     if index + 1 < len(tokens) and tokens[index + 1] == "fact":
+        return None
+    # ``income test`` names a test (``the gross income test``). It does not
+    # state that income exists or is absent, so it carries no income polarity.
+    # Every reading above this line still applies first.
+    if names_income_test:
         return None
     return _SourceGatePredicateReading("income", None)
 
@@ -19941,9 +19952,16 @@ def _source_gate_predicate_readings(
     )
     readings: list[_SourceGatePredicateReading] = []
     for clause in _source_gate_polarity_clauses(text):
+        clause_words = list(_SOURCE_GATE_WORD.finditer(clause))
         clause_tokens, wrapper_parity = _source_gate_unwrap_negation(
-            _SOURCE_GATE_WORD.findall(clause)
+            [word.group(0) for word in clause_words]
         )
+        # The unwrap removes only leading tokens, so the kept tokens are the
+        # last ``len(clause_tokens)`` words of the clause.
+        kept_words = clause_words[len(clause_words) - len(clause_tokens) :]
+        income_test_name_starts = {
+            match.start() for match in _SOURCE_GATE_INCOME_TEST_NAME.finditer(clause)
+        }
         has_ambiguous_yet = _SOURCE_GATE_AMBIGUOUS_YET_MARKER in clause_tokens
         # Independent and ambiguous uses were replaced before tokenization, so
         # every literal ``yet`` remaining in this clause is temporal state.
@@ -19969,6 +19987,9 @@ def _source_gate_predicate_readings(
                     wrapper_parity=wrapper_parity,
                     out_of_window_negation=(income_negation_prefix[prefix_start] > 0),
                     has_temporal_yet=has_temporal_yet,
+                    names_income_test=(
+                        kept_words[index].start() in income_test_name_starts
+                    ),
                 )
             elif token in {"dependence", "dependency", "dependent"}:
                 reading = _source_gate_dependent_reading(

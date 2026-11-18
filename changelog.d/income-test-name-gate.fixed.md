@@ -1,0 +1,1 @@
+Stop reading the words "income test" (as in "the gross income test") as an income fact of unknown polarity in the gates-collapsed check, so a source gate that names an income test can be matched by an input or import named for that test.
