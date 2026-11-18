@@ -1133,3 +1133,34 @@ def test_first_item_marker_needs_its_space():
 )
 def test_chapeau_forms_are_case_sensitive(chapeau):
     assert _note_end(_source(chapeau=chapeau)) is None
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        # A note without a condition cue still has to be a whole NOTE sentence.
+        PLAIN_NOTE.replace("NOTE", "Note"),
+        PLAIN_NOTE.replace("NOTE", "note"),
+        PLAIN_NOTE.replace("fee over", "fee: over"),
+        PLAIN_NOTE.replace("fee over", "fee; over"),
+        PLAIN_NOTE.removesuffix("."),
+        PLAIN_NOTE.replace("covers.", "covers (unit)."),
+        PLAIN_NOTE.replace("covers.", "covers 2026."),
+        PLAIN_NOTE.replace("covers.", "COVERED."),
+        PLAIN_NOTE.replace("over the months", "AS LONG AS the months"),
+        PLAIN_NOTE.replace("over the months", "So Long As the months"),
+        PLAIN_NOTE.replace("over the months", "In Case of the months"),
+        # The one conditional form is the whole note.
+        "NOTE When the bill covers months, spread the fee. Count it monthly.",
+        "NOTE Fees count monthly. NOTE When the bill covers months, spread the fee.",
+    ],
+)
+def test_round_three_note_shapes_are_refused(note):
+    assert _note_end(_source(note=note), note) is None
+
+
+def test_plain_note_with_trailing_whitespace_is_refused():
+    for space in (" ", "\t"):
+        source = _source(note=PLAIN_NOTE + space)
+        start = source.index(PLAIN_NOTE)
+        assert _list_interjected_note_end(source, start, len(source)) is None

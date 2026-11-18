@@ -87,8 +87,9 @@ as before:
   expenses|payments are allowable[ [0-2 words] expenses]:" or "Allow [0-2
   words] expenses for the [1-3 words], including the following:";
 - the note is one line, starts with `NOTE`, one space and a capital letter,
-  ends with a full stop after an open-class word, and holds no word that
-  points at later text;
+  and holds no condition cue, or is the one sentence "NOTE When <clause>,
+  <main clause>."; it ends with a full stop after an open-class word and
+  holds no word that points at later text;
 - the items before the note, and the run of items after it, each start a new
   capitalised item, do not start with a connector, do not dangle and do not
   end with a colon; the list ends at the end of the text or at a fresh
