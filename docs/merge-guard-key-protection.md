@@ -382,15 +382,15 @@ Repository (axiom-encode unless stated):
   runners (`actions/runners`, read with a token that has administrator
   access there); the organization-level runner list needs `admin:org` and
   was refused [live read 2026-11-17].
-- **R10** Duration of `validate / validate` on `rulespec-us`: of the 40
-  newest successful `pull_request` runs of `repository-checks.yml` (created
-  2026-11-07 to 2026-11-17), 38 took 172 to 227 minutes and two took 42 and
-  55; the median is 207.5 minutes. No `merge_group` run of that workflow
-  exists. Method and command: design §4, "Measured duration of the required
-  check" [live read 2026-11-17].
 - **R9** The token on the maintainer's machine, which agent sessions use,
   has the scopes `repo`, `workflow`, `read:org`, `gist`, `delete_repo` and
   `admin:org_hook`. It has no `admin:org` [live read 2026-11-17].
+- **R10** Duration of `validate / validate` on `rulespec-us`: of the 40
+  newest successful `pull_request` runs of `repository-checks.yml` (created
+  2026-11-07 to 2026-11-17 UTC), 38 took 172 to 227 minutes and two took 42 and
+  55; the median is 207.5 minutes. No `merge_group` run of that workflow
+  exists. Method and command: design §4, "Measured duration of the required
+  check" [live read 2026-11-17].
 
 ## 3. Evaluation against the key-exposure set
 

@@ -903,7 +903,7 @@ reads CI, so it does not wait; a test pins that it makes no check-run read.
 about 6:57pm EST, with one read-only call:
 `gh api "repos/TheAxiomFoundation/rulespec-us/actions/workflows/repository-checks.yml/runs?event=pull_request&status=success&per_page=40"`
 (the 40 newest successful `pull_request` runs, created 2026-11-07 to
-2026-11-17; duration = `updated_at` minus `run_started_at`, so for a re-run
+2026-11-17 UTC; duration = `updated_at` minus `run_started_at`, so for a re-run
 it is the last attempt; 2 of the 40 were re-runs). 38 runs took 172 to 227
 minutes; the other two took 42 and 55. The median of the 40 is 207.5
 minutes. The independent review of this change measured the same sample

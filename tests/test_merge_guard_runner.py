@@ -1312,26 +1312,41 @@ def test_gate_script_refuses(changes):
 # The step of the design's activation checklist that makes the guard a merge
 # requirement. Until the recommendation change it was step 4 ("Add the
 # guard's check ... to the required checks"); the checklist is now the whole
-# ordered runbook and the step is number 10 (the ruleset becomes Active).
-ACTIVE_STEP_START = "10. **M** (an organization owner) Switch the ruleset to `Active`"
-ACTIVE_STEP_END = "11. Run the current-order canary"
+# ordered runbook. Review round 1 of the recommendation (P1-4) gave the
+# infrastructure lane its own step 10, so the step is number 11 (the ruleset
+# becomes Active). Steps 1 and 2 keep their numbers: code comments name them.
+#
+# Each phrase carries the words before it that give it its meaning, so a
+# negation in front of it ("whether or not the experiment passed") or another
+# number ("steps 0-2 are done") is a lost phrase (review round 1, P2-8).
+ACTIVE_STEP_START = "11. **M** (an organization owner) Switch the ruleset to `Active`"
+ACTIVE_STEP_END = "12. Run the current-order canary"
 ACTIVE_STEP_REQUIRED = [
-    "change 3b",
-    "Hard preconditions",
-    "WARNING",
-    "the experiment passed",
-    "merge queue",
-    "question 0 of §10",
-    "its lane is on at the pinned SHA",
+    "Hard preconditions, all of them: steps 0-10 are done; change 3b is on `main`",
+    "is the code at the pinned SHA; the experiment passed, as step 3 defines it;",
+    "; the merge queue of step 8 is on, is still required at this moment",
+    "and Max has decided question 0 of §10 **and its lane is on at the pinned SHA** (step 10)",
     # Review round 1 of #2286, F1: the hold for the runner's inert path, the
-    # one assumption that would fail open.
-    "a pull request with no lane shows a failed `content-bound-merge-guard` job",
-    'whose report has a `verdict` and no `"inert"`',
-    # F10: switching the lane on also needs its success reasons listed.
-    "the lane's two success reasons added to the runner's `SUCCESS_VERDICTS`",
-    "Rollback: set the enforcement back to `Evaluate`",
-    f"`{runner.SHADOW_CHECK_NAME}`",
-    f"`{runner.GUARD_CHECK_NAME}`",
+    # one assumption that would fail open. Review round 1 of the
+    # recommendation, P3-1: the key ``verdict`` alone is null in the inert
+    # report too.
+    "at the pin that is in the ruleset now, a pull request with no lane shows a "
+    "failed `content-bound-merge-guard` job whose report has a non-null `verdict` "
+    'and no `"inert"`',
+    "**WARNING:** without the lane of question 0, an `Active` ruleset blocks every "
+    "pin, ledger, workflow and tooling pull request on `rulespec-us`",
+    "the rollback itself needs an organization owner",
+    # P1-3 (b): the queue is a repository setting.
+    "must contain `workflows` **and** `merge_queue`",
+    "The merge queue is a repository setting of `rulespec-us`. Its administrators "
+    "can turn it off",
+    # P1-1: the rollback and its order.
+    "- Rollback: set the enforcement back to `Evaluate`. Before step 13 this is free.",
+    "**After step 13, only in the rollback order at the top of this checklist: "
+    "first the writer off, then no open v6 pull request or the reader pin reverted, "
+    "only then the ruleset.**",
+    f"require the name `{runner.GUARD_CHECK_NAME}` only, and never "
+    f"`{runner.SHADOW_CHECK_NAME}`, which is always neutral",
 ]
 
 
@@ -1807,6 +1822,325 @@ def test_the_step_1_pin_reports_each_lost_element(phrase):
     assert any(
         repr(phrase) in problem for problem in step_1_problems(step.replace(phrase, ""))
     )
+
+
+# --- the decisive sentences of the three recommendation documents ----------------
+#
+# Review round 1 of the recommendation, P2-8. Each sentence must occur exactly
+# once in its document, with runs of white space collapsed. A sentence is
+# pinned with the words that give it its meaning, so the reviewer's mutants
+# (a status that says "accepted", an agent that "may" run the experiment, a
+# negated precondition, another step number) each lose a sentence. This pins
+# wording; it is no evidence that a maintainer accepted or did anything.
+
+DESIGN_DOC = "docs/content-bound-merge-guard.md"
+KEY_PROTECTION_DOC = "docs/merge-guard-key-protection.md"
+EXPERIMENT_DOC = "docs/merge-guard-ruleset-experiment.md"
+DOC_SENTENCES = {
+    DESIGN_DOC: {
+        "nothing is chosen or accepted": [
+            "Status: **design; maintainer acceptance and activation remain pending.**",
+            "**Max has not accepted the recommendation, and nothing is chosen.** It "
+            "holds only if the owner's experiment passes "
+            "(`docs/merge-guard-ruleset-experiment.md`, not run).",
+            "Two paths exist in code. Neither is active, and Max has accepted neither.",
+            "**Max has not accepted that recommendation; until step 0 is done, every "
+            "later step waits.**",
+            "| Recommendation recorded, Max has not accepted yet: the ruleset, at a "
+            "pinned SHA",
+            "| Recommendation recorded, Max has not accepted yet: (g'), which creates "
+            "no key and so needs no complement; first fallback (b)+(d); second "
+            "fallback (b) with code-owner review of `.github/` and last-push approval. "
+            "Max chooses.",
+            "### The ruleset experiment (not run)",
+        ],
+        "how the decision is evidenced": [
+            "A pull request comment from Max's account is **not sufficient evidence** "
+            "of his decision",
+            "An organization owner creates the `Evaluate` ruleset of step 6.",
+            "**This checklist cannot verify who was at the keyboard**",
+        ],
+        "what an agent must not do": [
+            "- **AGENT**: an agent session. It prepares pull requests and reads. It "
+            "does not merge, mark ready, approve, change settings, dispatch signing "
+            "runs or hold an `admin:org` token.",
+            "and no stored secret, App or key. An agent must not run it.",
+            "2. **M** Merge the changes in this order. Maintainers merge; agents may "
+            "not.",
+            "A wrong result is reported to a maintainer; the agent changes nothing.",
+        ],
+        "the rollback order": [
+            "**ROLLBACK ORDER. This rule binds every rollback below once step 13 has "
+            "happened.**",
+            "1. First set `V6_WRITER_ENABLED` back to `False`, in a reviewed change "
+            "on axiom-encode `main` (the rollback of step 13).",
+            "2. Then make sure that no open pull request of `rulespec-us` holds a "
+            "signed v6 manifest (close each one), or revert the reader pin of step 9 "
+            "in `rulespec-us`, so that validation refuses every v6 manifest again.",
+            "3. Only then weaken the ruleset or the queue. The lock of the writer stops "
+            "new signing runs only.",
+            "**Before step 13 the ruleset rollback is free**",
+            "- Rollback: turn the queue off. **WARNING:** allowed only while the "
+            "ruleset is not `Active`.",
+            "- Rollback: set the switch back, in a reviewed change. The ruleset stays "
+            "`Active`. **This is point 1 of the rollback order at the top of this "
+            "checklist, and it comes before any rollback of step 8 or step 11.**",
+            "Every rollback therefore has an order: first the writer off, then no "
+            "open v6 pull request or the reader pin reverted, only then the ruleset",
+        ],
+        "the experiment and its pass rule": [
+            '- **"The experiment passed" means exactly this:** every *blocking* step '
+            "has the result `pass`, and every *adjusting* step has either `pass` or "
+            "its named change merged, reviewed and the step run again with `pass`.",
+            "A step that was not run counts as failed for this rule.",
+            "The ruleset mechanism does not hold. Stop. Max decides on the fallback "
+            "(b)+(d).",
+            "No ruleset may name the runner, in `Evaluate` either, until the change "
+            "is merged and X18 passes.",
+        ],
+        "the inert-path hold": [
+            "Every other unverified item of this section fails closed. This one would "
+            "fail **open**:",
+            "- **Hold for step 11 (the inert path).** At least one pull request with "
+            "no lane must show a **failed** `content-bound-merge-guard` job under this "
+            "`Evaluate` ruleset.",
+            "The key `verdict` alone proves nothing: the inert report and every error "
+            "report carry it with the value `null`",
+            "stop, set the ruleset to `Disabled`, and do not go to step 11",
+        ],
+        "the lane goes live in its own step": [
+            "10. **The infrastructure lane (question 0 of §10).**",
+            "So it goes live here, while the ruleset is still in `Evaluate`, in this "
+            "order:",
+            "`INFRASTRUCTURE_LANE_ENABLED = True`; the lane's two success reasons "
+            "added to the runner's `SUCCESS_VERDICTS`",
+            "moves the ruleset's pin to the new commit, **while the ruleset is still "
+            "`Evaluate`**",
+            "6. **The hold of step 7 is repeated at the new pin.**",
+        ],
+        "what Evaluate cannot show": [
+            "So the queue merges the trial pull request when the group's "
+            "`validate / validate` run is green, without waiting for the guard job.",
+            "- **Established only by the lab, with its ruleset `Active`:** that the "
+            "queue merges only after the guard job has ended",
+            "**Stop rule:** if the pull request merges before the guard's merge-group "
+            "job has ended, the ruleset result is not part of the queue's "
+            "requirements.",
+        ],
+        "the canary and the wait": [
+            "(job success) **in the same run, with no re-run**",
+            "13. Change 6, as one reviewed pull request. AGENT prepares it; it is not "
+            "opened before steps 0-12 are done, because merging it takes effect.",
+            "**cannot be shown live on any of the eight candidates**",
+            "which is **about 3 to 4 landings a day**",
+        ],
+        "the administrator residuals": [
+            "- **The queue is a repository setting.**",
+            "**But four repository settings stay in the administrator's hands, and "
+            "each weakens the guard without touching the ruleset.**",
+            "| The guard workflow and the merge queue are both required on `main` | "
+            "`gh api repos/TheAxiomFoundation/rulespec-us/rules/branches/main --jq "
+            "'[.[].type]'` | a list that contains `workflows` and `merge_queue`.",
+            "It detects; it prevents nothing.",
+        ],
+    },
+    KEY_PROTECTION_DOC: {
+        "nothing is chosen or accepted": [
+            "Status: **recommendation; Max has not accepted it. Nothing is chosen.**",
+            "It changes no setting, creates no App, environment, secret or ruleset, "
+            "and satisfies no activation condition.",
+            "- **Condition.** The recommendation holds only if a live experiment "
+            "passes (`docs/merge-guard-ruleset-experiment.md`). Only an organization "
+            "owner can run it. Until it passes, nothing is chosen for activation.",
+            "- **Named fallback if the experiment fails, (b)+(d).**",
+            "(4) A comment from Max's account is not sufficient evidence of this "
+            "decision;",
+        ],
+        "what an agent must not do": [
+            "Agents perform none of these steps. Each needs repository or "
+            "organization settings.",
+            "An agent must not perform any step of this section: it must not create, "
+            "edit or delete the ruleset, and it must not hold an `admin:org` token.",
+        ],
+        "the residual risks that decide": [
+            "- **R4b. The inert path is the one assumption that fails open.**",
+            "**So a merge queue on `rulespec-us` `main` is a precondition of "
+            "`Active`**",
+            "- **R12. What an administrator of `rulespec-us` can still change.**",
+            "An administrator can turn it off with no review.",
+            "- **R13. After the v6 writer is on, a rollback of the ruleset has an "
+            "order.**",
+            "An owner who sets the ruleset to `Disabled` first creates exactly the "
+            "forbidden state; nothing technical prevents it.",
+            "therefore serial at about 5.4 to 7.8 hours each: **about 3 to 4 a day**",
+        ],
+        "the rollback order": [
+            "**Once the v6 writer is on (activation checklist step 13), this "
+            "rollback comes last.** First set `V6_WRITER_ENABLED` back to `False` in "
+            "a reviewed change on encoder `main`. Then make sure that no open pull "
+            "request of `rulespec-us` holds a signed v6 manifest, or revert the "
+            "reader pin of `rulespec-us`. Only then set the ruleset to `evaluate` or "
+            "`disabled`, move its pin back, or turn the merge queue off (R13).",
+            "5. **After change 6 (activation checklist step 13) only: the lock "
+            "constant first.**",
+        ],
+        "the Active preconditions": [
+            "Do this only after Max accepts, the experiment has passed as checklist "
+            "step 3 defines it, and the review of §6 has read the workflow and the "
+            "bundle at the candidate SHA.",
+            "Immediately before the switch, the queue must still be required",
+            "A passed run there stops the activation.",
+            'Do **not** choose the form\'s "default branch" target',
+        ],
+    },
+    EXPERIMENT_DOC: {
+        "status and who": [
+            "Status: **designed, not run.**",
+            "Until an organization owner runs it and records the results, nothing is "
+            "chosen for activation.",
+            "An agent must not run it, and no agent session may receive a token with "
+            "the `admin:org` scope for it.",
+            "It touches neither `axiom-encode` nor any `rulespec-*` repository",
+            "The owner's recorded output is the evidence; the agent adds none.",
+        ],
+        "the steps that decide": [
+            "(g') fails outright: use the fallback.",
+            "- **If it fails.** This is the one unverified point that fails **open**.",
+            "(g') must not go `Active`, and the runner needs a reviewed change",
+        ],
+    },
+}
+ALL_DOC_SENTENCES = [
+    (name, sentence)
+    for name, groups in DOC_SENTENCES.items()
+    for sentences in groups.values()
+    for sentence in sentences
+]
+
+
+def _flat(name: str) -> str:
+    """The document on one line; the ``>`` of a block quote is not text."""
+    text = (REPOSITORY_ROOT / name).read_text(encoding="utf-8")
+    return " ".join(re.sub(r"^> ?", "", text, flags=re.M).split())
+
+
+def doc_sentence_problems(name: str, flat: str) -> list[str]:
+    return [
+        f"{name}: {group}: {flat.count(sentence)} times, not once: {sentence!r}"
+        for group, sentences in DOC_SENTENCES[name].items()
+        for sentence in sentences
+        if flat.count(sentence) != 1
+    ]
+
+
+@pytest.mark.parametrize("name", sorted(DOC_SENTENCES))
+def test_the_decisive_sentences_of_each_document_are_present_once(name):
+    assert doc_sentence_problems(name, _flat(name)) == []
+
+
+@pytest.mark.parametrize(("name", "sentence"), ALL_DOC_SENTENCES)
+def test_the_sentence_pin_reports_each_lost_and_each_doubled_sentence(name, sentence):
+    flat = _flat(name)
+    for changed in (flat.replace(sentence, ""), flat + " " + sentence):
+        problems = doc_sentence_problems(name, changed)
+        assert len(problems) == 1 and repr(sentence) in problems[0]
+
+
+def _experiment_steps(text: str) -> list[str]:
+    """The ``Xn`` ids of the experiment, from the runbook's step headings."""
+    ids = []
+    for heading in re.findall(r"^### (X[0-9]+(?: and X[0-9]+)?)\. ", text, re.M):
+        ids += heading.split(" and ")
+    return ids
+
+
+def test_every_experiment_step_is_defined_recorded_classified_and_not_run():
+    design = (REPOSITORY_ROOT / DESIGN_DOC).read_text(encoding="utf-8")
+    runbook = (REPOSITORY_ROOT / EXPERIMENT_DOC).read_text(encoding="utf-8")
+    expected = [f"X{n}" for n in range(1, 25)]
+    steps = _experiment_steps(runbook)
+    assert sorted(steps, key=lambda step: int(step[1:])) == expected
+    assert len(steps) == len(set(steps))
+    # Each step of the runbook names its class in the line after its heading.
+    assert len(re.findall(r"^### X[0-9].*\n\nClass: ", runbook, re.M)) == 23
+    # The runbook's record table has a row for each step (X2 has five).
+    record = runbook[runbook.index("## 4. Record") : runbook.index("## 5. What")]
+    rows = re.findall(r"^\| (X[0-9]+)(?: \([a-e]\))? \|", record, re.M)
+    assert sorted(set(rows), key=lambda step: int(step[1:])) == expected
+    assert rows.count("X2") == 5
+    # Every result cell of the runbook's table is empty: nothing is recorded.
+    assert all(
+        line.endswith("| | |") for line in record.splitlines() if line.startswith("| X")
+    )
+    # The design's table: every step, each with the result "not run". Update
+    # this, in the reviewed change that copies the owner's record.
+    section = design[
+        design.index("### The ruleset experiment (not run)") : design.index(
+            "### Other open points"
+        )
+    ]
+    results = re.findall(r"^\| (X[0-9]+) \|.*\| ([^|]+) \|$", section, re.M)
+    assert [step for step, _ in results] == expected
+    assert {result.strip() for _, result in results} == {"not run"}
+    # The pass rule of checklist step 3 sorts every step into a class.
+    flat = " ".join(design.split())
+    rule = flat[
+        flat.index('- **"The experiment passed" means exactly this:**') : flat.index(
+            "4. AGENT, only if the results ask for it"
+        )
+    ]
+    classified = set(re.findall(r"\bX[0-9]+\b", rule))
+    assert classified == set(expected)
+    for heading in ("| Blocking |", "| Adjusting |", "| Informational |"):
+        assert rule.count(heading) == 1
+
+
+def test_the_ruleset_bodies_target_main_by_name_and_start_in_evaluate():
+    # Review round 1 of the recommendation, P1-3 (a): ``~DEFAULT_BRANCH``
+    # follows a changed default branch; the runner judges ``main`` only.
+    bodies = []
+    for name in (KEY_PROTECTION_DOC, EXPERIMENT_DOC):
+        text = (REPOSITORY_ROOT / name).read_text(encoding="utf-8")
+        for block in re.findall(r"```json\n(.*?)```", text, re.S):
+            bodies.append(json.loads(block))
+    assert len(bodies) == 2
+    for body in bodies:
+        assert body["conditions"]["ref_name"] == {
+            "include": ["refs/heads/main"],
+            "exclude": [],
+        }
+        assert body["enforcement"] == "evaluate" and body["bypass_actors"] == []
+        assert body["target"] == "branch"
+        (rule,) = body["rules"]
+        (entry,) = rule["parameters"]["workflows"]
+        assert rule["type"] == "workflows" and set(entry) == {
+            "repository_id",
+            "path",
+            "sha",
+        }
+    real, lab = bodies
+    assert real["conditions"]["repository_name"]["include"] == ["rulespec-us"]
+    assert real["rules"][0]["parameters"]["workflows"][0]["path"] == (
+        ".github/workflows/content-bound-merge-guard.yml"
+    )
+    assert lab["conditions"]["repository_name"]["include"] == ["guard-lab-target"]
+
+
+def test_the_documents_state_the_waits_and_limits_of_the_runner_as_built():
+    # The numbers the documents give for the wait come from the constants.
+    assert runner.CI_WAIT_SECONDS == runner.MERGE_GROUP_WAIT_SECONDS == 5 * 3600
+    design = _flat(DESIGN_DOC)
+    key = _flat(KEY_PROTECTION_DOC)
+    assert "for at most 18,000 seconds, five hours (`CI_WAIT_SECONDS`)" in design
+    assert "**Job timeout.** `timeout-minutes` is 345." in design
+    assert "`MAX_ENFORCE_REQUESTS` is 350" in design
+    assert (
+        "it waits for that check, at most 5 hours, with a poll every 180 seconds"
+        in (key)
+    )
+    assert "The job timeout is 345 minutes" in key
+    for text in (design, key, _flat(EXPERIMENT_DOC)):
+        assert "60-minute wait" not in text and "at most 60 minutes" not in text
 
 
 # --- the enforcing runner (change 3b) -------------------------------------------
