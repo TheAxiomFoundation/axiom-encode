@@ -815,6 +815,9 @@ REFUSALS = {
     "no-merge-queue": (_no_queue, QUEUE),
     "merge-queue-type-case": (_queue_type("Merge_Queue"), QUEUE),
     "merge-queue-other-name": (_queue_type("merge-queue"), QUEUE),
+    "merge-queue-name-with-suffix": (_queue_type("merge_queue_v2"), QUEUE),
+    "merge-queue-name-with-prefix": (_queue_type("no_merge_queue"), QUEUE),
+    "merge-queue-name-with-space": (_queue_type("merge_queue "), QUEUE),
     # Review round 1, P2-1: the queue rule is a well-formed rule object.
     "queue-of-type-alone": (_queue_is({"type": "merge_queue"}), QUEUE_SHAPE),
     "queue-without-parameters": (_queue_without("parameters"), QUEUE_SHAPE),
