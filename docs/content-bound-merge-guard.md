@@ -1733,7 +1733,11 @@ rollback.
      has the result `pass`, and every *adjusting* step has either `pass` or
      its named change merged, reviewed and the step run again with `pass`.
      An *informational* step needs a recorded result only. A step that was
-     not run counts as failed for this rule.
+     not run counts as failed for this rule. One exception: X23 needs a
+     machine of the owner and may stay "not run"; the organization setting
+     that disables repository-level self-hosted runners is then required
+     for step 11 without that evidence, and an owner's read of the setting
+     is recorded in §11.
 
      | Class | Steps | A failed step means |
      |---|---|---|

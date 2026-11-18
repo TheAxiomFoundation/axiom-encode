@@ -12,10 +12,19 @@ chosen for activation.
   not let the author of a pull request approve it. Use a second account with
   write access to the target repository. For X16 it must not be an
   administrator of the target.
-- **Time.** About one to two hours.
+- **Time.** About half a day. There are 24 steps, and each queue case
+  holds a check of three minutes.
 - **What it creates.** Two public throwaway repositories and one
-  organization ruleset. It creates no secret, no GitHub App and no key. It
-  touches neither `axiom-encode` nor any `rulespec-*` repository.
+  organization ruleset. It creates no stored secret, no GitHub App and no
+  key. It touches neither `axiom-encode` nor any `rulespec-*` repository:
+  every step below acts on `guard-lab-source`, `guard-lab-target` and the
+  ruleset `guard-lab` only. Step X23 needs a machine of the owner and a
+  one-time runner registration token that the web page shows; nothing is
+  stored, and the step may be recorded as "not run".
+- **What "passed" means.** Checklist step 3 of
+  `docs/content-bound-merge-guard.md` §8 sorts the steps into blocking,
+  adjusting and informational, and defines "the experiment passed". Each
+  step below names its class.
 - **Evidence labels** are those of `docs/merge-guard-key-protection.md`;
   D1-D16 are its documentation list. Every "expected" below is unverified
   until the step runs.
@@ -229,7 +238,7 @@ fields for the record and does not judge them.
 
 1. Create the public repository `TheAxiomFoundation/guard-lab-target` with a
    README. Leave Actions on. Give the second account write access.
-2. Add these three files to `main`.
+2. Add these four files to `main`.
 
 `.github/workflows/lab-slow.yml` (a second required check that takes three
 minutes, for X15):
@@ -308,6 +317,49 @@ jobs:
           git push
 ```
 
+`.github/workflows/lab-imitate-api.yml` (creates a check run and a commit
+status with the guard's name through the API, with the job token, for X2):
+
+```yaml
+name: lab-imitate-api
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: The pull request head commit to mark
+        required: true
+        type: string
+      kind:
+        description: check-run or status
+        required: true
+        type: choice
+        options: [check-run, status]
+permissions:
+  checks: write
+  statuses: write
+jobs:
+  imitate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ inputs.sha }}
+          KIND: ${{ inputs.kind }}
+        run: |
+          set -euo pipefail
+          case "$SHA" in *[!0-9a-f]*|'') exit 1 ;; esac
+          [ "${#SHA}" = 40 ] || exit 1
+          if [ "$KIND" = "check-run" ]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" \
+              -f name=lab-guard -f head_sha="$SHA" \
+              -f status=completed -f conclusion=success
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$SHA" \
+              -f state=success -f context=lab-guard
+          fi
+```
+
 ### 1.3 The organization ruleset
 
 Create it in the web form (Organization settings → Repository → Rulesets →
@@ -319,7 +371,7 @@ New ruleset → New branch ruleset [docs D4]) or with the request below.
 | Enforcement status | `Evaluate` (X6 changes it to `Active`) |
 | Bypass list | empty |
 | Target repositories | selected: `guard-lab-target` only |
-| Target branches | the default branch |
+| Target branches | the one ref `refs/heads/main`, as an include pattern; not the form's "default branch" target |
 | Rule | "Require workflows to pass before merging": repository `guard-lab-source`, file `.github/workflows/lab-guard.yml`, pinned to the SHA of commit A |
 
 ```json
@@ -330,7 +382,7 @@ New ruleset → New branch ruleset [docs D4]) or with the request below.
   "bypass_actors": [],
   "conditions": {
     "repository_name": {"include": ["guard-lab-target"], "exclude": []},
-    "ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}
+    "ref_name": {"include": ["refs/heads/main"], "exclude": []}
   },
   "rules": [
     {
@@ -354,31 +406,49 @@ Replace `0` with the id of `guard-lab-source`. Save the body as
 `gh api -X POST orgs/TheAxiomFoundation/rulesets --input guard-lab.json`.
 Record the returned `id`. Record whether the web form offers a SHA pin, and
 whether the API accepts `sha` with no `ref`. If it refuses, add
-`"ref": "refs/heads/main"` and record that both were needed.
+`"ref": "refs/heads/main"` and record that both were needed. Record also
+how the web form names the target that gives `refs/heads/main`, and read
+the ruleset back:
+`gh api orgs/TheAxiomFoundation/rulesets/<id> --jq .conditions.ref_name`
+must print `refs/heads/main` in `include`, not `~DEFAULT_BRANCH`.
 
 ## 2. Steps
 
-Do them in this order. For each step, record the result in the table of §4:
-`pass`, `fail` or `not run`, with the run URL or the command output.
+Do them in this order, with one exception: part (c) of X2 comes after X15.
+For each step, record the result in the table of §4: `pass`, `fail` or
+`not run`, with the run URL or the command output. Every step acts on the
+two lab repositories and the lab ruleset only.
 
 ### X6. `Evaluate` mode runs the workflow and does not block
 
-- **Procedure.** With the ruleset in `Evaluate`, open pull request **PR-1**
-  in the target (any one-line change). Do not approve it.
-- **Pass.** A `lab-guard` run starts in `guard-lab-target`, fails (no
-  approval), and the pull request can still be merged. Rule Insights
-  (Organization settings → Repository → Rule insights) shows the evaluation.
-  Do not merge.
-- **Record.** The run URL; the check name on the pull request; a
-  screenshot or the text of the Rule Insights row.
-- **If it fails.** No native shadow mode. The shadow period of the design
-  then needs another form (a throwaway target, or a short `Active` window).
-  It does not end (g').
+Class: adjusting.
+
+- **Procedure.** With the ruleset in `Evaluate`, open two pull requests in
+  the target, **PR-0** and **PR-1** (any one-line change each). Do not
+  approve them. Wait for the `lab-guard` run of each. Then merge PR-0. Keep
+  PR-1 open for the next steps.
+- **Pass.** A `lab-guard` run starts in `guard-lab-target` for each pull
+  request and fails (no approval). PR-0 can be merged although its run
+  failed.
+- **Record.** The run URLs; the check name on the pull request. The log of
+  the run is the evidence that the workflow ran. Rule Insights
+  (Organization settings → Repository → Rule insights): GitHub documents
+  that it logs nothing "until a pull request is merged or a merge is
+  attempted" [docs D2]. So record that page twice: before the merge of PR-0
+  (expected: no row for PR-0 or PR-1) and after it (expected: one row for
+  PR-0, marked as a failure in evaluate mode). Record what the page shows
+  in each case; neither expectation is a pass condition.
+- **If it fails.** No run in `Evaluate`: no native shadow mode. The shadow
+  period of the design then needs another form (a throwaway target, or a
+  short `Active` window on a quiet day), decided in a reviewed change of
+  the checklist. It does not end (g').
 
 Now set the ruleset to `Active`. Record whether PR-1 becomes blocked at once
 or only after the next run.
 
 ### X1. The SHA pin runs exactly that file
+
+Class: blocking.
 
 - **Procedure.** In the source, change `MARKER: "A"` to `MARKER: "B"` and
   commit to `main` (commit **B**). Do not edit the ruleset. Push a new commit
@@ -390,6 +460,8 @@ or only after the next run.
   for most files. (g') fails: use the fallback.
 
 ### X11. What `github.workflow_sha` and `github.workflow_ref` are
+
+Class: adjusting.
 
 - **Procedure.** Read the "Print the run identity" and "Print what the
   checkout holds" steps of the X1 run.
@@ -404,6 +476,8 @@ or only after the next run.
   value that does name the source commit, and a new run of this step.
 
 ### X18. The run names the TARGET repository
+
+Class: adjusting; no ruleset may name the real runner until it passes.
 
 - **Procedure.** Read the "Print the run identity" and "Print the event
   payload fields" steps of the X6 run (a `pull_request` event) and, later,
@@ -430,6 +504,8 @@ or only after the next run.
 
 ### X12. The check name and the commit it attaches to
 
+Class: adjusting.
+
 - **Procedure.** `gh api repos/TheAxiomFoundation/guard-lab-target/commits/<PR-1 head>/check-runs --jq '.check_runs[] | {name, head_sha, app: .app.slug, status, conclusion}'`.
   Also read the name in the pull request's merge box and in Rule Insights.
 - **Pass.** One check run named `lab-guard` (the job name) on the pull
@@ -440,6 +516,8 @@ or only after the next run.
   reading before `Active`.
 
 ### X4. The target's job token reads the public source of truth
+
+Class: adjusting (the change is a decision, not code).
 
 - **Procedure.** Read the "Read public axiom-encode with the job token" step
   of any run, and the checkout step of X11.
@@ -454,19 +532,53 @@ or only after the next run.
 
 ### X2. A check with the same name does not satisfy the rule
 
-- **Procedure.** Open **PR-2** in the target. Its branch adds
-  `.github/workflows/imitation.yml`: `name: lab-guard`, `on: pull_request`,
-  one job with `name: lab-guard` whose only step is `run: "true"`. Do not
-  approve PR-2.
-- **Pass.** The imitation job is green, the ruleset's `lab-guard` run is
-  red, and the pull request stays blocked.
-- **Record.** Both check runs with their `app` and `details_url`; the merge
-  box text.
-- **If it fails.** Any pull request can pass the guard by adding a workflow.
-  (g') fails outright: use the fallback. This step cannot test a check that
-  another GitHub App publishes; that case stays unverified.
+Class: blocking, each part.
+
+The rule must be satisfied only by the run that the ruleset itself starts.
+Each part offers the platform another green result with the same name on a
+pull request that is **not** approved, so the ruleset's own `lab-guard` run
+is red.
+
+- **(a) Another workflow file.** Open **PR-2** in the target. Its branch
+  adds `.github/workflows/imitation.yml`: `name: lab-guard`,
+  `on: [pull_request, merge_group]`, one job with `name: lab-guard` whose
+  only step is `run: "true"`.
+- **(b) A file at the ruleset workflow's own path.** Open **PR-2b**. Its
+  branch adds `.github/workflows/lab-guard.yml` to the target, the same
+  path and name as the file in the source, with `name: lab-guard`,
+  `on: pull_request` and one job `lab-guard` whose only step is
+  `run: "true"`.
+- **(c) An imitation on `merge_group`.** Run this part after X5 and X15.
+  Take a pull request whose branch holds the imitation of (a). Approve it,
+  let its ruleset run go green, add it to the queue, and dismiss the
+  approval while `lab-slow` of the group still runs, as in X15 (b). The
+  group commit holds the pull request's workflows, so the imitation's
+  `merge_group` job is green while the ruleset's group run fails.
+- **(d) A check run created through the API.** On a new unapproved pull
+  request **PR-2d**, dispatch `lab-imitate-api` with its head SHA and
+  `kind: check-run`. It creates a completed, successful check run named
+  `lab-guard` from the GitHub Actions app.
+- **(e) A commit status with the same context.** On a new unapproved pull
+  request **PR-2e**, dispatch `lab-imitate-api` with its head SHA and
+  `kind: status`.
+- **Pass.** In (a), (b), (d) and (e) the imitation is green, the ruleset's
+  `lab-guard` run is red, and the pull request stays blocked. In (c) the
+  entry leaves the queue and the pull request does not merge.
+- **Record.** For each part: every check run and status on the head (or the
+  group commit) with its `name`, `app` and `details_url`
+  (`gh api repos/TheAxiomFoundation/guard-lab-target/commits/<sha>/check-runs --jq '.check_runs[] | {name, app: .app.slug, conclusion, details_url}'`
+  and `.../commits/<sha>/statuses`); the merge box text; for (b) which file
+  each of the two runs used (the marker line exists only in the source's
+  file).
+- **If it fails.** Any part: a pull request can pass the guard by adding a
+  workflow or by one API call of a workflow with `checks: write` or
+  `statuses: write`. (g') fails outright: use the fallback. This step
+  cannot test a check that another GitHub App publishes; that case stays
+  unverified.
 
 ### X3. A re-run after an approval updates the rule
+
+Class: adjusting (the change is the procedure after an approval).
 
 - **Procedure.** On PR-1 (red, not approved): the second account approves.
   Do not push. (a) Re-run the failed job in the web page. If the pull
@@ -482,6 +594,8 @@ or only after the next run.
 
 ### X16. Who can re-run a ruleset run
 
+Class: informational.
+
 - **Procedure.** Make PR-3 red, approve it, then: (a) the second account
   (write access, not an administrator) re-runs the failed job; (b) on
   another red and approved pull request, dispatch `lab-rerun` with the run
@@ -494,6 +608,8 @@ or only after the next run.
   re-runs it for each candidate.
 
 ### X13. A re-run of an old run cannot make a new head green
+
+Class: informational.
 
 - **Procedure.** On an approved pull request with a green run on head H1,
   dismiss the approval, push a new commit (head H2; its run is red). Approve
@@ -508,6 +624,8 @@ or only after the next run.
 
 ### X9. An empty bypass list binds an organization owner
 
+Class: informational.
+
 - **Procedure.** On a red pull request, try to merge as the organization
   owner, in the web page and with `gh pr merge --admin`.
 - **Pass.** Both are refused.
@@ -517,6 +635,8 @@ or only after the next run.
 
 ### X8. Missing runs block the merge
 
+Class: blocking for (a) and (b); informational for (c).
+
 - **Procedure.** (a) On a green, approved pull request, dispatch
   `lab-token-push` with its branch: the new head comes from the job token.
   (b) On another pull request, push a commit whose message contains
@@ -525,11 +645,21 @@ or only after the next run.
 - **Pass.** In each case no `lab-guard` run starts on the new head and the
   pull request is blocked.
 - **Record.** For each case: whether a run started, and the merge box text.
+  For (a) there are three outcomes, and each is recorded as its own
+  result: no run at all (what the ruleset page documents [docs D2]); a run
+  that waits for approval (what the events page documents for an ordinary
+  workflow: such a pull request gets runs "that require approval"
+  [docs D20]); or a run that starts. With a run that waits for approval,
+  record whether the pull request is blocked while it waits, who can
+  approve it, and what it does after the approval. The first two outcomes
+  pass if the pull request stays blocked.
 - **If it fails.** A head with no guard run can merge. For (a) and (b) any
   author can cause that, so (g') fails: use the fallback. For (c) only a
   repository administrator can; record it under R1.
 
 ### X7 and X14. The branch-rules endpoint
+
+Class: X7 informational; X14 adjusting.
 
 - **Procedure.** With the ruleset `Active`, as the second account (not an
   owner):
@@ -543,9 +673,12 @@ or only after the next run.
 - **If it fails.** If the response has no `sha` or no `repository_id`, the
   signing runtime cannot check the pin from this endpoint. The organization
   endpoint needs `admin:org`. Lock 3 then has no data source, and activation
-  step 12 waits for a new design of that lock.
+  step 13 waits for a new design of that lock (draft #2289 holds the lock
+  with a synthetic fixture of this response).
 
 ### X5. The merge queue runs the workflow
+
+Class: blocking for "a `merge_group` run starts"; adjusting for the payload fields.
 
 - **Procedure.** In the target, create a repository ruleset for `main`:
   "Require merge queue" (merge method squash, build concurrency 1, minimum
@@ -567,6 +700,10 @@ or only after the next run.
   reviewed change and a new run of this step.
 
 ### X15. A dismissal and the queue
+
+Class: blocking for (a), (b) and for "merges only after the guard job has
+ended" in (c); adjusting for the identity of the group's check in (c);
+informational for (d).
 
 The guard's merge-group run waits for the group's other required check and
 evaluates after it (design §6). This step must confirm that, and measure
@@ -610,14 +747,20 @@ the window that remains.
 
 ### X10. Renaming the target
 
+Class: adjusting.
+
 - **Procedure.** Rename `guard-lab-target` to `guard-lab-target-2`. Open a
   pull request.
 - **Pass.** The rule still applies.
 - **Record.** Whether the run starts and blocks.
 - **If it fails.** A rename removes the gate. Set `"protected": true` in
   `repository_name` [docs D3] and run the step again.
+- Rename the repository back to `guard-lab-target` at the end of this
+  step; the later steps use that name.
 
 ### X17. A disabled workflow in the source repository
+
+Class: informational.
 
 This step is an addition of this document. GitHub's troubleshooting page
 lists "disable the individual workflow in the source repository" as a way to
@@ -636,9 +779,135 @@ disabled [docs D9].
   rule: never disable `content-bound-merge-guard.yml` in axiom-encode while
   the ruleset is `Active`; a write collaborator of axiom-encode with the
   right to disable workflows could then block landings (not forge them).
+- Enable the workflow again at the end of this step
+  (`gh workflow enable lab-guard.yml --repo TheAxiomFoundation/guard-lab-source`).
+
+### X19. A pin move with an open green pull request
+
+Class: informational; it can change the pin procedure.
+
+- **Procedure.** The source has commit B (from X1). Approve a pull request
+  **PR-G**; its run from pin A is green. As the owner, move the ruleset's
+  pin to commit B (`PUT` the full body with the new `sha`). Do not push to
+  PR-G. Then: (i) read the merge box of PR-G; (ii) add PR-G to the queue
+  and read the marker that its `merge_group` run prints; (iii) push to
+  another pull request and read its marker.
+- **Pass.** Record only. Expected [inferred]: (i) PR-G stays mergeable with
+  the old result; (ii) the group run prints `marker=B`; (iii) `marker=B`.
+- **Record.** The three observations.
+- **What the result changes.** If (ii) prints `marker=A`, a pin move does
+  not reach a pull request that is already green, in the queue either. A
+  pin move that removes an enrolled identity or closes a defect then needs
+  one more act in the pin procedure of
+  `docs/merge-guard-key-protection.md` §5: a new event on every open pull
+  request. If (i) shows the pull request blocked until a new run, every
+  pin move costs one CI run for each open pull request.
+
+### X20. `Evaluate` together with a merge queue
+
+Class: adjusting (the change is the form of the queue trial, design
+checklist step 8).
+
+- **Procedure.** After X5, with the queue of the target on, set the
+  ruleset back to `Evaluate`. Open a pull request, do **not** approve it,
+  wait until `lab-slow` is green, and add it to the queue.
+- **Pass.** Record only what happens; the expected result [inferred] is:
+  the pull request can be queued although its `lab-guard` run is red; a
+  `lab-guard` run starts with `github.event_name=merge_group`; the queue
+  merges when `lab-slow` of the group is green, without waiting for
+  `lab-guard`; the `lab-guard` group run then fails in its last step.
+- **Record.** Whether a `merge_group` run of `lab-guard` started; its
+  conclusion; `completedAt` of both jobs and the pull request's
+  `merged_at`; the Rule Insights row after the merge.
+- **If no `merge_group` run starts in `Evaluate`.** The queue trial of
+  checklist step 8 cannot observe the guard on a merge group before
+  `Active`. The trial then moves to the first `Active` landing (checklist
+  step 12, with its stop rule), in a reviewed change of the checklist.
+- Set the ruleset to `Active` again before the next step.
+
+### X21. A change of the default branch
+
+Class: adjusting.
+
+- **Procedure.** In the target, create the branch `alt` from `main`. As a
+  repository administrator, make `alt` the default branch. Open an
+  unapproved pull request into `main` and one into `alt`. Then make `main`
+  the default branch again.
+- **Pass.** The pull request into `main` gets a `lab-guard` run and is
+  blocked. The pull request into `alt` has no rule: that is expected with
+  the explicit target `refs/heads/main`.
+- **Record.** For each pull request: whether a run started and whether it
+  is blocked; `gh api repos/TheAxiomFoundation/guard-lab-target/rules/branches/main --jq '[.[].type]'`
+  and the same for `alt`, while `alt` is the default branch.
+- **If it fails.** If `main` has no rule while another branch is the
+  default, the explicit target does not hold `main`: the ruleset needs
+  another target form, and a reviewed change of
+  `docs/merge-guard-key-protection.md` §5 names it. In either case a
+  repository administrator can move the default branch; the design's
+  health check reads it.
+
+### X22. Two conclusions on one head
+
+Class: informational.
+
+- **Procedure.** Approve a pull request and let its run go green on head
+  H. Dismiss the approval. Close and reopen the pull request: a new run on
+  the same head H fails.
+- **Pass.** Record only.
+- **Record.** The check runs on H with their conclusions and times; whether
+  the pull request is blocked (the newest result counts) or mergeable (an
+  older green result counts).
+- **What the result changes.** If an older green result counts, a
+  re-evaluation that fails cannot withdraw a pass on the same head. The
+  merge-group evaluation is then the only defence against a stale pass
+  (key-protection R3), as the design already assumes.
+
+### X23. A self-hosted runner with the label `ubuntu-latest`
+
+Class: adjusting. It needs a machine that the owner controls. If none is at
+hand, record "not run"; the organization setting of
+`docs/merge-guard-key-protection.md` §5 step 9 is then required without
+this evidence.
+
+- **Procedure.** In `guard-lab-target` (Settings → Actions → Runners),
+  register one repository-level self-hosted runner on the owner's machine
+  and give it the custom label `ubuntu-latest`. Use the one-time
+  registration token that the page shows; store it nowhere. Push to a pull
+  request. Read "Runner name" in the log of the `lab-guard` job.
+- **Pass.** A GitHub-hosted runner takes the job.
+- **Record.** The runner name and group of the `lab-guard` job; the same
+  for the `lab-slow` job, an ordinary workflow of the target.
+- **If it fails.** A repository administrator can run the guard job on a
+  machine that the administrator controls and so decide its result. Then
+  set the organization's "Runners" setting to "Disabled" for
+  repository-level self-hosted runners [docs D19], run the step again, and
+  record that the runner is listed as "Disabled" and the job goes to a
+  hosted runner. That setting becomes a precondition of checklist step 11.
+  If no setting prevents it, (g') does not hold against a repository
+  administrator; Max decides whether that residual is acceptable.
+- Remove the runner from the repository and delete its directory on the
+  machine at the end of this step.
+
+### X24. A pull request whose base is changed to `main`
+
+Class: blocking.
+
+- **Procedure.** In the target, create the branch `side` from `main`. Open
+  an unapproved pull request into `side`: the ruleset does not target it,
+  so no `lab-guard` run starts. Edit the pull request and change its base
+  to `main`. Do not push.
+- **Pass.** No run starts (`edited` is not an activity type that starts a
+  ruleset workflow [docs D1, D2]) and the pull request is blocked until a
+  push, an update or a reopen starts a run.
+- **Record.** Whether a run started; the merge box text.
+- **If it fails.** If the pull request can merge into `main` with no
+  `lab-guard` run, any author passes the guard by opening the pull request
+  against another branch first. (g') fails: use the fallback.
 
 ## 3. Clean up
 
+0. Remove the self-hosted runner of X23, if one was registered, and make
+   `main` the default branch of the target again (X21).
 1. Delete the organization ruleset `guard-lab`:
    `gh api -X DELETE orgs/TheAxiomFoundation/rulesets/<id>`.
 2. Delete both repositories (Settings → Danger zone → Delete this
@@ -658,13 +927,17 @@ recorded output is the evidence; the agent adds none.
 | Step | Question | Result | Evidence (run URL or output) |
 |---|---|---|---|
 | X1 | The SHA pin runs exactly that file | | |
-| X2 | A same-named check does not satisfy the rule | | |
+| X2 (a) | An imitation workflow in another file does not satisfy the rule | | |
+| X2 (b) | A file at the ruleset workflow's own path in the target does not satisfy it | | |
+| X2 (c) | An imitation on `merge_group` does not keep the entry in the queue | | |
+| X2 (d) | A check run created through the API does not satisfy it | | |
+| X2 (e) | A commit status with the same context does not satisfy it | | |
 | X3 | A re-run after an approval updates the rule | | |
 | X4 | The job token reads public axiom-encode; checkout works | | |
 | X5 | The merge queue runs the workflow; payload fields | | |
 | X6 | `Evaluate` runs the workflow and does not block | | |
 | X7 | A non-owner can read the active rule | | |
-| X8 | Missing runs block the merge (token push, `[skip ci]`, Actions off) | | |
+| X8 | Missing runs block the merge (token push, with its three outcomes; `[skip ci]`; Actions off) | | |
 | X9 | An empty bypass list binds an owner | | |
 | X10 | Renaming the target keeps the rule | | |
 | X11 | `github.workflow_sha` and `github.workflow_ref` name the source commit | | |
@@ -675,7 +948,13 @@ recorded output is the evidence; the agent adds none.
 | X16 | A write collaborator and a job token can re-run a ruleset run | | |
 | X17 | A workflow disabled in the source repository | | |
 | X18 | `GITHUB_REPOSITORY`, `github.repository` and the payload name the target repository | | |
-| — | The web form offers a SHA pin; the API accepts `sha` with no `ref` | | |
+| X19 | A pin move with an open green pull request: old result, and the file of the next `merge_group` run | | |
+| X20 | `Evaluate` with a merge queue: a `merge_group` run starts; the queue does not wait for it | | |
+| X21 | A changed default branch leaves the rule on `main` | | |
+| X22 | Two conclusions on one head: which one counts | | |
+| X23 | A self-hosted runner with the label `ubuntu-latest` does not take the job | | |
+| X24 | A pull request whose base is changed to `main` gets no run and is blocked | | |
+| — | The web form offers a SHA pin; the API accepts `sha` with no `ref`; the target reads back as `refs/heads/main` | | |
 
 ## 5. What this experiment cannot show
 
@@ -683,9 +962,19 @@ recorded output is the evidence; the agent adds none.
   The shadow period of the activation checklist does that.
 - A check with the guard's name that another GitHub App publishes (X2 tests
   a workflow only).
-- The behavior on rate limiting, and the real duration of
-  `validate / validate` against the runner's 60-minute wait for a pull
-  request and its 5-hour wait for a merge group.
+- The behavior on rate limiting, and which limit a job token of
+  `rulespec-us` has. The duration of `validate / validate` on a pull
+  request is measured (172 to 227 minutes for 38 of 40 runs
+  [live read 2026-11-17]); the runner waits 5 hours for it. Its duration on
+  a merge group is not measured; the runner waits 5 hours for that too.
+- Properties of the real repository's settings: that the merge queue of
+  `rulespec-us` stays on, that its default branch stays `main`, and which
+  runners it can use. The lab shows what each setting does; only the
+  read-only health check of the design shows their state.
+- Any step with the lab ruleset in a state that the step does not name.
+  X1 to X19 and X21 to X24 run with the ruleset `Active`; only X6 and X20
+  run in `Evaluate`. A lab pass in `Active` says nothing about what the
+  real shadow period (`Evaluate`) can show.
 - That the real group check is named `validate / validate` and comes from a
   `merge_group` run of `repository-checks.yml`. The queue trial of checklist
   step 8 records that on `rulespec-us`.
