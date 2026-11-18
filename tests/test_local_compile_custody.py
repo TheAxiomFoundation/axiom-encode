@@ -143,7 +143,7 @@ def compile_and_bind(world, *, owner=None):
             rulespec_roots=(capture.snapshot_root,),
             output=output,
             cwd=capture.snapshot_root,
-            env={"PATH": "/usr/bin:/bin:/usr/local/bin"},
+            env={"PATH": ENGINE_PATH},
             _execution_owner=pipeline if owner is None else owner,
         )
     capture.artifact = output
@@ -256,7 +256,7 @@ def test_subprocess_descriptor_mismatch(world, wrong):
             output=output,
             cwd=output.parent if wrong == "cwd" else capture.snapshot_root,
             env={
-                "PATH": "/usr/bin:/bin:/usr/local/bin",
+                "PATH": ENGINE_PATH,
                 **({"UNRELATED": "changed"} if wrong == "env" else {}),
             },
             _execution_owner=pipeline,

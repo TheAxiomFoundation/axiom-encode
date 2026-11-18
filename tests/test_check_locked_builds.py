@@ -14,6 +14,7 @@ import json
 import subprocess
 import tomllib
 import urllib.error
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -354,7 +355,7 @@ class FakeWorld:
         self.work = tmp_path / "work"
         self.work.mkdir()
         self.calls: list[list[str]] = []
-        self.envs: list[dict] = []
+        self.envs: list[Mapping[str, str]] = []
         self.built = overrides.get("built", "      Built slow==1.0\n")
         self.head = overrides.get("head", COMMIT)
         self.sdist_bytes = overrides.get("sdist_bytes", SDIST_BYTES)
