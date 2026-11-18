@@ -1539,7 +1539,7 @@ Implementation comes before activation.
 | 2 | axiom-encode | Verifiers can read `applied-rulespec/v6` with the attestation scope, behind `V6_READER_ENABLED = False`; no writer | revert; the production writer emits only v5 |
 | 2b | axiom-encode | Set `V6_READER_ENABLED = True`. May ride with change 3. Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request. | set it back; the production writer emits only v5 |
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode. Shadow only and inert: manual dispatch, behind `MERGE_GUARD_RUNNER_ENABLED` (§4, "Runner as built"). It does not flip `V6_READER_ENABLED`; change 2b stays a separate one-line commit to `applied_manifest_v6.py` | unset the variable; disable the workflow |
-| 3b | axiom-encode | **Enforcing runner (built, required nowhere).** `merge_guard_runner.enforce` judges the pull request or merge group of one Actions event and ends its job, named `content-bound-merge-guard`, with success for `pass` and `not_applicable` and with failure for `fail` and for every error. Its workflow has the `pull_request` and `merge_group` trigger, so a ruleset that requires it runs it on every pull request head and every merge group; each run judges its own head, so no work list or snapshot is read. A merge-group run evaluates after the group's own required check has completed (§6). A pull-request run whose verdict is `ci_not_green` waits up to five hours for the required check and evaluates once more (§4). No trigger follows a review change: after an approval that arrives when the job has already ended, someone re-runs the job [experiment X3]. Request volume is measured (§4, "Enforcing runner as built"). It is switched on only by an organization ruleset "Require workflows to pass before merging" that names the workflow at a commit; no variable, key or repository setting does it. Hard precondition of checklist steps 6 and 11 | an organization owner sets the ruleset to `Evaluate` or `Disabled`. Once the v6 writer is on (checklist step 13), only in the rollback order at the top of the checklist: writer off first |
+| 3b | axiom-encode | **Enforcing runner (built, required nowhere).** `merge_guard_runner.enforce` judges the pull request or merge group of one Actions event and ends its job, named `content-bound-merge-guard`, with success for `pass` and `not_applicable` and with failure for `fail` and for every error. Its workflow has the `pull_request` and `merge_group` trigger, so a ruleset that requires it runs it on every pull request head and every merge group; each run judges its own head, so no work list or snapshot is read. A merge-group run evaluates after the group's own required check has completed (§6). A pull-request run whose verdict is `ci_not_green` waits up to five hours for the required check and evaluates once more (§4). No trigger follows a review change: after an approval that arrives when the job has already ended, someone re-runs the job [experiment X3]. Request volume is measured (§4, "Enforcing runner as built"). It is switched on only by an organization ruleset "Require workflows to pass before merging" that names the workflow at a commit; no variable, key or repository setting does it. Hard precondition of checklist steps 6 and 11 | an organization owner sets the ruleset to `Evaluate` or `Disabled`. Once the v6 writer is on (checklist step 13), only in the rollback order at the top of the checklist: writer off first. That order is then a last resort and not a durable rollback; the recommended response is to repair forward or to keep the ruleset `Active` |
 | 4 | rulespec-us | Pin the encoder that verifies v6. Not started: the commit to pin exists only after change 2b merges (checklist step 9). Heavy: the pin was 1,270 commits behind encoder `main` on 2026-11-17 [author-reported, activation preparation 2026-11-17] | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch. Built as drafts #2238 and #2269 (5b, the hosted evidence step); their locks 2 and 3 expect a guard App check in classic branch protection [author-reported] | revert |
 | 5c | axiom-encode | **Writer lock for the ruleset form — built as draft #2289, locked.** Locks 2 and 3 of change 5 can expect the organization ruleset's workflow entry (repository id, path, a set of pinned SHAs) and a `merge_queue` rule in the branch-rules response, in place of a guard App id. Both forms are committed unrecorded (`GUARD_APP_ID = None`, `GUARD_WORKFLOW = None`), so the lock refuses before any read. Its fixture of the response is synthetic: the real shape is unknown [experiment X14], and the recorded response replaces the fixture in checklist step 4. This is the one place that describes 5c; the checklist refers to it. Needed only if Max accepts the ruleset path [author-reported, draft #2289] | revert; the locks stay shut |
@@ -1571,7 +1571,11 @@ and this checklist needs a reviewed rewrite first.
 >      `production-signing` approval or in progress. Read-only, as anyone:
 >      `gh run list --repo TheAxiomFoundation/axiom-encode --workflow targeted-signed-reencode.yml --limit 200 --json databaseId,status,headSha,createdAt --jq '[.[] | select(.status != "completed")]'`
 >      must print `[]` (it printed `[]` on 2026-11-18
->      [live read 2026-11-18]). The writer switch is a constant in the
+>      [live read 2026-11-18]). The listing must reach back more than 30
+>      days: raise `--limit` if the oldest run that the same command prints
+>      without the `--jq` filter is younger than that (on 2026-11-18 the
+>      200th run was 50 days old [live read 2026-11-18]). The writer switch
+>      is a constant in the
 >      source, and a signing run executes the commit it was dispatched at;
 >      so a run that started before the writer-off commit still has the
 >      writer on [code: `test "$(git rev-parse HEAD)" = "$GITHUB_SHA"` in
@@ -1583,10 +1587,10 @@ and this checklist needs a reviewed rewrite first.
 >      on, and GitHub allows a re-run for 30 days [docs D9]. So no enrolled
 >      owner may re-run a signing run that was dispatched before the
 >      writer-off commit, or approve one for `production-signing`. This is
->      a rule for people; nothing technical enforces it. The durable way to
->      make old runs harmless is the reader pin revert of (iii), or to wait
->      until no v6 manifest can validate: validation then refuses whatever
->      such a run signs. That is why (iii) offers the revert.
+>      a rule for people; nothing technical enforces it. The reader pin
+>      revert of (iii) makes validation refuse what such a run signs, but
+>      only while the pin stays reverted, and after point 3 nothing
+>      technical keeps it reverted ("After point 3" below).
 >    - (iii) **No signed v6 manifest can land.** Only then, and immediately
 >      before point 3: revert the reader pin of step 9 in `rulespec-us`, so
 >      that validation refuses every v6 manifest again; or make sure that
@@ -1596,11 +1600,53 @@ and this checklist needs a reviewed rewrite first.
 >
 > **Between the check of point 2 and the change of point 3 GitHub offers
 > no transaction.** A signing run can be re-run, and a signed manifest can
-> be pushed, after the read and before the ruleset changes. So the safe
-> form of a rollback of the ruleset after step 13 is: writer off → reader
-> pin reverted on `rulespec-us` → then the ruleset. The form "no open pull
-> request holds a signed v6 manifest" leaves that gap open and depends on
-> the rule of (ii).
+> be pushed, after the read and before the ruleset changes. The reader pin
+> revert narrows that gap: while the pin is reverted, validation refuses a
+> v6 manifest. The form "no open pull request holds a signed v6 manifest"
+> leaves that gap open and depends on the rule of (ii).
+>
+> **After point 3 nothing technical protects `rulespec-us` from signed v6
+> bytes. This order is not a durable rollback.** The reader pin is content
+> of a pull request: `repository-checks.yml` of `rulespec-us` reads
+> `.axiom/workflow-toolchain.toml` from the checkout of the pull request
+> itself [code: job `workflow-toolchain`, `rulespec-us` at `ddad6d63`], and
+> `main` of `rulespec-us` requires 0 approvals and no code-owner review
+> [live read 2026-11-18]. So any account with write access can move the
+> reader pin forward again in the same pull request that lands signed v6
+> bytes [inferred]. Not tested: whether validation refuses a pull request
+> that moves the pin and adds a manifest together.
+>
+> **So the recommended response to a guard problem after step 13 is not to
+> weaken the ruleset.** In this order of preference:
+>
+> - (a) **Repair forward.** Move the pin to a fixed guard while the ruleset
+>   stays `Active` ("If the guard itself is broken" below).
+> - (b) **Take the guard out of use, closed.** Do point 1 and keep the
+>   ruleset `Active`. A guard that cannot pass then blocks every merge of
+>   `rulespec-us`. That is the fail-closed state, and it holds until the
+>   repair.
+> - (c) **Last resort: weaken the ruleset or the queue, in the order of
+>   points 1 to 3.** It reopens the exposure that existed before the guard,
+>   now for signed v6 bytes. While the ruleset is weak, three standing
+>   conditions hold. Each is a rule for people:
+>   - No pull request that pins `rulespec-us` to an encoder commit with the
+>     reader on merges while the ruleset is weak.
+>   - For 30 days after the writer-off commit, no enrolled owner re-runs or
+>     approves a signing run that was dispatched before that commit; or a
+>     maintainer deletes those runs, which removes the re-run [inferred;
+>     docs D25 for the deletion]. Read-only listing of those runs, as
+>     anyone:
+>     `gh run list --repo TheAxiomFoundation/axiom-encode --workflow targeted-signed-reencode.yml --limit 200 --json databaseId,createdAt,headSha,conclusion --jq '[.[] | select(.createdAt < "<time of the writer-off commit, UTC>")]'`.
+>     Deleting a run is a maintainer's act; no agent does it.
+>   - Signed v6 bytes that never landed stay valid indefinitely: nothing in
+>     this design expires a signature [inferred]. A closed pull request or
+>     a branch can hold them.
+>
+> **Durable options, not designed:** enforced code-owner review of
+> `.axiom/workflow-toolchain.toml` on `rulespec-us`, switched on before
+> point 3 (its `CODEOWNERS` line exists; `require_code_owner_reviews` is
+> off [code; live read 2026-11-18]); or a new signing key, after which
+> validation refuses every older signature [inferred].
 >
 > The lock of the writer stops new signing runs only, and only at commits
 > where the writer is off. It does not stop an open pull request that
@@ -1638,8 +1684,10 @@ and this checklist needs a reviewed rewrite first.
 > which returns at most 3,000 files [docs: REST "List pull requests
 > files"]. On 2026-11-18 the command printed 9 pull requests, 4 of them
 > with more than 100 changed files and one with 4,702
-> [live read 2026-11-18]; for a pull request above 3,000 files this check
-> is not complete, and only the reader pin revert is safe. None can hold a
+> [live read 2026-11-18]; a later read on the same day printed 5 above 100
+> files, so the count moves [author-reported, review round 4]. For a pull
+> request above 3,000 files this check is not complete, and only the reader
+> pin revert applies. None can hold a
 > v6 manifest yet, because no v6 writer is switched on [inferred]. Then,
 > for each listed manifest file, its `schema_version` must not be
 > `axiom-encode/applied-rulespec/v6`. The listing reads at most 200 pull
@@ -1780,13 +1828,17 @@ rollback.
    and switch checks; the actual same-name configuration and rerun resolution
    still need verification.
 
-   Independent of the guard: do the "Now" steps A, B and D of
-   `docs/merge-guard-key-protection.md` §5. They protect two keys that exist
-   today. On 2026-11-17 all three were open [live read 2026-11-17]. Check:
-   the three commands of that section. Rollback: none needed.
+   Independent of the guard: do the "Now" steps A, B, D and E of
+   `docs/merge-guard-key-protection.md` §5. Steps A, B and D protect two
+   keys that exist today. On 2026-11-17 all three were open
+   [live read 2026-11-17]. Step E removes a stored token of `rulespec-us`
+   that every write collaborator can read through a workflow of a branch
+   (§9); it was open on 2026-11-18 [live read 2026-11-18]. Check: the
+   commands of that section. Rollback: none needed.
 2. **M** Merge the changes in this order. Maintainers merge; agents may not.
    Each pull request first needs its review cycle, green CI and a maintainer
-   to mark it ready.
+   to mark it ready. The experiment of step 3 does not wait for these
+   merges (step 3).
    - axiom-encode #2237 (change 3), then #2286 (change 3b), then the pull
      request that carries this recommendation.
    - axiom-encode #2238 (change 5), then #2269 (5b), then #2289 (5c, the
@@ -1834,21 +1886,39 @@ rollback.
    `docs/merge-guard-ruleset-experiment.md`. It needs two throwaway
    repositories and one organization ruleset, and no stored secret, App or
    key. An agent must not run it.
+   - **The experiment does not depend on any merge of step 2.** It uses
+     only the two throwaway repositories, its own lab workflow files and
+     the one lab ruleset; it reads no file of this stack. So an
+     organization owner can run it at any time from now, before the
+     merges. A failed blocking step is then known before review effort is
+     spent on the stack. The one order rule: the experiment must have
+     passed before step 5.
    - Expected: every step X1-X24 has a recorded result. AGENT then prepares
      a pull request that copies the record into §11.
    - Check: the record table of that document, filled in. Rollback: its
      clean-up section.
    - **"The experiment passed" means exactly this:** every *blocking* step
-     has the result `pass`, and every *adjusting* step has either `pass` or
-     its named change merged, reviewed and the step run again with `pass`.
-     An *informational* step needs a recorded result only. A step that was
-     not run counts as failed for this rule. Every step and every sub-part
-     has one class; the runbook names the same class at each step.
+     has the result `pass`; every step of the class *adjusting, run again*
+     has either `pass`, or its named change merged, reviewed and the step
+     run again with `pass`; and every step of the class *adjusting, no
+     second run* has either `pass`, or its recorded result together with
+     its named change reviewed and merged. An *informational* step needs a
+     recorded result only. A step that was not run counts as failed for
+     this rule. Every step and every sub-part has one class; the runbook
+     names the same class at each step.
+   - **Why two adjusting classes.** For a step of the class *adjusting, no
+     second run* the named change is a procedure or a decision, not a
+     change of what the lab runs: the same step run again gives the same
+     result. The rule therefore asks for the change, not for a second run.
+     For a step of the class *adjusting, run again* the reviewed change
+     also changes the lab file, the lab ruleset or the pass condition of
+     the step in the runbook, and the second run must meet it.
 
      | Class | Steps | A failed step means |
      |---|---|---|
      | Blocking | X1; X2 (a) to (e); X8 (a) and (b); X24; X15 (a) and (b); X15 (c), the part "the pull request merges only after the guard job has ended"; X5, the parts "a `merge_group` run starts" and "the `merge_group` run prints the marker of the pinned commit" | The ruleset mechanism does not hold. Stop. Max decides on the fallback (b)+(d). No change to the runner repairs these |
-     | Adjusting | X18 (change: the runner loses its inert path, or reads the value that names the target); X11 (change: the workflow takes the bundle commit from the value that names the source commit); X5, the payload fields, and X15 (c), the identity of the group's check (change: the runner reads the real fields); X12 (change: the head binding of the runner and case 49); X4 (change: none in the runner; the choice is the fallback, or a read-only token, which is a stored secret and needs Max's decision); X14 (change: lock 3 of draft #2289 reads the real response shape; step 13 waits for it); X3 (change: the procedure after an approval becomes "close and reopen" or "update the branch"); X6 and X20 (change: the shadow period and the queue trial of steps 7 and 8 take another form, named in the runbook); X10 (change: `"protected": true` in the ruleset); X21 (change: the ruleset target, or a standing check of the default branch); the set-up record "the API accepts `sha` with no `ref`" (change, in three places together: the request body of `docs/merge-guard-key-protection.md` §5, its pin test, and lock 3 of draft #2289, which refuses an entry with `ref`) | The mechanism can hold, after the named change. Do the change through a review cycle, run the step again, and record both results |
+     | Adjusting, run again | X18 (change: the runner loses its inert path, or reads the value that names the target); X11 (change: the workflow takes the bundle commit from the value that names the source commit); X5, the payload fields, and X15 (c), the identity of the group's check (change: the runner reads the real fields); X12 (change: the head binding of the runner and case 49); X14 (change: lock 3 of draft #2289 reads the real response shape; step 13 waits for it); X10 (change: `"protected": true` in the ruleset); X21 (change: the ruleset target, or a standing check of the default branch); the set-up record "the API accepts `sha` with no `ref`" (change, in three places together: the request body of `docs/merge-guard-key-protection.md` §5, its pin test, and lock 3 of draft #2289, which refuses an entry with `ref`) | The mechanism can hold, after the named change. Do the change through a review cycle, run the step again, and record both results |
+     | Adjusting, no second run | X3 (change: the procedure after an approval becomes "close and reopen" or "update the branch", written into step 14 and into the table of human steps); X6 (change: the shadow period of steps 6 and 7 takes another form, named in the runbook); X20 (change: the queue trial of step 8 moves to the first `Active` landing, step 12); X4 (change: none in the runner; a decision of Max: the fallback, which ends the ruleset path, or a read-only token, which is a stored secret) | The mechanism can hold with another procedure. Record the result, and do the named change of this checklist through a review cycle. No second run: it would give the same result |
      | Informational | X7, X9, X13, X16, X17, X19, X22; X8 (c); X15 (d); X23; the set-up records "the web form offers a SHA pin" and "how the web form names the target" | Record the result. X9 and X19 change a residual risk or the pin procedure of `docs/merge-guard-key-protection.md`; the runbook says how |
 
    - **X23 is informational by design.** The lab registers no self-hosted
@@ -2145,7 +2215,11 @@ rollback.
     (step 8's check, repeated now); **an organization owner has verified,
     at this moment, that the organization's "Runners" setting allows no
     repository-level self-hosted runner for `rulespec-us`** (the owner's
-    check below); and Max has decided question 0 of §10 **and its lane is on at the
+    check below); **no stored secret that a workflow of a branch can read
+    is a credential of an enrolled identity, an administrator, an
+    organization owner or an App that can write checks or contents, and an
+    owner has read the installed Apps** (the check "Stored credentials and
+    installed Apps" below); Actions are enabled in `rulespec-us`; and Max has decided question 0 of §10 **and its lane is on at the
     pinned SHA** (step 10).
     **WARNING:** without the lane of question 0, an `Active` ruleset blocks
     every pin, ledger, workflow and tooling pull request on `rulespec-us`,
@@ -2189,6 +2263,50 @@ rollback.
       back. No step of the experiment and no agent changes it. Why it is
       required without a live test: step 3, "X23 is informational by
       design".
+    - **Precondition check: stored credentials and installed Apps.** Any
+      user with write access to a repository can read every secret of that
+      repository [docs D23], for example with a workflow on a branch that
+      the user pushes; no merge is needed. With the secret the user acts as
+      the credential's owner. If the owner is an enrolled identity, an
+      administrator or an organization owner, every control of this design
+      that rests on that identity is void for that user [inferred from the
+      documented secret semantics; not tested]. That GitHub cannot restrict
+      a repository secret to one workflow file is [inferred]: no page read
+      offers it. An environment secret is different: a job gets it only
+      when it names the environment and the environment's rules pass
+      [docs D24]. The reads, all of names only (no call returns a value):
+      - An administrator of each repository, for `rulespec-us` and for
+        axiom-encode (the maintainer's token on this machine can run these
+        four GETs, so an agent session may):
+        `gh api repos/TheAxiomFoundation/<repo>/actions/secrets --jq '[.secrets[].name]'`,
+        `gh api repos/TheAxiomFoundation/<repo>/actions/organization-secrets --jq '[.secrets[].name]'`,
+        `gh api repos/TheAxiomFoundation/<repo>/environments --jq '[.environments[] | {name, rules: [.protection_rules[].type]}]'`
+        and, for each environment,
+        `gh api repos/TheAxiomFoundation/<repo>/environments/<name>/secrets --jq '[.secrets[].name]'`.
+      - An organization owner, with `admin:org`:
+        `gh api orgs/TheAxiomFoundation/actions/secrets --jq '[.secrets[] | {name, visibility}]'`.
+        The maintainer's token gets HTTP 403 there
+        [live read 2026-11-18].
+      - An organization owner:
+        `gh api orgs/TheAxiomFoundation/installations --jq '.installations[] | {app_slug, repository_selection, permissions}'`
+        [docs: REST "List app installations for an organization", which
+        states that the caller must be an organization owner].
+      - **Must hold.** No secret outside an environment with required
+        reviewers is a credential of an enrolled identity, of an
+        administrator of `rulespec-us`, of an organization owner, or of an
+        App that can write checks or contents on `rulespec-us`. A name does
+        not show whose credential a secret is: for each secret a maintainer
+        states the owner, and the list of names with that statement is
+        recorded in §11. Each installed App that can write checks on
+        `rulespec-us` is removed from it, or Max accepts it by name as a
+        residual risk: that a check of such an App cannot satisfy the rule
+        is [inferred, untested] (§9).
+      - **State on 2026-11-18** [live read 2026-11-18]: this precondition
+        does not hold. `rulespec-us` has the repository secret
+        `BULK_ENCODE_TOKEN`, whose owner was not read
+        (`docs/merge-guard-key-protection.md` §4.4, R14, and §5, step E,
+        give the whole list). Three installed Apps have all repositories
+        and `checks: write` (R12 (f) there).
     - **Residual risk at this step.** The merge queue is a repository
       setting of `rulespec-us`. Its administrators can turn it off, and
       nothing then blocks merges or raises an alarm; the stale-green window
@@ -2201,7 +2319,11 @@ rollback.
     - Rollback: set the enforcement back to `Evaluate`. Before step 13 this
       is free. **After step 13, only in the rollback order at the top of
       this checklist: first the writer off, then no signing run alive and
-      the reader pin reverted, only then the ruleset.**
+      the reader pin reverted, only then the ruleset.** That order is a
+      last resort and not a durable rollback: after it nothing technical
+      protects `rulespec-us` from signed v6 bytes. The recommended response
+      is to repair forward, or to keep the ruleset `Active` with the writer
+      off.
     - Optional hardening, **M**: enforce code-owner review for `/.github/`
       in `rulespec-us` (§9). That protects the RuleSpec workflows; it is not
       part of the guard.
@@ -2235,7 +2357,10 @@ rollback.
       and `gh api repos/TheAxiomFoundation/rulespec-us/pulls/<n> --jq .merged_at`.
     - Rollback: step 11's rollback.
 13. Change 6, as one reviewed pull request. AGENT prepares it; it is not
-    opened before steps 0-12 are done, because merging it takes effect. It
+    opened before steps 0-12 are done, because merging it takes effect.
+    **Hard precondition: the check "Stored credentials and installed Apps"
+    of step 11 is repeated now and holds.** With the writer on, whoever
+    holds an enrolled owner's credential can dispatch and approve. It
     records the ruleset's workflow identity in the writer's lock
     (`GUARD_WORKFLOW`: repository id, path, and the set of pinned SHAs,
     which holds exactly the SHA that the ruleset pins now), sets
@@ -2333,7 +2458,12 @@ and 7); D2d does not require them.
 ### Periodic read-only health check
 
 An agent may run these. Each is a GET with the token that agent sessions
-already have; none needs `admin:org`. Run them before steps 11, 12, 13 and
+already have; none needs `admin:org`. Four rows need more than an
+anonymous read (the runners, the bypass list, the secret names and the
+Actions permission): they need administrator access to `rulespec-us`, or
+for the bypass list write access to the ruleset. The maintainer's token on
+this machine can make all four [live read 2026-11-17 and 2026-11-18]. Each
+is a read, so it is inside the AGENT role. Run them before steps 11, 12, 13 and
 14, and from step 11 on at every session that works on `rulespec-us`
 landings. A wrong result is reported to a maintainer; the agent changes
 nothing.
@@ -2345,6 +2475,8 @@ nothing.
 | The default branch is still `main` | `gh api repos/TheAxiomFoundation/rulespec-us --jq .default_branch` | `main` [live read 2026-11-17: `main`] |
 | No repository-level self-hosted runner exists | `gh api repos/TheAxiomFoundation/rulespec-us/actions/runners --jq .total_count` | `0`. The call needs administrator access to the repository; with the maintainer's token it printed `0` [live read 2026-11-17]. Organization-level runners need an owner's read |
 | The merge-queue ruleset of `rulespec-us` has no bypass actor | the two commands of step 8: the `ruleset_id` of the `merge_queue` rule, then `gh api repos/TheAxiomFoundation/rulespec-us/rulesets/<id> --jq .bypass_actors` | `[]`. GitHub returns the field only to a caller with write access to the ruleset [docs D7]; the maintainer's token has it, an anonymous read does not, and `null` is not a pass |
+| The stored secrets are the recorded ones | `gh api repos/TheAxiomFoundation/rulespec-us/actions/secrets --jq '[.secrets[].name]'`, and the three other reads of names of step 11, for `rulespec-us` and for axiom-encode | exactly the list of names that §11 records at step 11. A new name, or a changed `updated_at` of a recorded one, goes to a maintainer. The read shows names and dates; it does not show whose credential a secret is. On 2026-11-18 `rulespec-us` printed three names, `BULK_ENCODE_TOKEN` among them [live read 2026-11-18] |
+| Actions are enabled in `rulespec-us` | `gh api repos/TheAxiomFoundation/rulespec-us/actions/permissions --jq .enabled` | `true` [live read 2026-11-18: `true`]. It shows the state at the read, not an interval [experiment X8 (c)] |
 | The switches | the `git grep` of step 2 | the values that the current step expects |
 
 What this check cannot see: an `Evaluate` or `Disabled` ruleset (the call
@@ -2353,9 +2485,11 @@ list is the signal), who changed a setting, a queue that was off between two
 checks, a bypass entry of the organization ruleset (owner's read), a bypass
 entry of the queue ruleset when the caller has no write access to it, the
 organization's "Runners" and branch-rename settings (owner's read), an
-organization-level runner group, and a GitHub App that is installed on
-`rulespec-us` with the right to write checks. It detects; it prevents
-nothing.
+organization-level runner group, a GitHub App that is installed on
+`rulespec-us` with the right to write checks (owner's read), an
+organization secret (owner's read), whose credential a stored secret is,
+whether someone has already read a secret, and Actions that were disabled
+and enabled again between two checks. It detects; it prevents nothing.
 
 ### What "continuous landing is on" means, and the human steps that remain
 
@@ -2388,7 +2522,7 @@ describe drafts #2238 and #2269, which this change does not contain
 | Keep the head current with `main` | a maintainer who is not the approver updates the branch. The guard requires the head to be strictly ahead of the live `main` tip, in the pull request run and in the merge-group run [code: `R_BASE_NOT_CURRENT`]. Each update is a new head: CI runs again (172 to 227 minutes measured) and the new guard run waits for it; the approval stays, so that run needs no re-run | No | One update, and one full CI run, after each other landing | A queue that rebuilds stale entries would need the guard to accept a head behind `main`. Not designed |
 | Merge | a maintainer adds the pull request to the merge queue (the AGENT role of the checklist does not merge). The lane merges nothing by itself [docs: `docs/reviewed-pr-promotion.md`] | No | One action per candidate, then 2.5 to 4 hours of group validation [author-reported, rulespec-us#2160] | — |
 | Approve and re-run an infrastructure pull request (pin, ledger, workflow, tooling: 48 of 50 in the census [author-reported]) | under the proposed lane of question 0: the other enrolled owner approves it, and a maintainer re-runs the guard job when the approval came after the job had ended [code: `R_CONTROL_PLANE_PASS`; the lane is off] | **New**, if Max accepts that lane (checklist step 10). Today such a pull request needs no owner approval | One approval and at most one re-run for each infrastructure pull request, and the 2.5 to 4 hours of the queue for each | Another answer to question 0. Not designed |
-| Watch the repository settings that the guard depends on | an agent or a maintainer runs the read-only health check of the checklist | **New** | One read per session; a wrong result needs a maintainer | An organization-level control of the merge queue. GitHub offers none [docs D1] |
+| Watch the repository settings and the stored secret names that the guard depends on | an agent or a maintainer runs the read-only health check of the checklist | **New** | One read per session; a wrong result needs a maintainer | An organization-level control of the merge queue. GitHub offers none [docs D1] |
 | Move the ruleset's pin for a guard release | an organization owner, after the review of checklist step 5; after step 13 also two reviewed commits for the lock constant | **New** | Once per change of a bundle file that changes guard behavior (the enrolled list included) | — |
 
 **Throughput.** The guard requires each head to be strictly ahead of the
@@ -2439,7 +2573,8 @@ fallback.
 
 | Adversary | Defended? | How |
 |---|---|---|
-| Write collaborator on a RuleSpec repository, not enrolled | Yes for a v6 unit; through CI for a v5 lane; blocked otherwise | Cannot dispatch, cannot give a counting approval, and cannot publish as the guard App from a RuleSpec workflow. A v6 unit refuses every extra file. A v5 lane needs this PR's own green run. Any other guarded change has no lane |
+| Write collaborator on a RuleSpec repository, not enrolled | Yes for a v6 unit; through CI for a v5 lane; blocked otherwise. All three only while no stored credential gives the collaborator another identity (next row) | Cannot dispatch, cannot give a counting approval, and cannot publish as the guard App from a RuleSpec workflow. A v6 unit refuses every extra file. A v5 lane needs this PR's own green run. Any other guarded change has no lane |
+| Write collaborator who reads a credential that is stored where a workflow of a branch can read it | **No**, when the credential belongs to an enrolled identity, an administrator, an organization owner, or an App that can write checks or contents | The collaborator pushes a branch with a workflow that reads a repository secret, or an organization secret that the repository can use; no merge and no review is needed [docs D23: any user with write access to a repository can read every secret that is configured in it]. The collaborator then acts as the credential's owner: every control of this design that rests on that identity is void for that collaborator [inferred from the documented secret semantics; not tested]. GitHub cannot restrict a repository secret to one workflow file [inferred: no page read offers it]; an environment with required reviewers can hold a secret back [docs D24]. **This exposure exists today and does not depend on the guard**: `rulespec-us` has the repository secret `BULK_ENCODE_TOKEN`, which its `bulk/README.md` describes as a token with the scopes `repo` and `workflow`; no workflow on `main` of `rulespec-us` uses it [live read 2026-11-18; code: `rulespec-us` at `ddad6d63`]. Not read: its owner, its real scopes and whether it is still valid. It also touches today's promotion lane: whoever holds an enrolled owner's token can approve. Hard precondition of checklist steps 11 and 13; `docs/merge-guard-key-protection.md` §4.4, R14, and §5, step E |
 | Write collaborator on axiom-encode, not enrolled | Ruleset path: yes, by the SHA pin, if step X1 of the experiment passes. App path: not yet; checklist step 1 must close this before anyone stores the key | Ruleset path: a change that lands on axiom-encode `main` does not reach the guard until someone with ruleset rights moves the pin [docs D3; experiment X1]; no key exists to take. The collaborator can still disable the workflow in axiom-encode, whose effect on the RuleSpec repository is [experiment X17]. App path: can land, without a code-owner review, a change to code the runner job executes (`src/axiom_encode/entrypoint.py`, `src/axiom_encode/__init__.py`, a module the CLI imports, `pyproject.toml`, `uv.lock` or a dependency), or a new workflow whose job selects `merge-guard`. Once someone stores the key, that code can take the private key as well as the token. With the key it can mint tokens for any App installation within that installation's granted repositories and permissions while the key stays valid, independent of one requested token's scope, lifetime or revocation. That permits misleading shadow output and, once the check is required, a forged required check. Checklist step 1 covers all selecting jobs in existing, new, replaced or modified workflows, dynamic selectors, the ability to land them, every pre-token step and persistence, builds, installation, dependencies, interpreter/startup hooks and the full console-script/import closure |
 | PR that edits workflow files, pins, ledgers or `.axiom/` configuration | Yes, by refusal | No lane claims it: `fail`. This also blocks legitimate changes (§10, question 0) |
 | PR that relabels or hides its manifest, or uses a root the encoder does not name | Yes | The guard stands aside only on the five-file allowlist or on the v5 lane, which needs this PR's green CI (step 3) |
@@ -2451,10 +2586,10 @@ fallback.
 | Stale approval after a content change | Yes | Blob equality |
 | Push racing an approval | Yes | The verdict belongs to one head, and the guard computes it from that head's tree |
 | Dismissal just after a pass | Partly | App path: the check stays green until the next sweep, minutes. Ruleset path: no sweep exists and no event follows a review, so the pull request run stays green [docs D1, D2]. The merge-group run evaluates again, after the group's own `validate / validate` run has completed, and fails [code: `_wait_for_group_ci`, `evaluate_merge_group`]; that needs the merge queue, a precondition of `Active` (checklist steps 8 and 11). A dismissal or a `CHANGES_REQUESTED` review while the group validates (2.5 to 4 hours [author-reported, rulespec-us#2160]) is therefore caught. Not caught: one that arrives after the evaluation's last read of the reviews and before GitHub merges, seconds if the queue merges promptly after the job ends [experiment X15]. The same holds for a required check of the pull request that goes red after its pass. With no merge queue nothing withdraws the green job. The queue is a repository setting that a `rulespec-us` administrator can turn off (row "Repository administrator") |
-| Organization owner, a holder of the organization's ruleset permission, or a session with such a token | No | Can set the ruleset to `Disabled`, add a bypass, or move the pin to an unreviewed commit [docs D4, D6, D16]. Three accounts are owners [live read 2026-11-17]; whether a custom role holds the permission was not readable. Proposed standing rule: no agent session gets `admin:org`. GitHub cannot enforce it. The ruleset history shows edits for 180 days [docs D6]. Once the v6 writer is on (checklist step 13), weakening the ruleset first is the state that the switch rule forbids: an enrolled dispatcher lands an unreviewed candidate, and any write account lands signed v6 bytes that sit in an open pull request. Every rollback therefore has an order: first the writer off, then no signing run alive and the reader pin reverted, only then the ruleset (the rule at the top of the checklist, with the weaker second form and its gap). This checklist cannot verify who was at the keyboard for an owner's act |
+| Organization owner, a holder of the organization's ruleset permission, or a session with such a token | No | Can set the ruleset to `Disabled`, add a bypass, or move the pin to an unreviewed commit [docs D4, D6, D16]. An organization owner can also rename a targeted branch without restriction [docs D22], which takes `main` out of a rule on `refs/heads/main`. Three accounts are owners [live read 2026-11-17]; whether a custom role holds the permission was not readable. Proposed standing rule: no agent session gets `admin:org`. GitHub cannot enforce it. The ruleset history shows edits for 180 days [docs D6]. Once the v6 writer is on (checklist step 13), weakening the ruleset first is the state that the switch rule forbids: an enrolled dispatcher lands an unreviewed candidate, and any write account lands signed v6 bytes that sit in an open pull request. Every rollback therefore has an order: first the writer off, then no signing run alive and the reader pin reverted, only then the ruleset (the rule at the top of the checklist, with the weaker second form and its gap). That order is a last resort and not a durable rollback: once the ruleset is weak, nothing technical protects `rulespec-us` from signed v6 bytes, because any write account can move the reader pin forward again in the pull request that lands them [inferred]. This checklist cannot verify who was at the keyboard for an owner's act |
 | Compromised pinned action or runner image in the guard job | No | Can forge one verdict for one head. The job token is read-only and no key exists [inferred] |
 | GitHub API failure | Fails closed for new verdicts | The guard does not withdraw a green check it wrote before the outage |
-| Repository administrator of the RuleSpec repository, or a compromised administrator account | No (App path). Partly (ruleset path) | Ruleset path: a `rulespec-us` administrator cannot edit or bypass the organization ruleset [docs D4], and repository rules that the administrator adds can only make the result stricter [docs D4, D5]. **But four repository settings stay in the administrator's hands, and each weakens the guard without touching the ruleset; a fifth, the name of the branch, is documented as closed.** (1) **The merge queue.** It is a repository setting; "Require merge queue" does not exist in an organization ruleset [docs D1]. Turning it off silently reopens the stale-green window of the row above, and nothing detects it except the read-only health check of the checklist; the lock of draft #2289 stops new signing runs only [author-reported, draft #2289]. A bypass actor on the repository's merge-queue ruleset does the same for that actor, and the rule still shows in `rules/branches/main`: the actor merges without the merge-group evaluation. The lock of draft #2289 does not read bypass lists; the check is the `bypass_actors` read of checklist step 8, which needs write access to that ruleset [inferred; docs D7; author-reported, review round 3]. (2) **The default branch.** The ruleset names `refs/heads/main` explicitly, so the rule stays on `main` when the default branch changes; with `~DEFAULT_BRANCH` the rule would follow the new default branch and leave `main` unguarded [docs D3; inferred; experiment X21]. The runner and the evaluator judge `main` only [code: `_enforce_merge_group`]. (3) **Repository-level self-hosted runners.** The job says `runs-on: ubuntu-latest`. Whether a self-hosted runner that an administrator registers with that label can take the job is [inferred, untested]: the lab registers no runner, and X23 records the documentation only. If it can, the administrator forges the job result. `rulespec-us` had no repository-level runner on 2026-11-17 [live read 2026-11-17]. The organization setting that keeps such runners away from `rulespec-us` is therefore a precondition of `Active`, verified by an owner (checklist step 11). (4) **Actions.** What disabling Actions there does is [experiment X8 (c)]. (5) **The name of the branch.** A rename of `main` would take the branch out of a rule on `refs/heads/main`. GitHub documents that a repository administrator cannot rename a branch that an organization ruleset targets while the organization setting for it is off, which is the default for an existing organization, and that with the setting on the new name must still be targeted by the same rulesets [docs D22]. An owner reads that setting (checklist step 11); the lab tries the rename [experiment X21]. App path: out of scope. Theft of the guard App key through a workflow or code change that a write collaborator can land stays in scope: the axiom-encode row above and checklist step 1 cover it |
+| Repository administrator of the RuleSpec repository, or a compromised administrator account | No (App path). Partly (ruleset path) | Ruleset path: a `rulespec-us` administrator cannot edit or bypass the organization ruleset [docs D4], and repository rules that the administrator adds can only make the result stricter [docs D4, D5]. **But four repository settings stay in the administrator's hands, and each weakens the guard without touching the ruleset; a fifth, the name of the branch, is documented as closed.** (1) **The merge queue.** It is a repository setting; "Require merge queue" does not exist in an organization ruleset [docs D1]. Turning it off silently reopens the stale-green window of the row above, and nothing detects it except the read-only health check of the checklist; the lock of draft #2289 stops new signing runs only [author-reported, draft #2289]. A bypass actor on the repository's merge-queue ruleset does the same for that actor, and the rule still shows in `rules/branches/main`: the actor merges without the merge-group evaluation. The lock of draft #2289 does not read bypass lists; the check is the `bypass_actors` read of checklist step 8, which needs write access to that ruleset [inferred; docs D7; author-reported, review round 3]. (2) **The default branch.** The ruleset names `refs/heads/main` explicitly, so the rule stays on `main` when the default branch changes; with `~DEFAULT_BRANCH` the rule would follow the new default branch and leave `main` unguarded [docs D3; inferred; experiment X21]. The runner and the evaluator judge `main` only [code: `_enforce_merge_group`]. (3) **Repository-level self-hosted runners.** The job says `runs-on: ubuntu-latest`. Whether a self-hosted runner that an administrator registers with that label can take the job is [inferred, untested]: the lab registers no runner, and X23 records the documentation only. If it can, the administrator forges the job result. `rulespec-us` had no repository-level runner on 2026-11-17 [live read 2026-11-17]. The organization setting that keeps such runners away from `rulespec-us` is therefore a precondition of `Active`, verified by an owner (checklist step 11). (4) **Actions.** What disabling Actions there does is [experiment X8 (c)]. If a head with no guard run can merge while Actions are disabled, an administrator merges without the guard and enables Actions again; nothing blocks it, and the health check reads only the state at its own time [inferred]. (5) **The name of the branch.** A rename of `main` would take the branch out of a rule on `refs/heads/main`. GitHub documents that a repository administrator cannot rename a branch that an organization ruleset targets while the organization setting for it is off, which is the default for an existing organization, and that with the setting on the new name must still be targeted by the same rulesets [docs D22]. An owner reads that setting (checklist step 11); the lab tries the rename [experiment X21]. **Three more acts of an administrator are outside that count.** (6) **Installing a GitHub App.** A repository administrator can install an App that asks for no organization permission and not for "Repository administration", on the repositories that the administrator administers, unless an organization owner restricts it [docs source D26]. Such an App can have the right to write checks, and the App case of the row "Second workflow imitating the check name" is untested. An owner's read of the installed Apps is a precondition of `Active` (checklist step 11). (7) **Renaming the repository** [experiment X10]. (8) **Transferring the repository.** What a transfer out of the organization does to the rule is in no experiment step and was not read in the documentation; a repository outside the organization is outside its rulesets [inferred]. App path: out of scope. Theft of the guard App key through a workflow or code change that a write collaborator can land stays in scope: the axiom-encode row above and checklist step 1 cover it |
 | Semantic change brought in by the base while the approved bytes stay the same | Partly | Current-head CI catches it; the human approval does not cover it |
 | Commit the approver authored that GitHub does not attribute | Yes, by refusal | An unattributed commit gives `fail` (case 42). The guard does not detect a commit that a forged author email attributes to a third account |
 

@@ -27,15 +27,22 @@ App, environment, secret or ruleset, and satisfies no activation condition.
 - **Precondition of `Active`.** A merge queue on `rulespec-us` `main`
   (§4.4, R3), a decision on question 0 of the design's §10 with its
   lane live at the pinned commit before the switch (R9; checklist step 10),
-  and an organization owner's read of the organization's "Runners" setting
-  (R12 (c); checklist step 11).
+  an organization owner's read of the organization's "Runners" setting
+  (R12 (c); checklist step 11), and a read of the stored secrets and the
+  installed Apps: no secret that a workflow of a branch can read is a
+  credential of an enrolled identity, an administrator, an organization
+  owner or an App that can write checks or contents (R14, R12 (f); §5
+  step 11). On 2026-11-18 that last precondition did not hold.
 - **What Max should know before he answers.** (1) The merge queue is a
   repository setting that a `rulespec-us` administrator can turn off; the
   organization ruleset cannot require it (§4.4, R12). (2) Once the v6 writer is
-  on, every rollback of the ruleset has an order: writer off first, then
-  the reader pin of `rulespec-us` reverted, only then the ruleset. A
-  signing run that started earlier still has the writer on, and GitHub
-  offers no transaction between the check and the change (§4.4, R13).
+  on, no rollback of the ruleset is durable. Its order is: writer off
+  first, then the reader pin of `rulespec-us` reverted, only then the
+  ruleset. But once the ruleset is weak, nothing technical protects
+  `rulespec-us` from signed v6 bytes: any write account can move the reader
+  pin forward again. So the recommended response to a guard problem is to
+  repair forward, or to keep the ruleset `Active` with the writer off,
+  which blocks every merge (§4.4, R13).
   (3) With the measured CI times, landings are serial at about 3 to 4 a day
   (§4.4, R11). (4) A comment from Max's account is not sufficient evidence of
   this decision; the evidence is an organization owner creating the
@@ -44,7 +51,20 @@ App, environment, secret or ruleset, and satisfies no activation condition.
   identities: one session can author and dispatch as one owner and approve
   as the other, and every check passes (§4.4, R6). (6) The experiment does
   not test one imitation: a check with the guard's name that another
-  GitHub App publishes (§4.4, R5).
+  GitHub App publishes (§4.4, R5). Three Apps that are installed on all
+  repositories of the organization have the right to write checks
+  [live read 2026-11-18] (R12 (f)). (7) **A stored token exists today that
+  every write collaborator of `rulespec-us` can read**: the repository
+  secret `BULK_ENCODE_TOKEN`. If its owner is an enrolled identity, an
+  administrator or an organization owner, a collaborator who reads it acts
+  as that account, and the controls of this design that rest on that
+  account are void [inferred]. This does not depend on the guard; step E
+  of §5 "Now" removes it (§4.4, R14). (8) If step X8 (c) of the experiment
+  shows that a head can merge while Actions are disabled, a `rulespec-us`
+  administrator can merge without the guard by disabling Actions and
+  enabling them again (R12 (d)). (9) The experiment needs no merge of this
+  stack. An organization owner can run it now, before any review effort
+  (§5).
 
 Nobody may store a guard App key or set `MERGE_GUARD_RUNNER_ENABLED`, shadow
 mode included, until Max chooses a mechanism and any complement, maintainers
@@ -55,7 +75,9 @@ kept by never creating one. Under either fallback the hold applies in full.
 **Present exposure, independent of the guard (REPO-3):** two keys stored today
 have the selection gap this document describes. §5 "Now" lists mitigations
 that do not wait for Max's decision. Steps A, B and D are still open
-(read 2026-11-17).
+(read 2026-11-17). Step E is a third exposure, of another kind: a stored
+token that a workflow of any branch of `rulespec-us` can read. It is open
+(read 2026-11-18).
 
 ## Evidence labels
 
@@ -117,6 +139,23 @@ source; the address used before redirects to it. A label of the form
 [docs: REST "..."] names an operation that was read in GitHub's OpenAPI
 description on the same day. Live reads of that round carry the label
 [live read 2026-11-18].
+
+D24 to D26 were added on 2026-11-18 for review round 4, from the same
+source commit. Live reads of round 4 carry the label
+[live read 2026-11-18] too.
+
+- **D24** [Deployments and environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
+  It states that an environment secret is available only to a job that
+  references the environment, and only after a required reviewer approves
+  when the environment requires approval.
+- **D25** [Deleting a workflow run](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/delete-a-workflow-run)
+- **D26** The text block `data/reusables/apps/repo-admin-install-restriction.md`
+  of the documentation source. The page that shows it was not found in
+  that clone, so the label is [docs source D26] and no link is given.
+
+The sentence of D23 that R14 uses says that any user with write access to
+a repository "has read access to all secrets configured in your
+repository".
 
 ## 1. The options
 
@@ -532,7 +571,9 @@ exist today (§5 "Now") and for the second fallback:
 ### 4.4 Residual risks of (g')
 
 - **R1. Who can edit the ruleset.** The three organization owners, and any
-  holder of the ruleset permission (P19), can edit or disable it. An agent
+  holder of the ruleset permission (P19), can edit or disable it. An
+  organization owner can also rename a targeted branch without restriction
+  [docs D22], which takes `main` out of a rule on `refs/heads/main`. An agent
   session that holds an owner's token with `admin:org` could too. Proposed
   standing rule: no agent session gets `admin:org`. GitHub cannot enforce
   that rule.
@@ -631,8 +672,9 @@ exist today (§5 "Now") and for the second fallback:
   creates a successful check run named `lab-guard` on an unapproved pull
   request. That needs an App and a key, which the experiment excludes; an
   owner decides it separately. Who could use the gap: an App that is
-  installed on `rulespec-us` with the right to write checks. Which Apps are
-  installed there is an owner's read.
+  installed on `rulespec-us` with the right to write checks, and whoever
+  can make such an App act. Which Apps are installed there is an owner's
+  read, and who can install one is R12 (f).
 - **R6. Agents under both enrolled identities** (design §9). No option
   changes this. The guard authenticates GitHub accounts, not people. If
   agent sessions hold the credentials of both enrolled owners, one session
@@ -719,6 +761,13 @@ exist today (§5 "Now") and for the second fallback:
     the activation checklist (step 11; §5 step 9), never a step of the
     experiment.
   - (d) **Actions.** Disabling Actions in the target: [experiment X8 (c)].
+    If a head with no guard run can merge while Actions are disabled, an
+    administrator merges without the guard: Actions off, merge, Actions on
+    again. Nothing blocks it [inferred]. Detection is one read, which
+    shows the state at its own time only:
+    `gh api repos/TheAxiomFoundation/rulespec-us/actions/permissions --jq .enabled`
+    must print `true` [live read 2026-11-18: `true`]. It is a row of the
+    health check and a precondition of `Active` (design §8).
   - (e) **The name of the branch (documented as closed).** A rename of
     `main` would take the branch out of a rule on `refs/heads/main`. A
     repository administrator cannot rename a branch that an organization
@@ -728,6 +777,29 @@ exist today (§5 "Now") and for the second fallback:
     on, the new name must still be targeted by the same rulesets
     [docs D22]. An owner reads the setting (§5 step 9); the lab tries the
     rename [experiment X21].
+
+  Three more acts of an administrator are outside that count:
+  - (f) **Installing a GitHub App.** A repository administrator can
+    install a GitHub App in the organization when the App asks for no
+    organization permission and not for the "Repository administration"
+    permission, and only on repositories that this administrator
+    administers; an organization owner can restrict that
+    [docs source D26]. Organization owners can install any App. So a
+    `rulespec-us` administrator alone can install an App that has the
+    right to write checks there, which is the untested case of R5.
+    Precondition of `Active`: an organization owner reads the
+    installations (§5 step 11); the call needs an owner's account
+    [docs: REST "List app installations for an organization"]. State on
+    2026-11-18 [live read 2026-11-18, with the maintainer's token, whose
+    account is an owner]: four Apps are installed; three of them have all
+    repositories and `checks: write`, and two of those also
+    `statuses: write`. Their names are not written here; the owner records
+    them. Whether the organization restricts installation by repository
+    administrators was not read.
+  - (g) **Renaming or transferring the repository.** The rename is
+    [experiment X10]. A transfer out of the organization is in no
+    experiment step and was not read in the documentation; a repository
+    outside the organization is outside its rulesets [inferred].
 - **R13. After the v6 writer is on, a rollback of the ruleset has an
   order.** With the writer on and the guard not required, an enrolled
   dispatcher lands an unreviewed candidate, and any write account lands the
@@ -744,19 +816,84 @@ exist today (§5 "Now") and for the second fallback:
   executes that commit too, for 30 days [docs D9; code:
   `targeted-signed-reencode.yml` compares `HEAD` with `GITHUB_SHA`]. So no
   enrolled owner may re-run such a run or approve it for
-  `production-signing`; nothing technical enforces that. The durable way
-  to make old runs harmless is the reader pin revert, or to wait until no
-  v6 manifest can validate.
+  `production-signing`; nothing technical enforces that.
   **GitHub offers no transaction between the check and the ruleset
-  change.** The safe form of a rollback of the ruleset after step 13 is
-  therefore: writer off → reader pin reverted on `rulespec-us` → then the
-  ruleset. Closing a pull request does not remove its signed bytes; when a
-  signed v6 manifest exists that has not landed, reverting the reader pin
-  is the reliable form (design §8, the rule at the top of the checklist,
-  with the commands and the case of a broken guard). Before checklist
-  step 13 the rollback is free. An owner who sets the ruleset to
-  `Disabled` first creates exactly the forbidden state; nothing technical
-  prevents it.
+  change.** Closing a pull request does not remove its signed bytes; when
+  a signed v6 manifest exists that has not landed, the order asks for the
+  reader pin revert (design §8, the rule at the top of the checklist, with
+  the commands and the case of a broken guard). Before checklist step 13
+  the rollback is free. An owner who sets the ruleset to `Disabled` first
+  creates exactly the forbidden state; nothing technical prevents it.
+  **This order is not a durable rollback. Once the ruleset is weak,
+  nothing technical protects `rulespec-us` from signed v6 bytes.** The
+  encoder pin is read from the checkout of the pull request itself
+  [code: job `workflow-toolchain` of `repository-checks.yml`, `rulespec-us`
+  at `ddad6d63`], and `main` of `rulespec-us` requires 0 approvals and no
+  code-owner review [live read 2026-11-18]. So any account with write
+  access can move the reader pin forward again in the same pull request
+  that lands signed v6 bytes [inferred]. Not tested: whether validation
+  refuses a pull request that moves the pin and adds a manifest together.
+  **The recommended response to a guard problem after step 13 is
+  therefore not to weaken the ruleset**: (a) repair forward, with a pin
+  move to a fixed guard while the ruleset is `Active`; or (b) turn the
+  writer off and keep the ruleset `Active`, which blocks every merge of
+  `rulespec-us` when the guard cannot pass (the fail-closed state).
+  (c) Weakening the ruleset is the last resort. It reopens the exposure
+  that existed before the guard, now for signed v6 bytes, and three
+  standing conditions then hold as rules for people: no pin to an encoder
+  commit with the reader on merges while the ruleset is weak; for 30 days
+  after the writer-off commit no enrolled owner re-runs or approves an
+  older signing run, or a maintainer deletes those runs [docs D25]; and
+  signed v6 bytes that never landed stay valid indefinitely [inferred].
+  **Durable options, not designed:** enforced code-owner review of
+  `.axiom/workflow-toolchain.toml` on `rulespec-us` before the ruleset is
+  weakened, or a new signing key.
+- **R14. A credential that is stored where a workflow of a branch can read
+  it.** Any user with write access to a repository can read every secret
+  that is configured in it [docs D23; the sentence is under "Evidence
+  labels"]. A write collaborator pushes a branch with a workflow that reads a repository
+  secret, or an organization secret that the repository can use; no merge
+  and no review is needed. The collaborator then acts as the owner of that
+  credential. **If the owner is an enrolled identity, an administrator or
+  an organization owner, every control of this design that rests on that
+  identity is void for that collaborator** [inferred from the documented
+  secret semantics; not tested]. That GitHub cannot restrict a repository
+  secret to one workflow file is [inferred]: no page read offers it. An
+  environment secret is released only to a job that names the environment,
+  after the environment's rules pass [docs D24]; a required reviewer is
+  such a rule, and a branch policy `main` keeps a workflow of another
+  branch out, but not another workflow file on `main` (REPO-3).
+  **State on 2026-11-18** [live read 2026-11-18; names and dates only, no
+  call returns a value]:
+  - `rulespec-us`, repository secrets: `BULK_ENCODE_TOKEN` (created
+    2026-07-06), `OPENAI_API_KEY`, `SUPABASE_DB_URL`. No environment.
+    Organization secrets that it can use: `R2_CORPUS_READ_ACCESS_KEY_ID`
+    and `R2_CORPUS_READ_SECRET_ACCESS_KEY`. `bulk/README.md` of
+    `rulespec-us` describes `BULK_ENCODE_TOKEN` as a token with the scopes
+    `repo` and `workflow`; no workflow on its `main` (`ddad6d63`) uses it [code].
+  - axiom-encode, repository secrets: `ANTHROPIC_API_KEY`,
+    `OPENAI_API_KEY`, `AXIOM_ENCODE_SUPABASE_SECRET_KEY`,
+    `AXIOM_ENCODE_SUPABASE_URL`. Environment secrets: `production-signing`
+    (required reviewers, branch `main`) holds
+    `AXIOM_ENCODE_APPLY_SIGNING_KEY` and `AXIOM_REPO_TOKEN`;
+    `apply-signing` (branch `main` only) holds
+    `AXIOM_ENCODE_APPLY_SIGNING_KEY`; `encoder-version-bump` (branch `main`
+    only) holds `ENCODER_VERSION_BUMP_APP_KEY`. A workflow on a branch of
+    axiom-encode needs no merge either: the code-owner rule for `.github/`
+    guards `main`, not a branch.
+  - The list of all organization secrets needs `admin:org`; the
+    maintainer's token got HTTP 403.
+
+  **Not read:** the owner of any of these credentials, the real scopes of
+  `BULK_ENCODE_TOKEN` (only the sentence of the README), and whether it is
+  still valid. If it is a classic token of an enrolled owner with the
+  scopes that the README names, a collaborator who reads it can approve a
+  pull request, dispatch the signing workflow and approve its
+  `production-signing` deployment as that owner [inferred]. **This
+  exposure exists today, and it does not depend on the guard**: today's
+  promotion lane also rests on the approval of an enrolled owner. Step E of
+  §5 "Now" removes it; §5 step 11 is the precondition of `Active` and of
+  change 6.
 
 ### 4.5 Alternatives and why not
 
@@ -800,6 +937,20 @@ C. Merge the `CODEOWNERS` line `/.github/ @PavelMakarchuk @MaxGhenis`.
 D. Turn on "Require approval of the most recent reviewable push" for `main`.
    **Open.** Verify with the first command of "Second fallback", step 1.
    Today: `last_push` is `false`.
+E. Remove the stored token `BULK_ENCODE_TOKEN` of `rulespec-us` (R14).
+   **Open** [live read 2026-11-18]. A maintainer finds the account that
+   owns the token, revokes it in that account's token settings, and
+   deletes the repository secret. Deleting the secret alone does not
+   revoke a token that someone has already read. If the token must stay, a
+   maintainer documents why, and moves it into an environment with
+   required reviewers. This exposure exists today and is independent of
+   the guard: every write collaborator of `rulespec-us` can read the
+   secret through a workflow of a branch [docs D23; inferred]. Not read:
+   its owner, its real scopes and its validity. Verify:
+   `gh api repos/TheAxiomFoundation/rulespec-us/actions/secrets --jq '[.secrets[].name]'`
+   does not list `BULK_ENCODE_TOKEN`. Today it prints
+   `["BULK_ENCODE_TOKEN","OPENAI_API_KEY","SUPABASE_DB_URL"]`. The same
+   maintainer states for each other name of R14 whose credential it is.
 
 ### For (g'): the ruleset
 
@@ -810,6 +961,13 @@ must not create, edit or delete the ruleset, and it must not hold an
 `admin:org` token. The complete
 order, with the steps before and after, is the activation checklist of
 `docs/content-bound-merge-guard.md` §8.
+
+**The experiment does not wait for any merge.** It depends on no pull
+request of this stack: it uses only the two throwaway repositories, its
+own lab workflow files and the one lab ruleset. An organization owner can
+run it at any time from now. A failed blocking step is then known before
+review effort is spent. It must have passed before the review of §6 at
+the candidate SHA (checklist step 5).
 
 1. Open Organization settings → Repository → Rulesets → New ruleset → New
    branch ruleset [docs D4].
@@ -864,7 +1022,7 @@ order, with the steps before and after, is the activation checklist of
    `refs/heads/main` [docs D3]. The body gives no `ref` in the workflow
    entry: `ref` is optional in the documented schema [docs D3], and whether
    GitHub accepts `sha` alone is recorded in the set-up of the experiment
-   (runbook §1.3; class adjusting). If the API needs `ref`, three places
+   (runbook §1.3; class adjusting, run again). If the API needs `ref`, three places
    change together: this body, its pin test
    (`test_the_ruleset_bodies_target_main_by_name_and_start_in_evaluate`)
    and lock 3 of draft #2289, which refuses an entry with `ref`
@@ -938,6 +1096,29 @@ order, with the steps before and after, is the activation checklist of
     which must print `[]`. GitHub returns the field only to a caller with
     write access to the ruleset [docs D7]; `null` is not a pass. Repeat it
     at each health check (design §8).
+11. **Precondition of `Active` and of change 6: the stored secrets and the
+    installed Apps (R14, R12 (f)).** An administrator lists the names of
+    the repository secrets, of the organization secrets that the
+    repository can use, and of the environment secrets, for `rulespec-us`
+    and for axiom-encode:
+    `gh api repos/TheAxiomFoundation/<repo>/actions/secrets --jq '[.secrets[].name]'`,
+    `gh api repos/TheAxiomFoundation/<repo>/actions/organization-secrets --jq '[.secrets[].name]'`,
+    `gh api repos/TheAxiomFoundation/<repo>/environments --jq '[.environments[] | {name, rules: [.protection_rules[].type]}]'`,
+    and for each environment
+    `gh api repos/TheAxiomFoundation/<repo>/environments/<name>/secrets --jq '[.secrets[].name]'`.
+    An organization owner lists all organization secrets, with `admin:org`:
+    `gh api orgs/TheAxiomFoundation/actions/secrets --jq '[.secrets[] | {name, visibility}]'`,
+    and the installed Apps:
+    `gh api orgs/TheAxiomFoundation/installations --jq '.installations[] | {app_slug, repository_selection, permissions}'`.
+    **None of the secrets may be a credential of an enrolled identity, of
+    an administrator of `rulespec-us`, of an organization owner, or of an
+    App that can write checks or contents on `rulespec-us`, except inside
+    an environment with required reviewers.** A name does not show the
+    owner of a credential: a maintainer states it for each secret, and the
+    names with that statement go into the design's §11. Each installed App
+    that can write checks on `rulespec-us` is removed from it, or Max
+    accepts it by name as a residual (R5). On 2026-11-18 this precondition
+    did not hold (R14, R12 (f)).
 
 **Switch to `Active`** (activation checklist step 11): edit the ruleset and
 set the enforcement status to `Active`, or
@@ -951,7 +1132,9 @@ and the one workflow entry with the reviewed `sha`. If a field is missing,
 send the whole body of step 3 with `"enforcement": "active"`. Immediately
 before the switch, the queue must still be required: the command of step 8
 contains `merge_queue`. The owner's reads of step 9 and the bypass read of
-step 10 must also hold at that moment.
+step 10 must also hold at that moment. So must the reads of step 11, and
+`gh api repos/TheAxiomFoundation/rulespec-us/actions/permissions --jq .enabled`
+must print `true` (R12 (d)).
 
 **Rollback, and its order.** Set the enforcement to `evaluate` (shadow
 again) or `disabled`:
@@ -967,7 +1150,8 @@ a ruleset off for a time, and keeps a ruleset history of 180 days
 > `targeted-signed-reencode.yml` is queued, waiting for the
 > `production-signing` approval or in progress:
 > `gh run list --repo TheAxiomFoundation/axiom-encode --workflow targeted-signed-reencode.yml --limit 200 --json databaseId,status,headSha,createdAt --jq '[.[] | select(.status != "completed")]'`
-> must print `[]`. A signing run that was dispatched before the writer-off
+> must print `[]`; the listing must reach back more than 30 days, so raise
+> `--limit` if it does not. A signing run that was dispatched before the writer-off
 > commit still has the writer on, and a re-run of it executes that commit
 > for 30 days [docs D9]: no enrolled owner may re-run or approve one. Then
 > revert the reader pin of `rulespec-us`; or, as the weaker form, make sure
@@ -975,9 +1159,18 @@ a ruleset off for a time, and keeps a ruleset history of 180 days
 > `rulespec-us` holds a signed v6 manifest. Only then set the ruleset to
 > `evaluate` or `disabled`, move its pin back, or turn the merge queue off
 > (R13). GitHub offers no transaction between the check and the ruleset
-> change: the safe form is writer off → reader pin reverted on
-> `rulespec-us` → then the ruleset. Before checklist step 13 the rollback
-> is free.
+> change. Before checklist step 13 the rollback is free.
+>
+> **After checklist step 13 this rollback is a last resort, and it is not
+> durable.** Once the ruleset is weak, nothing technical protects
+> `rulespec-us` from signed v6 bytes: any account with write access can
+> move the reader pin forward again in the pull request that lands them
+> [inferred; R13]. Do not weaken the ruleset for a guard problem. Repair
+> forward (a pin move to a fixed guard while the ruleset is `Active`), or
+> turn the writer off and keep the ruleset `Active`: it then blocks every
+> merge, which is the fail-closed state. If the ruleset is weakened in
+> spite of that, the three standing conditions of R13 hold for as long as
+> it is weak.
 
 **Per guard release (pin procedure).** A pin move is needed when a bundle
 file changes what the guard does: the evaluator, the runner, the launcher,
@@ -1037,7 +1230,7 @@ or tested.
    workflow reference of the guard workflow on `main`.
 5. Store the App client id and the key name as plain repository variables.
    No environment secret exists.
-6. Do steps A-D above. The hold of the status section applies: an
+6. Do steps A-E above. The hold of the status section applies: an
    independent review of the whole key-exposure set comes first (§6).
 7. An agent builds the signing module and the workflow change in a reviewed
    pull request before step 3.
@@ -1137,23 +1330,28 @@ The review reads the merged code and the live settings, not this document.
 5. **The experiment record.** Every step of
    `docs/merge-guard-ruleset-experiment.md` has a recorded result, the
    experiment has passed as the design's checklist step 3 defines it, and
-   each failed adjusting step has its named change merged.
+   each failed adjusting step has its named change merged, and each
+   failed step of the class "adjusting, run again" also has its second
+   run with `pass`.
 6. **The repository settings that the ruleset cannot hold (R12).** The
    merge queue is required on `main` of `rulespec-us`
    (`rules/branches/main` lists `merge_queue`); the default branch is
    `main`; no repository-level self-hosted runner exists, and the
    organization setting for them is "Disabled" or excludes `rulespec-us`
    (owner's check, §5 step 9); the branch-rename setting is off (the same
-   step); the merge-queue ruleset has an empty bypass list (§5 step 10).
+   step); the merge-queue ruleset has an empty bypass list (§5 step 10);
+   Actions are enabled; the stored secrets and the installed Apps are the
+   recorded ones, and none is a credential that §5 step 11 excludes.
    The job runs on a GitHub-hosted runner: read "Runner name" and "Runner
    group name" in the log of one ruleset run.
 7. **The order of a rollback (R13).** If the v6 writer is on, no document
    or runbook in use tells anyone to weaken the ruleset or the queue first,
    and each names the signing runs that started before the writer-off
-   commit.
-8. **Residuals.** Record R1-R13 of §4.4 as accepted or not. The review does
+   commit. Each says that the rollback is a last resort and is not
+   durable.
+8. **Residuals.** Record R1-R14 of §4.4 as accepted or not. The review does
    not close them.
-9. **Present exposure.** The "Now" steps A-D are done, with their output.
+9. **Present exposure.** The "Now" steps A-E are done, with their output.
 
 ### For a fallback with a stored key
 
@@ -1186,7 +1384,7 @@ The review reads the merged code and the live settings, not this document.
    organisation secret or variable. For (b)+(d): the cloud condition names
    numeric ids, and only the guard job has `id-token: write`.
 8. **Runner.** GitHub-hosted, not single-CPU, not self-hosted.
-9. **Present exposure.** The "Now" steps A-D are done, with their output.
+9. **Present exposure.** The "Now" steps A-E are done, with their output.
 10. **Residuals.** Record the code-owner-credential, administrator and
     in-job memory residuals as accepted or not; the review does not close
     them.

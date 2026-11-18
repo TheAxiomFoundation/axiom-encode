@@ -5,6 +5,13 @@ Status: **designed, not run.** The recommendation in
 Until an organization owner runs it and records the results, nothing is
 chosen for activation.
 
+- **When.** At any time from now. **The experiment does not depend on any
+  pull request of the merge-guard stack being merged**: it uses only the
+  two throwaway repositories, its own lab workflow files (§1) and the one
+  lab ruleset. An organization owner can run it before the merges; a
+  failed blocking step is then known before review effort is spent. It
+  must have passed before checklist step 5 of
+  `docs/content-bound-merge-guard.md` §8.
 - **Who.** An organization owner of TheAxiomFoundation. Organization
   rulesets need owner rights. An agent must not run it, and no agent session
   may receive a token with the `admin:org` scope for it.
@@ -34,11 +41,15 @@ chosen for activation.
   `guard-lab-target` and the ruleset `guard-lab` only. The clean-up of §3
   removes everything in this list.
 - **What "passed" means.** Checklist step 3 of
-  `docs/content-bound-merge-guard.md` §8 sorts the steps into blocking,
-  adjusting and informational, and defines "the experiment passed". Each
-  step below names its class.
+  `docs/content-bound-merge-guard.md` §8 sorts the steps into four
+  classes and defines "the experiment passed": blocking; adjusting, run
+  again; adjusting, no second run; informational. A step of the class
+  "adjusting, no second run" that fails does not stop the experiment: its
+  result is recorded, and its named change is a procedure or a decision
+  that a reviewed change of the checklist takes up. Each step below names
+  its class.
 - **Evidence labels** are those of `docs/merge-guard-key-protection.md`;
-  D1-D23 are its documentation list. Every "expected" below is unverified
+  D1-D26 are its documentation list. Every "expected" below is unverified
   until the step runs.
 
 ## 1. Set up
@@ -418,7 +429,7 @@ Replace `0` with the id of `guard-lab-source`. Save the body as
 `gh api -X POST orgs/TheAxiomFoundation/rulesets --input guard-lab.json`.
 Record the returned `id`. Record whether the web form offers a SHA pin
 (class: informational), and whether the API accepts `sha` with no `ref`
-(class: adjusting). If it refuses, add `"ref": "refs/heads/main"` and
+(class: adjusting, run again). If it refuses, add `"ref": "refs/heads/main"` and
 record that both were needed; three places of the real design then change
 together (design checklist step 3). Record also how the web form names the
 target that gives `refs/heads/main`, and which repository condition a
@@ -437,7 +448,8 @@ two lab repositories and the lab ruleset only.
 
 ### X6. `Evaluate` mode runs the workflow and does not block
 
-Class: adjusting.
+Class: adjusting, no second run (the change is the form of the shadow period,
+design checklist steps 6 and 7).
 
 - **Procedure.** With the ruleset in `Evaluate`, open two pull requests in
   the target, **PR-0** and **PR-1** (any one-line change each). Do not
@@ -477,7 +489,7 @@ Class: blocking.
 
 ### X11. What `github.workflow_sha` and `github.workflow_ref` are
 
-Class: adjusting.
+Class: adjusting, run again.
 
 - **Procedure.** Read the "Print the run identity" and "Print what the
   checkout holds" steps of the X1 run.
@@ -493,7 +505,7 @@ Class: adjusting.
 
 ### X18. The run names the TARGET repository
 
-Class: adjusting; no ruleset may name the real runner until it passes.
+Class: adjusting, run again; no ruleset may name the real runner until it passes.
 
 - **Procedure.** Read the "Print the run identity" and "Print the event
   payload fields" steps of the X6 run (a `pull_request` event) and, later,
@@ -520,7 +532,7 @@ Class: adjusting; no ruleset may name the real runner until it passes.
 
 ### X12. The check name and the commit it attaches to
 
-Class: adjusting.
+Class: adjusting, run again.
 
 - **Procedure.** `gh api repos/TheAxiomFoundation/guard-lab-target/commits/<PR-1 head>/check-runs --jq '.check_runs[] | {name, head_sha, app: .app.slug, status, conclusion}'`.
   Also read the name in the pull request's merge box and in Rule Insights.
@@ -533,7 +545,7 @@ Class: adjusting.
 
 ### X4. The target's job token reads the public source of truth
 
-Class: adjusting (the change is a decision, not code).
+Class: adjusting, no second run (the change is a decision, not code).
 
 - **Procedure.** Read the "Read public axiom-encode with the job token" step
   of any run, and the checkout step of X11.
@@ -596,7 +608,7 @@ is red.
 
 ### X3. A re-run after an approval updates the rule
 
-Class: adjusting (the change is the procedure after an approval).
+Class: adjusting, no second run (the change is the procedure after an approval).
 
 - **Procedure.** On PR-1 (red, not approved): the second account approves.
   Do not push. (a) Re-run the failed job in the web page. If the pull
@@ -673,11 +685,16 @@ Class: blocking for (a) and (b); informational for (c).
   pass if the pull request stays blocked.
 - **If it fails.** A head with no guard run can merge. For (a) and (b) any
   author can cause that, so (g') fails: use the fallback. For (c) only a
-  repository administrator can; record it under R1.
+  repository administrator can. Record it under R12 (d) of
+  `docs/merge-guard-key-protection.md` §4.4: an administrator of the real
+  repository can then merge without the guard by disabling Actions and
+  enabling them again. The consequence is a named residual risk, a row of
+  the design's health check (Actions are enabled) and an item of "What Max
+  should know".
 
 ### X7 and X14. The branch-rules endpoint
 
-Class: X7 informational; X14 adjusting.
+Class: X7 informational; X14 adjusting, run again.
 
 - **Procedure.** With the ruleset `Active`, as the second account (not an
   owner):
@@ -696,7 +713,7 @@ Class: X7 informational; X14 adjusting.
 
 ### X5. The merge queue runs the workflow
 
-Class: blocking for "a `merge_group` run starts" and for the marker `A`; adjusting for the payload fields.
+Class: blocking for "a `merge_group` run starts" and for the marker `A`; adjusting, run again, for the payload fields.
 
 - **Procedure.** In the target, create a repository ruleset for `main`:
   "Require merge queue" (merge method squash, build concurrency 1, minimum
@@ -725,8 +742,8 @@ Class: blocking for "a `merge_group` run starts" and for the marker `A`; adjusti
 ### X15. A dismissal and the queue
 
 Class: blocking for (a), (b) and for "merges only after the guard job has
-ended" in (c); adjusting for the identity of the group's check in (c);
-informational for (d).
+ended" in (c); adjusting, run again, for the identity of the group's check
+in (c); informational for (d).
 
 The guard's merge-group run waits for the group's other required check and
 evaluates after it (design §6). This step must confirm that, and measure
@@ -770,7 +787,7 @@ the window that remains.
 
 ### X10. Renaming the target
 
-Class: adjusting.
+Class: adjusting, run again.
 
 - **Procedure.** Rename `guard-lab-target` to `guard-lab-target-2`. Open a
   pull request.
@@ -780,6 +797,8 @@ Class: adjusting.
   `repository_name` [docs D3] and run the step again.
 - Rename the repository back to `guard-lab-target` at the end of this
   step; the later steps use that name.
+- Not covered: a transfer of the repository to another owner. No step
+  tries it (§5).
 
 ### X17. A disabled workflow in the source repository
 
@@ -828,8 +847,8 @@ Class: informational; it can change the pin procedure.
 
 ### X20. `Evaluate` together with a merge queue
 
-Class: adjusting (the change is the form of the queue trial, design
-checklist step 8).
+Class: adjusting, no second run (the change is the form of the queue
+trial, design checklist step 8).
 
 - **Procedure.** After X5, with the queue of the target on, set the
   ruleset back to `Evaluate`. Open a pull request, do **not** approve it,
@@ -851,7 +870,7 @@ checklist step 8).
 
 ### X21. A change of the default branch
 
-Class: adjusting.
+Class: adjusting, run again.
 
 - **Procedure.** In the target, create the branch `alt` from `main`. As a
   repository administrator, make `alt` the default branch. Open an
@@ -1015,6 +1034,15 @@ recorded output is the evidence; the agent adds none.
   only.
 - What a bypass actor on the repository ruleset of the merge queue can do.
   The lab's queue ruleset has an empty bypass list.
+- What a transfer of the target repository out of the organization does
+  to the rule. No step tries it.
+- Anything about stored credentials. The lab stores no secret. That a
+  write collaborator can read a repository secret through a workflow of a
+  branch is documented [docs D23]; which secrets the real repositories
+  hold, and whose credentials they are, is a read of the activation
+  checklist (step 11), not of this experiment.
+- Which GitHub Apps are installed on the real repository, and who can
+  install one. That is an owner's read of checklist step 11.
 - The behavior on rate limiting, and which limit a job token of
   `rulespec-us` has. The duration of `validate / validate` on a pull
   request is measured (172 to 227 minutes for 38 of 40 runs
