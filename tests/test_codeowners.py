@@ -5,7 +5,7 @@ requires no other approval. A file that ``CODEOWNERS`` does not match
 therefore needs no review at all. A workflow file names its own environment,
 and an environment's branch rule limits the ref, not the workflow, so an
 unowned workflow file can select a key-bearing environment and read its key
-(``docs/merge-guard-key-protection.md``, R3 "Present exposure" and section 4,
+(``docs/merge-guard-key-protection.md``, REPO-3 "Present exposure" and section 4,
 "Complement").
 
 ``/.github/ @PavelMakarchuk @MaxGhenis`` closes that for file ownership: every

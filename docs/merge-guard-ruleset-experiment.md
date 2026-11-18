@@ -14,19 +14,31 @@ chosen for activation.
   administrator of the target.
 - **Time.** About half a day. There are 24 steps, and each queue case
   holds a check of three minutes.
-- **What it creates.** Two public throwaway repositories and one
-  organization ruleset. It creates no stored secret, no GitHub App and no
-  key. It touches neither `axiom-encode` nor any `rulespec-*` repository:
-  every step below acts on `guard-lab-source`, `guard-lab-target` and the
-  ruleset `guard-lab` only. Step X23 needs a machine of the owner and a
-  one-time runner registration token that the web page shows; nothing is
-  stored, and the step may be recorded as "not run".
+- **What it creates.** The complete list:
+  - two public throwaway repositories, `guard-lab-source` and
+    `guard-lab-target`, with the workflow files of §1;
+  - one organization ruleset, `guard-lab`, which targets
+    `guard-lab-target` only;
+  - in `guard-lab-target`: one repository ruleset for `main` with "Require
+    merge queue" and one required status check (X5), the branches `alt`
+    and `side` (X21, X24), and the branches and pull requests of the
+    steps;
+  - for one part of X21, the administrator role on `guard-lab-target` for
+    the second account.
+
+  It creates no stored secret, no GitHub App and no key. It registers no
+  self-hosted runner. It changes no organization setting: the only
+  organization-level object that it creates, edits or deletes is the
+  ruleset `guard-lab`. It touches neither `axiom-encode` nor any
+  `rulespec-*` repository: every step below acts on `guard-lab-source`,
+  `guard-lab-target` and the ruleset `guard-lab` only. The clean-up of §3
+  removes everything in this list.
 - **What "passed" means.** Checklist step 3 of
   `docs/content-bound-merge-guard.md` §8 sorts the steps into blocking,
   adjusting and informational, and defines "the experiment passed". Each
   step below names its class.
 - **Evidence labels** are those of `docs/merge-guard-key-protection.md`;
-  D1-D16 are its documentation list. Every "expected" below is unverified
+  D1-D23 are its documentation list. Every "expected" below is unverified
   until the step runs.
 
 ## 1. Set up
@@ -404,13 +416,17 @@ New ruleset → New branch ruleset [docs D4]) or with the request below.
 Replace `0` with the id of `guard-lab-source`. Save the body as
 `guard-lab.json` and run
 `gh api -X POST orgs/TheAxiomFoundation/rulesets --input guard-lab.json`.
-Record the returned `id`. Record whether the web form offers a SHA pin, and
-whether the API accepts `sha` with no `ref`. If it refuses, add
-`"ref": "refs/heads/main"` and record that both were needed. Record also
-how the web form names the target that gives `refs/heads/main`, and read
-the ruleset back:
+Record the returned `id`. Record whether the web form offers a SHA pin
+(class: informational), and whether the API accepts `sha` with no `ref`
+(class: adjusting). If it refuses, add `"ref": "refs/heads/main"` and
+record that both were needed; three places of the real design then change
+together (design checklist step 3). Record also how the web form names the
+target that gives `refs/heads/main`, and which repository condition a
+ruleset from the web form stores, `repository_name` or `repository_id`
+(class: informational). Then read the ruleset back:
 `gh api orgs/TheAxiomFoundation/rulesets/<id> --jq .conditions.ref_name`
-must print `refs/heads/main` in `include`, not `~DEFAULT_BRANCH`.
+must print `refs/heads/main` in `include`, not `~DEFAULT_BRANCH`. This
+read-back is a set-up condition: do not start the steps until it holds.
 
 ## 2. Steps
 
@@ -572,9 +588,11 @@ is red.
   file).
 - **If it fails.** Any part: a pull request can pass the guard by adding a
   workflow or by one API call of a workflow with `checks: write` or
-  `statuses: write`. (g') fails outright: use the fallback. This step
-  cannot test a check that another GitHub App publishes; that case stays
-  unverified.
+  `statuses: write`. (g') fails outright: use the fallback.
+- **Not covered: a check that another GitHub App publishes.** The lab
+  creates no App, so no part of this step tests it. That case stays
+  [inferred, untested]; `docs/merge-guard-key-protection.md` §4.4, R5, says
+  what would test it.
 
 ### X3. A re-run after an approval updates the rule
 
@@ -678,7 +696,7 @@ Class: X7 informational; X14 adjusting.
 
 ### X5. The merge queue runs the workflow
 
-Class: blocking for "a `merge_group` run starts"; adjusting for the payload fields.
+Class: blocking for "a `merge_group` run starts" and for the marker `A`; adjusting for the payload fields.
 
 - **Procedure.** In the target, create a repository ruleset for `main`:
   "Require merge queue" (merge method squash, build concurrency 1, minimum
@@ -686,18 +704,23 @@ Class: blocking for "a `merge_group` run starts"; adjusting for the payload fiel
   `lab-slow`. Approve a pull request, wait until both checks are green, and
   add it to the queue.
 - **Pass.** A `lab-guard` run starts with `github.event_name=merge_group`.
-  The payload has `merge_group.head_sha`, `base_sha`, `head_ref` and
+  It prints `marker=A`: the source has commit B since X1 and the ruleset
+  still pins commit A, so the SHA pin must hold for the `merge_group` run
+  too. The payload has `merge_group.head_sha`, `base_sha`, `head_ref` and
   `base_ref`, and `repository.full_name`. `head_ref` is
   `refs/heads/gh-readonly-queue/main/pr-<N>-<40 hex>` and `base_ref` is
   `refs/heads/main`. The pull request merges after `lab-slow` ends.
 - **Record.** The output of "Print the event payload fields" and of "Print
-  the run identity" for the merge-group run; the marker (it must be `A`);
+  the run identity" for the merge-group run; the printed marker;
   whether the head commit of the group equals the pull request's head.
 - **If it fails.** No run, or a missing field: the real runner fails the
   job for a payload without these fields [code: `_enforce_merge_group`].
   Without a merge-group evaluation a dismissed approval never blocks
   (key-protection R3). (g') is then not acceptable for `Active` without a
-  reviewed change and a new run of this step.
+  reviewed change and a new run of this step. A marker other than `A`: the
+  pin does not fix the file that a merge group runs, so a merge to
+  axiom-encode `main` would change the guard at merge time at once. (g')
+  fails: use the fallback.
 
 ### X15. A dismissal and the queue
 
@@ -811,9 +834,10 @@ checklist step 8).
 - **Procedure.** After X5, with the queue of the target on, set the
   ruleset back to `Evaluate`. Open a pull request, do **not** approve it,
   wait until `lab-slow` is green, and add it to the queue.
-- **Pass.** Record only what happens; the expected result [inferred] is:
-  the pull request can be queued although its `lab-guard` run is red; a
-  `lab-guard` run starts with `github.event_name=merge_group`; the queue
+- **Pass.** A `lab-guard` run starts with `github.event_name=merge_group`
+  while the ruleset is in `Evaluate`. That is the one pass condition. The
+  other observations are recorded only; expected [inferred]: the pull
+  request can be queued although its `lab-guard` run is red; the queue
   merges when `lab-slow` of the group is green, without waiting for
   `lab-guard`; the `lab-guard` group run then fails in its last step.
 - **Record.** Whether a `merge_group` run of `lab-guard` started; its
@@ -832,19 +856,32 @@ Class: adjusting.
 - **Procedure.** In the target, create the branch `alt` from `main`. As a
   repository administrator, make `alt` the default branch. Open an
   unapproved pull request into `main` and one into `alt`. Then make `main`
-  the default branch again.
+  the default branch again. Then the rename: give the second account the
+  administrator role on `guard-lab-target` (X16 is done by now; an
+  organization owner can rename without restriction [docs D22], so the
+  owner's own attempt shows nothing). As that account, try to rename `main`
+  to `main-renamed`. If the rename succeeds, rename the branch back at
+  once. Do not change the organization setting "Allow repository
+  administrators to rename branches protected by organization rules";
+  read it and record its value.
 - **Pass.** The pull request into `main` gets a `lab-guard` run and is
   blocked. The pull request into `alt` has no rule: that is expected with
-  the explicit target `refs/heads/main`.
+  the explicit target `refs/heads/main`. The rename of `main` by the
+  repository administrator is refused.
 - **Record.** For each pull request: whether a run started and whether it
   is blocked; `gh api repos/TheAxiomFoundation/guard-lab-target/rules/branches/main --jq '[.[].type]'`
-  and the same for `alt`, while `alt` is the default branch.
+  and the same for `alt`, while `alt` is the default branch. For the
+  rename: the value of the organization setting, and the refusal text or
+  the fact that the rename went through.
 - **If it fails.** If `main` has no rule while another branch is the
   default, the explicit target does not hold `main`: the ruleset needs
   another target form, and a reviewed change of
   `docs/merge-guard-key-protection.md` §5 names it. In either case a
   repository administrator can move the default branch; the design's
-  health check reads it.
+  health check reads it. If the rename goes through, a repository
+  administrator can take `main` out of the rule: the change is a ruleset
+  target that the rename cannot leave, or the organization setting off as
+  a precondition of `Active`, in a reviewed change of the design.
 
 ### X22. Two conclusions on one head
 
@@ -862,31 +899,36 @@ Class: informational.
   merge-group evaluation is then the only defence against a stale pass
   (key-protection R3), as the design already assumes.
 
-### X23. A self-hosted runner with the label `ubuntu-latest`
+### X23. A self-hosted runner with the label `ubuntu-latest`: the documentation only
 
-Class: adjusting. It needs a machine that the owner controls. If none is at
-hand, record "not run"; the organization setting of
-`docs/merge-guard-key-protection.md` §5 step 9 is then required without
-this evidence.
+Class: informational. The lab registers no self-hosted runner and changes no organization setting.
 
-- **Procedure.** In `guard-lab-target` (Settings → Actions → Runners),
-  register one repository-level self-hosted runner on the owner's machine
-  and give it the custom label `ubuntu-latest`. Use the one-time
-  registration token that the page shows; store it nowhere. Push to a pull
-  request. Read "Runner name" in the log of the `lab-guard` job.
-- **Pass.** A GitHub-hosted runner takes the job.
-- **Record.** The runner name and group of the `lab-guard` job; the same
-  for the `lab-slow` job, an ordinary workflow of the target.
-- **If it fails.** A repository administrator can run the guard job on a
-  machine that the administrator controls and so decide its result. Then
-  set the organization's "Runners" setting to "Disabled" for
-  repository-level self-hosted runners [docs D19], run the step again, and
-  record that the runner is listed as "Disabled" and the job goes to a
-  hosted runner. That setting becomes a precondition of checklist step 11.
-  If no setting prevents it, (g') does not hold against a repository
-  administrator; Max decides whether that residual is acceptable.
-- Remove the runner from the repository and delete its directory on the
-  machine at the end of this step.
+- **Why there is no live test.** GitHub advises that self-hosted runners
+  "should almost never be used for public repositories" [docs D23]. The
+  lab repositories are public, and a runner there would run pull request
+  jobs on the owner's machine. A setting that could stop such a runner is
+  an organization setting, which acts on every repository of the
+  organization [docs D19]; this experiment must not change one.
+- **Procedure.** Read only. In the log of one `lab-guard` job and of one
+  `lab-slow` job (an ordinary workflow of the target), read "Runner name"
+  and "Runner group name". Note the three documented statements with the
+  date of the read: the values of the organization's "Runners" setting
+  ("All repositories", "Selected repositories", "Disabled") and that
+  runners that exist then get no new jobs [docs D19]; and that a job runs
+  on any runner that matches all of its `runs-on` values [docs D21].
+- **Pass.** Record only. Expected: both jobs ran on a GitHub-hosted runner.
+- **Record.** The runner name and group of both jobs, and the words
+  "documentation only; not tested".
+- **What stays unverified.** Whether a repository-level self-hosted runner
+  with the custom label `ubuntu-latest` can take the guard job
+  [inferred, untested]. The activation checklist therefore makes the
+  organization's "Runners" setting a precondition of `Active` in every
+  case, and an organization owner verifies it there (design checklist step
+  11; `docs/merge-guard-key-protection.md` §5 step 9).
+- **If a job did not run on a GitHub-hosted runner.** Record and stop; do
+  not change any organization setting from the lab. An organization-level
+  runner took a lab job; an owner reads the runner groups before anything
+  else happens.
 
 ### X24. A pull request whose base is changed to `main`
 
@@ -906,15 +948,20 @@ Class: blocking.
 
 ## 3. Clean up
 
-0. Remove the self-hosted runner of X23, if one was registered, and make
-   `main` the default branch of the target again (X21).
-1. Delete the organization ruleset `guard-lab`:
+0. Make `main` the default branch of the target again, and give `main` its
+   name back if the rename of X21 went through. No self-hosted runner
+   exists to remove: X23 registers none.
+1. Read the name of the ruleset before you delete it:
+   `gh api orgs/TheAxiomFoundation/rulesets/<id> --jq .name` must print
+   `guard-lab`. Only then delete the organization ruleset `guard-lab`:
    `gh api -X DELETE orgs/TheAxiomFoundation/rulesets/<id>`.
 2. Delete both repositories (Settings → Danger zone → Delete this
-   repository).
+   repository). That removes the repository ruleset of X5, the branches
+   `alt` and `side`, every pull request and the second account's roles.
 3. Confirm:
    `gh api orgs/TheAxiomFoundation/rulesets --jq '[.[].name]'` does not list
-   `guard-lab`, and both repository URLs return 404.
+   `guard-lab`, and both repository URLs return 404. No organization
+   setting was changed, so none is set back.
 4. Keep `rules-branches-main.json` and the recorded outputs. Give them to
    the agent that prepares the results pull request.
 
@@ -934,7 +981,7 @@ recorded output is the evidence; the agent adds none.
 | X2 (e) | A commit status with the same context does not satisfy it | | |
 | X3 | A re-run after an approval updates the rule | | |
 | X4 | The job token reads public axiom-encode; checkout works | | |
-| X5 | The merge queue runs the workflow; payload fields | | |
+| X5 | The merge queue runs the workflow, from the pinned commit (marker `A`); payload fields | | |
 | X6 | `Evaluate` runs the workflow and does not block | | |
 | X7 | A non-owner can read the active rule | | |
 | X8 | Missing runs block the merge (token push, with its three outcomes; `[skip ci]`; Actions off) | | |
@@ -949,19 +996,25 @@ recorded output is the evidence; the agent adds none.
 | X17 | A workflow disabled in the source repository | | |
 | X18 | `GITHUB_REPOSITORY`, `github.repository` and the payload name the target repository | | |
 | X19 | A pin move with an open green pull request: old result, and the file of the next `merge_group` run | | |
-| X20 | `Evaluate` with a merge queue: a `merge_group` run starts; the queue does not wait for it | | |
-| X21 | A changed default branch leaves the rule on `main` | | |
+| X20 | `Evaluate` with a merge queue: a `merge_group` run starts (the pass condition); the queue does not wait for it (record) | | |
+| X21 | A changed default branch leaves the rule on `main`; a repository administrator cannot rename `main` | | |
 | X22 | Two conclusions on one head: which one counts | | |
-| X23 | A self-hosted runner with the label `ubuntu-latest` does not take the job | | |
+| X23 | Documentation only, no runner is registered: the runner name and group of two lab jobs | | |
 | X24 | A pull request whose base is changed to `main` gets no run and is blocked | | |
-| — | The web form offers a SHA pin; the API accepts `sha` with no `ref`; the target reads back as `refs/heads/main` | | |
+| — | Set-up (§1.3): the web form offers a SHA pin; the API accepts `sha` with no `ref`; how the web form names the target; which repository condition it stores; the target reads back as `refs/heads/main` | | |
 
 ## 5. What this experiment cannot show
 
 - The behavior of the real workflow against a real RuleSpec pull request.
   The shadow period of the activation checklist does that.
-- A check with the guard's name that another GitHub App publishes (X2 tests
-  a workflow only).
+- A check with the guard's name that another GitHub App publishes. X2
+  tests a workflow, a check run made with the job token and a commit
+  status; the App case stays [inferred, untested].
+- Whether a repository-level self-hosted runner with the label
+  `ubuntu-latest` can take the guard job. X23 records the documentation
+  only.
+- What a bypass actor on the repository ruleset of the merge queue can do.
+  The lab's queue ruleset has an empty bypass list.
 - The behavior on rate limiting, and which limit a job token of
   `rulespec-us` has. The duration of `validate / validate` on a pull
   request is measured (172 to 227 minutes for 38 of 40 runs
