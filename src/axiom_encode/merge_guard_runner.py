@@ -155,10 +155,14 @@ MERGE_GROUP_RUN_EVENT: Final = "merge_group"
 # (https://docs.github.com/en/webhooks/webhook-events-and-payloads); a
 # pull_request or merge_group payload is far smaller. A larger file fails.
 MAX_EVENT_BYTES: Final = 4 * 1024 * 1024
-# Hard cap of GitHub requests in one enforce run: the worst case of either
-# event, with headroom. The largest evaluation measured on fixtures is 29
-# requests (``tests/test_merge_guard_runner.py``, "request volume"), counted
-# as 30. Pull request: two evaluations and every poll of one full wait are
+# Hard cap of GitHub requests in one enforce run. The arithmetic below counts
+# an evaluation as 30 requests: that is the largest evaluation of the
+# fixtures (29, ``tests/test_merge_guard_runner.py``, "request volume"), which
+# hold one unit each. It is a measurement, not a bound of the evaluator: an
+# earlier-lane train reads about three more blobs for each further unit, so a
+# large train costs more, and with a full wait a train above about 37 units
+# reaches this cap (design, section 4). The cap then fails the run closed;
+# it never yields a verdict. Pull request: two evaluations and every poll of one full wait are
 # 2 * 30 + 101 * 1 = 161 requests. Merge group: every poll at its highest
 # cost and the one evaluation are 3 * 101 + 30 = 333 requests (see above).
 # Both worst cases are driven by tests. Past the cap every read fails, so a
@@ -710,7 +714,11 @@ def _group_ci_succeeded(root: str, group_head: str, fetch: Fetch) -> bool:
     here. Every listed check must be the Actions check of a ``merge_group``
     run of the required workflow on ``group_head``; a listed check that is
     anything else is an error of the run. A check that says ``completed``
-    while its workflow run does not is waited for.
+    while its workflow run does not is waited for. The status is read before
+    the origin, so a foreign check with the required name that never
+    completes holds the wait until its bound and then ends the run as an
+    error (closed): any workflow of the repository with ``checks: write`` can
+    delay a group that way, never pass one.
 
     Returns False while the check is absent or not completed. Once it has
     completed, anything but ``success``, of the check or of its workflow run,

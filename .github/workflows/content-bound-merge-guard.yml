@@ -81,7 +81,10 @@ jobs:
     # pull request and up to 300 minutes for that of a merge group. The
     # longest run is a pull request's: an evaluation, the wait, its last poll
     # interval and poll, and the second evaluation, 333.5 minutes with every
-    # request at its timeout.
+    # request at its timeout and an evaluation of 30 requests. That figure
+    # leaves out the checkout, the Python set-up and the bundle build, and a
+    # larger evaluation (a train of many units) takes longer; a run past this
+    # timeout is cancelled, which is not a success.
     timeout-minutes: 345
     steps:
       - name: Check out the guard bundle
@@ -108,7 +111,7 @@ jobs:
 
       - name: Build the bundle and check its digest
         env:
-          BUNDLE_SHA256: 2f7b568edea650a85426bb8fd3d86209e75186bb1a2c7b77e27114d16f010d8f
+          BUNDLE_SHA256: eefff8bad844c50c5f9beb0c47dfbc256a0e9ad5b49a74d9b67a1ae685504ffa
         run: |
           set -euo pipefail
           source_root="$GITHUB_WORKSPACE/guard-source"
