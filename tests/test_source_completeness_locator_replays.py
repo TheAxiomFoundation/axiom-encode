@@ -19,6 +19,7 @@ import yaml
 from axiom_encode.harness.source_completeness import (
     analyze_complete_source_unit,
     authoritative_numeric_recall_text,
+    split_imprecise_deferral_branches,
 )
 from axiom_encode.harness.validator_pipeline import (
     extract_named_scalar_occurrences,
@@ -117,13 +118,28 @@ def test_real_candidates_no_longer_demand_locator_scalars(
 
 @pytest.mark.parametrize(
     ("run_id", "current_count"),
-    # Arizona (2) and Virginia (19) no longer repeat each unbound computation
-    # as a tests finding; the same-branch formula-output finding remains.
-    (("37936331759", 0), ("37936338132", 49), ("37936341740", 97)),
+    # Arizona's rejected deferral includes branch (g). In both Arizona and
+    # Virginia, the formula-output findings also cover the unbound computations.
+    (("37936331759", 0), ("37936338132", 48), ("37936341740", 97)),
 )
 def test_replay_diagnostic_totals(run_id, current_count):
     _recorded, _source, issues = _replay(run_id)
     assert len(issues) == current_count
+
+
+def test_arizona_branch_behind_rejected_deferral_is_listed_in_it():
+    _recorded, _source, issues = _replay("37936338132")
+
+    pending = {
+        own.split("\n", 1)[0].split("]", 1)[1][:40]: branches
+        for own, branches in map(split_imprecise_deferral_branches, issues)
+        if branches
+    }
+    assert list(pending.values()) == [("g",)]
+    assert not any(
+        "[complete-source-unit:structure]" in issue and "43-1072(g)" in issue
+        for issue in issues
+    )
 
 
 def test_real_arizona_omissions_remain_rejected():

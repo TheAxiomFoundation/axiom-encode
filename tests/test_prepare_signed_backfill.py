@@ -1257,6 +1257,24 @@ def _write_signed_change(repo: Path) -> tuple[Path, Path]:
     return rule, manifest
 
 
+def test_stage_entrypoint_checks_reviewed_repair_receipt(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _, manifest = _write_signed_change(repo)
+    payload = json.loads(manifest.read_text())
+    payload["tool"] = "axiom-encode apply-reviewed-repair"
+    manifest.write_text(json.dumps(payload))
+
+    script = Path(__file__).resolve().parents[1] / "scripts/prepare_signed_backfill.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "stage", str(repo)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert result.stderr.strip() == "error: reviewed patch receipt fields are not exact"
+    assert not _git(repo, "diff", "--cached", "--name-only")
+
+
 def _retired_inventory_replacement_repo(
     tmp_path: Path,
     *,

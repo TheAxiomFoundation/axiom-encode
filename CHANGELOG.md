@@ -1,3 +1,35 @@
+## 0.2.2386
+
+- Keep See Example reference ordinals out of numeric recall (#2291)
+- Credit exact imported scalars in the complete-mode numeric-occurrence check (#2290)
+- Guide the encoder to put a gated cap in its own derived rule (#2284)
+
+## 0.2.2385
+
+- Let a sole table row witness a direct nonnegative clamp (#2288)
+
+## 0.2.2384
+
+- Evidence floor for the start date of a date-silent unit (#2227)
+
+## 0.2.2383
+
+- Reviewed alternative-list readings for the gates-collapsed check (digest-bound registry) (#2216)
+
+## 0.2.2382
+
+- Cut the evals import edge from the v6 lane path helper (prep for the stdlib guard bundle, #2257) (#2278)
+- Require code-owner review for all of .github/ (closes the unowned-workflow exposure, #2257) (#2277)
+- Quote trailing-colon source excerpts in the eval-time repair (#2266)
+
+## 0.2.2381
+
+- Fix receipt verification during native reviewed-repair staging (#2270)
+
+## 0.2.2380
+
+- Fold structure findings behind an imprecise deferral into its finding and use a U.S. retry example (#1932)
+
 ## 0.2.2379
 
 - Close the follow-up findings of the #2051 version-rule review (#2151)

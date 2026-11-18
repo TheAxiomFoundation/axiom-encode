@@ -73,6 +73,18 @@
       "why": "A deferral is a recorded gap in the encoding. A gap that is vague, or rooted at the wrong place, cannot be audited or closed later, and it can hide law that the module should encode."
     },
     {
+      "category": "complete-source-unit:effective-date",
+      "cause": "encoder_output",
+      "fix": "Change `rules[].versions[].effective_from` (and the companion test periods that depend on it) to a date the unit's own evidence supports: a date printed in `./source.txt`, a date printed in the evidence text of a proof atom of the same rule with `kind: effective_period`, the corpus `expression_date` or `source_as_of`, the evidence floor, or the `0001-01-01` scaffold. A date quoted by any other proof atom is not support. Do not copy the start date of a neighbouring module. The evidence floor is a proposed calendar convention, not a claimed legal commencement date. The same rule applies to a `from` alias and to the start on a rule with absent or empty `versions`.",
+      "gate": "ci",
+      "id": "complete-source-unit:effective-date/start-unsupported",
+      "requires": "In a manual source unit that prints no date, every `rules[].versions[].effective_from` (including its `from` alias and rule-level implicit versions) is the `0001-01-01` scaffold, the corpus `expression_date` or `source_as_of`, the evidence floor (the first day of the first full calendar month on or after `source_as_of`), or a date printed in the evidence text of an `effective_period` proof atom of the same rule.",
+      "severity": "important",
+      "site": "axiom_encode/harness/start_date_evidence.py:date_silent_start_issues",
+      "title": "Start date of a date-silent unit has no support in its own evidence",
+      "why": "A start date that nothing in the unit supports was copied from a neighbouring module or guessed. The rule then claims to apply from a date for which the corpus holds no evidence about this unit, and compile, the other completeness checks and the companion tests all pass on it."
+    },
+    {
       "category": "complete-source-unit:formula-output",
       "cause": "encoder_output",
       "fix": "Add a principal derived rule whose formula implements the branch and whose source or formula proof cites the branch, or precisely defer the branch.",
@@ -147,7 +159,7 @@
     {
       "category": "complete-source-unit:tests",
       "cause": "encoder_output",
-      "fix": "Add cases at each listed boundary value (and just across it) that assert the affected principal output.",
+      "fix": "Add cases at each listed boundary value (and just across it) that assert the affected principal output. If the listed value is a cap whose `min(...)` shares a formula with a comparison, move the clamp into its own derived rule with no comparison and assert that rule in every case that sets the capped amount.",
       "gate": "ci",
       "id": "complete-source-unit:tests/boundary-unexercised",
       "requires": "Every source-stated boundary value is exercised by a companion case.",
@@ -195,7 +207,7 @@
     {
       "category": "complete-source-unit:tests",
       "cause": "encoder_output",
-      "fix": "Add a case with the clamped input below zero that asserts the clamped rule (and the downstream principal output when one exists), with a selected formula path that reaches the clamp. A zero input does not exercise the clamp. If guards prevent every below-zero input from reaching it, restate the formula or remove the redundant clamp rather than adding an impossible witness.",
+      "fix": "Add a case with the clamped input below zero that asserts the clamped rule (and the downstream principal output when one exists), with a selected formula path that reaches the clamp. A zero input does not exercise the clamp. If guards prevent every below-zero input from reaching it, restate the formula or remove the redundant clamp rather than adding an impossible witness. For an entity output tested through `tables:`, write a separate case with exactly one row, an empty `input:`, and a one-item list assertion of the clamped rule.",
       "gate": "ci",
       "id": "complete-source-unit:tests/negative-clamp-unwitnessed",
       "requires": "Each direct `max(0, input)` clamp has an executed companion case with the input below zero whose selected formula path reaches the clamp in every distinct temporal owner context.",
@@ -1129,6 +1141,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "3b9289ec228ab5bf94581800cbb494d915f9d162bca6023dd07741b9d6943cc7",
+  "registry_sha256": "1b226ec84c08f35c602fc4e28cf23bf2114ebe0f334d55703183c044cf06000e",
   "schema": "axiom-encode/check-registry/v1"
 }

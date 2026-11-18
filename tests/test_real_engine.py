@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import itertools
+import json
 import os
 import subprocess
 import sys
@@ -369,6 +370,82 @@ def test_only_the_exact_flag_requires_the_engine(monkeypatch, value):
     monkeypatch.setenv(real_engine.REQUIRE_ENV, value)
 
     assert real_engine.required() is False
+
+
+# The binding receipt that pinned controls read
+
+
+def _resolved(root: Path) -> real_engine.RealEngine:
+    binary = root / "target" / "release" / real_engine.BINARY_NAME
+    return real_engine.RealEngine(root=root.resolve(), binary=binary.resolve())
+
+
+def test_binding_receipt_returns_the_receipt_for_the_binary_bytes(tmp_path):
+    binary = _engine(tmp_path / "engine")
+    write_engine_binding_receipt(binary, "a" * 40, "release")
+
+    receipt = real_engine.binding_receipt(_resolved(tmp_path / "engine"))
+
+    assert receipt["engine_commit"] == "a" * 40
+
+
+def _unreceipted(root: Path, breakage: str) -> real_engine.RealEngine:
+    binary = _engine(root)
+    if breakage == "receipt for other bytes":
+        write_engine_binding_receipt(binary, "a" * 40, "release")
+        binary.write_text(FAKE_ENGINE + "# rebuilt\n")
+    elif breakage == "malformed receipt":
+        engine_binding_receipt_path(binary).write_text("[]\n")
+    elif breakage == "receipt without a full commit":
+        # Right bytes, but no full commit sha for the control to pin.
+        write_engine_binding_receipt(binary, "a" * 40, "release")
+        path = engine_binding_receipt_path(binary)
+        receipt = json.loads(path.read_text())
+        receipt["engine_commit"] = "abc"
+        path.write_text(json.dumps(receipt))
+    elif breakage != "no receipt":
+        raise AssertionError(breakage)
+    return _resolved(root)
+
+
+UNRECEIPTED = [
+    "no receipt",
+    "receipt for other bytes",
+    "malformed receipt",
+    "receipt without a full commit",
+]
+
+
+@pytest.mark.parametrize("breakage", UNRECEIPTED)
+def test_an_optional_unreceipted_engine_skips_a_pinned_control(tmp_path, breakage):
+    # Review of #2227: a discovered engine without a receipt raised
+    # FileNotFoundError in the two public start-date engine controls.
+    engine = _unreceipted(tmp_path / "engine", breakage)
+
+    with pytest.raises(pytest.skip.Exception, match=real_engine.UNAVAILABLE):
+        real_engine.binding_receipt(engine)
+
+
+@pytest.mark.parametrize("breakage", UNRECEIPTED)
+def test_an_unreceipted_engine_fails_a_pinned_control_when_required(
+    monkeypatch, tmp_path, breakage
+):
+    monkeypatch.setenv(real_engine.REQUIRE_ENV, "1")
+    engine = _unreceipted(tmp_path / "engine", breakage)
+
+    with pytest.raises(pytest.fail.Exception, match=real_engine.REQUIRE_ENV):
+        real_engine.binding_receipt(engine)
+
+
+def test_with_the_pin_set_a_missing_receipt_is_an_error_not_a_skip(
+    monkeypatch, tmp_path
+):
+    # CI's real-engine job sets the pin; there the receipt is never optional.
+    monkeypatch.setenv(real_engine.REF_ENV, "a" * 40)
+    engine = _unreceipted(tmp_path / "engine", "no receipt")
+
+    with pytest.raises(FileNotFoundError):
+        real_engine.binding_receipt(engine)
 
 
 # The guard
