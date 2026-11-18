@@ -1309,7 +1309,75 @@ def test_gate_script_refuses(changes):
     assert gate(**changes) == 1
 
 
-def test_design_names_the_enforcing_runner_as_its_own_change_before_step_4():
+# The step of the design's activation checklist that makes the guard a merge
+# requirement. Until the recommendation change it was step 4 ("Add the
+# guard's check ... to the required checks"); the checklist is now the whole
+# ordered runbook. Review round 1 of the recommendation (P1-4) gave the
+# infrastructure lane its own step 10, so the step is number 11 (the ruleset
+# becomes Active). Steps 1 and 2 keep their numbers: code comments name them.
+#
+# Each phrase carries the words before it that give it its meaning, so a
+# negation in front of it ("whether or not the experiment passed") or another
+# number ("steps 0-2 are done") is a lost phrase (review round 1, P2-8).
+ACTIVE_STEP_START = "11. **M** (an organization owner) Switch the ruleset to `Active`"
+ACTIVE_STEP_END = "12. Run the current-order canary"
+ACTIVE_STEP_REQUIRED = [
+    "Hard preconditions, all of them: steps 0-10 are done; change 3b is on `main`",
+    "is the code at the pinned SHA; the experiment passed, as step 3 defines it;",
+    "; the merge queue of step 8 is on, is still required at this moment",
+    # Review round 3, P2-3 and P1-2: the bypass list of the queue ruleset and
+    # the organization's "Runners" setting are preconditions of this step.
+    "the merge-queue ruleset of `rulespec-us` has an empty bypass list",
+    "**an organization owner has verified, at this moment, that the "
+    'organization\'s "Runners" setting allows no repository-level self-hosted '
+    "runner for `rulespec-us`**",
+    '**If the "Runners" setting has another value, step 11 waits.**',
+    "Changing it is an act on the whole organization, not on `rulespec-us`",
+    "- Expected: a `rulespec-us` pull request merges only when its guard run is green.",
+    "Run it before the switch for `merge_queue` and after it for both.",
+    "shows `active`, an empty bypass list, `refs/heads/main` and the one workflow "
+    "entry.",
+    "the `bypass_actors` read of step 8 prints `[]`",
+    "and Max has decided question 0 of §10 **and its lane is on at the pinned SHA** (step 10)",
+    # Review round 1 of #2286, F1: the hold for the runner's inert path, the
+    # one assumption that would fail open. Review round 1 of the
+    # recommendation, P3-1: the key ``verdict`` alone is null in the inert
+    # report too.
+    "at the pin that is in the ruleset now, a pull request with no lane shows a "
+    "failed `content-bound-merge-guard` job whose report has a non-null `verdict` "
+    'and no `"inert"`',
+    "**WARNING:** without the lane of question 0, an `Active` ruleset blocks every "
+    "pin, ledger, workflow and tooling pull request on `rulespec-us`",
+    "the rollback itself needs an organization owner",
+    # P1-3 (b): the queue is a repository setting.
+    "must contain `workflows` **and** `merge_queue`",
+    "The merge queue is a repository setting of `rulespec-us`. Its administrators "
+    "can turn it off",
+    # P1-1: the rollback and its order.
+    "- Rollback: set the enforcement back to `Evaluate`. Before step 13 this is free.",
+    "**After step 13, only in the rollback order at the top of this checklist: "
+    "first the writer off, then no signing run alive and the reader pin reverted, "
+    "only then the ruleset.**",
+    f"require the name `{runner.GUARD_CHECK_NAME}` only, and never "
+    f"`{runner.SHADOW_CHECK_NAME}`, which is always neutral",
+]
+
+
+def _active_step(doc: str) -> str:
+    flat = " ".join(doc.split())
+    assert flat.count(ACTIVE_STEP_START) == 1 and flat.count(ACTIVE_STEP_END) == 1
+    return flat[flat.index(ACTIVE_STEP_START) : flat.index(ACTIVE_STEP_END)]
+
+
+def active_step_problems(step: str) -> list[str]:
+    return [
+        f"the Active step lost {phrase!r}"
+        for phrase in ACTIVE_STEP_REQUIRED
+        if phrase not in step
+    ]
+
+
+def test_design_names_the_enforcing_runner_as_its_own_change_before_the_active_step():
     doc = (REPOSITORY_ROOT / "docs" / "content-bound-merge-guard.md").read_text()
     rows = [line for line in doc.splitlines() if line.startswith("| 3b |")]
     assert len(rows) == 1
@@ -1317,13 +1385,18 @@ def test_design_names_the_enforcing_runner_as_its_own_change_before_step_4():
     assert "enforcing" in row.lower() and "`content-bound-merge-guard`" in row
     assert "every" in row and "trigger" in row.lower()
     assert "snapshot" in row  # the page-number sweep is fixed there
-    flat = " ".join(doc.split())
-    start = flat.index("4. **M** Add the guard's check")
-    step = flat[start : flat.index("5. Run the current-order canary")]
-    assert "change 3b" in step and "precondition" in step.lower()
-    assert "WARNING" in step
-    assert f"`{runner.SHADOW_CHECK_NAME}`" in step
-    assert f"`{runner.GUARD_CHECK_NAME}`" in step
+    assert active_step_problems(_active_step(doc)) == []
+
+
+@pytest.mark.parametrize("phrase", ACTIVE_STEP_REQUIRED)
+def test_the_active_step_pin_reports_each_lost_element(phrase):
+    doc = (REPOSITORY_ROOT / "docs" / "content-bound-merge-guard.md").read_text()
+    step = _active_step(doc)
+    assert phrase in step
+    assert any(
+        repr(phrase) in problem
+        for problem in active_step_problems(step.replace(phrase, ""))
+    )
 
 
 # --- follow-ups of #2257 --------------------------------------------------------
@@ -1655,8 +1728,10 @@ def test_a_paged_check_listing_that_does_not_add_up_fails_closed(count, changes)
 # when the maintainers revise the step. Each phrase is matched in the step's
 # text with runs of white space collapsed. This pins the wording of the
 # precondition; it is not evidence that any mechanism closes the boundary.
+# The key-exposure scope and the hold stay pinned although the step now
+# recommends an option without a key: they bind both fallbacks and any App.
 STEP_1_START = "1. **M** Hard precondition"
-STEP_1_END = "2. Merge changes 1-4"
+STEP_1_END = "2. **M** Merge the changes in this order"
 STEP_1_REQUIRED = {
     "hold: before the key is stored or the runner enabled, shadow included": [
         "before anyone stores the App key",
@@ -1702,11 +1777,25 @@ STEP_1_REQUIRED = {
         "prevents other workflows from obtaining the key by selecting `merge-guard`",
         "no agent session approving",
     ],
-    # Update this group, in a reviewed change, when Max chooses.
-    "nothing is chosen yet": [
-        "none of them chosen",
+    # Update this group, in a reviewed change, when Max accepts or rejects.
+    "a recommendation exists, and nothing is chosen or accepted": [
+        "None of them is chosen",
         "No option or complement has approval here",
-        "This design chooses neither",
+        "**The recommendation is (g')**",
+        "no guard App and no private key",
+        "`docs/merge-guard-key-protection.md`",
+        "Max has not accepted it",
+    ],
+    "the experiment is a precondition": [
+        "The experiment is a precondition",
+        "`docs/merge-guard-ruleset-experiment.md`",
+        "nothing is chosen for activation",
+    ],
+    "the fallback is named": [
+        "the named fallback is (b)+(d)",
+        "non-exportable signing key",
+        "the second fallback is (b) with the complement",
+        "one approved but wrong change can leak the key for good",
     ],
 }
 
@@ -1746,6 +1835,1015 @@ def test_the_step_1_pin_reports_each_lost_element(phrase):
     assert any(
         repr(phrase) in problem for problem in step_1_problems(step.replace(phrase, ""))
     )
+
+
+# --- the decisive sentences of the three recommendation documents ----------------
+#
+# Review round 1 of the recommendation, P2-8. Each sentence must occur exactly
+# once in its document, with runs of white space collapsed. A sentence is
+# pinned with the words that give it its meaning, so the reviewer's mutants
+# (a status that says "accepted", an agent that "may" run the experiment, a
+# negated precondition, another step number) each lose a sentence. This pins
+# wording; it is no evidence that a maintainer accepted or did anything.
+
+DESIGN_DOC = "docs/content-bound-merge-guard.md"
+KEY_PROTECTION_DOC = "docs/merge-guard-key-protection.md"
+EXPERIMENT_DOC = "docs/merge-guard-ruleset-experiment.md"
+DOC_SENTENCES = {
+    DESIGN_DOC: {
+        "nothing is chosen or accepted": [
+            "Status: **design; maintainer acceptance and activation remain pending.**",
+            "**Max has not accepted the recommendation, and nothing is chosen.** It "
+            "holds only if the owner's experiment passes "
+            "(`docs/merge-guard-ruleset-experiment.md`, not run).",
+            "Two paths exist in code. Neither is active, and Max has accepted neither.",
+            "**Max has not accepted that recommendation; until step 0 is done, every "
+            "later step waits.**",
+            "| Recommendation recorded, Max has not accepted yet: the ruleset, at a "
+            "pinned SHA",
+            "| Recommendation recorded, Max has not accepted yet: (g'), which creates "
+            "no key and so needs no complement; first fallback (b)+(d); second "
+            "fallback (b) with code-owner review of `.github/` and last-push approval. "
+            "Max chooses.",
+            "### The ruleset experiment (not run)",
+        ],
+        "how the decision is evidenced": [
+            "A pull request comment from Max's account is **not sufficient evidence** "
+            "of his decision",
+            "An organization owner creates the `Evaluate` ruleset of step 6.",
+            "**This checklist cannot verify who was at the keyboard**",
+        ],
+        "what an agent must not do": [
+            "- **AGENT**: an agent session. It prepares pull requests and reads. It "
+            "does not merge, mark ready, approve, change settings, dispatch signing "
+            "runs or hold an `admin:org` token.",
+            "and no stored secret, App or key. An agent must not run it.",
+            "2. **M** Merge the changes in this order. Maintainers merge; agents may "
+            "not.",
+            "A wrong result is reported to a maintainer; the agent changes nothing.",
+            "An agent may run these. Each is a GET with the token that agent "
+            "sessions already have; none needs `admin:org`.",
+            "An agent cannot make them: they need `admin:org`.",
+            "No step of the experiment and no agent changes it.",
+        ],
+        # Review round 3, P1-3: the role and the mode of every step heading, by
+        # value. An AGENT in the place of **M**, or `Active` in the place of
+        # `Evaluate`, loses the sentence.
+        "the role and the mode of each step": [
+            "0. **M** (Max) Decide:",
+            "1. **M** Hard precondition, before anyone stores the App key or sets "
+            "`MERGE_GUARD_RUNNER_ENABLED`, shadow mode included:",
+            "3. **M** (any organization owner) Run the experiment of "
+            "`docs/merge-guard-ruleset-experiment.md`.",
+            "4. AGENT, only if the results ask for it: a pull request with each "
+            "named change of step 3, through a review cycle. **M** merges.",
+            "5. AGENT and **M** Review the guard at the candidate commit, as §6 of "
+            "`docs/merge-guard-key-protection.md` lists: an independent agent review "
+            "and a maintainer's own reading of the workflow file and the eight "
+            "bundle files.",
+            "6. **M** (an organization owner) Create the organization ruleset in "
+            "`Evaluate`, with the values of `docs/merge-guard-key-protection.md` §5: "
+            "target `rulespec-us`, the branch `refs/heads/main` (named explicitly, not "
+            '"the default branch"), the workflow '
+            "`.github/workflows/content-bound-merge-guard.yml` of axiom-encode at the "
+            "reviewed SHA, empty bypass list. This starts the shadow period.",
+            "- Rollback: set the enforcement to `Disabled`. Free at this step",
+            "7. AGENT and **M** Shadow period.",
+            "8. **M** (a `rulespec-us` administrator) Turn on the merge queue for "
+            "`rulespec-us` `main`, with the settings that rulespec-us#2160 lists: "
+            "only merge non-failing pull requests, group size 1, build concurrency "
+            "1, a status check timeout above 4 hours, merge method squash.",
+            "The queue's status-check timeout has a maximum of 360 minutes [docs D7: "
+            '`check_response_timeout_minutes`, "maximum: 360"]; set it to 360.',
+            "9. Change 2b, then change 4. - AGENT prepares the pull request that sets "
+            "`V6_READER_ENABLED = True`.",
+            "**M** merges. The ruleset's pin does not move: the evaluator does not "
+            "read this switch",
+            "- AGENT then prepares the `rulespec-us` pull request that pins the "
+            "encoder at that commit. **M** merges it.",
+            "- The switch rule of step 2 governs: the writer stays off.",
+            "1. **M** (Max) decides question 0: the proposed three-class lane of §3, "
+            "another lane, or no lane.",
+            "2. AGENT prepares the lane change, one pull request on axiom-encode:",
+            "It goes through a review cycle. **M** merges.",
+            "3. AGENT and **M** review the guard at the new commit, as in step 5, "
+            "and record the new SHA and `BUNDLE_SHA256` in §11.",
+            "4. **M** (an organization owner) moves the ruleset's pin to the new "
+            "commit, **while the ruleset is still `Evaluate`**",
+            "5. AGENT and **M** observe again, at the new pin:",
+            "12. Run the current-order canary to completion: one promotion in "
+            "today's order (`docs/reviewed-pr-promotion.md`) through the `Active` "
+            "guard.",
+            "13. Change 6, as one reviewed pull request. AGENT prepares it; it is not "
+            "opened before steps 0-12 are done, because merging it takes effect.",
+            "(`GUARD_WORKFLOW`: repository id, path, and the set of pinned SHAs, "
+            "which holds exactly the SHA that the ruleset pins now), sets "
+            "`V6_WRITER_ENABLED = True`, and updates `docs/reviewed-pr-promotion.md`. "
+            "The lock itself is change 5c",
+            "The ruleset's pin does **not** move for this change: the guard reads "
+            "neither the switch nor `GUARD_WORKFLOW` [author-reported, activation "
+            "preparation 2026-11-17]. **M** merges.",
+            "14. The smallest live canary of the new order, on one real candidate.",
+            "1. AGENT or contributor: local encode → candidate pull request.",
+            "2. **M** (an enrolled dispatcher; it may be the candidate's author) "
+            "dispatches `targeted-signed-reencode.yml`. The `production-signing` "
+            "environment approval still applies to the run.",
+            "**M** (a maintainer with write access who will **not** be the "
+            "approver) marks it ready and squash-merges it there.",
+            "5. **M** (the other enrolled owner) reads the green pull request and "
+            "approves it on GitHub.",
+            "6. **M** (a maintainer with write access) re-runs the failed guard job, "
+            "or follows the procedure that step X3 found.",
+            "7. If `main` moved, **M** (a maintainer who is not the approver) updates "
+            "the branch first.",
+            "Then **M** adds the pull request to the merge queue.",
+            '15. "Continuous landing is on" when step 14 passed and the maintainers '
+            "say so in §11.",
+            "Steps 11 and 13 land as separate reviewed changes, step 11 first,",
+        ],
+        "the rollback order": [
+            "**ROLLBACK ORDER. This rule binds every rollback below once step 13 has "
+            "happened.**",
+            "1. First set `V6_WRITER_ENABLED` back to `False`, in a reviewed change "
+            "on axiom-encode `main` (the rollback of step 13).",
+            # Review round 3, P1-1: signing runs that started before the
+            # writer was switched off, and the missing transaction.
+            "2. Then make every signing run and every signed v6 manifest harmless, "
+            "in this order:",
+            "- (i) **No signing run is alive.** Confirm that no run of "
+            "`targeted-signed-reencode.yml` is queued, waiting for the "
+            "`production-signing` approval or in progress. Read-only, as anyone: "
+            "`gh run list --repo TheAxiomFoundation/axiom-encode --workflow "
+            "targeted-signed-reencode.yml --limit 200 --json "
+            "databaseId,status,headSha,createdAt --jq '[.[] | select(.status != "
+            '"completed")]\'` must print `[]`',
+            "so a run that started before the writer-off commit still has the "
+            "writer on",
+            "- (ii) **No older signing run is started again.** A re-run of an older "
+            "signing run executes its original commit, where the writer is still on, "
+            "and GitHub allows a re-run for 30 days [docs D9]. So no enrolled owner "
+            "may re-run a signing run that was dispatched before the writer-off "
+            "commit, or approve one for `production-signing`. This is a rule for "
+            "people; nothing technical enforces it.",
+            # Review round 4, P1-2: the rollback is a last resort and not
+            # durable; P2-3: the survivors A1i, D1i, D2i, C3d; P3-1.
+            "If the list is not empty, a maintainer lets each run end or cancels it, nobody approves it, and the read is repeated.",
+            "The listing must reach back more than 30 days: raise `--limit`",
+            "but only while the pin stays reverted, and after point 3 nothing technical keeps it reverted",
+            "A signing run can be re-run, and a signed manifest can be pushed, after the read and before the ruleset changes.",
+            'The form "no open pull request holds a signed v6 manifest" leaves that gap open and depends on the rule of (ii).',
+            "**After point 3 nothing technical protects `rulespec-us` from signed v6 bytes. This order is not a durable rollback.**",
+            "The reader pin is content of a pull request: `repository-checks.yml` of `rulespec-us` reads `.axiom/workflow-toolchain.toml` from the checkout of the pull request itself",
+            "`main` of `rulespec-us` requires 0 approvals and no code-owner review [live read 2026-11-18]. So any account with write access can move the reader pin forward again in the same pull request that lands signed v6 bytes [inferred]. Not tested: whether validation refuses a pull request that moves the pin and adds a manifest together.",
+            "**So the recommended response to a guard problem after step 13 is not to weaken the ruleset.** In this order of preference:",
+            "- (a) **Repair forward.** Move the pin to a fixed guard while the ruleset stays `Active`",
+            "- (b) **Take the guard out of use, closed.** Do point 1 and keep the ruleset `Active`. A guard that cannot pass then blocks every merge of `rulespec-us`. That is the fail-closed state, and it holds until the repair.",
+            "- (c) **Last resort: weaken the ruleset or the queue, in the order of points 1 to 3.** It reopens the exposure that existed before the guard, now for signed v6 bytes. While the ruleset is weak, three standing conditions hold. Each is a rule for people:",
+            "- No pull request that pins `rulespec-us` to an encoder commit with the reader on merges while the ruleset is weak.",
+            "- For 30 days after the writer-off commit, no enrolled owner re-runs or approves a signing run that was dispatched before that commit; or a maintainer deletes those runs, which removes the re-run",
+            "Deleting a run is a maintainer's act; no agent does it.",
+            "- Signed v6 bytes that never landed stay valid indefinitely: nothing in this design expires a signature [inferred].",
+            "**Durable options, not designed:** enforced code-owner review of `.axiom/workflow-toolchain.toml` on `rulespec-us`, switched on before point 3",
+            "or a new signing key, after which validation refuses every older signature [inferred].",
+            "So the second form of (iii) is enough only when every signed v6 manifest that exists has landed or was never pushed.",
+            "That order is then a last resort and not a durable rollback; the recommended response is to repair forward or to keep the ruleset `Active` |",
+            "That order is a last resort and not a durable rollback: after it nothing technical protects `rulespec-us` from signed v6 bytes. The recommended response is to repair forward, or to keep the ruleset `Active` with the writer off.",
+            "That order is a last resort and not a durable rollback: once the ruleset is weak, nothing technical protects `rulespec-us` from signed v6 bytes, because any write account can move the reader pin forward again in the pull request that lands them [inferred].",
+            "is not complete, and only the reader pin revert applies.",
+            "- (iii) **No signed v6 manifest can land.** Only then, and immediately "
+            "before point 3: revert the reader pin of step 9 in `rulespec-us`, so "
+            "that validation refuses every v6 manifest again; or make sure that no "
+            "open pull request of `rulespec-us` holds a signed v6 manifest (close "
+            "each one).",
+            "3. Only then weaken the ruleset or the queue. **Between the check of "
+            "point 2 and the change of point 3 GitHub offers no transaction.**",
+            "The lock of the writer stops new signing runs only, and only at commits "
+            "where the writer is off.",
+            "Closing a pull request does not remove its signed bytes",
+            "In every other case revert the reader pin.",
+            "No shortcut exists for an emergency: a ruleset or queue that is "
+            "weakened first is exactly the state that the switch rule describes.",
+            "Do not disable the ruleset to land the revert",
+            "**Before step 13 the ruleset rollback is free**",
+            "- Rollback: turn the queue off. **WARNING:** allowed only while the "
+            "ruleset is not `Active`. From step 11 on, a queue that is off silently "
+            "reopens the stale-green window",
+            "- Rollback: set the switch back, in a reviewed change. The ruleset stays "
+            "`Active`. **This is point 1 of the rollback order at the top of this "
+            "checklist, and it comes before any rollback of step 8 or step 11.**",
+            "Every rollback therefore has an order: first the writer off, then no "
+            "signing run alive and the reader pin reverted, only then the ruleset",
+        ],
+        "the experiment and its pass rule": [
+            # Review round 4, P2-1: two adjusting classes, so that the rule
+            # can be met by a step whose change is a procedure or a decision.
+            '- **"The experiment passed" means exactly this:** every *blocking* step has the result `pass`; every step of the class *adjusting, run again* has either `pass`, or its named change merged, reviewed and the step run again with `pass`; and every step of the class *adjusting, no second run* has either `pass`, or its recorded result together with its named change reviewed and merged. An *informational* step needs a recorded result only.',
+            "- **Why two adjusting classes.** For a step of the class *adjusting, no second run* the named change is a procedure or a decision, not a change of what the lab runs: the same step run again gives the same result. The rule therefore asks for the change, not for a second run.",
+            "- **The experiment does not depend on any merge of step 2.** It uses only the two throwaway repositories, its own lab workflow files and the one lab ruleset; it reads no file of this stack. So an organization owner can run it at any time from now, before the merges.",
+            "The one order rule: the experiment must have passed before step 5.",
+            "The experiment of step 3 does not wait for these merges (step 3).",
+            "A step that was not run counts as failed for this rule.",
+            "The ruleset mechanism does not hold. Stop. Max decides on the fallback "
+            "(b)+(d).",
+            "No ruleset may name the runner, in `Evaluate` either, until the change "
+            "is merged and X18 passes.",
+            # Review round 3, P1-3 and P2-5: every row of the table, by value.
+            "| Blocking | X1; X2 (a) to (e); X8 (a) and (b); X24; X15 (a) and (b); "
+            'X15 (c), the part "the pull request merges only after the guard job has '
+            'ended"; X5, the parts "a `merge_group` run starts" and "the '
+            '`merge_group` run prints the marker of the pinned commit" |',
+            '| Adjusting, run again | X18 (change: the runner loses its inert path, or reads the value that names the target); X11 (change: the workflow takes the bundle commit from the value that names the source commit); X5, the payload fields, and X15 (c), the identity of the group\'s check (change: the runner reads the real fields); X12 (change: the head binding of the runner and case 49); X14 (change: lock 3 of draft #2289 reads the real response shape; step 13 waits for it); X10 (change: `"protected": true` in the ruleset); X21 (change: the ruleset target, or a standing check of the default branch); the set-up record "the API accepts `sha` with no `ref`" (change, in three places together: the request body of `docs/merge-guard-key-protection.md` §5, its pin test, and lock 3 of draft #2289, which refuses an entry with `ref`) | The mechanism can hold, after the named change. Do the change through a review cycle, run the step again, and record both results |',
+            '| Adjusting, no second run | X3 (change: the procedure after an approval becomes "close and reopen" or "update the branch", written into step 14 and into the table of human steps); X6 (change: the shadow period of steps 6 and 7 takes another form, named in the runbook); X20 (change: the queue trial of step 8 moves to the first `Active` landing, step 12. The same reviewed change replaces the trial clause of the step 11 precondition, and moves the stop rule for the inert path on a merge group from step 8 to step 12, before any second landing); X4 (change: none in the runner; a decision of Max: the fallback, which ends the ruleset path, or a read-only token, which is a stored secret. No such token is designed. It would have to meet the stored-credential precondition of step 11: for example a fine-grained read-only token of an account that is not enrolled, not an administrator and not an organization owner, which Max accepts by name) | The mechanism can hold with another procedure. Record the result, and do the named change of this checklist through a review cycle. No second run: it would give the same result |',
+            "| Informational | X7, X9, X13, X16, X17, X19, X22; X8 (c); X15 (d); X23; "
+            'the set-up records "the web form offers a SHA pin" and "how the web '
+            'form names the target" | Record the result.',
+            "- **X23 is informational by design.** The lab registers no self-hosted "
+            "runner:",
+            "No step of the experiment changes an organization setting.",
+        ],
+        "the inert-path hold": [
+            "Every other unverified item of this section fails closed. This one would "
+            "fail **open**:",
+            "- **Hold for step 11 (the inert path).** At least one pull request with "
+            "no lane must show a **failed** `content-bound-merge-guard` job under this "
+            "`Evaluate` ruleset.",
+            "The key `verdict` alone proves nothing: the inert report and every error "
+            "report carry it with the value `null`",
+            "stop, set the ruleset to `Disabled`, and do not go to step 11",
+            "- **Stop rule for the inert path on a merge group.**",
+            "means that the merge-group run took the source-repository path: stop, "
+            "set the ruleset to `Disabled` (free at this step), and do not go to "
+            "step 11.",
+        ],
+        "the lane goes live in its own step": [
+            "10. **The infrastructure lane (question 0 of §10).**",
+            "So it goes live here, while the ruleset is still in `Evaluate`, in this "
+            "order:",
+            'With "no lane" this checklist stops here: step 11 requires a lane that '
+            "is on at the pinned SHA",
+            "`INFRASTRUCTURE_LANE_ENABLED = True`; the lane's two success reasons "
+            "added to the runner's `SUCCESS_VERDICTS`",
+            "6. **The hold of step 7 is repeated at the new pin.**",
+        ],
+        "what Evaluate cannot show": [
+            "So the queue merges the trial pull request when the group's "
+            "`validate / validate` run is green, without waiting for the guard job.",
+            "- **Established only by the lab, with its ruleset `Active`:** that the "
+            "queue merges only after the guard job has ended",
+            "**Stop rule:** if the pull request merges before the guard's merge-group "
+            "job has ended, the ruleset result is not part of the queue's "
+            "requirements. Set the ruleset back to `Evaluate` (free: step 13 has not "
+            "happened) and do not go on.",
+            "- **Cases 17 and 18 cannot be produced on a live pull request.**",
+            "- Run cases 15 and 16 of §7 live on a throwaway `rulespec-us` pull "
+            "request and confirm both results.",
+        ],
+        "the canary and the wait": [
+            "(job success) **in the same run, with no re-run**",
+            "**cannot be shown live on any of the eight candidates**",
+            "which is **about 3 to 4 landings a day**",
+            '**This design does not deliver "encode continuously without a '
+            'per-candidate human approval".** After activation every candidate still '
+            "needs one approval by an enrolled owner who is neither its author nor "
+            "its dispatcher.",
+        ],
+        "the administrator residuals": [
+            "- **The queue is a repository setting.**",
+            "**But four repository settings stay in the administrator's hands, and "
+            "each weakens the guard without touching the ruleset; a fifth, the name "
+            "of the branch, is documented as closed.**",
+            "| The guard workflow and the merge queue are both required on `main` | "
+            "`gh api repos/TheAxiomFoundation/rulespec-us/rules/branches/main --jq "
+            "'[.[].type]'` | a list that contains `workflows` and `merge_queue`.",
+            "It detects; it prevents nothing.",
+            # Review round 3, P2-3: a bypass actor on the queue ruleset.
+            "- **The queue ruleset must have an empty bypass list.** An actor on the "
+            "bypass list of that repository ruleset merges without the queue, so "
+            "without the merge-group evaluation, and `rules/branches/main` still "
+            "lists `merge_queue`",
+            "must print `[]`. GitHub returns `bypass_actors` only to a caller with "
+            "write access to the ruleset [docs D7]: an anonymous read, or a token "
+            "without that access, cannot run this check, and `null` is not a pass.",
+            "| Organization owner, a holder of the organization's ruleset "
+            "permission, or a session with such a token | No |",
+            # P2-1: the App case is not tested by any step.
+            "That a check of the same name from another GitHub App cannot satisfy it "
+            "is [inferred, untested]: the lab creates no App",
+        ],
+        # Review round 4, P1-1, P2-2, P2-4, P3-2, P3-3, P3-5.
+        "stored credentials, installed Apps and Actions": [
+            "| Write collaborator who reads a credential that is stored where a workflow of a branch can read it | **No**, when the credential belongs to an enrolled identity, an administrator, an organization owner, or an App that can write checks or contents |",
+            "All three only while no stored credential gives the collaborator another identity (next row) |",
+            'no merge and no review is needed [docs D23 for a repository secret: any user with write access to a repository can read every secret that is configured in it; the organization secret and "no merge is needed" are inferred]. The collaborator then acts as the credential\'s owner: every control of this design that rests on that identity is void for that collaborator [inferred from the documented secret semantics; not tested].',
+            "That a workflow on a pushed branch is enough, with no merge, and that the same holds for an organization secret that the repository can use, is [inferred].",
+            "**A removal alone does not last:** a repository administrator can add an App that an organization owner has already installed to the repositories that this administrator administers, whatever the App's permissions are [docs source D26]. It lasts only when an organization owner also restricts the installation of Apps by repository administrators, which the same text names. So the read of the installed Apps is repeated at each health check.",
+            "- **The exception is required reviewers only.** A secret in an environment that has a branch policy and no required reviewers does not have it. The environments `apply-signing` and `encoder-version-bump` of axiom-encode are of that kind [live read 2026-11-18]. Their secrets are judged like repository secrets, and until a maintainer states whose credential each is, the precondition is not met for them.",
+            "A fifth row, the installed Apps, needs the account of an organization owner; a session whose token belongs to a non-owner cannot run it and reports that.",
+            "| The installed Apps are the recorded ones | `gh api orgs/TheAxiomFoundation/installations",
+            "An App that is new, or that has `rulespec-us` again after its removal, goes to a maintainer |",
+            "Also, a repository administrator can add an App that an organization owner has already installed to the repositories that this administrator administers, whatever the App's permissions are [docs source D26]; so removing an App from `rulespec-us` lasts only with that restriction.",
+            "A deleted run loses its log, which is the record of who dispatched and who approved it [inferred]: save the output of this listing and the log of each run before the deletion.",
+            "- **Change 4 has two modes, and the choice needs a maintainer's decision.**",
+            "(1) *Pinned mode*, which `rulespec-us` uses today: a pin cannot move past the producer of any manifest that is already on `main`.",
+            "So change 4 as a plain pin move fails CI.",
+            "So change 4 in practice depends on rulespec-us#2059.",
+            '(3) **In verifier-main mode `rulespec-us` verifies with encoder `main`. Then `V6_READER_ENABLED = True` on encoder `main` (change 2b) takes effect on `rulespec-us` when it merges; no separate reader pin exists to move or to revert; and the rollback "revert the reader pin" becomes "set `V6_READER_ENABLED` back to `False` on encoder `main`", a reviewed encoder change.**',
+            "This step and the rollback order at the top are written for pinned mode; under verifier-main mode they need a reviewed rewrite first.",
+            "The shared workflow refuses a pin pull request that changes anything beyond the pin files, so a waiver edit cannot ride with the pin move.",
+            '**"Revert the reader pin" is the pinned-mode form.** If `rulespec-us` verifies with encoder `main` (verifier-main mode, checklist step 9), no reader pin exists, and the same act is a reviewed change on encoder `main` that sets `V6_READER_ENABLED` back to `False` [author-reported, pin trial 2026-11-18, rulespec-us#2304; interim].',
+            "GitHub cannot restrict a repository secret to one workflow file [inferred: no page read offers it]; an environment with required reviewers can hold a secret back [docs D24].",
+            "**This exposure exists today and does not depend on the guard**: `rulespec-us` has the repository secret `BULK_ENCODE_TOKEN`",
+            "Not read: its owner, its real scopes and whether it is still valid. It also touches today's promotion lane: whoever holds an enrolled owner's token can approve. Hard precondition of checklist steps 11 and 13;",
+            "**no stored secret outside an environment with required reviewers is a credential of an enrolled identity, an administrator, an organization owner or an App that can write checks or contents, and an owner has read the installed Apps**",
+            "Actions are enabled in `rulespec-us`; and Max has decided question 0 of §10",
+            "- **Precondition check: stored credentials and installed Apps.**",
+            "- **Must hold.** No secret outside an environment with required reviewers is a credential of an enrolled identity, of an administrator of `rulespec-us`, of an organization owner, or of an App that can write checks or contents on `rulespec-us`.",
+            "A name does not show whose credential a secret is: for each secret a maintainer states the owner, and the list of names with that statement is recorded in §11.",
+            "Each installed App that can write checks on `rulespec-us` is removed from it, or Max accepts it by name as a residual risk:",
+            "- **State on 2026-11-18** [live read 2026-11-18]: this precondition does not hold.",
+            "The maintainer's token gets HTTP 403 there",
+            '**Hard precondition: the check "Stored credentials and installed Apps" of step 11 is repeated now and holds.**',
+            "Step E removes a stored token of `rulespec-us` that every write collaborator can read through a workflow of a branch",
+            "| The stored secrets are the recorded ones | `gh api repos/TheAxiomFoundation/rulespec-us/actions/secrets --jq '[.secrets[].name]'`",
+            "exactly the list of names that §11 records. The first run of this check before step 11 makes that record, with the maintainer's statement of step 11; each later run is compared with it.",
+            "| Actions are enabled in `rulespec-us` | `gh api repos/TheAxiomFoundation/rulespec-us/actions/permissions --jq .enabled` | `true`",
+            "If a head with no guard run can merge while Actions are disabled, an administrator merges without the guard and enables Actions again; nothing blocks it, and the health check reads only the state at its own time [inferred].",
+            "**Three more acts of an administrator are outside that count.** (6) **Installing a GitHub App.**",
+            "A repository administrator can install an App that asks for no "
+            'organization permission and not for "Repository administration", on the '
+            "repositories that the administrator administers, unless an organization "
+            "owner restricts it [docs source D26].",
+            "An owner's read of the installed Apps is a precondition of `Active` (checklist step 11). (7) **Renaming the repository** [experiment X10]. (8) **Transferring the repository.**",
+            "An organization owner can also rename a targeted branch without restriction [docs D22], which takes `main` out of a rule on `refs/heads/main`.",
+            "Four rows need more than an anonymous read (the runners, the bypass list, the secret names and the Actions permission)",
+            "Each is a read, so it is inside the AGENT role.",
+            "whose credential a stored secret is, whether someone has already read a secret, and Actions that were disabled and enabled again between two checks.",
+        ],
+        # Review round 4, P2-3: the survivors G3i, J1i, H1i, H2d, H3d, I2d.
+        "pins that review round 4 found missing": [
+            "the maintainer's token has it, an anonymous read does not, and `null` is not a pass",
+            "A same-named check that another GitHub App publishes is [inferred, untested]: the lab creates no App (§11).",
+            "A field that arrives after those two pins makes every v6 unit fail at step 14 (closed) until both pins move again [inferred].",
+            "steps 2 and 4 and, if Max accepted question 14, its change (step 0).",
+            "If Max accepted question 14, that commit contains its change (step 0).",
+            "What it cannot show: that the guard fails closed on a fault that did not happen.",
+        ],
+        "the decisions and their place": [
+            # Review round 3, P2-4.
+            "If Max accepts it, its change lands before the reviewed pin of step 5 "
+            "and before the reader pin of step 9",
+            "If Max declines it, nothing changes: the v6 shape stays as §5 gives it, "
+            "and no step waits for it.",
+            "After all six merges it prints five lines, with `False`, `False`, "
+            "`False`, `None` and `None`.",
+            "At no time may a line show `True` or a recorded identity.",
+        ],
+    },
+    KEY_PROTECTION_DOC: {
+        "nothing is chosen or accepted": [
+            "Status: **recommendation; Max has not accepted it. Nothing is chosen.**",
+            "It changes no setting, creates no App, environment, secret or ruleset, "
+            "and satisfies no activation condition.",
+            "- **Condition.** The recommendation holds only if a live experiment "
+            "passes (`docs/merge-guard-ruleset-experiment.md`). Only an organization "
+            "owner can run it. Until it passes, nothing is chosen for activation.",
+            "- **Named fallback if the experiment fails, (b)+(d).**",
+            "(4) A comment from Max's account is not sufficient evidence of this "
+            "decision;",
+            "Its bypass list is empty. It starts in `Evaluate` and moves to `Active` "
+            "later.",
+            "None of it is built or tested.",
+            "Steps A, B and D are still open (read 2026-11-17).",
+        ],
+        "the key hold": [
+            "Nobody may store a guard App key or set `MERGE_GUARD_RUNNER_ENABLED`, "
+            "shadow mode included, until Max chooses a mechanism and any complement, "
+            "maintainers implement them, and a fresh independent review verifies the "
+            "whole key-exposure set (§6).",
+            "Under (g') no key is ever created, so this hold is kept by never "
+            "creating one. Under either fallback the hold applies in full.",
+        ],
+        "what an agent must not do": [
+            "Agents perform none of these steps. Each needs repository or "
+            "organization settings.",
+            "An agent must not perform any step of this section: it must not create, "
+            "edit or delete the ruleset, and it must not hold an `admin:org` token.",
+            "Proposed standing rule: no agent session gets `admin:org`. GitHub cannot "
+            "enforce that rule.",
+            "It is the owner's own decision, outside the experiment, and no agent "
+            "makes it.",
+        ],
+        # Review round 3, P1-3: the values of the web form, by value.
+        "the ruleset form": [
+            "- Ruleset name: `content-bound-merge-guard`.",
+            "- Enforcement status: `Evaluate`.",
+            "- Bypass list: empty. Add nothing.",
+            "- Target repositories: selected repositories, `rulespec-us` only.",
+            "- Target branches: the one ref `refs/heads/main`, as an include pattern.",
+            'Do **not** choose the form\'s "default branch" target',
+            '- Rule: "Require workflows to pass before merging". Repository '
+            "`axiom-encode`. Workflow file "
+            "`.github/workflows/content-bound-merge-guard.yml`. Pin: the reviewed "
+            "commit SHA, all 40 characters. Select no other rule.",
+            "It must show `evaluate`, an empty bypass list, the one repository, the "
+            "one ref `refs/heads/main` and one `workflows` entry with the reviewed "
+            "`sha`.",
+            "must show `active`, an empty bypass list, the one repository, the one "
+            "ref and the one workflow entry with the reviewed `sha`.",
+        ],
+        "the residual risks that decide": [
+            "- **R4b. The inert path is the one assumption that fails open.**",
+            "**So a merge queue on `rulespec-us` `main` is a precondition of "
+            "`Active`**",
+            "- (c) **The merge-group run narrows the window to seconds; it does not "
+            "close it.**",
+            "- **R6. Agents under both enrolled identities** (design §9). No option "
+            "changes this.",
+            "one session can author and dispatch as one owner and approve as the "
+            "other, and every check passes. The guard records which accounts acted",
+            "- **R12. What an administrator of `rulespec-us` can still change.**",
+            "An administrator can turn it off with no review.",
+            "**A bypass actor on the repository ruleset that holds the queue merges "
+            "without the merge-group evaluation, and the rule still shows in "
+            "`rules/branches/main`**",
+            "The lock of draft #2289 cannot see it: it does not read bypass lists",
+            "- **R13. After the v6 writer is on, a rollback of the ruleset is a last resort and is not durable; it has an order.**",
+            '"Revert the reader pin" is the pinned-mode form: if `rulespec-us` verifies with encoder `main` (verifier-main mode, draft rulespec-us#2059), no reader pin exists, and the same act is a reviewed change that sets `V6_READER_ENABLED` back to `False` on encoder `main` [author-reported, pin trial 2026-11-18, rulespec-us#2304; interim]',
+            "**A signing run that was dispatched before the writer-off commit still "
+            "has the writer on.**",
+            "So no enrolled owner may re-run such a run or approve it for "
+            "`production-signing`; nothing technical enforces that.",
+            "**GitHub offers no transaction between the check and the ruleset change.** Closing a pull request does not remove its signed bytes;",
+            "**This order is not a durable rollback. Once the ruleset is weak, nothing technical protects `rulespec-us` from signed v6 bytes.**",
+            "So any account with write access can move the reader pin forward again in the same pull request that lands signed v6 bytes [inferred]. Not tested: whether validation refuses a pull request that moves the pin and adds a manifest together.",
+            "**The recommended response to a guard problem after step 13 is therefore not to weaken the ruleset**: (a) repair forward, with a pin move to a fixed guard while the ruleset is `Active`; or (b) turn the writer off and keep the ruleset `Active`, which blocks every merge of `rulespec-us` when the guard cannot pass (the fail-closed state).",
+            "(c) Weakening the ruleset is the last resort. It reopens the exposure that existed before the guard, now for signed v6 bytes, and three standing conditions then hold as rules for people: no pin to an encoder commit with the reader on merges while the ruleset is weak; for 30 days after the writer-off commit no enrolled owner re-runs or approves an older signing run, or a maintainer deletes those runs after saving the run list and the logs [docs D25]; and signed v6 bytes that never landed stay valid indefinitely [inferred].",
+            "**Durable options, not designed:** enforced code-owner review of `.axiom/workflow-toolchain.toml` on `rulespec-us` before the ruleset is weakened, or a new signing key.",
+            "- **R14. A credential that is stored where a workflow of a branch can read it.**",
+            "A write collaborator pushes a branch with a workflow that reads a repository secret, or an organization secret that the repository can use; no merge and no review is needed. The collaborator then acts as the owner of that credential.",
+            "**If the owner is an enrolled identity, an administrator or an organization owner, every control of this design that rests on that identity is void for that collaborator** [inferred from the documented secret semantics; not tested].",
+            "That GitHub cannot restrict a repository secret to one workflow file is [inferred]: no page read offers it.",
+            "**Not read:** the owner of any of these credentials, the real scopes of `BULK_ENCODE_TOKEN` (only the sentence of the README), and whether it is still valid.",
+            "**This exposure exists today, and it does not depend on the guard**: today's promotion lane also rests on the approval of an enrolled owner.",
+            "- `rulespec-us`, repository secrets: `BULK_ENCODE_TOKEN` (created 2026-07-06), `OPENAI_API_KEY`, `SUPABASE_DB_URL`. No environment.",
+            "If a head with no guard run can merge while Actions are disabled, an administrator merges without the guard: Actions off, merge, Actions on again. Nothing blocks it [inferred].",
+            "must print `true` [live read 2026-11-18: `true`]. It is a row of the health check and a precondition of `Active` (design §8).",
+            "Three more acts of an administrator are outside that count:",
+            '- (f) **Installing a GitHub App.** A repository administrator can install a GitHub App in the organization when the App asks for no organization permission and not for the "Repository administration" permission, and only on repositories that this administrator administers; an organization owner can restrict that [docs source D26].',
+            "**Also, a repository administrator can add an App that an organization owner has already installed to the repositories that this administrator administers, whatever the App's permissions are** [docs source D26]. So removing an installed App from `rulespec-us` does not last against one administrator. It lasts only when an organization owner restricts the installation of Apps by repository administrators, which the same text names.",
+            "So a `rulespec-us` administrator alone can install an App that has the right to write checks there, which is the untested case of R5. Precondition of `Active`: an organization owner reads the installations (§5 step 11), and the read is repeated at each health check (design §8);",
+            "and a `rulespec-us` administrator can add an App that an owner installed to `rulespec-us` again after its removal (R12 (f)).",
+            "four Apps are installed; three of them have all repositories and `checks: write`",
+            "- (g) **Renaming or transferring the repository.**",
+            "An organization owner can also rename a targeted branch without restriction [docs D22], which takes `main` out of a rule on `refs/heads/main`.",
+            "on, no rollback of the ruleset is durable.",
+            "So the recommended response to a guard problem is to repair forward, or to keep the ruleset `Active` with the writer off, which blocks every merge (§4.4, R13).",
+            "(7) **A stored token exists today that every write collaborator of `rulespec-us` can read**: the repository secret `BULK_ENCODE_TOKEN`.",
+            'This does not depend on the guard; step E of §5 "Now" removes it (§4.4, R14).',
+            "(8) If step X8 (c) of the experiment shows that a head can merge while Actions are disabled, a `rulespec-us` administrator can merge without the guard by disabling Actions and enabling them again (R12 (d)).",
+            "(9) The experiment needs no merge of this stack. An organization owner can run it now, before any review effort (§5).",
+            "On 2026-11-18 that last precondition did not hold.",
+            "Step E is a third exposure, of another kind: a stored token that a workflow of any branch of `rulespec-us` can read. It is open (read 2026-11-18).",
+            "An owner who sets the ruleset to `Disabled` first creates exactly the "
+            "forbidden state; nothing technical prevents it.",
+            "therefore serial at about 5.4 to 7.8 hours each: **about 3 to 4 a day**",
+            # P2-1: the App case is a residual, with its reason.
+            "**X2 does not cover a same-named check that another GitHub App "
+            "publishes.** That such a check cannot satisfy the rule is [inferred, "
+            "untested]. The reason: the lab creates no App.",
+        ],
+        "the rollback order": [
+            "**Once the v6 writer is on (activation checklist step 13), this "
+            "rollback comes last.** First set `V6_WRITER_ENABLED` back to `False` in "
+            "a reviewed change on encoder `main`. Then confirm that no run of "
+            "`targeted-signed-reencode.yml` is queued, waiting for the "
+            "`production-signing` approval or in progress: `gh run list --repo "
+            "TheAxiomFoundation/axiom-encode --workflow targeted-signed-reencode.yml "
+            "--limit 200 --json databaseId,status,headSha,createdAt --jq '[.[] | "
+            'select(.status != "completed")]\'` must print `[]`; the listing must '
+            "reach back more than 30 days, so raise `--limit` if it does not.",
+            "A signing run that was dispatched before the writer-off commit still has "
+            "the writer on, and a re-run of it executes that commit for 30 days "
+            "[docs D9]: no enrolled owner may re-run or approve one. Then revert the "
+            "reader pin of `rulespec-us`; or, as the weaker form, make sure "
+            "immediately before the next act that no open pull request of "
+            "`rulespec-us` holds a signed v6 manifest. Only then set the ruleset to "
+            "`evaluate` or `disabled`, move its pin back, or turn the merge queue "
+            "off (R13).",
+            "GitHub offers no transaction between the check and the ruleset change. Before checklist step 13 the rollback is free.",
+            "**After checklist step 13 this rollback is a last resort, and it is not durable.** Once the ruleset is weak, nothing technical protects `rulespec-us` from signed v6 bytes: any account with write access can move the reader pin forward again in the pull request that lands them",
+            "Do not weaken the ruleset for a guard problem. Repair forward (a pin move to a fixed guard while the ruleset is `Active`), or turn the writer off and keep the ruleset `Active`: it then blocks every merge, which is the fail-closed state.",
+            "If the ruleset is weakened in spite of that, the three standing conditions of R13 hold for as long as it is weak.",
+            "E. Remove the stored token `BULK_ENCODE_TOKEN` of `rulespec-us` (R14). **Open** [live read 2026-11-18]. A maintainer finds the account that owns the token, revokes it in that account's token settings, and deletes the repository secret.",
+            "Deleting the secret alone does not revoke a token that someone has already read.",
+            "If the token must stay, a maintainer documents why, and moves it into an environment with required reviewers.",
+            "This exposure exists today and is independent of the guard: every write collaborator of `rulespec-us` can read the secret through a workflow of a branch [docs D23; inferred]. Not read: its owner, its real scopes and its validity.",
+            "**The experiment does not wait for any merge.** It depends on no pull request of this stack:",
+            "It must have passed before the review of §6 at the candidate SHA (checklist step 5).",
+            "5. **After change 6 (activation checklist step 13) only: the lock "
+            "constant first.**",
+            "The set never keeps an older pin:",
+        ],
+        "the Active preconditions": [
+            "Do this only after Max accepts, the experiment has passed as checklist "
+            "step 3 defines it, and the review of §6 has read the workflow and the "
+            "bundle at the candidate SHA.",
+            "Immediately before the switch, the queue must still be required",
+            "The owner's reads of step 9 and the bypass read of step 10 must also "
+            "hold at that moment.",
+            "A passed run there stops the activation.",
+            # Review round 3, P1-2 and P2-3.
+            "9. **Precondition of `Active`: an organization owner verifies the "
+            "runner and rename settings (R12 (c), (e)).**",
+            '**If the "Runners" setting has another value, the switch to `Active` '
+            "waits.**",
+            "10. **Precondition of `Active`: the merge-queue ruleset of `rulespec-us` "
+            "has an empty bypass list (R12 (a)).**",
+            "which must print `[]`. GitHub returns the field only to a caller with "
+            "write access to the ruleset [docs D7]; `null` is not a pass.",
+            # Review round 4, P1-1 and P2-4.
+            "11. **Precondition of `Active` and of change 6: the stored secrets and the installed Apps (R14, R12 (f)).**",
+            "**None of the secrets may be a credential of an enrolled identity, of an administrator of `rulespec-us`, of an organization owner, or of an App that can write checks or contents on `rulespec-us`, except inside an environment with required reviewers.**",
+            "A name does not show the owner of a credential: a maintainer states it for each secret, and the names with that statement go into the design's §11.",
+            "Each installed App that can write checks on `rulespec-us` is removed from it, or Max accepts it by name as a residual (R5). A removal alone does not last against a repository administrator (R12 (f)): it needs the owner's restriction of installations too.",
+            "**The exception is required reviewers only**: `apply-signing` and `encoder-version-bump` of axiom-encode hold secrets with a branch policy and no required reviewers [live read 2026-11-18], so their secrets are judged like repository secrets, and the precondition is not met for them until a maintainer states whose credential each is. On 2026-11-18 this precondition did not hold (R14, R12 (f)).",
+            "So must the reads of step 11, and `gh api repos/TheAxiomFoundation/rulespec-us/actions/permissions --jq .enabled` must print `true` (R12 (d)).",
+            "a read of the stored secrets and the installed Apps: no stored secret outside an environment with required reviewers is a credential of an enrolled identity, an administrator, an organization owner or an App that can write checks or contents (R14, R12 (f); §5 step 11).",
+        ],
+    },
+    EXPERIMENT_DOC: {
+        "status and who": [
+            "Status: **designed, not run.**",
+            "Until an organization owner runs it and records the results, nothing is "
+            "chosen for activation.",
+            "An agent must not run it, and no agent session may receive a token with "
+            "the `admin:org` scope for it.",
+            "It touches neither `axiom-encode` nor any `rulespec-*` repository",
+            "The owner's recorded output is the evidence; the agent adds none.",
+        ],
+        # Review round 3, P1-2: the experiment stays inside the lab.
+        "what it creates and where it acts": [
+            "It creates no stored secret, no GitHub App and no key. It registers no "
+            "self-hosted runner. It changes no organization setting: the only "
+            "organization-level object that it creates, edits or deletes is the "
+            "ruleset `guard-lab`.",
+            "Every step acts on the two lab repositories and the lab ruleset only.",
+            "Class: informational. The lab registers no self-hosted runner and "
+            "changes no organization setting.",
+            "Record and stop; do not change any organization setting from the lab.",
+            "Only then delete the organization ruleset `guard-lab`: `gh api -X DELETE "
+            "orgs/TheAxiomFoundation/rulesets/<id>`.",
+            "No organization setting was changed, so none is set back.",
+        ],
+        "the lab ruleset form": [
+            "| Name | `guard-lab` |",
+            "| Enforcement status | `Evaluate` (X6 changes it to `Active`) |",
+            "| Bypass list | empty |",
+            "| Target repositories | selected: `guard-lab-target` only |",
+            "| Target branches | the one ref `refs/heads/main`, as an include "
+            'pattern; not the form\'s "default branch" target |',
+            '| Rule | "Require workflows to pass before merging": repository '
+            "`guard-lab-source`, file `.github/workflows/lab-guard.yml`, pinned to "
+            "the SHA of commit A |",
+        ],
+        "the steps that decide": [
+            "(g') fails outright: use the fallback.",
+            "- **If it fails.** This is the one unverified point that fails **open**.",
+            "(g') must not go `Active`, and the runner needs a reviewed change",
+            "A merge to axiom-encode `main` would then change the guard at once, and "
+            "`main` needs no approval for most files. (g') fails: use the fallback.",
+            "For (a) and (b) any author can cause that, so (g') fails: use the "
+            "fallback.",
+            "It prints `marker=A`: the source has commit B since X1 and the ruleset "
+            "still pins commit A, so the SHA pin must hold for the `merge_group` run "
+            "too.",
+            "would change the guard at merge time at once. (g') fails: use the "
+            "fallback.",
+            "(a) or (b) fail: the merge-time evaluation does not bound the stale "
+            "green; (g') is not acceptable for `Active`.",
+            "if the pull request merges before the `lab-guard` job has ended, the "
+            "ruleset result is not part of the queue's requirements, and (g') is not "
+            "acceptable for `Active`.",
+            "any author passes the guard by opening the pull request against another "
+            "branch first. (g') fails: use the fallback.",
+            "- **Not covered: a check that another GitHub App publishes.**",
+            "- **Pass.** A `lab-guard` run starts with `github.event_name=merge_group` "
+            "while the ruleset is in `Evaluate`. That is the one pass condition.",
+            # Review round 4: P2-2, P2-3 (E1d, E2i, F1i), the coordinator's
+            # addition and P3-3.
+            "- **When.** At any time from now. **The experiment does not depend on any pull request of the merge-guard stack being merged**: it uses only the two throwaway repositories, its own lab workflow files (§1) and the one lab ruleset.",
+            "It must have passed before checklist step 5 of `docs/content-bound-merge-guard.md` §8.",
+            'A step of the class "adjusting, no second run" that fails does not stop the experiment: its result is recorded, and its named change is a procedure or a decision that a reviewed change of the checklist takes up.',
+            "For (c) only a repository administrator can. Record it under R12 (d) of `docs/merge-guard-key-protection.md` §4.4: an administrator of the real repository can then merge without the guard by disabling Actions and enabling them again.",
+            'The consequence is a named residual risk, a row of the design\'s health check (Actions are enabled) and an item of "What Max should know".',
+            "An organization-level runner took a lab job; an owner reads the runner groups before anything else happens.",
+            "this experiment must not change one.",
+            "A marker other than `A`: the pin does not fix the file that a merge group runs,",
+            "- Not covered: a transfer of the repository to another owner.",
+            "- Anything about stored credentials. The lab stores no secret.",
+            "That change must also replace the trial clause of the precondition of checklist step 11, which nothing can meet in this case, and move the stop rule for the inert path on a merge group from step 8 to step 12, before any second landing.",
+            "No such token is designed. It would have to meet the stored-credential precondition of checklist step 11: not a credential of an enrolled identity, an administrator or an organization owner.",
+        ],
+    },
+}
+ALL_DOC_SENTENCES = [
+    (name, sentence)
+    for name, groups in DOC_SENTENCES.items()
+    for sentences in groups.values()
+    for sentence in sentences
+]
+
+
+def _flat(name: str) -> str:
+    """The document on one line; the ``>`` of a block quote is not text."""
+    text = (REPOSITORY_ROOT / name).read_text(encoding="utf-8")
+    return " ".join(re.sub(r"^> ?", "", text, flags=re.M).split())
+
+
+def doc_sentence_problems(name: str, flat: str) -> list[str]:
+    return [
+        f"{name}: {group}: {flat.count(sentence)} times, not once: {sentence!r}"
+        for group, sentences in DOC_SENTENCES[name].items()
+        for sentence in sentences
+        if flat.count(sentence) != 1
+    ]
+
+
+@pytest.mark.parametrize("name", sorted(DOC_SENTENCES))
+def test_the_decisive_sentences_of_each_document_are_present_once(name):
+    assert doc_sentence_problems(name, _flat(name)) == []
+
+
+@pytest.mark.parametrize(("name", "sentence"), ALL_DOC_SENTENCES)
+def test_the_sentence_pin_reports_each_lost_and_each_doubled_sentence(name, sentence):
+    flat = _flat(name)
+    for changed in (flat.replace(sentence, ""), flat + " " + sentence):
+        problems = doc_sentence_problems(name, changed)
+        assert len(problems) == 1 and repr(sentence) in problems[0]
+
+
+# The class line of every step of the runbook, by value. A step that moves
+# from blocking to informational, or a sub-part that loses its class, is a
+# changed value here; checklist step 3 of the design gives the same classes
+# in its table, which DOC_SENTENCES pins row by row.
+EXPERIMENT_CLASSES = {
+    "X6": "adjusting, no second run (the change is the form of the shadow "
+    "period, design checklist steps 6 and 7).",
+    "X1": "blocking.",
+    "X11": "adjusting, run again.",
+    "X18": "adjusting, run again; no ruleset may name the real runner until it passes.",
+    "X12": "adjusting, run again.",
+    "X4": "adjusting, no second run (the change is a decision, not code).",
+    "X2": "blocking, each part.",
+    "X3": "adjusting, no second run (the change is the procedure after an approval).",
+    "X16": "informational.",
+    "X13": "informational.",
+    "X9": "informational.",
+    "X8": "blocking for (a) and (b); informational for (c).",
+    "X7 and X14": "X7 informational; X14 adjusting, run again.",
+    "X5": 'blocking for "a `merge_group` run starts" and for the marker `A`; '
+    "adjusting, run again, for the payload fields.",
+    "X15": 'blocking for (a), (b) and for "merges only after the guard job has '
+    "ended\" in (c); adjusting, run again, for the identity of the group's "
+    "check in (c); "
+    "informational for (d).",
+    "X10": "adjusting, run again.",
+    "X17": "informational.",
+    "X19": "informational; it can change the pin procedure.",
+    "X20": "adjusting, no second run (the change is the form of the queue trial, "
+    "design "
+    "checklist step 8).",
+    "X21": "adjusting, run again.",
+    "X22": "informational.",
+    "X23": "informational. The lab registers no self-hosted runner and changes "
+    "no organization setting.",
+    "X24": "blocking.",
+}
+
+
+# A pin must fail when its sentence is deleted (the test above) and also when
+# the decisive word of the sentence is inverted. This is a sample of such
+# inversions, one for each kind of pin: a role, a mode, a form value, a class
+# row, a rollback sentence, a precondition, the approval that remains, the
+# key hold. The complete list is the reviewer's 53 doc mutants, run outside
+# the test suite (review round 3 of the recommendation, P1-3).
+DOC_INVERSIONS = [
+    (DESIGN_DOC, "3. **M** (any organization owner) Run", "3. AGENT Run"),
+    (DESIGN_DOC, "1. **M** (Max) decides question 0:", "1. AGENT decides question 0:"),
+    (
+        DESIGN_DOC,
+        "8. **M** (a `rulespec-us` administrator) Turn on",
+        "8. AGENT (with the maintainer's administrator token) Turn on",
+    ),
+    (
+        DESIGN_DOC,
+        "Create the organization ruleset in `Evaluate`,",
+        "Create the organization ruleset in `Active`,",
+    ),
+    (DESIGN_DOC, "reviewed SHA, empty bypass list.", "reviewed SHA, a bypass list."),
+    (DESIGN_DOC, "| Informational | X7, X9,", "| Informational | X24, X7, X9,"),
+    (DESIGN_DOC, "X1; X2 (a) to (e); X8", "X1; X2 (a); X8"),
+    (
+        DESIGN_DOC,
+        "In every other case revert the reader pin.",
+        "In every other case closing the pull request is enough.",
+    ),
+    (DESIGN_DOC, "So no enrolled owner may re-run", "So an enrolled owner may re-run"),
+    (DESIGN_DOC, "GitHub offers no transaction", "GitHub offers a transaction"),
+    (DESIGN_DOC, "and do not go on.", "and go on to step 13."),
+    (
+        DESIGN_DOC,
+        "every candidate still needs one approval",
+        "no candidate needs an approval",
+    ),
+    (DESIGN_DOC, "5. **M** (the other enrolled owner) reads", "5. AGENT reads"),
+    (
+        DESIGN_DOC,
+        "2. **M** (an enrolled dispatcher; it may be the candidate's author) "
+        "dispatches",
+        "2. AGENT dispatches",
+    ),
+    (DESIGN_DOC, "none needs `admin:org`.", "the owner checks need `admin:org`."),
+    (
+        DESIGN_DOC,
+        "No step of the experiment changes an organization setting.",
+        "A step of the experiment changes an organization setting.",
+    ),
+    (
+        KEY_PROTECTION_DOC,
+        "- Enforcement status: `Evaluate`.",
+        "- Enforcement status: `Active`.",
+    ),
+    (
+        KEY_PROTECTION_DOC,
+        "- Bypass list: empty. Add nothing.",
+        "- Bypass list: the owners.",
+    ),
+    (
+        KEY_PROTECTION_DOC,
+        "selected repositories, `rulespec-us` only.",
+        "all repositories.",
+    ),
+    (
+        KEY_PROTECTION_DOC,
+        "Nobody may store a guard App key",
+        "Maintainers may store a guard App key",
+    ),
+    (KEY_PROTECTION_DOC, "it does not close it.**", "it closes it.**"),
+    (
+        KEY_PROTECTION_DOC,
+        "no enrolled owner may re-run or approve one",
+        "an enrolled owner may re-run one",
+    ),
+    (
+        EXPERIMENT_DOC,
+        "| Bypass list | empty |",
+        "| Bypass list | organization owners |",
+    ),
+    (EXPERIMENT_DOC, "Record and stop; do not change", "Record it; then change"),
+    (EXPERIMENT_DOC, "It prints `marker=A`:", "It prints a marker:"),
+    (
+        EXPERIMENT_DOC,
+        "It changes no organization setting:",
+        "It changes one organization setting:",
+    ),
+    # Review round 4: one inversion for each new kind of pin.
+    (DESIGN_DOC, "leaves that gap open and depends on", "closes that gap without"),
+    (
+        DESIGN_DOC,
+        "an anonymous read does not, and `null` is not a pass",
+        "an anonymous read does not, and `null` is a pass",
+    ),
+    (
+        DESIGN_DOC,
+        "A same-named check that another GitHub App publishes is [inferred, untested]",
+        "A same-named check that another GitHub App publishes is [experiment X2]",
+    ),
+    (
+        DESIGN_DOC,
+        "This order is not a durable rollback.**",
+        "This order is a durable rollback.**",
+    ),
+    (
+        DESIGN_DOC,
+        "is not to weaken the ruleset.** In this order",
+        "is to weaken the ruleset first.** In this order",
+    ),
+    (DESIGN_DOC, "is void for that collaborator [inferred", "still holds [inferred"),
+    (DESIGN_DOC, "this precondition does not hold.", "this precondition holds."),
+    (
+        DESIGN_DOC,
+        "| Adjusting, no second run | X3 (change",
+        "| Adjusting, no second run | X18, X3 (change",
+    ),
+    (
+        KEY_PROTECTION_DOC,
+        "**This order is not a durable rollback.",
+        "**This order is a durable rollback.",
+    ),
+    (
+        KEY_PROTECTION_DOC,
+        "except inside an environment with required reviewers.**",
+        "or inside any environment.**",
+    ),
+    (
+        KEY_PROTECTION_DOC,
+        "revokes it in that account's token settings, and deletes",
+        "keeps it, or deletes",
+    ),
+    (EXPERIMENT_DOC, "Record it under R12 (d)", "Record it under R1"),
+    (
+        EXPERIMENT_DOC,
+        "does not depend on any pull request",
+        "depends on every pull request",
+    ),
+    # Review round 5 and the pin trial.
+    (
+        DESIGN_DOC,
+        "no separate reader pin exists to move or to revert",
+        "the reader pin of step 9 still exists",
+    ),
+    (DESIGN_DOC, "**A removal alone does not last:**", "**A removal lasts:**"),
+    (
+        KEY_PROTECTION_DOC,
+        "is a last resort and is not durable; it has an order.**",
+        "is durable; it has an order.**",
+    ),
+]
+
+# Wording that review round 4 removed (P1-2, P2-2). It must not come back.
+REMOVED_WORDING = [
+    "safe form",
+    "The durable way",
+    "record it under R1.",
+]
+
+
+@pytest.mark.parametrize("name", sorted(DOC_SENTENCES))
+def test_the_wording_that_review_round_4_removed_stays_out(name):
+    flat = _flat(name)
+    assert [wording for wording in REMOVED_WORDING if wording in flat] == []
+
+
+@pytest.mark.parametrize(("name", "old", "new"), DOC_INVERSIONS)
+def test_the_sentence_pin_reports_an_inverted_decisive_word(name, old, new):
+    flat = _flat(name)
+    assert flat.count(old) == 1
+    assert doc_sentence_problems(name, flat) == []
+    assert doc_sentence_problems(name, flat.replace(old, new)) != []
+
+
+def _experiment_steps(text: str) -> list[str]:
+    """The ``Xn`` ids of the experiment, from the runbook's step headings."""
+    ids = []
+    for heading in re.findall(r"^### (X[0-9]+(?: and X[0-9]+)?)\. ", text, re.M):
+        ids += heading.split(" and ")
+    return ids
+
+
+def test_every_experiment_step_is_defined_recorded_classified_and_not_run():
+    design = (REPOSITORY_ROOT / DESIGN_DOC).read_text(encoding="utf-8")
+    runbook = (REPOSITORY_ROOT / EXPERIMENT_DOC).read_text(encoding="utf-8")
+    expected = [f"X{n}" for n in range(1, 25)]
+    steps = _experiment_steps(runbook)
+    assert sorted(steps, key=lambda step: int(step[1:])) == expected
+    assert len(steps) == len(set(steps))
+    # Each step of the runbook names its class in the paragraph after its
+    # heading, and the class is pinned by value (review round 3, P1-3).
+    classes = {
+        heading: " ".join(line.split())
+        for heading, line in re.findall(
+            r"^### (X[0-9]+(?: and X[0-9]+)?)\. [^\n]*\n\nClass: (.*?)\n\n",
+            runbook,
+            re.M | re.S,
+        )
+    }
+    assert classes == EXPERIMENT_CLASSES
+    # The runbook's record table has a row for each step (X2 has five).
+    record = runbook[runbook.index("## 4. Record") : runbook.index("## 5. What")]
+    rows = re.findall(r"^\| (X[0-9]+)(?: \([a-e]\))? \|", record, re.M)
+    assert sorted(set(rows), key=lambda step: int(step[1:])) == expected
+    assert rows.count("X2") == 5
+    # Every result cell of the runbook's table is empty: nothing is recorded.
+    assert all(
+        line.endswith("| | |") for line in record.splitlines() if line.startswith("| X")
+    )
+    # The design's table: every step, each with the result "not run". Update
+    # this, in the reviewed change that copies the owner's record.
+    section = design[
+        design.index("### The ruleset experiment (not run)") : design.index(
+            "### Other open points"
+        )
+    ]
+    results = re.findall(r"^\| (X[0-9]+) \|.*\| ([^|]+) \|$", section, re.M)
+    assert [step for step, _ in results] == expected
+    assert {result.strip() for _, result in results} == {"not run"}
+    # The pass rule of checklist step 3 sorts every step into a class.
+    flat = " ".join(design.split())
+    rule = flat[
+        flat.index('- **"The experiment passed" means exactly this:**') : flat.index(
+            "4. AGENT, only if the results ask for it"
+        )
+    ]
+    classified = set(re.findall(r"\bX[0-9]+\b", rule))
+    assert classified == set(expected)
+    for heading in (
+        "| Blocking |",
+        "| Adjusting, run again |",
+        "| Adjusting, no second run |",
+        "| Informational |",
+    ):
+        assert rule.count(heading) == 1
+    # Review round 4, P2-1: a step whose named change is a procedure or a
+    # decision cannot pass in a second run, so its class asks for none.
+    table = rule[rule.index("| Blocking |") : rule.index("| Informational |")]
+    again, no_second = table.split("| Adjusting, no second run |")
+    again = again[again.index("| Adjusting, run again |") :]
+    assert set(re.findall(r"\bX[0-9]+\b", no_second)) == {"X3", "X4", "X6", "X20"}
+    assert set(re.findall(r"\bX[0-9]+\b", again)) == {
+        "X5",
+        "X10",
+        "X11",
+        "X12",
+        "X14",
+        "X15",
+        "X18",
+        "X21",
+    }
+    no_second_classes = {
+        step
+        for heading, line in EXPERIMENT_CLASSES.items()
+        if "no second run" in line
+        for step in heading.split(" and ")
+    }
+    assert no_second_classes == {"X3", "X4", "X6", "X20"}
+
+
+def test_the_ruleset_bodies_target_main_by_name_and_start_in_evaluate():
+    # Review round 1 of the recommendation, P1-3 (a): ``~DEFAULT_BRANCH``
+    # follows a changed default branch; the runner judges ``main`` only.
+    bodies = []
+    for name in (KEY_PROTECTION_DOC, EXPERIMENT_DOC):
+        text = (REPOSITORY_ROOT / name).read_text(encoding="utf-8")
+        for block in re.findall(r"```json\n(.*?)```", text, re.S):
+            bodies.append(json.loads(block))
+    assert len(bodies) == 2
+    for body in bodies:
+        assert body["conditions"]["ref_name"] == {
+            "include": ["refs/heads/main"],
+            "exclude": [],
+        }
+        assert body["enforcement"] == "evaluate" and body["bypass_actors"] == []
+        assert body["target"] == "branch"
+        assert set(body) == {
+            "name",
+            "target",
+            "enforcement",
+            "bypass_actors",
+            "conditions",
+            "rules",
+        }
+        assert set(body["conditions"]) == {"repository_name", "ref_name"}
+        assert body["conditions"]["repository_name"]["exclude"] == []
+        (rule,) = body["rules"]
+        (entry,) = rule["parameters"]["workflows"]
+        assert rule["type"] == "workflows" and set(entry) == {
+            "repository_id",
+            "path",
+            "sha",
+        }
+    real, lab = bodies
+    assert real["conditions"]["repository_name"]["include"] == ["rulespec-us"]
+    assert real["name"] == "content-bound-merge-guard" and lab["name"] == "guard-lab"
+    assert real["rules"][0]["parameters"]["workflows"][0]["path"] == (
+        ".github/workflows/content-bound-merge-guard.yml"
+    )
+    # The source repository is axiom-encode, by id; the pin is a placeholder
+    # for a commit SHA, never a branch.
+    real_entry = real["rules"][0]["parameters"]["workflows"][0]
+    assert real_entry["repository_id"] == 1125775893
+    assert real_entry["sha"] == "<reviewed 40-hex commit SHA>"
+    assert lab["rules"][0]["parameters"]["workflows"][0]["path"] == (
+        ".github/workflows/lab-guard.yml"
+    )
+    assert lab["conditions"]["repository_name"]["include"] == ["guard-lab-target"]
+
+
+def test_the_documents_state_the_waits_and_limits_of_the_runner_as_built():
+    # The numbers the documents give for the wait come from the constants.
+    assert runner.CI_WAIT_SECONDS == runner.MERGE_GROUP_WAIT_SECONDS == 5 * 3600
+    design = _flat(DESIGN_DOC)
+    key = _flat(KEY_PROTECTION_DOC)
+    assert "for at most 18,000 seconds, five hours (`CI_WAIT_SECONDS`)" in design
+    assert "**Job timeout.** `timeout-minutes` is 345." in design
+    assert "`MAX_ENFORCE_REQUESTS` is 350" in design
+    assert (
+        "it waits for that check, at most 5 hours, with a poll every 180 seconds"
+        in (key)
+    )
+    assert "The job timeout is 345 minutes" in key
+    for text in (design, key, _flat(EXPERIMENT_DOC)):
+        assert "60-minute wait" not in text and "at most 60 minutes" not in text
 
 
 # --- the enforcing runner (change 3b) -------------------------------------------
