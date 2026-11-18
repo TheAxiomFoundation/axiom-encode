@@ -1292,25 +1292,17 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   be negative. Wrap the final selected branch at zero, including both sides of
   conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`,
   not `if condition: branch_a else: branch_b`.
-- The zero floors above are for differences, for an income base inside
-  `min(...)`, and for taxable income. When a benefit, allotment, credit,
-  deduction, allowance, or subsidy formula subtracts one amount from another
-  and the result can go below zero, keep `max(0, ...)` on the difference, also
-  when the source states no floor: that is how the formula never emits negative
-  money. The excluded-excess and "in excess of" forms below, `max(0,
-  source_amount - cap)` and `max(0, measured_value - limit)`, are such
-  differences and keep their forms, and the cap clamp rule below keeps its
-  form. A single source-stated amount or a bare input is different: do not wrap
-  it in `max(0, ...)` just to keep an output nonnegative. Floor a single amount
-  only when the source states the floor ("not less than zero", "but not below
-  zero", "cannot be negative", "if the result is less than zero, enter zero").
-  Keep a floor that the existing encoding of the same rule already has; do not
-  add a second floor around an imported amount. When the source only says that
-  an expense, payment, or other single amount is allowable, countable, or
-  deductible, return the amount as stated, e.g. `if amount_qualifies:
-  stated_amount else: 0`, not `if amount_qualifies: max(0, stated_amount) else:
-  0`. A floor on a single amount that the source does not state invents amount
-  semantics and adds a below-zero branch that needs its own companion case.
+- A single source-stated amount or a bare input that a rule returns as its
+  result (not a difference, not an operand of the floor rules above, and not
+  the cap clamp or excess forms below) gets no zero floor of its own: do not
+  wrap it in `max(0, ...)` unless the source states a floor for it ("not less
+  than zero", "but not below zero", "cannot be negative") or the existing
+  encoding of the same rule already has one. If the rule returns that amount,
+  return it without a floor, e.g. `if amount_qualifies: stated_amount else: 0`,
+  not `if amount_qualifies: max(0, stated_amount) else: 0`. This bullet does
+  not change any rule about a difference, a subtraction, an income base,
+  taxable income, an excess, or a cap: those keep the forms required above and
+  below.
 - Taxpayer elections such as electing to itemize deductions are legitimate
   election-state inputs to the legal computation. Do not mark a taxable-income
   rule unsupported merely because the taxpayer could optimize that election
