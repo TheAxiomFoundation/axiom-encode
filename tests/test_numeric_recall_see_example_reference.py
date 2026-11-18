@@ -156,6 +156,9 @@ NOT_A_CLOSED_REFERENCE = (
     "See Example 1.(5)",
     "See Example 1.$5",
     "See Example 1..5",
+    # An opening quote does not end the reference.
+    "See Example 1.\u201c5",
+    "See Example 1.\u2018000",
     # After `,` only an ASCII letter or the end: the tokenizer joins a number
     # across a run of separators.
     "Pay $50. See Example 1,,000 end",
