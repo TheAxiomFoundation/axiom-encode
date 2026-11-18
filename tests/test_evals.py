@@ -11636,8 +11636,30 @@ rules:
             pytest.param(
                 {"imports": "policies/example/provider#expense_disregard"},
                 (("expense_disregard", 35),),
-                (),
-                id="unprefixed-imported-symbol-with-source-value",
+                (35,),
+                id="unprefixed-import-the-engine-cannot-load",
+            ),
+            pytest.param(
+                {
+                    "module_sibling": """x-base: &base
+  imports:
+    - us-az:policies/example/provider#expense_disregard
+<<: *base
+""",
+                    "rules": """  - name: expense_after_disregard
+    kind: derived
+    entity: Household
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: '2020-01-01'
+        formula: max(0, claimed_expense - expense_disregard)
+""",
+                    "loaded_imports": True,
+                },
+                (("expense_disregard", 35),),
+                (35,),
+                id="imports-supplied-only-by-a-yaml-merge-key",
             ),
             pytest.param(
                 {
@@ -11813,7 +11835,7 @@ rules:
 module:
   source_verification:
     corpus_citation_path: {citation_path}
-{candidate_overrides.get("module", "")}{imports_block}rules:
+{candidate_overrides.get("module", "")}{candidate_overrides.get("module_sibling", "")}{imports_block}rules:
   - name: claimed_expense
     kind: input
     entity: Household
@@ -11823,7 +11845,12 @@ module:
         rulespec_file.write_text(candidate, encoding="utf-8")
         payload = yaml.safe_load(candidate)
         assert isinstance(payload["rules"], list)
-        if import_item is None:
+        if candidate_overrides.get("loaded_imports"):
+            # PyYAML applies the merge key; the rules engine does not.
+            assert payload["imports"] == [
+                "us-az:policies/example/provider#expense_disregard"
+            ]
+        elif import_item is None:
             # The fake-block cases carry the import text but no real import.
             assert "imports" not in payload
 
@@ -11922,6 +11949,156 @@ module:
                 'format: rulespec/v1\nimports:\n  - "#expense_disregard"\nrules: []\n',
                 id="symbol-without-target",
             ),
+            pytest.param(
+                "format: rulespec/v1\nx-base: &base\n  imports:\n    - us-az:policies/example/provider#expense_disregard\n<<: *base\nrules: []\n",
+                id="merge-key-supplies-imports",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-base: &base\n  module: {}\n<<: *base\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="merge-key-beside-direct-imports",
+            ),
+            pytest.param(
+                "format: rulespec/v1\n<<:\n  module: {}\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="merge-key-without-alias-beside-direct-imports",
+            ),
+            pytest.param(
+                'format: rulespec/v1\n"<<":\n  module: {}\nimports:\n'
+                "  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="quoted-merge-key-beside-direct-imports",
+            ),
+            pytest.param(
+                "format: rulespec/v1\n? [a, b]\n: 1\n<<:\n  module: {}\nimports:\n"
+                "  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="merge-key-after-a-non-scalar-key",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="duplicate-imports-key",
+            ),
+            pytest.param(
+                'format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\n"imports": []\nrules: []\n',
+                id="duplicate-imports-key-with-quoted-spelling",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-list: &list\n  - us-az:policies/example/provider#expense_disregard\nimports: *list\nrules: []\n",
+                id="imports-value-is-an-alias",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports: &list\n  - us-az:policies/example/provider#expense_disregard\nx-list: *list\nrules: []\n",
+                id="imports-list-is-aliased-elsewhere",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-item: &item us-az:policies/example/provider#expense_disregard\nimports:\n  - *item\nrules: []\n",
+                id="import-item-is-an-alias",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-a: &a 1\nx-b: *a\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="alias-anywhere-in-the-file",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n---\nformat: rulespec/v1\nrules: []\n",
+                id="multi-document-file",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nrules: []\n---\nformat: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="multi-document-file-with-imports-in-the-second",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - !!str us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="tagged-import-item",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports: !!seq\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="tagged-imports-sequence",
+            ),
+            pytest.param(
+                "format: rulespec/v1\n!!str imports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="tagged-imports-key",
+            ),
+            pytest.param(
+                "!!map\nformat: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="tagged-document-root",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nx-note: !custom note\nimports:\n  - us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="explicit-tag-anywhere-in-the-file",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\n  - 5\nrules: []\n",
+                id="non-string-item-beside-a-valid-item",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\n  - null\nrules: []\n",
+                id="null-item-beside-a-valid-item",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider#expense_disregard\n  - [us-az:policies/example/provider#expense_disregard]\nrules: []\n",
+                id="nested-list-item-beside-a-valid-item",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - policies/example/provider#expense_disregard\nrules: []\n",
+                id="unprefixed-target",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - policies/example/provider.yaml#expense_disregard\nrules: []\n",
+                id="unprefixed-target-with-yaml-suffix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - \"'policies/example/provider'#expense_disregard\"\nrules: []\n",
+                id="unprefixed-target-in-inner-quotes",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - \"'us-az:policies/example/provider'#expense_disregard\"\nrules: []\n",
+                id="prefixed-target-in-inner-quotes",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider.yaml#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-yaml-suffix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider.YAML#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-uppercase-yaml-suffix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider.yml#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-yml-suffix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/provider.test#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-test-suffix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/./example/provider#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-current-directory-segment",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/extra/../provider#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-parent-directory-segment",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies/example/prov+ider#expense_disregard\nrules: []\n",
+                id="prefixed-target-with-refused-character",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:us-az:policies/example/provider#expense_disregard\nrules: []\n",
+                id="target-with-two-prefixes",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - US-AZ:policies/example/provider#expense_disregard\nrules: []\n",
+                id="uppercase-prefix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - usa:policies/example/provider#expense_disregard\nrules: []\n",
+                id="three-letter-country-prefix",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:policies#expense_disregard\nrules: []\n",
+                id="target-with-one-path-segment",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n  - us-az:tests/example/provider#expense_disregard\nrules: []\n",
+                id="target-outside-the-atomic-roots",
+            ),
         ],
     )
     def test_strict_imported_scalar_occurrences_refuse_malformed_imports(
@@ -11942,6 +12119,18 @@ rules:
 """,
             encoding="utf-8",
         )
+        for sibling in (
+            "provider.test.yaml",
+            "provider.yml.yaml",
+            "prov+ider.yaml",
+            "extra/placeholder.yaml",
+        ):
+            sibling_path = provider.parent / sibling
+            sibling_path.parent.mkdir(parents=True, exist_ok=True)
+            sibling_path.write_text(provider.read_text(), encoding="utf-8")
+        tests_root_copy = policy_repo_root / "tests/example/provider.yaml"
+        tests_root_copy.parent.mkdir(parents=True)
+        tests_root_copy.write_text(provider.read_text(), encoding="utf-8")
         valid = (
             "format: rulespec/v1\nimports:\n"
             "  - us-az:policies/example/provider#expense_disregard\n"
@@ -11955,6 +12144,150 @@ rules:
             _strict_imported_named_scalar_occurrences(content, policy_repo_root)
             == Counter()
         )
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param(
+                "format: rulespec/v1\n"
+                "imports: [us-az:policies/example/provider#expense_disregard]\n"
+                "rules: []\n",
+                id="flow-sequence",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "- us-az:policies/example/provider#expense_disregard\n"
+                "rules: []\n",
+                id="block-sequence-at-key-indent",
+            ),
+            pytest.param(
+                'format: rulespec/v1\n"imports":\n'
+                "  - us-az:policies/example/provider#expense_disregard\n"
+                "rules: []\n",
+                id="quoted-imports-key",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                '  - "us-az:policies/example/provider#expense_disregard"\n'
+                "rules: []\n",
+                id="quoted-item",
+            ),
+            pytest.param(
+                "format: rulespec/v1\nimports:\n"
+                "  - us-az:policies/example/provider#expense_disregard\n"
+                "  - us-az:policies/example/provider\n"
+                "  - us-az:policies/example/absent#other\n"
+                "rules: []\n",
+                id="valid-item-beside-uncredited-string-items",
+            ),
+        ],
+    )
+    def test_strict_imported_scalar_occurrences_accept_in_place_import_lists(
+        self, tmp_path, content
+    ):
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us-az")
+        provider = policy_repo_root / "policies/example/provider.yaml"
+        provider.parent.mkdir(parents=True)
+        provider.write_text(
+            """format: rulespec/v1
+rules:
+  - name: expense_disregard
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2020-01-01'
+        formula: 35
+""",
+            encoding="utf-8",
+        )
+
+        assert _strict_imported_named_scalar_occurrences(
+            content, policy_repo_root
+        ) == Counter({35.0: 1})
+
+    @pytest.mark.parametrize(
+        ("import_target", "expected"),
+        [
+            ("us-az:policies/example/provider", True),
+            ("us:statutes/7/2014", True),
+            ("uk:legislation/ukpga-2012-5/s.1~a_b", True),
+            ("us-az-x1:regulations/a/b", True),
+            ("policies/example/provider", False),
+            ("us-az:us-az:policies/example/provider", False),
+            ("us-az:policies/example:provider", False),
+            (":policies/example/provider", False),
+            ("u:policies/example/provider", False),
+            ("usa:policies/example/provider", False),
+            ("US-AZ:policies/example/provider", False),
+            ("us-AZ:policies/example/provider", False),
+            ("us_az:policies/example/provider", False),
+            ("us-:policies/example/provider", False),
+            ("us-az:policies", False),
+            ("us-az:tests/example/provider", False),
+            ("us-az:programs/example/provider", False),
+            ("us-az:/policies/example/provider", False),
+            ("us-az:policies//example/provider", False),
+            ("us-az:policies/example/provider/", False),
+            ("us-az:policies/./example/provider", False),
+            ("us-az:policies/../policies/example/provider", False),
+            ("us-az:policies/example/prov+ider", False),
+            ("us-az:policies/example/prov ider", False),
+            ("us-az:policies/example/provider#junk", False),
+            ("us-az:policies/example/'provider'", False),
+            ("us-az:policies/example/provider\n", False),
+            ("us-az:policies/example/provider.yaml", False),
+            ("us-az:policies/example/provider.YAML", False),
+            ("us-az:policies/example/provider.yml", False),
+            ("us-az:policies/example/provider.Yml", False),
+            ("us-az:policies/example/provider.test", False),
+            ("us-az:policies/example/provider.TEST", False),
+            ("us-az:policies/example.yaml/provider", True),
+        ],
+    )
+    def test_strict_import_target_mirrors_the_engine_module_target_rule(
+        self, import_target, expected
+    ):
+        assert (
+            evals_module._strict_import_target_is_engine_loadable(import_target)
+            is expected
+        )
+
+    def test_strict_imported_scalar_occurrences_give_no_credit_for_unsafe_root(
+        self, tmp_path
+    ):
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us-az")
+        provider = policy_repo_root / "policies/example/provider.yaml"
+        provider.parent.mkdir(parents=True)
+        provider.write_text(
+            """format: rulespec/v1
+rules:
+  - name: expense_disregard
+    kind: parameter
+    dtype: Money
+    versions:
+      - effective_from: '2020-01-01'
+        formula: 35
+""",
+            encoding="utf-8",
+        )
+        content = (
+            "format: rulespec/v1\nimports:\n"
+            "  - us-az:policies/example/provider#expense_disregard\n"
+            "rules: []\n"
+        )
+        checkout_root = policy_repo_root.parent
+        with pytest.raises(UnsafeRulespecContextPath):
+            _candidate_import_rule_files(
+                "us-az:policies/example/provider", checkout_root
+            )
+
+        assert (
+            _strict_imported_named_scalar_occurrences(content, checkout_root)
+            == Counter()
+        )
+        assert _strict_imported_named_scalar_occurrences(
+            content, policy_repo_root
+        ) == Counter({35.0: 1})
 
     def test_strict_imported_scalar_occurrences_require_a_parsed_prefixed_target(
         self, tmp_path
