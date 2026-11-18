@@ -198,6 +198,7 @@ from .source_completeness import (
     _rulespec_target_base,
     collect_artifact_numeric_values,
     mask_armenian_amendment_history,
+    mask_example_cross_references,
 )
 from .start_date_evidence import (
     is_manual_citation,
@@ -9044,13 +9045,15 @@ def _evaluate_artifact_in_scope(
     # but generated literals are grounded only in authoritative source text and
     # separately parsed proof evidence below — never in module.summary.
     numeric_validation_source_text = embedded_source or numeric_source_text or ""
-    numeric_recall_source_text = mask_armenian_amendment_history(
-        (
-            evaluation_source_text
-            if require_complete_source_unit
-            else numeric_validation_source_text
+    numeric_recall_source_text = mask_example_cross_references(
+        mask_armenian_amendment_history(
+            (
+                evaluation_source_text
+                if require_complete_source_unit
+                else numeric_validation_source_text
+            )
+            or ""
         )
-        or ""
     )
     # Complete-source recall deliberately inventories the whole authoritative
     # unit.  Generated-number grounding remains scoped exactly as it is in the
