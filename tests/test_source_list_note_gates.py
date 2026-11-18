@@ -359,7 +359,52 @@ def test_no_other_shape_is_a_list_note(name):
     assert _list_interjected_note_end(source, start, len(source)) is None
 
 
-@pytest.mark.parametrize("word", sorted(completeness._LIST_NOTE_FORWARD_WORDS))
+# The vocabularies, written out here on purpose: a word that is removed from
+# the module leaves its test behind, and the test fails.
+CLOSED_CLASS_WORDS = (
+    "a about above additionally after again all also although am among an "
+    "and another any are as at be because been before being below between "
+    "both but by can could did do does during each either every except "
+    "following for from had has have he her his i if in into is it its may "
+    "might must neither no nor not of on once only onto or other our over "
+    "per plus provided remaining shall she should since so some still such "
+    "than that the their them then these they this those though through to "
+    "too under unless until upon via was we were what when whenever where "
+    "whether which while who whom whose will with within without would yet "
+    "you your "
+).split()
+FORWARD_WORDS = (
+    "additional after all any below both bullet bullets described each "
+    "either entries entry every following follows further given hereafter "
+    "item items later list listed lists named next ones other remaining "
+    "rest shown subsequent such these those "
+).split()
+REQUIREMENT_WORDS = (
+    "absent applied applies apply assuming circumstance circumstances "
+    "combination combined condition conditions criteria criterion "
+    "eligibility eligible given joint jointly mandatory meet meets met "
+    "necessary needed occur occurs prerequisite prerequisites qualified "
+    "qualifies qualify qualifying require required requirement requirements "
+    "requires set situation situations together wherever "
+).split()
+CONNECTORS = (
+    "And Or Nor But Also Additionally Plus Then If When Whenever While Until "
+    "Unless Where Once Because Provided Only Except Not Either Neither Both"
+).split() + ["In addition", "As long as"]
+
+
+def test_vocabularies_are_the_ones_tested_word_by_word():
+    assert set(CLOSED_CLASS_WORDS) == completeness._LIST_NOTE_CLOSED_CLASS_WORDS
+    assert set(FORWARD_WORDS) == completeness._LIST_NOTE_FORWARD_WORDS
+    assert set(REQUIREMENT_WORDS) == completeness._LIST_NOTE_REQUIREMENT_WORDS
+    assert {word.casefold() for word in CONNECTORS} == set(
+        completeness._LIST_NOTE_CONNECTORS
+    )
+    # A requirement word that is also a closed-class word would be dead.
+    assert not set(REQUIREMENT_WORDS) & set(CLOSED_CLASS_WORDS)
+
+
+@pytest.mark.parametrize("word", FORWARD_WORDS)
 @pytest.mark.parametrize("place", ["middle", "end"])
 def test_note_with_a_forward_word_anywhere_is_not_a_list_note(word, place):
     if place == "middle":
@@ -379,7 +424,7 @@ def test_note_with_a_colon_semicolon_or_one_of_is_not_a_list_note(mark):
     assert _note_end(_source(note=note), note) is None
 
 
-@pytest.mark.parametrize("word", sorted(completeness._LIST_NOTE_CLOSED_CLASS_WORDS))
+@pytest.mark.parametrize("word", CLOSED_CLASS_WORDS)
 def test_closed_class_word_is_refused_at_the_note_end_and_in_the_chapeau(word):
     note = NOTE.replace("bill covers.", f"bill covers {word}.")
     assert _note_end(_source(note=note), note) is None
@@ -395,7 +440,7 @@ def test_closed_class_word_is_refused_at_the_note_end_and_in_the_chapeau(word):
         assert _note_end(_source(chapeau=chapeau.replace(word, word.upper()))) is None
 
 
-@pytest.mark.parametrize("word", sorted(completeness._LIST_NOTE_REQUIREMENT_WORDS))
+@pytest.mark.parametrize("word", REQUIREMENT_WORDS)
 def test_requirement_word_in_the_chapeau_is_refused(word):
     for chapeau in (
         f"The following {word} expenses are allowable:",
@@ -505,6 +550,11 @@ JOINT_REQUIREMENT_CHAPEAUS = [
     "The following are not allowed as storage expenses:",
     "The following storage expenses are not allowable:",
     "The following storage expense is allowable:",
+    "The following storage expenses is allowable:",
+    "The following payments is allowable storage expenses:",
+    "The following payments are allowable storage:",
+    "The following payments are allowable expenses storage:",
+    "Allow storage expenses for the big old leased unit, including the following:",
     "The following storage expenses are allowed:",
     "The following storage costs are allowable:",
     "The following big storage unit expenses are allowable:",
@@ -615,11 +665,6 @@ def test_only_the_documented_note_head_is_a_note(head):
     if head.endswith(("w", "2")):
         note = "NOTE " + head[-1] + NOTE.removeprefix("NOTE W")
     assert _note_end(_source(note=note), note) is None
-
-
-CONNECTORS = [
-    connector.capitalize() for connector in completeness._LIST_NOTE_CONNECTORS
-]
 
 
 @pytest.mark.parametrize("word", CONNECTORS)
@@ -912,3 +957,24 @@ def test_several_items_before_the_note_reach_the_chapeau():
 def test_last_note_of_the_text_has_no_following_item():
     source = "\n\n".join([CHAPEAU, FIRST, NOTE])
     assert _note_end(source) is None
+
+
+def test_excerpt_scope_helper():
+    inside = completeness._excerpt_lies_inside
+    text = "Head. NOTE Spread the fee. Spread the fee later. Tail spread the fee."
+    note_end = text.index(" Spread the fee later")
+    clause = (text.index("NOTE"), text.index(" Tail"))
+    # The excerpt of the note, compared without case and with any spacing.
+    assert inside(text, "NOTE  spread\nthe fee.", *clause, note_end)
+    assert not inside(text, "NOTE Spread the fee.", *clause, note_end - 1)
+    # Every occurrence in the clause counts, also one after the note.
+    assert not inside(text, "Spread the fee", *clause, note_end)
+    assert inside(text, "Spread the fee", *clause, clause[1])
+    # An occurrence outside the clause does not count, in either direction.
+    assert inside(text, "the fee.", clause[0], note_end, note_end)
+    assert not inside(text, "Head.", *clause, note_end)
+    assert not inside(text, "Tail spread", *clause, clause[1])
+    # Nothing to locate.
+    assert not inside(text, "", *clause, note_end)
+    assert not inside(text, "  \n ", *clause, note_end)
+    assert not inside(text, "not in the text", *clause, note_end)

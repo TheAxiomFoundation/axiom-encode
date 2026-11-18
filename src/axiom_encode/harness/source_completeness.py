@@ -20673,7 +20673,7 @@ _LIST_NOTE_FORWARD_WORDS = frozenset(
 # conditions that are not closed-class words.
 _LIST_NOTE_REQUIREMENT_WORDS = frozenset(
     """
-    all each every both must shall require requires required requirement
+    require requires required requirement
     requirements condition conditions criteria criterion meet meets met qualify
     qualifies qualified qualifying eligible eligibility apply applies applied
     circumstance circumstances situation situations occur occurs together
@@ -20714,7 +20714,7 @@ _LIST_NOTE_CONNECTORS = (
 _LIST_NOTE_CHAPEAU_FORMS = (
     re.compile(
         r"The following(?P<head>(?: [A-Za-z]+){0,2}) (?:expenses|payments) "
-        r"are allowable(?P<tail>(?: [A-Za-z]+){0,2})(?: expenses)?:"
+        r"are allowable(?P<tail>(?: [A-Za-z]+){0,2} expenses)?:"
     ),
     re.compile(
         r"Allow(?P<head>(?: [A-Za-z]+){0,2}) expenses for the"
@@ -20734,11 +20734,7 @@ def _list_note_chapeau_is_enumeration(chapeau: str) -> bool:
         match = form.fullmatch(chapeau)
         if match is None:
             continue
-        if match.group("tail") and not chapeau.endswith(
-            (" expenses:", ", including the following:")
-        ):
-            return False
-        words = " ".join(match.groupdict().values()).casefold().split()
+        words = " ".join(match.groupdict("").values()).casefold().split()
         return not any(
             word in _LIST_NOTE_CLOSED_CLASS_WORDS
             or word in _LIST_NOTE_REQUIREMENT_WORDS
@@ -20860,8 +20856,7 @@ def _list_interjected_note_end(source_text: str, start: int, end: int) -> int | 
             continue
         text = line(later)
         if (
-            item is not None
-            or text is None
+            text is None
             or re.match(r"[A-Z]", text) is None
             or re.match(r"[A-Za-z0-9]{1,3}[.)]", text)
             or not _list_note_paragraph_starts_a_new_item(text)
