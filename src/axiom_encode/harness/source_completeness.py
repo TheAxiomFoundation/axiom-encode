@@ -20552,6 +20552,114 @@ def _concessive_form_completion_condition(text: str) -> str | None:
     return "If " + condition + "."
 
 
+_LIST_NOTE_FORWARD_REFERENCE = re.compile(
+    r"\b(?:following|follows|below|next|subsequent|these|those|lists?|listed|"
+    r"items?|bullets?|either|both|all|any|each|every|one\s+of)\b|[:;]",
+    flags=re.IGNORECASE,
+)
+_LIST_NOTE_CHAPEAU_CUE = re.compile(
+    r"\b(?:if|when|whenever|unless|provided|only|except|until|while)\b",
+    flags=re.IGNORECASE,
+)
+_LIST_NOTE_CHAPEAU_REQUIREMENT = re.compile(
+    r"\b(?:all|each|every|both|must|shall|requir\w*|condition\w*|criteri\w*|"
+    r"meets?|met|qualif\w*|eligib\w*|appl(?:y|ies|ied)|circumstances?|"
+    r"situations?|occurs?)\b",
+    flags=re.IGNORECASE,
+)
+_LIST_NOTE_ITEM_CONNECTOR = re.compile(
+    r"(?:and|or|nor|but|if|when|unless|provided|only|except)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _list_interjected_note_end(source_text: str, start: int, end: int) -> int | None:
+    """Return the end of a NOTE paragraph that interrupts an open item list.
+
+    The DES manuals put a ``NOTE`` paragraph between two items of a list. The
+    note belongs to the item before it; the items after it belong to the list
+    chapeau before the note, never to a condition inside the note. Only this
+    physical shape is recognized, and every other shape keeps its bounds:
+
+    - the clause ``[start, end)`` starts inside a one-line paragraph that
+      begins with ``NOTE`` at the left margin, and runs past its end;
+    - the note ends with a full stop and holds no colon, semicolon or forward
+      reference (``following``, ``these``, ``all``, ``listed``, ...);
+    - the paragraphs before the note are one or more one-line left-margin
+      bullets, none of which ends with a colon, and the paragraph before them
+      is a one-line chapeau that ends
+      with a colon, with no condition cue on its line, and whose last
+      sentence says ``following`` and holds no requirement word;
+    - the paragraph after the note is a left-margin bullet with the same
+      marker that starts a new capitalised item, not a connector.
+    """
+
+    # A paragraph is the text between blank lines. Other line endings give
+    # no one-line paragraphs, so they never match.
+    paragraphs = [
+        (match.start(), match.end())
+        for match in re.finditer(r"[^\n]+(?:\n(?![ \t]*\n)[^\n]*)*", source_text)
+        if source_text[match.start() : match.end()].strip()
+    ]
+    index = next(
+        (i for i, (a, b) in enumerate(paragraphs) if a <= start < b),
+        None,
+    )
+    if index is None or index < 2 or index + 1 >= len(paragraphs):
+        return None
+
+    def line(i: int) -> str | None:
+        a, b = paragraphs[i]
+        text = source_text[a:b]
+        return None if "\n" in text else text
+
+    note = line(index)
+    if (
+        note is None
+        or end <= paragraphs[index][1]
+        or re.match(r"NOTE\b", note) is None
+        or not note.endswith(".")
+        or _LIST_NOTE_FORWARD_REFERENCE.search(note)
+    ):
+        return None
+    previous = line(index - 1)
+    marker = re.match(r"[●•](?=[ \t]+\S)", previous or "")
+    if marker is None:
+        return None
+    following = line(index + 1)
+    item = re.match(r"([●•])[ \t]+(?=[A-Z0-9])", following or "")
+    if (
+        item is None
+        or item.group(1) != marker.group()
+        or _LIST_NOTE_ITEM_CONNECTOR.match(following[item.end() :])
+    ):
+        return None
+    cursor = index - 1
+    while cursor >= 0:
+        candidate = line(cursor)
+        if candidate is None or not candidate.startswith(marker.group() + " "):
+            break
+        if candidate.endswith(":"):
+            # An item that opens a list of its own may own the later items.
+            return None
+        cursor -= 1
+    chapeau = line(cursor) if cursor >= 0 else None
+    if (
+        chapeau is None
+        or chapeau[:1].isspace()
+        or re.match(r"[●•]|NOTE\b", chapeau)
+        or not chapeau.endswith(":")
+        or _LIST_NOTE_CHAPEAU_CUE.search(chapeau)
+    ):
+        return None
+    last_sentence = re.split(r"[.!?][)\"”]?\s+", chapeau)[-1]
+    if not re.search(
+        r"\bfollowing\b", last_sentence, flags=re.IGNORECASE
+    ) or _LIST_NOTE_CHAPEAU_REQUIREMENT.search(last_sentence):
+        return None
+    return paragraphs[index][1]
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
@@ -22282,6 +22390,7 @@ def _opaque_same_source_condition_input_issues(
         tuple[tuple[str, ...], int, int],
         tuple[tuple[frozenset[str], frozenset[str]], ...],
     ] = {}
+    source_gate_text_cache: dict[tuple[tuple[str, ...], int, int], str] = {}
     expansion_cache: dict[
         tuple[str, int, str | None, str | None],
         tuple[_TerminalGateAlternative, ...],
@@ -22339,7 +22448,7 @@ def _opaque_same_source_condition_input_issues(
             # A reviewed reading needs the clause at a known place in the
             # exact source text; else every bullet stays a gate.
             raw_clause = source_text[clause.start : clause.end]
-            source_gate_cache[identity] = _source_conjunctive_fact_gates(
+            gates = _source_conjunctive_fact_gates(
                 clause.text,
                 care_source_text=care_source_text,
                 reviewed_alternative_lists=reviewed_alternative_lists,
@@ -22350,6 +22459,22 @@ def _opaque_same_source_condition_input_issues(
                     else None
                 ),
             )
+            gate_text = clause.text
+            # A NOTE paragraph between two list items does not own the items
+            # after it. The whole clause is read first, so a reviewed reading
+            # of it applies as recorded.
+            note_end = (
+                _list_interjected_note_end(source_text, clause.start, clause.end)
+                if gates and raw_clause.strip(" ;,") == clause.text
+                else None
+            )
+            if note_end is not None:
+                gate_text = source_text[clause.start : note_end].strip(" ;,")
+                gates = _source_conjunctive_fact_gates(
+                    gate_text, care_source_text=care_source_text
+                )
+            source_gate_cache[identity] = gates
+            source_gate_text_cache[identity] = gate_text
         return source_gate_cache[identity]
 
     def dependency_expansion_is_bounded(
@@ -22887,9 +23012,12 @@ def _opaque_same_source_condition_input_issues(
                     excerpt_has_gates = True
                     clause_key = (clause.branch_path, clause.start, clause.end)
                     gate_sets[clause_key] = gates
-                    gate_clause_texts[clause_key] = clause.text
+                    # The text that the gates were read from: the clause, or
+                    # its NOTE paragraph alone (see ``source_clause_gates``).
+                    gate_text = source_gate_text_cache.get(clause_key, clause.text)
+                    gate_clause_texts[clause_key] = gate_text
                     if _direct_exception_reverses_negative_proposition(
-                        clause.text
+                        gate_text
                     ) and _rule_has_negative_output_semantics(
                         rule,
                         fallback_name=rule_name,

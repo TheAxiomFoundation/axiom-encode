@@ -73,6 +73,19 @@ same unit are examined as before.
 `tests/test_reviewed_alternative_lists.py` makes a malformed or duplicate
 committed entry fail in CI.
 
+## A NOTE between two list items needs no entry
+
+A manual list can hold a `NOTE` paragraph between two of its items. The items
+after the note belong to the chapeau of the list, not to a condition inside
+the note. The check reads the gates of such a note from the note's own
+paragraph (`_list_interjected_note_end`). This is a rule on the physical shape
+only: a one-line `NOTE` at the left margin that ends with a full stop and
+refers to nothing after it, after at least one item of a list whose chapeau
+has no condition cue and no requirement word, and before a new item with the
+same marker. `tests/test_source_list_note_gates.py` lists the shapes that are
+read as before. An entry cannot express this shape: no line after the cue is
+an alternative of the cue.
+
 ## The current entries
 
 | Unit | Not examined by the check | The owner verifies in the candidate |
