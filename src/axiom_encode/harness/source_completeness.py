@@ -16673,6 +16673,11 @@ def _armenian_amendment_history_numeric_recall_spans(
 #   1 month`, `See Example 1 and pay 2`) leaves every number demanded.
 #
 # A list is read only after the plural `Examples`, and only as a whole.
+#
+# The pattern is ASCII-only, but the number tokenizer also reads other
+# Unicode digits. `_example_cross_reference_is_closed` therefore refuses any
+# Unicode numeral after the closer (`1.５`, `1,\n000`), so that a decimal or a
+# grouped number is never cut at the closer.
 _EXAMPLE_CROSS_REFERENCE_ORDINAL = r"[1-9][0-9]?"
 _EXAMPLE_CROSS_REFERENCE = re.compile(
     r"(?<![A-Za-z0-9])See[ \t]+(?:"
@@ -16681,10 +16686,25 @@ _EXAMPLE_CROSS_REFERENCE = re.compile(
     r"[ \t]*,[ \t]*(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+)"
     + _EXAMPLE_CROSS_REFERENCE_ORDINAL
     + r")+))"
-    r"(?=[ \t]*(?:[)\]]|[.;](?![0-9])|,(?![ \t]*[0-9])))",
+    r"(?=[ \t]*(?P<closer>[)\].;,]))",
     flags=re.IGNORECASE | re.ASCII,
 )
 _EXAMPLE_CROSS_REFERENCE_LIST_ORDINAL = re.compile(_EXAMPLE_CROSS_REFERENCE_ORDINAL)
+
+
+def _example_cross_reference_is_closed(
+    source_text: str, reference: re.Match[str]
+) -> bool:
+    """Whether no numeral continues the number after the reference's closer."""
+
+    closer = reference.group("closer")
+    after = source_text[reference.end("closer") :]
+    if closer in ".;":
+        return not after[:1].isnumeric()
+    if closer == ",":
+        # A grouped number can wrap: any whitespace, line breaks included.
+        return not after.lstrip()[:1].isnumeric()
+    return True
 
 
 def _example_cross_reference_numeric_recall_spans(
@@ -16693,6 +16713,8 @@ def _example_cross_reference_numeric_recall_spans(
     """Yield only the ordinals of a closed `See Example N` cross-reference."""
 
     for reference in _EXAMPLE_CROSS_REFERENCE.finditer(source_text):
+        if not _example_cross_reference_is_closed(source_text, reference):
+            continue
         if reference.group("one") is not None:
             yield reference.span("one")
             continue

@@ -106,6 +106,40 @@ NOT_A_CLOSED_REFERENCE = (
     "See Examples 4, 5 6)",
     "Example 4)",
     "Example 4.",
+    # A Unicode numeral after the closer continues the number.
+    "Pay $50. See Example 1.\uff15 end",
+    "See Example 1.\u0665",
+    "See Example 1;\uff15",
+    "See Example 1,\uff15",
+    "See Example 1, \uff15",
+    "See Example 12.\uff15 end",
+    "See Example 12,\uff15 end",
+    "See Examples 1 and 2.\uff15 end",
+    "See Examples 1 and 2,\uff15 end",
+    "See Example 1\uff12)",
+    "See Example 1.\u00bd",
+    "See Example 1,\u00bd",
+    # A grouped number that wraps after its comma.
+    "See Example 1,\n000 dollars",
+    "See Example 1, \n 000 dollars",
+    "See Example 1,\u00a0000 dollars",
+    "See Examples 1 and 2,\n000 dollars",
+    # Boundaries of the words.
+    "5See Example 1.",
+    "Seee Example 1.",
+    "\u017fee Example 1.",
+    "See\nExample 1.",
+    "See Examples\n1 and 2)",
+    "See Examples1 and 2)",
+    "See Example 4\n)",
+    "See Examples 1 and 2\n)",
+    # Only `,`, `and` and `or` join a list, on one line.
+    "See Examples 4 to 6)",
+    "See Examples 4-5)",
+    "See Examples 4 & 5)",
+    "See Examples 4,\n5)",
+    "See Examples 4\nand 5)",
+    "See Examples 4 and\n5)",
 )
 
 
@@ -152,6 +186,68 @@ def test_only_the_ordinal_is_blanked_in_place():
     assert sc.mask_example_cross_references(source) == (
         "Pay $1. (See Example   ) Pay 1 more. See Examples  ,   and   ."
     )
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Pay $50. See Example 1.\uff15 end",
+        "Pay $50. See Example 12,\uff15 end",
+        "Pay $50. See Examples 1 and 2.\uff15 end",
+        "Pay $50. See Example 1,\n000 dollars",
+    ),
+)
+def test_number_that_continues_after_the_closer_keeps_its_inventory(
+    source, profile, monkeypatch
+):
+    with_mask = _inventory(source, MANUAL, profile)
+    monkeypatch.setattr(
+        sc, "_example_cross_reference_numeric_recall_spans", lambda text: ()
+    )
+    assert with_mask == _inventory(source, MANUAL, profile)
+
+
+def test_recall_masks_examples_after_subdivisions_through_the_source_map(
+    monkeypatch,
+):
+    source = "Pay $50 under subdivision 3 of this section. (See Example 7 )"
+    calls = []
+    for name in (
+        "_english_subdivision_numeric_recall_spans",
+        "_example_cross_reference_numeric_recall_spans",
+        "_contiguous_states_numeric_recall_spans",
+    ):
+        real = getattr(sc, name)
+
+        def recorded(text, _name=name, _real=real):
+            calls.append((_name, text))
+            return tuple(_real(text))
+
+        monkeypatch.setattr(sc, name, recorded)
+    source_map = sc._NumericRecallSourceMap(list(range(len(source))))
+    recall = sc.authoritative_numeric_recall_text(
+        source, corpus_citation_path=STATUTE, _source_map=source_map
+    )
+
+    assert [name for name, _text in calls] == [
+        "_english_subdivision_numeric_recall_spans",
+        "_example_cross_reference_numeric_recall_spans",
+        "_contiguous_states_numeric_recall_spans",
+    ]
+    ordinal = source.index("7")
+    subdivision = source.index("3")
+    # The example recognizer reads the text after the subdivision mask.
+    assert calls[1][1][subdivision] == " " and calls[1][1][ordinal] == "7"
+    assert calls[2][1][ordinal] == " "
+    assert recall[ordinal] == " "
+    # The masked ordinal has no source origin; its neighbors keep theirs.
+    assert source_map.offsets[ordinal] is None
+    assert source_map.source_span(ordinal, ordinal + 1) is None
+    assert source_map.offsets[ordinal - 1] == ordinal - 1
+    assert source_map.offsets[ordinal + 1] == ordinal + 1
+    amount = source.index("50")
+    assert source_map.source_span(amount, amount + 2) == (amount, amount + 2)
 
 
 def test_recall_view_agrees_with_the_public_mask():
