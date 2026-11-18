@@ -105,42 +105,65 @@ def test_encoder_prompt_puts_a_gated_cap_in_its_own_rule():
 
 
 def test_encoder_prompt_does_not_ask_for_a_floor_the_source_does_not_state():
-    # A bare source amount wrapped in `max(0, ...)` invents a floor; the prompt
-    # limits zero floors to the named cases, a source-stated floor, or an
-    # imported or existing convention.
+    # A single source amount wrapped in `max(0, ...)` invents a floor. The
+    # prompt keeps the floor on every difference and on the named forms, and
+    # stops it on a single amount unless the source states it.
     formula = " ".join(_FORMULA_PROTOCOL.split())
     assert (
-        "The zero floors above are for the cases they name: a subtraction of an "
-        "income, contribution, or other reduction, an income base inside "
-        "`min(...)`, and taxable income; the cap clamp rule below also keeps its "
-        "form." in formula
+        "The zero floors above are for differences, for an income base inside "
+        "`min(...)`, and for taxable income." in formula
     )
     assert (
-        "Add `max(0, ...)` in any other place only when the source states the "
-        'floor ("not less than zero", "but not below zero", "cannot be '
-        'negative", "if the result is less than zero, enter zero") or when an '
-        "imported rule or an existing encoding of the same amount already "
-        "applies it." in formula
+        "When a benefit, allotment, credit, deduction, allowance, or subsidy "
+        "formula subtracts one amount from another and the result can go below "
+        "zero, keep `max(0, ...)` on the difference, also when the source "
+        "states no floor: that is how the formula never emits negative money."
+        in formula
     )
     assert (
-        "Do not wrap a source-stated amount or a bare input in `max(0, ...)` "
-        "just to keep an output nonnegative" in formula
+        'The excluded-excess and "in excess of" forms below, `max(0, '
+        "source_amount - cap)` and `max(0, measured_value - limit)`, are such "
+        "differences and keep their forms, and the cap clamp rule below keeps "
+        "its form." in formula
     )
     assert (
-        "e.g. `if fee_is_mandatory: fee_amount else: 0`, not "
-        "`if fee_is_mandatory: max(0, fee_amount) else: 0`." in formula
+        "A single source-stated amount or a bare input is different: do not "
+        "wrap it in `max(0, ...)` just to keep an output nonnegative." in formula
     )
     assert (
-        "A floor the source does not state invents amount semantics and adds a "
-        "below-zero branch that needs its own companion case." in formula
+        "Floor a single amount only when the source states the floor "
+        '("not less than zero", "but not below zero", "cannot be negative", '
+        '"if the result is less than zero, enter zero").' in formula
     )
-    # The floors the validators require stay, before the new rule.
+    assert (
+        "Keep a floor that the existing encoding of the same rule already has; "
+        "do not add a second floor around an imported amount." in formula
+    )
+    assert (
+        "e.g. `if amount_qualifies: stated_amount else: 0`, not "
+        "`if amount_qualifies: max(0, stated_amount) else: 0`." in formula
+    )
+    assert (
+        "A floor on a single amount that the source does not state invents "
+        "amount semantics and adds a below-zero branch that needs its own "
+        "companion case." in formula
+    )
+    # The general guard and the floors the validators require stay, before
+    # the new rule; the forms it names as unchanged come after it.
+    guard = formula.index(
+        "Benefit, allotment, credit, deduction, allowance, and subsidy formulas "
+        "must never emit negative money."
+    )
     reduction = formula.index("floor the result with `max(0, ...)`")
     income_base = formula.index("use `rate * min(max(0, earned_income), cap)`")
     taxable = formula.index("Wrap the final selected branch at zero")
-    scope = formula.index("The zero floors above are for the cases they name")
+    scope = formula.index("The zero floors above are for differences")
+    excess = formula.index("The excluded excess is `max(0, source_amount - cap)`")
     cap_rule = formula.index("whose formula is only the clamp")
-    assert reduction < income_base < taxable < scope < cap_rule
+    assert guard < reduction < income_base < taxable < scope < excess < cap_rule
+    assert "`max(0, measured_value - limit)` or the source-stated equivalent" in (
+        " ".join(ENCODER_PROMPT.split())
+    )
     assert formula in " ".join(ENCODER_PROMPT.split())
 
 

@@ -5,6 +5,10 @@ The encoder prompt tells the model not to wrap a source-stated amount in
 behavior that guidance relies on: the unfloored shape is clean, the unstated
 floor costs a below-zero companion case, and the floors the validators do
 require (a reduction subtracted from a maximum) are unchanged.
+
+The prompt keeps the floor on every difference. The floor check sees only some
+differences, so for the others the prompt is the only guard; a floor on a
+difference needs no below-zero companion case.
 """
 
 from __future__ import annotations
@@ -145,3 +149,59 @@ def test_floor_check_still_requires_the_floor_on_a_reduction():
         )
         == []
     )
+
+
+UNCHECKED_DIFFERENCES = [
+    "fee_amount - fee_reimbursement",
+    "total_fee_amount - fee_threshold",
+    "fee_payment_standard - countable_amount",
+    "tentative_fee_amount - phaseout_amount",
+]
+
+
+@pytest.mark.parametrize("difference", UNCHECKED_DIFFERENCES)
+def test_floor_check_does_not_see_these_differences(difference):
+    # No validator asks for the floor here; the prompt rule is the guard.
+    content = yaml.safe_dump(_payload(difference), sort_keys=False)
+    assert find_nonnegative_amount_reduction_issues(content) == []
+    content = yaml.safe_dump(_payload(f"max(0, {difference})"), sort_keys=False)
+    assert find_nonnegative_amount_reduction_issues(content) == []
+
+
+def test_floor_on_a_difference_needs_no_below_zero_case():
+    payload = _payload("max(0, fee_amount - fee_reimbursement)")
+    payload["inputs"][0] = {
+        "name": "fee_reimbursement",
+        "entity": "Household",
+        "dtype": "Money",
+        "unit": "USD",
+        "period": "Month",
+    }
+    source = "The fee less its reimbursement is an allowable expense deduction."
+    payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = source
+    cases = [
+        {
+            "name": "fee_above_reimbursement",
+            "period": "2026-01",
+            "input": {
+                f"{MODULE}#input.fee_amount": 250,
+                f"{MODULE}#input.fee_reimbursement": 100,
+            },
+            "output": {f"{MODULE}#allowable_fee_expense_deduction": 150},
+        }
+    ]
+    result = sc.analyze_complete_source_unit(
+        yaml.safe_dump(payload, sort_keys=False),
+        source,
+        corpus_citation_path=CITATION,
+        test_cases=cases,
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+        ),
+        extract_numeric_grounding_occurrences=functools.partial(
+            extract_typed_numeric_occurrences_from_text, profile="legacy"
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+    assert not [i for i in result.issues if "Direct nonnegative clamp" in i]
