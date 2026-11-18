@@ -9739,6 +9739,101 @@ def _imported_named_scalar_occurrences(
     return occurrences
 
 
+_STRICT_IMPORT_SYMBOL_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_STRICT_IMPORT_PATH_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9_.~-]+")
+_STRICT_IMPORT_REFUSED_FILENAME_SUFFIXES = (".yaml", ".yml", ".test")
+_YAML_STRING_TAG = "tag:yaml.org,2002:str"
+
+
+def _strict_top_level_import_strings(content: str) -> list[str]:
+    """Return the import strings written in place in the top-level mapping.
+
+    The rules engine does not apply YAML merge keys, so a loaded payload can
+    show an ``imports`` list that the engine never sees. This reader works on
+    the event and node level and credits nothing for the whole file unless the
+    file is one document with no alias and no explicit tag, whose top-level
+    mapping has no merge key and exactly one ``imports`` key, valued by a
+    sequence of string scalars.
+    """
+
+    try:
+        events = list(yaml.parse(content, Loader=yaml.SafeLoader))
+        documents = list(yaml.compose_all(content, Loader=yaml.SafeLoader))
+    except (yaml.YAMLError, TypeError, ValueError):
+        return []
+    for event in events:
+        if isinstance(event, yaml.AliasEvent):
+            return []
+        if isinstance(event, yaml.NodeEvent) and event.tag is not None:
+            return []
+    if len(documents) != 1 or not isinstance(documents[0], yaml.MappingNode):
+        return []
+    import_values: list[yaml.Node] = []
+    for key_node, value_node in documents[0].value:
+        # A non-scalar key has a list value, so neither comparison matches it.
+        if key_node.value == "<<":
+            return []
+        if key_node.value == "imports":
+            import_values.append(value_node)
+    if len(import_values) != 1 or not isinstance(import_values[0], yaml.SequenceNode):
+        return []
+    items: list[str] = []
+    for item_node in import_values[0].value:
+        if (
+            not isinstance(item_node, yaml.ScalarNode)
+            or item_node.tag != _YAML_STRING_TAG
+        ):
+            return []
+        items.append(item_node.value)
+    return items
+
+
+def _strict_import_target_is_engine_loadable(import_target: str) -> bool:
+    """Mirror the rules engine's exact absolute module-target rule."""
+
+    prefix, separator, relative = import_target.partition(":")
+    if not separator or ":" in relative:
+        return False
+    if re.fullmatch(r"[a-z]{2}(?:-[a-z0-9]+)*", prefix) is None:
+        return False
+    segments = relative.split("/")
+    if len(segments) < 2 or segments[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
+        return False
+    for segment in segments:
+        if segment in {".", ".."}:
+            return False
+        if _STRICT_IMPORT_PATH_SEGMENT_PATTERN.fullmatch(segment) is None:
+            return False
+    return not segments[-1].lower().endswith(_STRICT_IMPORT_REFUSED_FILENAME_SUFFIXES)
+
+
+def _strict_symbol_import_items(content: str) -> list[tuple[str, str]]:
+    """Return exact `(target, symbol)` pairs the rules engine would load.
+
+    An item counts only when it is exactly one whitespace-free, prefixed
+    `target#symbol` reference whose target the engine accepts.
+    """
+
+    items: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw_item in _strict_top_level_import_strings(content):
+        if raw_item.count("#") != 1 or any(char.isspace() for char in raw_item):
+            continue
+        import_target, imported_symbol = raw_item.split("#", 1)
+        if not _STRICT_IMPORT_SYMBOL_PATTERN.fullmatch(imported_symbol):
+            continue
+        if not _strict_import_target_is_engine_loadable(import_target):
+            continue
+        target_ref = _parse_rulespec_target(raw_item)
+        if target_ref is None or target_ref.symbol != imported_symbol:
+            continue
+        if (import_target, imported_symbol) in seen:
+            continue
+        seen.add((import_target, imported_symbol))
+        items.append((import_target, imported_symbol))
+    return items
+
+
 def _strict_imported_named_scalar_occurrences(
     content: str,
     policy_repo_root: Path,
@@ -9746,11 +9841,13 @@ def _strict_imported_named_scalar_occurrences(
     """Count only direct scalar definitions for explicitly imported symbols."""
 
     occurrences: Counter[float] = Counter()
-    for import_target in _extract_import_targets(content):
-        if "#" not in import_target:
+    for import_target, imported_symbol in _strict_symbol_import_items(content):
+        try:
+            paths = _candidate_import_rule_files(import_target, policy_repo_root)
+        except UnsafeRulespecContextPath:
+            # An unsafe target earns no credit; the source number stays missing.
             continue
-        imported_symbol = import_target.rsplit("#", 1)[1]
-        for path in _candidate_import_rule_files(import_target, policy_repo_root):
+        for path in paths:
             with contextlib.suppress(OSError):
                 imported_content = path.read_text()
                 occurrences.update(
