@@ -1034,8 +1034,8 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   a local `dtype: Count` input when no import or relation supplies the count,
   not a `dtype: Boolean` input that restates the comparison. Give companion
   cases with that count exactly at N and at the adjacent whole number on the
-  other side of the comparison (N + 1 for "more than N", N - 1 for "N or more"
-  and "at least N"), each asserting the affected principal output. Where
+  other side of the comparison (N plus 1 for "more than N", N minus 1 for "N or
+  more" and "at least N"), each asserting the affected principal output. Where
   another rule allows "a fact predicate or derived condition" for such a
   comparison, use the derived condition over the count. This bullet does not
   change how N itself is named, or the rules for a boundary on an imported
