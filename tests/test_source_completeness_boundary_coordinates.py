@@ -140,10 +140,16 @@ def test_validator_legacy_profile_requires_independent_resource_boundary(tmp_pat
         proof_source_texts={CITATION: source},
         test_cases=cases,
     )
-    assert issues == [
+    assert len(issues) == 1
+    summary, detail = issues[0].split(sc.MISSING_BOUNDARY_DETAIL_MARKER, 1)
+    assert summary == (
         "[complete-source-unit:tests] Companion tests do not exercise every "
         "source-stated boundary input; missing: (a)=50."
-    ]
+    )
+    # The quoted window marks the resource threshold, not the payment's 50.
+    assert "source states `50` in `" in detail
+    assert "The resource limit is at least \u27e850\u27e9 dollars." in detail
+    assert "at most \u27e850\u27e9" not in detail
 
 
 @settings(max_examples=80, deadline=None, derandomize=True)
