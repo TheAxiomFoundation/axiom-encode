@@ -19547,6 +19547,13 @@ _SOURCE_GATE_CONJUNCTIVE_SEPARATOR = re.compile(
     r"\b(?:and|nor)\b",
     flags=re.IGNORECASE,
 )
+# ``both to and from`` coordinates two prepositions that share one object. The
+# correlative ``both`` needs two parallel parts, so its ``and`` cannot start a
+# second clause. A plain ``to and from`` has no such guarantee and stays split.
+_SOURCE_GATE_CORRELATIVE_PREPOSITION_AND = re.compile(
+    r"(?<=\bboth to )and(?= from\b)",
+    flags=re.IGNORECASE,
+)
 _SOURCE_GATE_YET = re.compile(r"\byet\b", flags=re.IGNORECASE)
 _SOURCE_GATE_YET_PREFIX_CHARACTER_LIMIT = 32
 _SOURCE_GATE_YET_SUBJECT_CHARACTER_LIMIT = 96
@@ -19734,8 +19741,14 @@ def _source_gate_replace_guarded_yet(
 
 def _source_gate_split_conjunctive_conditions(
     text: str,
+    *,
+    keep_correlative_prepositions: bool = False,
 ) -> list[tuple[str | None, str]]:
-    """Split conjunctions while retaining the connector for polarity."""
+    """Split conjunctions while retaining the connector for polarity.
+
+    With ``keep_correlative_prepositions`` the ``and`` of ``both to and from``
+    does not split: it joins two prepositions of one fact.
+    """
 
     with_yet_boundaries = _source_gate_replace_guarded_yet(
         text,
@@ -19746,7 +19759,17 @@ def _source_gate_split_conjunctive_conditions(
     for line in with_yet_boundaries.splitlines():
         prior_end = 0
         connector: str | None = None
+        kept = (
+            {
+                match.start()
+                for match in _SOURCE_GATE_CORRELATIVE_PREPOSITION_AND.finditer(line)
+            }
+            if keep_correlative_prepositions
+            else ()
+        )
         for match in _SOURCE_GATE_CONJUNCTIVE_SEPARATOR.finditer(line):
+            if match.start() in kept:
+                continue
             segments.append((connector, line[prior_end : match.start()]))
             connector = match.group(0).casefold()
             prior_end = match.end()
@@ -20777,7 +20800,9 @@ def _source_conjunctive_fact_gates(
                 _SOURCE_ANY_REASON_PREFIX + " ".join(sorted(tokens))
                 for tokens in signatures
             )
-    segments = _source_gate_split_conjunctive_conditions(membership_body)
+    segments = _source_gate_split_conjunctive_conditions(
+        membership_body, keep_correlative_prepositions=True
+    )
     if len(segments) < 2:
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
