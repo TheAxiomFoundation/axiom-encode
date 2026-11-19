@@ -1,0 +1,1 @@
+Tell the encoder never to import from a module that declares `module.kind: composition`: the rules engine refuses such a module as an import target of an atomic file, so the importing file does not compile. No existing prompt sentence changes.

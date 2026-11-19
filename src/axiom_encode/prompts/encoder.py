@@ -1021,21 +1021,6 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   sets the capped amount, not only in the at-limit case. Include a case with
   the amount exactly at the limit, and keep below-limit and above-limit cases,
   plus a negative-amount case when the clamp floors at zero.
-- When a source condition compares a count of persons or things that the source
-  treats as one quantity (for example members or months) with a source-stated
-  number N ("at least N", "more than N", "no more than N"), the formula
-  compares a `dtype: Count` value with N: a local `dtype: Count` input when no
-  import or relation supplies the count, not a `dtype: Boolean` input that
-  restates the comparison. The threshold is one comparison of the count with N,
-  with no separate test of equality with N. Give companion cases with that
-  count exactly at N and at the adjacent number on the other side (N minus 1
-  for "at least N", N plus 1 for the other two), each asserting the affected
-  principal output. This bullet does not apply to a count of listed conditions
-  ("at least 2 of the following"): each listed condition stays its own input.
-  Where another rule allows "a fact predicate or derived condition" for such a
-  comparison, use the derived condition over the count. This bullet does not
-  change how N is named, or the rules for a boundary on an imported derived
-  output.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>`
   key. For example, use
   `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not
