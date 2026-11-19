@@ -1,0 +1,34 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-az-dependent-care-block-6-deac6f76",
+  "citation": "us-az/manual/des/faa5/dependent-care-expense/block-6",
+  "module_path": "us-az/policies/des/faa5/dependent-care-expense/block-6.yaml",
+  "policy_prefix": "us-az",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "384e5ff82a94507b8284d585d779ab4b7f78d7d2",
+  "encoder_tree": "28f8653ea3b94e51ba0223e579575d3db46cb19f",
+  "encoder_version": "0.2.2387",
+  "local_run_id": "deac6f76",
+  "runner": "codex-gpt-6.1-sol",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --out /tmp/replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/az-tier2-alternative-lists/dependent-care-block-6-deac6f76/candidate.yaml",
+    "candidate.test.yaml": "tests/fixtures/az-tier2-alternative-lists/dependent-care-block-6-deac6f76/candidate.test.yaml",
+    "source.txt": "tests/fixtures/az-tier2-alternative-lists/dependent-care-block-6-deac6f76/source.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:source-explicit-conditions"
+  ],
+  "files": {
+    "candidate.yaml": "04857c060f8213b16c97ddb11250e62878d0521db89ebac103e9ccec3296f84e",
+    "candidate.test.yaml": "52aae86ad6af3b33cd1ce5742af9efc02e01d221f2363b69dd3fac3dc89ca998",
+    "source.txt": "a13bc9ea01dcb5bba92ef6c5fadd0a647ccc0bce5aa1d8d9cdd1fa4b151c3a92",
+    "issues.json": "616e7fd4b9879d7d558c7c1f0f9fc2fd3e279909836237930e2eb09a2be056ae",
+    "source-metadata.json": "6088f9e4b021458a61655d71e4c411cfd154f04d5fbba9d4e14f1741f6af2e31"
+  }
+}

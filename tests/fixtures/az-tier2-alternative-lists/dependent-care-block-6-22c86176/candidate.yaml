@@ -1,0 +1,236 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+  summary: |-
+    Expenses must be verified only when any of the following occurs:
+    New application
+    Renewal application
+    When a reported change in the expense or address is received
+    When the expense amount is questionable(g)
+    Dependent child or incapacitated adult care expense amounts must be verified using documented or collateral contact verification before allowing the expense.
+inputs:
+  - {name: new_application, entity: Person, dtype: Boolean, period: Month}
+  - {name: renewal_application, entity: Person, dtype: Boolean, period: Month}
+  - {name: reported_expense_change_received, entity: Person, dtype: Boolean, period: Month}
+  - {name: reported_address_change_received, entity: Person, dtype: Boolean, period: Month}
+  - {name: expense_amount_questionable, entity: Person, dtype: Boolean, period: Month}
+  - {name: incapacitated_adult_care_expense_claimed, entity: Person, dtype: Boolean, period: Month}
+  - {name: statement_is_current, entity: Person, dtype: Boolean, period: Month}
+  - {name: statement_from_physician_or_psychologist, entity: Person, dtype: Boolean, period: Month}
+  - {name: statement_indicates_adult_requires_supervision_or_personal_care, entity: Person, dtype: Boolean, period: Month}
+  - {name: na_case, entity: Person, dtype: Boolean, period: Month}
+  - {name: provider_transportation_verified, entity: Person, dtype: Boolean, period: Month}
+  - {name: employment_search_information_verified, entity: Person, dtype: Boolean, period: Month}
+  - {name: snap_activities_information_verified, entity: Person, dtype: Boolean, period: Month}
+  - {name: documented_amount_verification, entity: Person, dtype: Boolean, period: Month}
+  - {name: collateral_amount_verification, entity: Person, dtype: Boolean, period: Month}
+  - {name: collateral_contact_clarifies_documented_verification, entity: Person, dtype: Boolean, period: Month}
+  - {name: participant_unable_to_obtain_verification, entity: Person, dtype: Boolean, period: Month}
+  - {name: participant_requests_verification_assistance, entity: Person, dtype: Boolean, period: Month}
+  - {name: provider_name_documented, entity: Person, dtype: Boolean, period: Month}
+  - {name: provider_address_documented, entity: Person, dtype: Boolean, period: Month}
+  - {name: provider_telephone_documented, entity: Person, dtype: Boolean, period: Month}
+  - {name: amount_billed_documented, entity: Person, dtype: Boolean, period: Month}
+  - {name: billing_frequency_documented, entity: Person, dtype: Boolean, period: Month}
+  - {name: covered_period_documented, entity: Person, dtype: Boolean, period: Month}
+  - {name: care_recipient_name_documented, entity: Person, dtype: Boolean, period: Month}
+  - {name: billed_participant_name_documented, entity: Person, dtype: Boolean, period: Month}
+rules:
+  - name: dependent_care_verification_required
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: DES FAA5 dependent care expense, verification occasions
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: "Expenses must be verified only when any of the following occurs:"
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          new_application
+          or renewal_application
+          or reported_expense_change_received
+          or reported_address_change_received
+          or expense_amount_questionable
+
+  - name: adult_care_statement_requirement_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: DES FAA5 dependent care expense, incapacitated adult statement
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: A current statement from a physician or psychologist indicating that the incapacitated adult requires supervision or personal care is needed to allow incapacitated adult care expenses.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          not incapacitated_adult_care_expense_claimed
+          or (
+            statement_is_current
+            and statement_from_physician_or_psychologist
+            and statement_indicates_adult_requires_supervision_or_personal_care
+          )
+
+  - name: collateral_contact_permitted
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: DES FAA5 dependent care expense, collateral contact limitation
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: Collateral contact can only be made to clarify documented verification or when the participant is unable to obtain the verification and asks for assistance.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          collateral_contact_clarifies_documented_verification
+          or (
+            participant_unable_to_obtain_verification
+            and participant_requests_verification_assistance
+          )
+
+  - name: care_expense_amount_verification_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: DES FAA5 dependent care expense, amount verification before allowance
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: Dependent child or incapacitated adult care expense amounts must be verified using documented or collateral contact verification before allowing the expense.
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: Collateral contact can only be made to clarify documented verification or when the participant is unable to obtain the verification and asks for assistance.
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: "Verification that can be used for the expense amount includes, and is not limited to, any of the following:"
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          documented_amount_verification
+          or (collateral_amount_verification and collateral_contact_permitted)
+
+  - name: na_care_verification_requirements_satisfied
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: DES FAA5 dependent care expense, NA verification list
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: "For NA, all of the following must be verified:"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: Transportation to and from a dependent care provider for the NA Dependent Care Transportation Standard.
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: Information about the participant’s search for employment and about Supplemental Nutrition Assistance Program Career Advancement Network (SNAP) activities.
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: The dependent child or incapacitated adult care expense amount.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          not na_case
+          or (
+            provider_transportation_verified
+            and employment_search_information_verified
+            and snap_activities_information_verified
+            and care_expense_amount_verification_satisfied
+          )
+
+  - name: provider_documentation_complete
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: DES FAA5 dependent care expense, provider documentation contents
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: "Provider documentation must contain all of the following information:"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: Name, address, and telephone number of the provider
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: Amount billed
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: How often billed
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: Period of time it covers
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: The name of the participant receiving the care
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/dependent-care-expense/block-6
+              excerpt: The name of the participant being billed
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          provider_name_documented
+          and provider_address_documented
+          and provider_telephone_documented
+          and amount_billed_documented
+          and billing_frequency_documented
+          and covered_period_documented
+          and care_recipient_name_documented
+          and billed_participant_name_documented

@@ -1,0 +1,34 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "origin": "local-diagnostic",
+  "run_id": "local-az-shelter-block-16-2eaed082",
+  "citation": "us-az/manual/des/faa5/shelter-expenses-and-deduction/block-16",
+  "module_path": "us-az/policies/des/faa5/shelter-expenses-and-deduction/block-16.yaml",
+  "policy_prefix": "us-az",
+  "split": "visible",
+  "recorded_verdict": "rejected",
+  "encoder_commit": "384e5ff82a94507b8284d585d779ab4b7f78d7d2",
+  "encoder_tree": "28f8653ea3b94e51ba0223e579575d3db46cb19f",
+  "encoder_version": "0.2.2387",
+  "local_run_id": "2eaed082",
+  "runner": "codex-gpt-6.1-sol",
+  "diagnostic_command": "python scripts/replay_us_failure_bundles.py replay --fixtures tests/fixtures/us_replay_benchmark --out /tmp/replay.json",
+  "input_origins": {
+    "candidate.yaml": "tests/fixtures/az-tier2-alternative-lists/shelter-block-16-2eaed082/candidate.yaml",
+    "candidate.test.yaml": "tests/fixtures/az-tier2-alternative-lists/shelter-block-16-2eaed082/candidate.test.yaml",
+    "source.txt": "tests/fixtures/az-tier2-alternative-lists/shelter-block-16-2eaed082/source.txt"
+  },
+  "context_imports": {},
+  "context_origins": {},
+  "provider_git_blob_sha1": {},
+  "recorded_rules": [
+    "complete-source-unit:source-explicit-conditions"
+  ],
+  "files": {
+    "candidate.yaml": "8b91c0817e88c11fd986a71626e3e330bdd0fce8d36b165dbb5e3e2d3ccfdf71",
+    "candidate.test.yaml": "da616e7024e175ff9c85bc73eab5845e06fdb5cf1b4197d597aabe64162f5f6c",
+    "source.txt": "3fe7719a96dfe2b7cabd7c2a376495def84d753c770210057912026a42600fa4",
+    "issues.json": "910b357fbd36d79c49b7de4423db250e2782447475c28ce5d63a6df4eea15b69",
+    "source-metadata.json": "c06cee6f4882f873a18849a5b157b0d26a51a2cd04ed944d726fec5e707c1f8a"
+  }
+}

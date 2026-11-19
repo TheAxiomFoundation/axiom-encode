@@ -80,6 +80,9 @@ committed entry fail in CI.
 | utility block-14 | Lifeline participation AND (discount does not pay in full OR extra airtime after free minutes): separate inputs, the AND, the OR | the Lifeline path is exactly that; Lifeline alone is not enough; no listed condition is negated, dropped or constant |
 | utility block-3 | listed utility expense AND used to provide heat for the home: separate inputs, the AND, every listed expense | heating source = (electricity OR gas OR propane OR coal OR wood OR oil) AND used for heat; nothing missing; the later lists are not conditions |
 | utility block-4 | verified expenses AND (situation 1 OR situation 2); the two facts inside each situation | both situations, each with both of its facts, combined with OR, next to verified expenses |
+| shelter block-16 | the four verification occasions (new application OR renewal application OR reported change in the expense or address received OR expense amount questionable): an input for each, the OR | all four occasions, combined with OR; an expense change and an address change each count alone; no occasion is negated, dropped or constant; no added condition |
+| utility block-17 | the same four occasions for the utility expense obligation: an input for each, the OR, and "only when" | all four occasions, combined with OR; no verification when none occurs; no occasion is negated, dropped or constant |
+| dependent-care block-6 | the same four occasions: an input for each, the OR, and "only when"; also the next paragraph, which the check reads as part of the clause: the current statement from a physician or psychologist for incapacitated adult care | all four occasions, combined with OR; the statement rule keeps every fact (current, physician or psychologist, supervision or personal care); the statement requirement is not a fifth occasion and the occasions are not conditions of it |
 
 The registry file holds the full sentences.
 

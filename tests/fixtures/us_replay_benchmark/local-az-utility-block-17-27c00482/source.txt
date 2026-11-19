@@ -1,0 +1,9 @@
+Utility expense obligation must be verified only when any of the following occurs:
+
+● New application
+
+● Renewal application
+
+● When a reported change in the expense or address is received (See Effecting Changes for change information)
+
+● When the expense amount is questionable

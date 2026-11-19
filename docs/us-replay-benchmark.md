@@ -7,7 +7,7 @@ or corpus checkout. The `replay benchmark` CI job runs it as a required check.
 ## What it measures
 
 `scripts/replay_us_failure_bundles.py` replays `analyze_complete_source_unit`
-(the `[complete-source-unit:*]` rules of the CI validator) over 62 committed
+(the `[complete-source-unit:*]` rules of the CI validator) over 68 committed
 fixtures in `tests/fixtures/us_replay_benchmark/`. Hosted fixtures are real candidates from `targeted-reencode-failure` artifacts
 of signed runs:
 
@@ -75,6 +75,15 @@ workspaces are not in this repository, so the statement that each file equals
 its run's bytes is the author's report of a local comparison on 2026-11-17,
 not a checked value; the citation, dates and source hash of each file can be
 checked against the fixture.
+Six more Arizona fixtures (`local-az-shelter-block-16-*`,
+`local-az-utility-block-17-*`, `local-az-dependent-care-block-6-*`) record the
+`gates-collapsed` findings of encoder 0.2.2387 on three units that open with
+"... when any of the following occur(s):" and a bulleted list of occasions.
+They follow the same rules as the six utility fixtures: each unit has a
+reviewed reading bound to its exact text, so the current analyzer raises no
+finding on them, and each carries its run's `source-metadata.json` with the
+same one edit to `rulespec_root`. The comparison of their files with the run
+workspaces is the author's report of 2026-11-19, not a checked value.
 
 A manual fixture needs a `source-metadata.json`. The replay is stricter than
 the validator here: for a fixture without one it still runs the date-silent
@@ -158,14 +167,15 @@ attestation's `source_as_of` and `expression_date` to the date-silent
 start-date check (`docs/validator-checks.md`), always without amendment
 context, because a fixture records no amendment documents.
 
-The set has 48 distinct citations: federal statutes, CFR regulations, IRS and
+The set has 51 distinct citations: federal statutes, CFR regulations, IRS and
 FNS guidance, state statutes, manuals and guidance, eight Canadian citations,
-three Arizona utility manual units with bulleted alternative lists (six local
-diagnostics) and one Israeli statute. Its 62 fixtures include one Arizona control that passed
-validation and then failed a provenance guard. The current snapshot has 18 clean
+six Arizona manual units with bulleted alternative lists (twelve local
+diagnostics) and one Israeli statute. Its 68 fixtures include one Arizona control that passed
+validation and then failed a provenance guard. The current snapshot has 24 clean
 fixtures and 44 refused fixtures with 2,592 findings, and it records no replay
-error and no `allowed_regressions` entry. The date-silent merge and proof-alias
-fixtures add two clean rows; all 60 rows on `main` keep their exact findings.
+error and no `allowed_regressions` entry. The six Arizona shelter, utility and
+dependent-care fixtures add six clean rows; all 62 rows on `main` keep their
+exact findings.
 The child-credit and retirement-transfer diagnostics retain six and 19 findings;
 the section 219(g) diagnostic retains 33. Read clean counts and per-fixture
 changes, not only the total.
