@@ -58,6 +58,13 @@ INVALID_REPLACEMENTS = [
     ("      question: '1e5'\n", "      question: 1e5\n"),
     ("    - id: weekly-review\n", "    - id: ! weekly-review\n"),
     ("  interpretations:\n", "  interpretations: !\n"),
+    ("module:\n", "module: !!set\n"),
+    ("      question: '1e5'\n", '      question: "\\uD800 review"\n'),
+    ("rules:\n", "module: {}\nrules:\n"),
+    (
+        "      status: open\n",
+        "      status: open\n      ? !!merge [x]\n      : {y: z}\n",
+    ),
 ]
 VALID_STRINGS = [
     (f"'{value}'" if style == "quoted" else f"!!str {value}", value)
@@ -157,3 +164,45 @@ def test_retry_overlay_preserves_valid_interpretation_strings(tmp_path, scalar, 
     )
     assert find_interpretation_yaml_issues(rewritten) == []
     assert validate_rulespec_proofs(rewritten, source_texts={CITATION: EXCERPT}).passed
+
+
+# The raw scan composes with one more frame per nesting level than loading, so
+# there is a depth it cannot check that still loads. Nothing may rewrite such
+# text: a duplicate `question` here would otherwise be resolved silently.
+_DEEP_METADATA = "    metadata: " + "{<<: " * 400 + "{note: flat}" + "}" * 400 + "\n"
+
+
+def _too_deep_to_scan():
+    return (
+        _content()
+        .replace(
+            "      question: '1e5'\n", "      question: first\n      question: '1e5'\n"
+        )
+        .replace("    dtype: Float\n", "    dtype: Float\n" + _DEEP_METADATA, 1)
+    )
+
+
+def test_the_deep_fixture_loads_but_the_raw_scan_cannot_check_it():
+    yaml.safe_load(_too_deep_to_scan())
+    with pytest.raises(RecursionError):
+        find_interpretation_yaml_issues(_too_deep_to_scan())
+
+
+@pytest.mark.parametrize("delivery", ["response", "bundle", "workspace"])
+def test_materialization_does_not_rewrite_yaml_too_deep_to_scan(tmp_path, delivery):
+    materialized = _materialize(tmp_path, _too_deep_to_scan(), delivery)
+
+    assert materialized.count("question:") == 2
+
+
+def test_retry_overlay_refuses_a_preserved_candidate_too_deep_to_scan(tmp_path):
+    target = tmp_path / "section.yaml"
+    target.write_text(_content(), encoding="utf-8")
+    candidate = ValidationRetryCandidate(rulespec=_too_deep_to_scan())
+
+    with pytest.raises(ValueError, match="too deep to check"):
+        _overlay_validation_retry_candidate(
+            target, artifact_root=tmp_path, candidate=candidate
+        )
+
+    assert target.read_text(encoding="utf-8") == _content()
