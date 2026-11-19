@@ -1,3 +1,8 @@
+## 0.2.2387
+
+- Keep "both to and from" as one fact in the gates-collapsed check (#2293)
+- Guide the encoder not to add a zero floor the source does not state (#2299)
+
 ## 0.2.2386
 
 - Keep See Example reference ordinals out of numeric recall (#2291)
