@@ -163,11 +163,10 @@ FNS guidance, state statutes, manuals and guidance, eight Canadian citations,
 three Arizona utility manual units with bulleted alternative lists (six local
 diagnostics) and one Israeli statute. Its 62 fixtures include one Arizona control that passed
 validation and then failed a provenance guard. The current snapshot has 18 clean
-fixtures and 44 refused fixtures with 2,592 findings, and it records no replay
-error and no `allowed_regressions` entry. The date-silent merge and proof-alias
-fixtures add two clean rows; all 60 rows on `main` keep their exact findings.
-The child-credit and retirement-transfer diagnostics retain six and 19 findings;
-the section 219(g) diagnostic retains 33. Read clean counts and per-fixture
+fixtures and 44 refused fixtures with 2,503 findings, zero replay errors and
+no `allowed_regressions` entries. The date-silent merge and proof-alias fixtures
+remain clean. The child-credit and retirement-transfer diagnostics retain six
+and 19 findings, and the section 219(g) diagnostic has 30. Read clean counts and per-fixture
 changes, not only the total.
 
 `tests/test_us_replay_benchmark.py` caps every other fixture together at
