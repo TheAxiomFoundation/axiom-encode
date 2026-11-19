@@ -1,0 +1,1 @@
+Reject a repair overlay that would declare one name as both an input and a rule, naming where each declaration came from and the exact removal marker that converts a retained rule into an input or the reverse. A retained candidate that already declares both is reported as an unusable base. Repair prompts now say a name is never both an input and a rule.
