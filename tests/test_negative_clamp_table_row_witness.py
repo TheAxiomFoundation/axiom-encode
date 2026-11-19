@@ -160,9 +160,12 @@ def test_sole_table_row_witnesses_the_clamp():
 
 
 @pytest.mark.parametrize(("qualifies", "refused"), [(True, False), (False, True)])
-def test_sole_table_row_must_reach_the_clamp_in_the_selector(qualifies, refused):
+@pytest.mark.parametrize("wrapper", ["{}", "# Qualifying fees\n{}", "({})"])
+def test_sole_table_row_must_reach_the_clamp_in_the_selector(
+    qualifies, refused, wrapper
+):
     payload = _payload("Payment")
-    payload["rules"][0]["versions"][0]["formula"] = (
+    payload["rules"][0]["versions"][0]["formula"] = wrapper.format(
         "if fee_qualifies and max(0, fee_amount) > 0: fee_amount else: 0"
     )
     case = _row_case("negative", qualifies, -25, 0)

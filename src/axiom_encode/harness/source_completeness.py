@@ -32054,9 +32054,7 @@ def _execute_formula_text(
         # Reduction finds embedded branches before the surrounding expression
         # runs. A lazy operand can skip that branch and its selectors entirely.
         if unproven_trace_start is None and (
-            selector_trace
-            or selected_text[: node.start].strip()
-            or selected_text[node.end :].strip()
+            selector_trace or not _formula_branch_spans_expression(selected_text, node)
         ):
             unproven_trace_start = len(trace)
         trace.extend(selector_trace)
@@ -32071,6 +32069,16 @@ def _execute_formula_text(
             selected_text[: node.start] + selected_body + selected_text[node.end :]
         )
     return None
+
+
+def _formula_branch_spans_expression(text: str, node: _FormulaBranchNode) -> bool:
+    """Accept a whole branch expression with comments and enclosing parentheses."""
+    if node.start == 0 and node.end == len(text):
+        return True
+    uncommented = _mask_formula_comments(text)
+    opening = "".join(uncommented[: node.start].split())
+    closing = "".join(uncommented[node.end :].split())
+    return opening == "(" * len(opening) and closing == ")" * len(opening)
 
 
 def _first_formula_branch_node(text: str) -> _FormulaBranchNode | None:
