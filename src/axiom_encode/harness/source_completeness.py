@@ -20663,6 +20663,281 @@ def _concessive_form_completion_condition(text: str) -> str | None:
     return "If " + condition + "."
 
 
+# A NOTE paragraph between two items of an enumeration (see
+# ``_list_interjected_note_end``). Every condition is positive: a wording
+# that is not listed here keeps the reading it had before.
+_LIST_NOTE_CLOSED_CLASS_WORDS = frozenset(
+    """
+    a an the this that these those each every any all some no both either
+    neither such another other
+    of to in on at by for with from as into onto over under about after before
+    between through during until upon within without than per via among above
+    below except
+    is are was were be been being am has have had do does did will would shall
+    should may might can could must
+    and or nor but if when whenever while unless because although though since
+    so yet where once whether provided
+    also only not then too still again additionally plus
+    it they them he she we you i its their his her our your which who whom
+    whose what
+    remaining following
+    """.split()
+)
+# Words by which a note points at text after it. The whole note is screened.
+_LIST_NOTE_FORWARD_WORDS = frozenset(
+    """
+    following follows below next subsequent these those list lists listed item
+    items bullet bullets entry entries ones rest either both all any each every
+    remaining other additional further such after shown described given named
+    hereafter later specified stated mentioned indicated identified outlined
+    noted detailed underneath succeeding same afterwards beneath hereunder two
+    three four five six seven eight nine ten
+    """.split()
+)
+# Condition cues. A note may hold exactly one, as its first word, in the form
+# "NOTE When <clause>, <main clause>."; a condition at the end of a sentence
+# could be completed by the items after the note.
+_LIST_NOTE_CUE_WORDS = frozenset(
+    """
+    if when whenever where wherever unless once while until provided providing
+    assuming whether although though because since before except
+    """.split()
+)
+_LIST_NOTE_CUE_PHRASES = re.compile(r"\b(?:as|so)\s+long\s+as\b|\bin\s+case\b")
+_LIST_NOTE_CONDITIONAL_FORM = re.compile(
+    r"NOTE When [^,.;:!?]+, [^,.;:!?]+ [^,.;:!?]+\."
+)
+# A second layer for the chapeau: words of joint requirements and of
+# conditions that are not closed-class words.
+_LIST_NOTE_REQUIREMENT_WORDS = frozenset(
+    """
+    require requires required requirement
+    requirements condition conditions criteria criterion meet meets met qualify
+    qualifies qualified qualifying eligible eligibility apply applies applied
+    circumstance circumstances situation situations occur occurs together
+    jointly combined combination set joint necessary mandatory needed
+    prerequisite prerequisites wherever given assuming absent conditional
+    requisite paired linked cumulative concurrent bundled collective two three
+    four five six seven eight nine ten
+    """.split()
+)
+_LIST_NOTE_CONNECTORS = (
+    "and",
+    "or",
+    "nor",
+    "but",
+    "also",
+    "additionally",
+    "in addition",
+    "plus",
+    "then",
+    "if",
+    "when",
+    "whenever",
+    "while",
+    "until",
+    "unless",
+    "where",
+    "once",
+    "as long as",
+    "because",
+    "provided",
+    "only",
+    "except",
+    "not",
+    "either",
+    "neither",
+    "both",
+)
+# The only chapeau forms: the enumerations of allowable expenses that the
+# manuals use. A word holds letters only.
+_LIST_NOTE_CHAPEAU_FORMS = (
+    re.compile(
+        r"The following(?P<head>(?: [A-Za-z]+){0,2}) (?:expenses|payments) "
+        r"are allowable(?P<tail>(?: [A-Za-z]+){0,2} expenses)?:"
+    ),
+    re.compile(
+        r"Allow(?P<head>(?: [A-Za-z]+){0,2}) expenses for the"
+        r"(?P<tail>(?: [A-Za-z]+){1,3}), including the following:"
+    ),
+)
+_LIST_NOTE_DANGLING_END = re.compile(r"(?:[;,]|\b(?:and|or|nor))\s*$", re.IGNORECASE)
+
+
+def _list_note_chapeau_is_enumeration(chapeau: str) -> bool:
+    """Accept one whole-line sentence of a listed enumeration form."""
+
+    # A form matches the whole line and its words hold letters only, so a
+    # second sentence, a parenthesis, a slash, a hyphen or a number never
+    # matches.
+    for form in _LIST_NOTE_CHAPEAU_FORMS:
+        match = form.fullmatch(chapeau)
+        if match is None:
+            continue
+        words = " ".join(match.groupdict("").values()).casefold().split()
+        return not any(
+            word in _LIST_NOTE_CLOSED_CLASS_WORDS
+            or word in _LIST_NOTE_REQUIREMENT_WORDS
+            for word in words
+        )
+    return False
+
+
+def _list_note_paragraph_starts_a_new_item(text: str) -> bool:
+    """A paragraph of the list starts its own text and does not dangle."""
+
+    folded = text.casefold()
+    return (
+        re.match(r"[A-Z0-9]", text) is not None
+        and not any(
+            re.match(re.escape(connector) + r"\b", folded)
+            for connector in _LIST_NOTE_CONNECTORS
+        )
+        and _LIST_NOTE_DANGLING_END.search(text) is None
+    )
+
+
+def _list_interjected_note_end(source_text: str, start: int, end: int) -> int | None:
+    """Return the end of a NOTE paragraph that interrupts an open enumeration.
+
+    The DES manuals put a ``NOTE`` paragraph between two items of a list. The
+    note belongs to the item before it; the items after it belong to the list
+    chapeau before the note, never to a condition inside the note. Only this
+    physical shape is recognized, and every other shape keeps its bounds:
+
+    - the clause ``[start, end)`` starts inside a one-line paragraph that
+      begins with ``NOTE``, one space and a capital letter at the left margin,
+      and runs past its end;
+    - the note ends with a full stop after an open-class word that does not
+      end in ``ed``, and holds no colon, semicolon or word that points at
+      later text (``following``, ``these``, ``all``, ``listed``,
+      ``remaining``, ``specified``, a number word, ...);
+    - the note holds no condition cue, or exactly one: it is the one sentence
+      "NOTE When <clause>, <main clause>.", so no condition ends the note;
+    - the paragraphs before the note are one or more one-line left-margin
+      bullets (marker and one space), each a new capitalised item that does
+      not start with a connector, dangle or end with a colon;
+    - the paragraph before them is the chapeau: one line and one sentence
+      that wholly matches a listed enumeration form ("The following ...
+      expenses|payments are allowable [... expenses]:", "Allow ... expenses
+      for the ..., including the following:"), whose free words are
+      open-class words and no requirement words;
+    - the paragraph after the note is a bullet with the same marker, and the
+      list from there on is a run of such bullets, each one line that starts
+      with a capital letter or a digit, does not start with a connector,
+      does not dangle and does not end with a colon;
+    - the list ends at the end of the text or at a paragraph without a marker
+      that is one line, starts with a capital letter, is not an enumerator
+      ("1.", "A)", "IV.", "Step 1.") and does not start with a connector.
+
+    The caller cuts only for a proof excerpt that lies inside the note.
+    """
+
+    # A paragraph is a run of lines that are not blank. A carriage return
+    # stays in its line, so a text with other line endings never matches.
+    paragraphs = [
+        (match.start(), match.end())
+        for match in re.finditer(
+            r"(?m)^[^\n]*\S[^\n]*(?:\n[^\n]*\S[^\n]*)*", source_text
+        )
+    ]
+    index = next(
+        (i for i, (a, b) in enumerate(paragraphs) if a <= start < b),
+        None,
+    )
+    if index is None or index < 2 or index + 1 >= len(paragraphs):
+        return None
+
+    def line(i: int) -> str | None:
+        a, b = paragraphs[i]
+        text = source_text[a:b]
+        return None if "\n" in text else text
+
+    note = line(index)
+    if (
+        note is None
+        or end <= paragraphs[index][1]
+        or re.match(r"NOTE [A-Z]", note) is None
+        or re.search(r"[:;]|\bone\s+of\b", note, flags=re.IGNORECASE)
+    ):
+        return None
+    note_words = re.findall(r"[A-Za-z]+", note.casefold())
+    last_word = re.search(r"([A-Za-z]+)\.$", note)
+    if (
+        last_word is None
+        or last_word.group(1).casefold() in _LIST_NOTE_CLOSED_CLASS_WORDS
+        or last_word.group(1).casefold().endswith("ed")
+        or any(word in _LIST_NOTE_FORWARD_WORDS for word in note_words)
+    ):
+        return None
+    cues = sum(word in _LIST_NOTE_CUE_WORDS for word in note_words)
+    if _LIST_NOTE_CUE_PHRASES.search(note.casefold()) or (
+        cues and (cues != 1 or _LIST_NOTE_CONDITIONAL_FORM.fullmatch(note) is None)
+    ):
+        return None
+    marker = (line(index - 1) or "")[:1]
+    if marker not in {"●", "•"}:
+        return None
+
+    def item_text(i: int) -> str | None:
+        text = line(i)
+        if text is None or not text.startswith(marker + " "):
+            return None
+        text = text[2:]
+        if text.endswith(":") or not _list_note_paragraph_starts_a_new_item(text):
+            # An item that opens a list of its own may own other items.
+            return ""
+        return text
+
+    cursor = index - 1
+    while cursor >= 0 and (item := item_text(cursor)) is not None:
+        if not item:
+            return None
+        cursor -= 1
+    chapeau = line(cursor) if cursor >= 0 else None
+    if chapeau is None or not _list_note_chapeau_is_enumeration(chapeau):
+        return None
+    if not item_text(index + 1):
+        return None
+    for later in range(index + 2, len(paragraphs)):
+        item = item_text(later)
+        if item:
+            continue
+        text = line(later)
+        if (
+            text is None
+            or re.match(r"[A-Z]", text) is None
+            or re.match(
+                r"[A-Za-z0-9]{1,4}[.)]|[A-Za-z]+ (?:\d{1,3}|[IVXivx]{1,4})[.):]", text
+            )
+            or not _list_note_paragraph_starts_a_new_item(text)
+        ):
+            return None
+        break
+    return paragraphs[index][1]
+
+
+def _excerpt_lies_inside(
+    source_text: str, excerpt: str, start: int, end: int, limit: int
+) -> bool:
+    """Say whether a proof excerpt of the clause ``[start, end)`` ends by ``limit``.
+
+    The excerpt is located as clause ownership locates it. It must occur in
+    the clause, and every occurrence in the clause must end by ``limit``.
+    """
+
+    parts = _collapse_text(excerpt).split()
+    if not parts:
+        return False
+    pattern = re.compile(r"\s+".join(re.escape(part) for part in parts), re.IGNORECASE)
+    ends = [
+        match.end()
+        for match in pattern.finditer(source_text)
+        if start <= match.start() and match.end() <= end
+    ]
+    return bool(ends) and max(ends) <= limit
+
+
 def _source_conjunctive_fact_gates(
     text: str,
     *,
@@ -22395,6 +22670,11 @@ def _opaque_same_source_condition_input_issues(
         tuple[tuple[str, ...], int, int],
         tuple[tuple[frozenset[str], frozenset[str]], ...],
     ] = {}
+    source_gate_text_cache: dict[tuple[tuple[str, ...], int, int], str] = {}
+    list_note_gate_cache: dict[
+        tuple[tuple[str, ...], int, int],
+        tuple[int, str, tuple[tuple[frozenset[str], frozenset[str]], ...]],
+    ] = {}
     expansion_cache: dict[
         tuple[str, int, str | None, str | None],
         tuple[_TerminalGateAlternative, ...],
@@ -22446,13 +22726,14 @@ def _opaque_same_source_condition_input_issues(
 
     def source_clause_gates(
         clause: _SourceConditionClause,
+        excerpt: str | None = None,
     ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
         identity = (clause.branch_path, clause.start, clause.end)
         if identity not in source_gate_cache:
             # A reviewed reading needs the clause at a known place in the
             # exact source text; else every bullet stays a gate.
             raw_clause = source_text[clause.start : clause.end]
-            source_gate_cache[identity] = _source_conjunctive_fact_gates(
+            gates = _source_conjunctive_fact_gates(
                 clause.text,
                 care_source_text=care_source_text,
                 reviewed_alternative_lists=reviewed_alternative_lists,
@@ -22463,6 +22744,37 @@ def _opaque_same_source_condition_input_issues(
                     else None
                 ),
             )
+            source_gate_cache[identity] = gates
+            # A NOTE paragraph between two list items does not own the items
+            # after it. The whole clause is read first, so a reviewed reading
+            # of it applies as recorded.
+            note_end = (
+                _list_interjected_note_end(source_text, clause.start, clause.end)
+                if gates and raw_clause.strip(" ;,") == clause.text
+                else None
+            )
+            if note_end is not None:
+                note_text = source_text[clause.start : note_end].strip(" ;,")
+                list_note_gate_cache[identity] = (
+                    note_end,
+                    note_text,
+                    _source_conjunctive_fact_gates(
+                        note_text, care_source_text=care_source_text
+                    ),
+                )
+        note = list_note_gate_cache.get(identity)
+        # Only a proof that quotes the note, and nothing after it, is read
+        # from the note alone. Any other proof of the clause keeps every gate.
+        if (
+            note is not None
+            and excerpt is not None
+            and _excerpt_lies_inside(
+                source_text, excerpt, clause.start, clause.end, note[0]
+            )
+        ):
+            source_gate_text_cache[identity] = note[1]
+            return note[2]
+        source_gate_text_cache.pop(identity, None)
         return source_gate_cache[identity]
 
     def dependency_expansion_is_bounded(
@@ -22984,7 +23296,7 @@ def _opaque_same_source_condition_input_issues(
                         )
                     ):
                         continue
-                    gates = source_clause_gates(clause)
+                    gates = source_clause_gates(clause, excerpt)
                     schedule_roles = schedule_role_sets.get(
                         (clause.branch_path, clause.start, clause.end)
                     )
@@ -22999,10 +23311,16 @@ def _opaque_same_source_condition_input_issues(
                         continue
                     excerpt_has_gates = True
                     clause_key = (clause.branch_path, clause.start, clause.end)
+                    if len(gate_sets.get(clause_key, ())) > len(gates):
+                        # Another proof of this rule owns the whole clause.
+                        continue
                     gate_sets[clause_key] = gates
-                    gate_clause_texts[clause_key] = clause.text
+                    # The text that the gates were read from: the clause, or
+                    # its NOTE paragraph alone (see ``source_clause_gates``).
+                    gate_text = source_gate_text_cache.get(clause_key, clause.text)
+                    gate_clause_texts[clause_key] = gate_text
                     if _direct_exception_reverses_negative_proposition(
-                        clause.text
+                        gate_text
                     ) and _rule_has_negative_output_semantics(
                         rule,
                         fallback_name=rule_name,
