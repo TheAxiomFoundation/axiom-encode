@@ -1,0 +1,92 @@
+format: rulespec/v1
+module:
+  summary: |-
+    Fixture regulation for the source-conflict compare step. It repeats the
+    statute's 80 hours, and lets an agency with no record of hours count
+    monthly income divided by the minimum wage as hours.
+rules:
+  - name: required_monthly_hours
+    kind: parameter
+    dtype: Count
+    source: Fixture regulation (a)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/regulation/99/1/2
+              excerpt: "not less than 80 hours"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          80
+
+  - name: monthly_income_threshold
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    unit: USD
+    source: Fixture regulation (b)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/99/1/2
+              excerpt: "the minimum wage multiplied by 80 hours"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          minimum_wage_rate * required_monthly_hours
+
+  - name: counted_work_hours
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    source: Fixture regulation (b)(2)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/99/1/2
+              excerpt: "may divide the monthly income by the minimum wage"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if agency_counts_income_as_hours and income_for_month < monthly_income_threshold: income_for_month / minimum_wage_rate else: documented_hours
+
+  - name: hours_path_met
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Fixture regulation (a)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/99/1/2
+              excerpt: "works not less than 80 hours in the month"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          individual_is_covered and counted_work_hours + service_hours >= required_monthly_hours
+
+  - name: individual_in_scope
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Fixture regulation (c)
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          individual_is_covered

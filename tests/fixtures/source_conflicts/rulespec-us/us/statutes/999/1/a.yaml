@@ -1,0 +1,42 @@
+format: rulespec/v1
+module:
+  summary: |-
+    Fixture statute for the source-conflict compare step. A person meets the
+    work requirement for a month with not less than 80 hours of work and
+    community service together.
+rules:
+  - name: monthly_hours_requirement
+    kind: parameter
+    dtype: Count
+    source: Fixture statute (a)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/999/1/a
+              excerpt: "not less than 80 hours"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          80
+
+  - name: work_requirement_met
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Fixture statute (a)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/999/1/a
+              excerpt: "works not less than 80 hours in the month"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          subject_to_requirement and monthly_total_hours >= monthly_hours_requirement

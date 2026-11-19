@@ -1,0 +1,57 @@
+# Fixture link for tests/test_source_conflicts.py: a statute and a regulation
+# that decide whether a person meets a monthly work requirement.
+format: axiom-source-conflict-link/v1
+id: us:fixture-work-requirement-statute-vs-regulation
+question: Does a person meet the work requirement for a month?
+entity: Person
+period:
+  period_kind: month
+  start: "2027-01-01"
+  end: "2027-02-01"
+a:
+  label: Fixture statute (a)
+  module: us/statutes/999/1/a.yaml
+  outputs:
+    - us:statutes/999/1/a#work_requirement_met
+  combine: any
+b:
+  label: Fixture regulation (a)
+  module: us/regulations/99-cfr/1/2.yaml
+  outputs:
+    - us:regulations/99-cfr/1/2#hours_path_met
+  combine: any
+facts:
+  work_hours:
+    kind: decimal
+    b: us:regulations/99-cfr/1/2#input.documented_hours
+  service_hours:
+    kind: decimal
+    b: us:regulations/99-cfr/1/2#input.service_hours
+  monthly_income:
+    kind: decimal
+    b: us:regulations/99-cfr/1/2#input.income_for_month
+  agency_counts_income_as_hours:
+    kind: bool
+    b: us:regulations/99-cfr/1/2#input.agency_counts_income_as_hours
+derived:
+  us:statutes/999/1/a#input.monthly_total_hours:
+    kind: decimal
+    op: sum
+    of: [work_hours, service_hours]
+    note: The statute takes total hours as an input; the link defines it as work plus service hours.
+fixed:
+  us:statutes/999/1/a#input.subject_to_requirement:
+    kind: bool
+    value: true
+  us:regulations/99-cfr/1/2#input.individual_is_covered:
+    kind: bool
+    value: true
+  us:regulations/99-cfr/1/2#input.minimum_wage_rate:
+    kind: decimal
+    value: "7.25"
+constraints:
+  - rule: monthly_income >= work_hours * 7.25
+    note: Work hours are paid at least the minimum wage.
+guards:
+  b:
+    - us:regulations/99-cfr/1/2#individual_in_scope
