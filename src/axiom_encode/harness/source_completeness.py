@@ -24157,26 +24157,6 @@ def _negative_local_input_clamp_test_issues(
             )
         return row_bound_cases[cache_key]
 
-    def row_case_executes_clamp(
-        case: dict[str, Any],
-        rule: dict[str, Any],
-        *,
-        input_name: str,
-        dependency_environment: dict[str, Any],
-    ) -> bool:
-        """Require the row's selected formula path to contain the clamp."""
-
-        execution = _case_formula_execution(
-            rule,
-            case,
-            formula_environment=formula_environment,
-            dependency_environment=dependency_environment,
-        )
-        return execution is not None and any(
-            match.group("input") == input_name
-            for match in _DIRECT_LOCAL_INPUT_NONNEGATIVE_CLAMP.finditer(execution.leaf)
-        )
-
     missing_clamps: set[tuple[str, str]] = set()
     for owner, rule in principal_rules.items():
         clamped_inputs = _direct_local_input_clamps(rule, declared_input_names)
@@ -24273,13 +24253,6 @@ def _negative_local_input_clamp_test_issues(
                 ):
                     # A negative input on a path the owner never takes (for
                     # example its `else: 0` branch) does not exercise the clamp.
-                    continue
-                if case is not stated_case and not row_case_executes_clamp(
-                    case,
-                    rule,
-                    input_name=input_name,
-                    dependency_environment=dependency_environment,
-                ):
                     continue
                 for principal_output in sorted(outputs & principal_outputs):
                     if principal_output == owner:
