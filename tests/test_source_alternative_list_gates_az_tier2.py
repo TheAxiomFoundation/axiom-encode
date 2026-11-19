@@ -206,6 +206,22 @@ def _occasion_dropped(payload: dict) -> None:
     rule["versions"][0]["formula"] = " or ".join(terms[:-1])
 
 
+def _extra_condition(payload: dict) -> None:
+    """A condition that the source does not state, combined with AND to the list."""
+
+    _input(payload, "case_is_selected_for_review")
+    rule = _one_rule(payload, "verification_required")
+    formula = " ".join(rule["versions"][0]["formula"].split())
+    rule["versions"][0]["formula"] = f"({formula}) and case_is_selected_for_review"
+
+
+def _statement_constant(payload: dict) -> None:
+    """Care unit: the statement rule is the constant ``true``."""
+
+    rule = _one_rule(payload, "statement_requirement_satisfied")
+    rule["versions"][0]["formula"] = "true"
+
+
 def _opaque_statement(payload: dict) -> None:
     """Care unit: every fact of the statement paragraph as ONE input."""
 
@@ -219,6 +235,9 @@ def _opaque_statement(payload: dict) -> None:
     [
         *((directory, citation, _opaque_occasions) for directory, citation in SIX),
         *((directory, citation, _occasion_dropped) for directory, citation in SIX),
+        *((directory, citation, _extra_condition) for directory, citation in SIX),
+        ("dependent-care-block-6-22c86176", CARE, _statement_constant),
+        ("dependent-care-block-6-deac6f76", CARE, _statement_constant),
         ("dependent-care-block-6-22c86176", CARE, _opaque_statement),
         ("dependent-care-block-6-deac6f76", CARE, _opaque_statement),
     ],
@@ -230,9 +249,11 @@ def test_an_entry_switches_the_check_off_for_its_clause(
 
     For the recorded clause the check verifies nothing. A candidate that
     merges the four occasions into one input passes this check, and so does a
-    candidate that drops an occasion. In the care unit the paragraph about the
+    candidate that drops an occasion, and a candidate that combines the list
+    with AND to a condition that the source does not state. In the care unit the paragraph about the
     physician or psychologist statement is part of the recorded clause, so a
-    candidate that merges its facts into one input passes too. Without the
+    candidate that merges its facts into one input passes too, and so does a
+    statement rule that is the constant ``true``. Without the
     entry each of these candidates is refused, as the faithful candidates
     are. The entry's ``not_examined`` and ``owner_must_verify`` fields say so;
     the owner's review of the candidate is the control. If this test fails
