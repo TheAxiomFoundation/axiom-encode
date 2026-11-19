@@ -169,6 +169,19 @@ def test_sole_table_row_must_reach_the_clamp_in_the_selector(qualifies, refused)
     assert _clamp_refused("Payment", [case], payload=payload) is refused
 
 
+@pytest.mark.parametrize(
+    ("entity", "build_case"), [("Household", _scalar_case), ("Payment", _row_case)]
+)
+def test_skipped_nested_selector_cannot_witness_the_clamp(entity, build_case):
+    payload = _payload(entity)
+    payload["rules"][0]["versions"][0]["formula"] = (
+        "if fee_qualifies and (if max(0, fee_amount) > 0: 1 else: 0) > 0: "
+        "fee_amount else: 0"
+    )
+    case = build_case("skipped", False, -25, 0)
+    assert _clamp_refused(entity, [case], payload=payload)
+
+
 def test_sole_table_row_witnesses_the_clamp_without_an_input_key():
     negative = _row_case("negative", True, -25, 0)
     del negative["input"]

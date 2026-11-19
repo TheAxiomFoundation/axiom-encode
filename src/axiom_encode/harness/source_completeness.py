@@ -321,6 +321,9 @@ class _FormulaExecution:
     constant_environment: dict[str, Any]
     currency_rounding: _CurrencyRounding | None = None
     unrounded_value: Decimal | None = None
+    unproven_trace_start: int | None = dataclass_field(
+        default=None, compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -23448,9 +23451,8 @@ def _expression_reaches_direct_clamp(
 ) -> bool:
     """Find a reached clamp call within one already reduced expression.
 
-    Boolean operands honor short-circuiting here. Nested RuleSpec ``if``
-    expressions may already have been reduced into trace selectors; this
-    does not establish their original short-circuit execution.
+    Boolean operands honor short-circuiting here. The caller owns the proof
+    that the reduced expression was reached.
     """
 
     def visit(node: ast.AST) -> bool:
@@ -23536,10 +23538,10 @@ def _case_execution_may_reach_direct_clamp(
         )
         if execution_environment is None:
             return False
-        texts = (
-            execution.leaf,
-            *(selector for step in execution.trace for selector in step.selectors),
-        )
+        proven_trace = execution.trace[: execution.unproven_trace_start]
+        texts = [selector for step in proven_trace for selector in step.selectors]
+        if execution.unproven_trace_start is None:
+            texts.append(execution.leaf)
         return any(
             _expression_reaches_direct_clamp(
                 text,
@@ -31994,6 +31996,7 @@ def _execute_formula_text(
 
     selected_text = formula_text.strip()
     trace: list[_FormulaTraceStep] = []
+    unproven_trace_start: int | None = None
     for _depth in range(32):
         node = _first_formula_branch_node(selected_text)
         if node is None:
@@ -32026,6 +32029,7 @@ def _execute_formula_text(
                 value_signature,
                 evaluates_to_zero,
                 constant_environment,
+                unproven_trace_start=unproven_trace_start,
             )
         if not all(
             _formula_text_has_executable_branch_tree(selector)
@@ -32047,6 +32051,14 @@ def _execute_formula_text(
         selected_body = textwrap.dedent(node.choices[choice]).strip()
         if not selected_body:
             return None
+        # Reduction finds embedded branches before the surrounding expression
+        # runs. A lazy operand can skip that branch and its selectors entirely.
+        if unproven_trace_start is None and (
+            selector_trace
+            or selected_text[: node.start].strip()
+            or selected_text[node.end :].strip()
+        ):
+            unproven_trace_start = len(trace)
         trace.extend(selector_trace)
         trace.append(
             _FormulaTraceStep(
