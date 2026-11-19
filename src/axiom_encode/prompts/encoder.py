@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 6
+__version__ = 7
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -217,6 +217,13 @@ Hard requirements:
   Add `source.excerpt` only for numeric amounts, rates, dates, or necessary
   disambiguation; keep excerpts short and do not quote long definitions or
   institutional descriptions.
+- When a list item states the condition of a rule, a `source.excerpt` on that
+  rule's `versions[N].formula` proof atoms quotes that list item, not the line
+  that introduces the list (the chapeau). The validator reads an excerpt taken
+  from the chapeau together with the list items that follow it and can count
+  those items as separate simultaneous conditions of that rule. This bullet
+  does not change a requirement to quote a chapeau that itself states
+  applicability, temporal scope, or a shared computation.
 - For imported proof support, put `import:` at the proof atom top level
   (for example `kind: import` plus `import.target: us:statutes/...#symbol`);
   do not put imported RuleSpec targets under `source:`. Import proof atoms must
@@ -793,6 +800,11 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   eligibility predicates: if importing a rate-bearing source would complete a
   cycle with a foundational base definition, keep the rate as a source-named
   boundary input and continue encoding the non-cyclic base formula.
+- Never import from a module that declares `module.kind: composition`. The
+  rules engine loads every import target as an atomic module, and an atomic
+  module must not declare `module.kind`, so the importing file fails to
+  compile. Treat the exports of such a module as not available for import; no
+  other import rule changes.
 - Never create a derived rule whose formula references that same rule's name.
   The derived rule name must be the legal conclusion or compliance output, while
   required facts inside the formula must use distinct source-named local inputs.
@@ -1016,6 +1028,18 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   sets the capped amount, not only in the at-limit case. Include a case with
   the amount exactly at the limit, and keep below-limit and above-limit cases,
   plus a negative-amount case when the clamp floors at zero.
+- When a source condition compares a whole-number count (for example members,
+  persons, items, or months) with a source-stated number N ("N or more", "at
+  least N", "more than N"), the formula compares a `dtype: Count` value with N:
+  a local `dtype: Count` input when no import or relation supplies the count,
+  not a `dtype: Boolean` input that restates the comparison. Give companion
+  cases with that count exactly at N and at the adjacent whole number on the
+  other side of the comparison (N + 1 for "more than N", N - 1 for "N or more"
+  and "at least N"), each asserting the affected principal output. Where
+  another rule allows "a fact predicate or derived condition" for such a
+  comparison, use the derived condition over the count. This bullet does not
+  change how N itself is named, or the rules for a boundary on an imported
+  derived output.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>`
   key. For example, use
   `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not
