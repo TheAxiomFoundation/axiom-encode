@@ -118,9 +118,9 @@ def test_real_candidates_no_longer_demand_locator_scalars(
 
 @pytest.mark.parametrize(
     ("run_id", "current_count"),
-    # 37936338132: 51 -> 50. Branch (g) is listed in the rejected (g)
-    # deferral's finding instead of getting its own structure finding.
-    (("37936331759", 0), ("37936338132", 50), ("37936341740", 116)),
+    # Arizona's rejected deferral includes branch (g). In both Arizona and
+    # Virginia, the formula-output findings also cover the unbound computations.
+    (("37936331759", 0), ("37936338132", 48), ("37936341740", 97)),
 )
 def test_replay_diagnostic_totals(run_id, current_count):
     _recorded, _source, issues = _replay(run_id)

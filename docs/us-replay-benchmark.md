@@ -63,7 +63,7 @@ real-engine tests check the supported and unsupported engine profiles.
 historical public diagnostic inputs. Their metadata records producer
 `6df4522a6ff20c78d8d70991c55f0353d49338b5`, tree
 `d7746713dd0823cdf7983ce2edff73d2ec422a5f`, and each input's Git blob.
-Their offline replays retain 48 and 35 findings respectively, without guide
+Their recorded offline replays retain 48 and 35 findings respectively, without guide
 context or private execution evidence. Historical call records supply test
 data and grant no fresh execution or source authority.
 
@@ -90,8 +90,8 @@ production artifact or source authority. The separate synthetic projection
 of historical compiler and process records supplies unit-test inputs; it
 does not supply fresh runtime evidence.
 
-The replay at `d4292fb5e7aa78af75912ff97fcd34c0ff535c0a` and the current
-snapshot each retain 35 findings on this fixture. Offline replay supplies
+The replay at `d4292fb5e7aa78af75912ff97fcd34c0ff535c0a` retained 35 findings
+on this fixture. Offline replay supplies
 no private execution evidence or authenticated release. The fixture therefore
 remains a rejected example, not a clean control. `public-source-context/p113.txt` retains public
 reproduction context; replay does not pass it to the analyzer or grant it
@@ -121,7 +121,7 @@ does not run that proof check.
 The T2036 country-case-selection fixture retains an unsigned local repair
 candidate and its complete 45-case companion. Its country-condition cases
 exercise evidence selection alongside unrelated table cases. Offline replay
-retains three finding groups without the authenticated secondary-source
+retains three findings without the authenticated secondary-source
 context that ordinary validation uses. The fixture carries no native receipt
 or publication result.
 
@@ -209,18 +209,28 @@ grant no full release-bound proof authentication.
 
 ### Snapshot and fixture size
 
-The snapshot covers 50 distinct citations, including federal statutes, CFR
-regulations, IRS and FNS guidance, state statutes, manuals, Canadian guidance
-and forms, and one Israeli statute. Its 65 fixtures include one Arizona
-control whose candidate passed validation before a provenance guard refused
-the run. The snapshot pins 18 clean fixtures, 47 refused fixtures and 2,710
-findings, with no replay errors or regression allowances.
+The fixture inventory covers 50 distinct citations, including federal
+statutes, CFR regulations, IRS and FNS guidance, state statutes, manuals,
+Canadian guidance and forms, and one Israeli statute. Its 65 fixtures include
+one Arizona control whose candidate passed validation before a provenance
+guard refused the run.
 
-All 62 rows from main `0ced889636144abfe1e504339bb10c84b1e111e3` retain every
-field. The three T1170 and Schedule N fixtures add 48, 35 and 35 findings.
-Their counts match the previous snapshot; the current analyzer adds source
-clauses and fact-selector details to their source-explicit-condition
-findings. Compare individual findings as well as totals.
+The snapshot pins 18 clean fixtures, 47 refused fixtures and 2,621 findings,
+with no replay errors or regression allowances.
+
+All 62 snapshot rows from `f2a130a7724e999b4cdaf2602b66671c980ff5f5` retain
+every field. The three Schedule N and T1170 fixtures add 48, 35 and 35
+findings respectively, and their rows match the previous feature snapshot at
+`27feed8631241a35a713f8e919ac7bf72c686a57`. Against that feature snapshot,
+50 rows remain equal and 15 change, with no fixture additions or removals.
+Companion-test findings fall from 206 to 117: 90 formula-branch test findings
+disappear and one clamp finding appears. Boundary findings add source and
+principal-output details. Clamp findings require a reached negative witness
+and explain how to remove an unreachable clamp.
+
+The date-silent merge and proof-alias fixtures remain clean. The child-credit
+and retirement-transfer diagnostics retain six and 19 findings, and the
+section 219(g) diagnostic has 30. Compare individual findings as well as totals.
 
 `tests/test_us_replay_benchmark.py` checks these named fixture allowances
 separately:

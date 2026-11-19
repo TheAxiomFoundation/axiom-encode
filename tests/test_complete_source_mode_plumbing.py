@@ -20,6 +20,47 @@ _REQUIRED_PATH_ARGS = [
 ]
 
 
+@pytest.mark.parametrize("entrypoint", ["issues", "analysis"])
+def test_complete_source_refactor_preserves_local_relation_context(
+    tmp_path, monkeypatch, entrypoint
+):
+    from axiom_encode.harness import validator_pipeline as vp
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        local_corpus_release=None,
+        enable_oracles=False,
+        require_complete_source_unit=True,
+    )
+    context = object()  # A transport sentinel, not authenticated evidence.
+    seen = []
+    result = SimpleNamespace(issues=["retained completeness finding"])
+
+    def analyze(_content, _source, **kwargs):
+        seen.append(kwargs["local_relation_context"])
+        return result
+
+    monkeypatch.setattr(vp, "analyze_complete_source_unit", analyze)
+    method = (
+        pipeline._complete_source_unit_issues
+        if entrypoint == "issues"
+        else pipeline._complete_source_unit_analysis
+    )
+    actual = method(
+        "format: rulespec/v1\nrules: []\n",
+        validation_source_texts={},
+        test_cases=[],
+        local_relation_context=context,
+    )
+
+    assert seen == [context]
+    if entrypoint == "issues":
+        assert actual == result.issues
+    else:
+        assert actual is result
+
+
 @pytest.mark.parametrize(
     ("command_args", "handler"),
     [
