@@ -4,12 +4,15 @@
    rules engine refuses such a module on its atomic surface, so no test here
    can show the refusal without the engine; the tests pin the text only.
 2. A count of persons or things that the source treats as one quantity,
-   compared with a source-stated number, is a ``dtype: Count`` value with
-   companion cases at the number and next to it. The tests pin the text and
-   show that a Boolean input cannot exercise the source boundary and that a
-   Count input with a case exactly at the number does. A count of listed
-   conditions is outside the bullet; one Count input for such a list is
-   refused.
+   compared with a source-stated number through the wording "at least N",
+   "more than N" or "no more than N", is a ``dtype: Count`` value in one
+   comparison, with companion cases at the number and next to it. The tests
+   pin the text and, on constructed sources, the wording table: for these
+   three wordings a Count input passes the boundary check and the pair check
+   and a Boolean input is refused; for "N or more", "N or fewer" and "fewer
+   than N" the pair check refuses the Count input, so the bullet does not
+   name them. A separate equality test before the comparison leaves the
+   boundary unexercised. A count of listed conditions is outside the bullet.
 
 Both prompt copies (``prompts/encoder.py`` and ``harness/evals.py``) carry the
 same two bullets.
@@ -49,23 +52,27 @@ COUNT_LISTED_CONDITIONS = (
     "input."
 )
 COUNT_THRESHOLD_SCOPE = (
-    "This bullet does not change how N itself is named, or the rules for a "
+    "This bullet does not change how N is named, or the rules for a "
     "boundary on an imported derived output."
 )
+COUNT_SINGLE_COMPARISON = (
+    "The threshold is one comparison of the count with N, with no separate "
+    "test of equality with N."
+)
 COUNT_THRESHOLD = (
-    "- When a source condition compares a whole-number count of persons or "
-    "things that the source treats as one quantity (for example members, "
-    "persons, or months) with a source-stated number N "
-    '("N or more", "at least N", "more than N"), the formula compares a '
-    "`dtype: Count` value with N: a local `dtype: Count` input when no import "
-    "or relation supplies the count, not a `dtype: Boolean` input that "
-    "restates the comparison. Give companion cases with that count exactly at "
-    "N and at the adjacent whole number on the other side of the comparison "
-    '(N plus 1 for "more than N", N minus 1 for "N or more" and "at least '
-    'N"), each asserting the affected principal output. '
-    f"{COUNT_LISTED_CONDITIONS} Where another rule allows "
-    '"a fact predicate or derived condition" for such a comparison, use the '
-    f"derived condition over the count. {COUNT_THRESHOLD_SCOPE}"
+    "- When a source condition compares a count of persons or things that the "
+    "source treats as one quantity (for example members or months) with a "
+    'source-stated number N ("at least N", "more than N", "no more than N"), '
+    "the formula compares a `dtype: Count` value with N: a local "
+    "`dtype: Count` input when no import or relation supplies the count, not "
+    "a `dtype: Boolean` input that restates the comparison. "
+    f"{COUNT_SINGLE_COMPARISON} Give companion cases with that count exactly "
+    "at N and at the adjacent number on the other side "
+    '(N minus 1 for "at least N", N plus 1 for the other two), each '
+    f"asserting the affected principal output. {COUNT_LISTED_CONDITIONS} "
+    'Where another rule allows "a fact predicate or derived condition" for '
+    "such a comparison, use the derived condition over the count. "
+    f"{COUNT_THRESHOLD_SCOPE}"
 )
 
 # Each bullet with its block, the bullet before it and the bullet after it.
@@ -178,7 +185,7 @@ def test_count_bullet_excludes_a_count_of_listed_conditions():
     examples = COUNT_THRESHOLD[
         COUNT_THRESHOLD.index("(for example") : COUNT_THRESHOLD.index(") with a")
     ]
-    assert examples == "(for example members, persons, or months"
+    assert examples == "(for example members or months"
     assert "items" not in COUNT_THRESHOLD
 
 
@@ -219,7 +226,7 @@ def _input(name: str, dtype: str) -> dict:
 
 
 BOOLEAN_INPUT = _input("lending_unit_has_enough_members", "Boolean")
-COUNT_INPUT = _input("lending_unit_member_count", "Count")
+COUNT_INPUT = _input("lending_unit_members", "Count")
 BOUNDARY_UNEXERCISED = (
     "[complete-source-unit:tests] Companion tests do not exercise every "
     "source-stated boundary input; missing: source unit=4."
@@ -336,16 +343,172 @@ def test_count_input_without_a_case_at_the_number_is_refused(
     assert _issues(payload, source, cases) == [BOUNDARY_UNEXERCISED]
 
 
-def test_or_more_wording_makes_no_boundary_obligation():
-    # The bullet names "N or more" for the modelling only: the boundary check
-    # does not read that wording, so neither form is refused for it.
-    source = "A lending unit with 4 or more members may take a group loan."
+# The wording table. Each row: the wording, the comparison, the adjacent count
+# on the other side, and whether a Count input with cases at N and at that
+# adjacent count passes the pair check on a conditional sentence. Both checks
+# read the wordings the bullet names; the pair check reads no interval from
+# the other three, so no numeric case pair can satisfy it there.
+WORDINGS = [
+    pytest.param("at least {n}", ">=", -1, True, id="at-least"),
+    pytest.param("more than {n}", ">", 1, True, id="more-than"),
+    pytest.param("no more than {n}", "<=", 1, True, id="no-more-than"),
+    pytest.param("{n} or more", ">=", -1, False, id="or-more"),
+    pytest.param("{n} or fewer", "<=", 1, False, id="or-fewer"),
+    pytest.param("fewer than {n}", "<", -1, False, id="fewer-than"),
+]
+NUMBER_FORMS = [pytest.param("4", id="digit"), pytest.param("four", id="word")]
+RELATIVE_CLAUSE = "A lending unit with {wording} members may take a group loan."
+CONDITIONAL = (
+    "A lending unit may take a group loan when the lending unit has {wording} members."
+)
+PAIR_MISSING = (
+    "[complete-source-unit:tests] Source-stated exceptions or applicability "
+    "conditions require paired positive/blocking cases"
+)
+_COMPARE = {
+    ">=": lambda value: value >= 4,
+    ">": lambda value: value > 4,
+    "<=": lambda value: value <= 4,
+    "<": lambda value: value < 4,
+}
+
+
+def _checks(issues: list[str]) -> set[str]:
+    found = set()
+    for issue in issues:
+        if issue.startswith(PAIR_MISSING):
+            found.add("pair")
+        elif "source-stated boundary input" in issue:
+            found.add("boundary")
+        else:
+            found.add(issue)
+    return found
+
+
+def _count_form_checks(source: str, operator: str, adjacent: int) -> set[str]:
+    formula = f"{COUNT_INPUT['name']} {operator} group_loan_member_threshold"
+    cases = [
+        _count_case(COUNT_INPUT["name"], value, _COMPARE[operator](value))
+        for value in sorted((4, 4 + adjacent))
+    ]
+    return _checks(_issues(_count_payload(source, COUNT_INPUT, formula), source, cases))
+
+
+def _boolean_form_checks(source: str) -> set[str]:
     payload = _count_payload(source, BOOLEAN_INPUT, BOOLEAN_INPUT["name"])
-    assert _issues(payload, source, BOOLEAN_CASES) == []
-    formula = f"{COUNT_INPUT['name']} >= group_loan_member_threshold"
+    return _checks(_issues(payload, source, BOOLEAN_CASES))
+
+
+@pytest.mark.parametrize("number", NUMBER_FORMS)
+@pytest.mark.parametrize(("wording", "operator", "adjacent", "named"), WORDINGS)
+def test_wording_table_for_a_count_input(wording, operator, adjacent, named, number):
+    phrase = wording.format(n=number)
+    # No wording refuses the Count form on the boundary check.
+    relative = RELATIVE_CLAUSE.format(wording=phrase)
+    assert _count_form_checks(relative, operator, adjacent) == set()
+    conditional = CONDITIONAL.format(wording=phrase)
+    expected = set() if named else {"pair"}
+    assert _count_form_checks(conditional, operator, adjacent) == expected
+
+
+@pytest.mark.parametrize("number", NUMBER_FORMS)
+@pytest.mark.parametrize(("wording", "operator", "adjacent", "named"), WORDINGS)
+def test_wording_table_for_a_boolean_input(wording, operator, adjacent, named, number):
+    # The mirror image: a Boolean input is refused for exactly the wordings
+    # the bullet names, and passes for the others.
+    phrase = wording.format(n=number)
+    relative = _boolean_form_checks(RELATIVE_CLAUSE.format(wording=phrase))
+    conditional = _boolean_form_checks(CONDITIONAL.format(wording=phrase))
+    assert relative == ({"boundary"} if named else set())
+    assert conditional == ({"pair"} if named else set())
+
+
+def test_count_bullet_names_exactly_the_wordings_the_count_form_passes():
+    listed = COUNT_THRESHOLD[
+        COUNT_THRESHOLD.index("number N (") : COUNT_THRESHOLD.index("), the formula")
+    ]
+    assert listed == 'number N ("at least N", "more than N", "no more than N"'
+    for param in WORDINGS:
+        wording, _operator, _adjacent, named = param.values
+        quoted = '"' + wording.format(n="N") + '"'
+        assert (quoted in COUNT_THRESHOLD) is named, wording
+    assert '(N minus 1 for "at least N", N plus 1 for the other two)' in (
+        COUNT_THRESHOLD
+    )
+
+
+# --- One comparison, no equality branch ------------------------------------
+
+FEE_INPUT = {
+    "name": "group_fee_amount",
+    "entity": "Household",
+    "dtype": "Money",
+    "unit": "USD",
+    "period": "Month",
+}
+THRESHOLD = "group_loan_member_threshold"
+SINGLE_COMPARISON = f"if lending_unit_members > {THRESHOLD}: group_fee_amount else: 0"
+EQUALITY_BRANCH_FIRST = (
+    f"if lending_unit_members == {THRESHOLD}: 0 else: "
+    f"(if lending_unit_members > {THRESHOLD}: group_fee_amount else: 0)"
+)
+EQUALITY_IN_THE_CONDITION = (
+    f"if lending_unit_members == {THRESHOLD} or lending_unit_members < {THRESHOLD}: "
+    "0 else: group_fee_amount"
+)
+FEE_SOURCES = [
+    pytest.param(
+        "A lending unit with more than 4 members pays the group fee.",
+        id="relative-clause",
+    ),
+    pytest.param(
+        "A lending unit pays the group fee when the lending unit has more than "
+        "4 members.",
+        id="conditional",
+    ),
+]
+
+
+def _fee_checks(source: str, formula: str) -> set[str]:
     payload = _count_payload(source, COUNT_INPUT, formula)
-    cases = [_count_case(COUNT_INPUT["name"], value, value >= 4) for value in (1, 9)]
-    assert _issues(payload, source, cases) == []
+    payload["inputs"].append(FEE_INPUT)
+    payload["rules"][1].update({"name": "group_fee", "dtype": "Money", "unit": "USD"})
+    cases = [
+        {
+            "name": f"members_{value}",
+            "period": "2026-01",
+            "input": {
+                f"{MODULE}#input.lending_unit_members": value,
+                f"{MODULE}#input.group_fee_amount": 30,
+            },
+            "output": {f"{MODULE}#group_fee": 30 if value > 4 else 0},
+        }
+        for value in (3, 4, 5)
+    ]
+    return _checks(_issues(payload, source, cases))
+
+
+def test_count_bullet_asks_for_one_comparison():
+    assert COUNT_THRESHOLD.count(COUNT_SINGLE_COMPARISON) == 1
+
+
+@pytest.mark.parametrize("source", FEE_SOURCES)
+def test_one_comparison_of_the_count_exercises_the_boundary(source):
+    assert _fee_checks(source, SINGLE_COMPARISON) == set()
+
+
+@pytest.mark.parametrize("source", FEE_SOURCES)
+@pytest.mark.parametrize(
+    "formula",
+    [
+        pytest.param(EQUALITY_BRANCH_FIRST, id="equality-branch-first"),
+        pytest.param(EQUALITY_IN_THE_CONDITION, id="equality-in-the-condition"),
+    ],
+)
+def test_separate_equality_test_leaves_the_boundary_unexercised(source, formula):
+    # The three cases give the same outputs as with one comparison, but the
+    # case at the number never reaches the `>` comparison.
+    assert _fee_checks(source, formula) == {"boundary"}
 
 
 def test_how_the_number_passes_numeric_recall_is_not_the_bullets_subject():
