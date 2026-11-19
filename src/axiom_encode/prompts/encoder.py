@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 5
+__version__ = 6
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -1292,6 +1292,17 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   be negative. Wrap the final selected branch at zero, including both sides of
   conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`,
   not `if condition: branch_a else: branch_b`.
+- A single source-stated amount or a bare input that a rule returns as its
+  result (not a difference, not an operand of the floor rules above, and not
+  the cap clamp or excess forms below) gets no zero floor of its own: do not
+  wrap it in `max(0, ...)` unless the source states a floor for it ("not less
+  than zero", "but not below zero", "cannot be negative") or the existing
+  encoding of the same rule already has one. If the rule returns that amount,
+  return it without a floor, e.g. `if amount_qualifies: stated_amount else: 0`,
+  not `if amount_qualifies: max(0, stated_amount) else: 0`. This bullet does
+  not change any rule about a difference, a subtraction, an income base,
+  taxable income, an excess, or a cap: those keep the forms required above and
+  below.
 - Taxpayer elections such as electing to itemize deductions are legitimate
   election-state inputs to the legal computation. Do not mark a taxable-income
   rule unsupported merely because the taxpayer could optimize that election

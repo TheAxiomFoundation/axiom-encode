@@ -16145,6 +16145,51 @@ class TestEvalPrompt:
         assert formula_rule in prompt
         assert tests_rule in prompt
 
+    def test_build_eval_prompt_rulespec_does_not_ask_for_an_unstated_floor(
+        self, tmp_path
+    ):
+        from axiom_encode.prompts.encoder import _FORMULA_PROTOCOL
+
+        start = "- A single source-stated amount or a bare input that a rule returns"
+        begin = _FORMULA_PROTOCOL.index(start)
+        end = _FORMULA_PROTOCOL.index("\n- ", begin)
+        rule = " ".join(_FORMULA_PROTOCOL[begin:end].split())
+
+        workspace = prepare_eval_workspace(
+            citation="us/guidance/example/fee",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="Mandatory association fees are an allowable expense.",
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us"),
+            mode="cold",
+            extra_context_paths=[],
+        )
+
+        prompt = " ".join(
+            _build_eval_prompt(
+                "us/guidance/example/fee",
+                "cold",
+                workspace,
+                [],
+                target_file_name="fee.yaml",
+                include_tests=True,
+            ).split()
+        )
+
+        # The eval prompt carries the same rule as the encoder prompt, after
+        # the floors that the validators require.
+        assert "unless the source states a floor for it" in rule
+        assert "If the rule returns that amount, return it without a floor" in rule
+        assert rule.endswith(
+            "an excess, or a cap: those keep the forms required above and below."
+        )
+        assert "`if amount_qualifies: stated_amount else: 0`" in rule
+        assert rule in prompt
+        assert prompt.index("Wrap the final selected branch at zero") < prompt.index(
+            rule
+        )
+        assert "must never emit negative money" in prompt
+
     def test_build_eval_prompt_requires_rulespec_conditional_expression_syntax(
         self, tmp_path
     ):
