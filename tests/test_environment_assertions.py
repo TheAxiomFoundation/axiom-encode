@@ -8963,6 +8963,9 @@ def test_names_compares_by_value_and_prints_names(
     assert (names == Names(other)) == (kept == other)
     assert dict(names) == kept
     assert repr(names) == f"Names({sorted(kept)!r})"
+    # pytest diffs two dicts item by item, values included; a Names is no dict.
+    plain = isinstance(names, dict)
+    assert not plain
 
 
 passed = st.recursive(
