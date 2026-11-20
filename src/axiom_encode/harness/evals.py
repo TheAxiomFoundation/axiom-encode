@@ -13250,6 +13250,11 @@ RuleSpec requirements:
   eligibility predicates: if importing a rate-bearing source would complete a
   cycle with a foundational base definition, keep the rate as a source-named
   boundary input and continue encoding the non-cyclic base formula.
+- Never import from a module that declares `module.kind: composition`. In a
+  file you write, the rules engine loads each import target as an atomic
+  module, and an atomic module must not declare `module.kind`, so the file
+  fails to compile. Treat the exports of such a module as not available for
+  import; no other import rule changes.
 - Never create a derived rule whose formula references that same rule's name.
   The derived rule name must be the legal conclusion or compliance output, while
   required facts inside the formula must use distinct source-named local inputs.
