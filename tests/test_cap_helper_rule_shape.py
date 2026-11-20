@@ -341,7 +341,11 @@ def _issues(candidate: str, cases: list[dict], source: str = SOURCE) -> list[str
         artifact_numeric_values=tuple(value for _name, value in bindings),
         artifact_numeric_bindings=bindings,
     )
-    return [str(issue) for issue in analysis.issues]
+    # These tests pin the findings. The boundary feedback tests pin the repair detail.
+    return [
+        str(issue).partition(sc.MISSING_BOUNDARY_DETAIL_MARKER)[0]
+        for issue in analysis.issues
+    ]
 
 
 BOUNDARY_40 = (
