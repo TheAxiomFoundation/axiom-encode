@@ -46,9 +46,14 @@ two stamped keys left out. Key order, harmless quoting and comments do not
 change it; other edits do, including one that only a YAML 1.1 reader
 treats as equal (``yes`` and ``true``, ``010`` and ``8``). A document with a
 repeated key, a collection alias or a merge key has no content digest. Keys
-are repeated when their node is the same, and also when a YAML 1.1 or a YAML
-1.2 core reader gives two scalar keys equal values (``0x10`` and ``16``, ``1``
-and ``1.0``): the loaded value would depend on the key order.
+are repeated when their node is the same, and also when a reader gives two
+scalar keys equal values (``0x10`` and ``16``, ``1`` and ``1.0``): the loaded
+value would depend on the key order. Three readers are compared: PyYAML's
+``safe_load`` (YAML 1.1), a YAML 1.2 core reader, and a reader that accepts
+the typed forms of both (the rules engine's serde_yaml reads ``0o20`` and
+``0b10000`` as one number). No other dialect is modeled. A key that is not a
+scalar, or that one of the first two readers cannot construct (a ``!!value``,
+``!!timestamp`` or local tag), leaves the document without a digest.
 
 An applied file is bound only when its content digest equals that of the
 reviewed file. A different dump-derived digest is never an alternate binding:
@@ -273,15 +278,29 @@ def _yaml12_core_value(text: str) -> object:
     return float(text)
 
 
-def _scalar_key_identities(node: yaml.ScalarNode) -> list[tuple[object, ...]]:
+_VALUE_TAG = "tag:yaml.org,2002:value"
+_YAML12_CORE_TYPED_TAGS = frozenset(
+    {_NULL_TAG, _BOOL_TAG, "tag:yaml.org,2002:int", "tag:yaml.org,2002:float"}
+)
+
+
+def _scalar_key_identities(node: yaml.ScalarNode) -> set[tuple[object, ...]]:
     """The values that readers give one scalar mapping key, as set members.
 
-    One identity per reader: ``yaml.safe_load`` (YAML 1.1) and a YAML 1.2
-    core reader. Two keys with an equal identity are one key for that reader:
-    its mapping keeps one of the two values, and which one depends on the
-    order. Equality is Python's, as in the mapping that the reader builds, so
-    ``1``, ``1.0`` and ``true`` are equal; every NaN equals every NaN. A key
-    that a reader cannot construct raises ``ValueError``.
+    Three identities: the value of ``yaml.safe_load`` (PyYAML, YAML 1.1), the
+    value of a YAML 1.2 core reader, and each typed (non-string) value of
+    either under one shared name. Two keys with an equal identity are one
+    key for some reader: its mapping keeps one of the two values, and which
+    one depends on the order. The shared name covers a reader that mixes the
+    two dialects (``0o20`` is 16 only in YAML 1.2, ``0b10000`` only in YAML
+    1.1; serde_yaml and ruamel read both as 16). Equality is Python's, as in
+    the mapping that a reader builds, so ``1``, ``1.0`` and ``true`` are
+    equal; every NaN equals every NaN.
+
+    Fails closed: a key that either dialect cannot construct raises
+    ``ValueError``, so no key is ever without an identity. That includes a
+    tag without a PyYAML constructor, and an explicit tag outside the YAML
+    1.2 core schema (``!!value``, ``!!timestamp``, ``!!binary``, a local tag).
     """
 
     def identity(reader: str, value: object) -> tuple[object, ...]:
@@ -291,37 +310,42 @@ def _scalar_key_identities(node: yaml.ScalarNode) -> list[tuple[object, ...]]:
         return (reader, "value", value)
 
     text = node.value
-    found: list[tuple[object, ...]] = []
+    implicit_plain = getattr(node, "_review_implicit_plain", False)
     pyyaml_tag = getattr(node, "_review_pyyaml_tag", node.tag)
-    construct = yaml.constructor.SafeConstructor.yaml_constructors.get(pyyaml_tag)
-    yaml11: object = None
-    has_yaml11 = construct is not None
-    if has_yaml11:
-        try:
-            yaml11 = construct(
-                _KEY_VALUE_CONSTRUCTOR, yaml.ScalarNode(pyyaml_tag, text)
-            )
-            found.append(identity("yaml 1.1", yaml11))
-        except Exception as exc:  # noqa: BLE001 - any constructor failure
-            # PyYAML's scalar constructors fail in several ways on a value
-            # that does not fit an explicit tag (KeyError, AttributeError).
-            raise ValueError("unreadable YAML key") from exc
-    if node.tag == _STR_TAG and not (
-        getattr(node, "_review_implicit_plain", False)
-        and is_yaml12_core_non_string(text)
+    # PyYAML's mapping constructor turns a `=` value key into a string key
+    # (`flatten_mapping`); the tag itself has no constructor.
+    yaml11_tag = _STR_TAG if pyyaml_tag == _VALUE_TAG else pyyaml_tag
+    construct = yaml.constructor.SafeConstructor.yaml_constructors.get(yaml11_tag)
+    if construct is None:
+        raise ValueError("unreadable YAML key")
+    try:
+        yaml11 = construct(_KEY_VALUE_CONSTRUCTOR, yaml.ScalarNode(yaml11_tag, text))
+    except Exception as exc:  # noqa: BLE001 - any constructor failure
+        # PyYAML's scalar constructors fail in several ways on a value
+        # that does not fit an explicit tag (KeyError, AttributeError).
+        raise ValueError("unreadable YAML key") from exc
+
+    yaml12: object
+    if implicit_plain:
+        # A plain scalar: a core type, or else a string (also for a YAML
+        # 1.1-only implicit type such as `yes`, `1:30`, a date or `=`).
+        yaml12 = _yaml12_core_value(text) if is_yaml12_core_non_string(text) else text
+    elif node.tag == _STR_TAG:
+        yaml12 = text
+    elif node.tag in _YAML12_CORE_TYPED_TAGS and (
+        is_yaml12_core_non_string(text) or (node.tag == _NULL_TAG and text == "")
     ):
-        found.append(identity("yaml 1.2", text))
-    elif is_yaml12_core_non_string(text):
-        try:
-            found.append(identity("yaml 1.2", _yaml12_core_value(text)))
-        except (ArithmeticError, ValueError) as exc:
-            raise ValueError("unreadable YAML key") from exc
-    elif getattr(node, "_review_implicit_plain", False):
-        # A YAML 1.1-only implicit type (`yes`, `1:30`, a date): a string
-        # for a YAML 1.2 core reader.
-        found.append(identity("yaml 1.2", text))
-    elif has_yaml11:
-        found.append(identity("yaml 1.2", yaml11))
+        yaml12 = _yaml12_core_value(text)
+    else:
+        raise ValueError("unreadable YAML key")
+
+    try:
+        found = {identity("yaml 1.1", yaml11), identity("yaml 1.2", yaml12)}
+        for value in (yaml11, yaml12):
+            if not isinstance(value, str):
+                found.add(identity("mixed", value))
+    except (ArithmeticError, TypeError) as exc:
+        raise ValueError("unreadable YAML key") from exc
     return found
 
 
@@ -364,8 +388,11 @@ def _canonical_node(
     node, the keys to leave out. A collection reached twice (an alias), a
     merge key and a repeated key raise ``ValueError``: a reader may resolve
     them in more than one way, so the document has no digest. Two scalar keys
-    are also a repeated key when a YAML 1.1 or a YAML 1.2 core reader gives
-    them equal values, whatever their text (``0x10`` and ``16``).
+    are also a repeated key when PyYAML (YAML 1.1), a YAML 1.2 core reader,
+    or a reader that mixes their typed forms gives them equal values,
+    whatever their text (``0x10`` and ``16``, ``0o20`` and ``0b10000``). A
+    key that is not a scalar, or that one of the two dialects cannot
+    construct, also raises.
     """
 
     if node is None:
@@ -426,15 +453,18 @@ def _canonical_node(
             if key in keys:
                 raise ValueError("repeated YAML key")
             keys.add(key)
-            if isinstance(key_node, yaml.ScalarNode):
-                # Keys with different text can still be one key for a reader
-                # (`0x10` and `16`): the loaded value then depends on the key
-                # order, which this digest ignores. Refuse them like a
-                # repeated key.
-                for identity in _scalar_key_identities(key_node):
-                    if identity in key_values:
-                        raise ValueError("repeated YAML key")
-                    key_values.add(identity)
+            if not isinstance(key_node, yaml.ScalarNode):
+                # `yaml.safe_load` cannot build a mapping with a sequence or
+                # a mapping as a key, so no reader's value is known for it.
+                raise ValueError("unreadable YAML key")
+            # Keys with different text can still be one key for a reader
+            # (`0x10` and `16`): the loaded value then depends on the key
+            # order, which this digest ignores. Refuse them like a repeated
+            # key. Every scalar key has at least one identity.
+            identities = _scalar_key_identities(key_node)
+            if not identities or identities & key_values:
+                raise ValueError("repeated YAML key")
+            key_values |= identities
             # A left-out value is still walked, so an alias of it is refused.
             item = _canonical_node(value_node, drop=drop, seen=seen)
             if (

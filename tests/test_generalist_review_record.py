@@ -2929,13 +2929,17 @@ def test_record_needs_the_explicit_boolean_pass_in_the_evidence(explicit):
     assert _build(evidence=evidence, metrics_pass=False)["status"] == "failed"
 
 
-_CYRILLIC_A = "а"
+_CYRILLIC_A = "\u0430"
+_ZERO_WIDTH_SPACE = "\u200b"
+_CURLY_OPEN, _CURLY_CLOSE = "\u201c", "\u201d"
+_FULLWIDTH_PASSED = "\uff50\uff41\uff53\uff53\uff45\uff44"
+_BOM = "\ufeff"
 _ADVERSARIAL_VERDICTS = [
     # no explicit verdict
     '{"score":9}',
     '{"score":9,"blocking_issues":[]}',
     '{"score":10,"issues":[],"reasoning":"passed"}',
-    "﻿" + '{"score": 9}',
+    "\ufeff" + '{"score": 9}',
     # key case and spacing variants
     '{"score":9,"Passed":false}',
     '{"score":9,"PASSED":true}',
@@ -2947,9 +2951,9 @@ _ADVERSARIAL_VERDICTS = [
     # look-alike keys
     '{"score":9,"p' + _CYRILLIC_A + 'ssed":true}',
     '{"passed":true,"score":9,"p' + _CYRILLIC_A + 'ssed":false}',
-    '{"passed":true,"score":9,"ｐａｓｓｅｄ":false}',
-    '{"passed":true,"score":9,"pa​ssed":false}',
-    '{"passed":true,"score":9,"pa̶ssed":false}',
+    '{"passed":true,"score":9,"\uff50\uff41\uff53\uff53\uff45\uff44":false}',
+    '{"passed":true,"score":9,"pa\u200bssed":false}',
+    '{"passed":true,"score":9,"pa\u0336ssed":false}',
     '{"passed":true,"score":9,"passed\\u0000":false}',
     '{"passed":true,"score":9,"\\u0050assed":false}',
     '{"score":9,"\\u0070assed":false}',
@@ -2981,7 +2985,7 @@ _ADVERSARIAL_VERDICTS = [
     '{"passed":true,"score":9}\n{"Passed":false}',
     '{"passed":true,"score":9}\n{"x":{"PASSED":false}}',
     # BOM and comments
-    '{"passed":true,"score":9}\n{"passed"﻿: false}',
+    '{"passed":true,"score":9}\n{"passed"\ufeff: false}',
     '{"passed":true,"score":9}\n{ /* c */ passed: false }',
     '{"score":9, /* "passed": true */ "reasoning":"x"}',
     '{"score":9, // "passed": true\n "reasoning":"x"}',
@@ -3039,7 +3043,7 @@ _VALID_PASS = {
         + json.dumps(_VALID_PASS)
         + "\nNo further notes.",
         '```json\n{"score": 8.5, "passed": true, "blocking_issues": [],}\n```',
-        "﻿" + json.dumps(_VALID_PASS),
+        "\ufeff" + json.dumps(_VALID_PASS),
     ],
 )
 def test_a_plain_explicit_pass_still_satisfies_required_review(
@@ -3065,14 +3069,20 @@ def test_a_plain_explicit_pass_still_satisfies_required_review(
         "p a s s e d",
         "passed?",
         "p" + _CYRILLIC_A + "ssed",
-        "раѕѕеԁ",
-        "ｐａｓｓｅｄ",
-        "pa​ssed",
+        "\u0440\u0430\u0455\u0455\u0435\u0501",
+        "\uff50\uff41\uff53\uff53\uff45\uff44",
+        "pa\u200bssed",
         "passed\x00",
+        "Score",
+        "SCORE ",
+        "Blocking_Issues",
+        "blockingIssues",
+        "blocking issues",
+        "BLOCKING-ISSUES",
     ],
 )
-def test_other_spellings_of_the_passed_key_are_competing(key):
-    assert validator_pipeline._is_competing_passed_key(key) is True
+def test_other_spellings_of_a_verdict_key_are_competing(key):
+    assert validator_pipeline._is_competing_verdict_key(key) is True
     with pytest.raises(ValueError, match="Competing spelling"):
         validator_pipeline._extract_json_object(
             json.dumps({"passed": True, "score": 9, "meta": {key: False}})
@@ -3080,10 +3090,25 @@ def test_other_spellings_of_the_passed_key_are_competing(key):
 
 
 @pytest.mark.parametrize(
-    "key", ["passed", "score", "pass", "passes", "failed", "bypassed", "passed_checks"]
+    "key",
+    [
+        "passed",
+        "score",
+        "blocking_issues",
+        "non_blocking_issues",
+        "issues",
+        "reasoning",
+        "pass",
+        "passes",
+        "failed",
+        "verdict",
+        "bypassed",
+        "passed_checks",
+        "scores",
+    ],
 )
-def test_other_keys_are_not_spellings_of_the_passed_key(key):
-    assert validator_pipeline._is_competing_passed_key(key) is False
+def test_other_keys_are_not_spellings_of_a_verdict_key(key):
+    assert validator_pipeline._is_competing_verdict_key(key) is False
 
 
 def test_non_generalist_reviewers_keep_the_legacy_fallback(tmp_path, monkeypatch):
@@ -3337,3 +3362,257 @@ def test_a_key_that_safe_load_cannot_construct_has_no_content_digest(key):
 
     assert review_content_sha256(raw, rulespec=True) is None
     assert review_content_sha256(raw, rulespec=False) is None
+
+
+# --- second round: independent review of cd0ed61d4 ------------------------
+
+
+@pytest.mark.parametrize(
+    ("tagged", "plain"),
+    [
+        # The three probes of the review.
+        ("!!value a", "a"),
+        ("!!value =", "'='"),
+        ("!!value 16", "'16'"),
+        ("=", "'='"),
+        ("!!str a", "a"),
+        ("!!str 16", "'16'"),
+        ("!!int 16", "16"),
+        ("!!int 0x10", "16"),
+        ("!!float 16", "16"),
+        ("!!null ''", "~"),
+        ("!!bool true", "1"),
+        ("!!binary YQ==", "!!binary 'YQ=='"),
+        ("!!timestamp 2024-01-01", "2024-01-01"),
+        ("!foo a", "a"),
+        ("&k a", "*k "),
+        ("0o20", "1_6"),
+        ("0o20", "0b10000"),
+        ("1e3", "1_000"),
+        ("0b10000", "16"),
+        ("0o20", "0x10"),
+    ],
+)
+def test_keys_that_any_reader_equates_have_no_content_digest(tagged, plain):
+    for first, second in ((tagged, plain), (plain, tagged)):
+        flow = f"values: {{{first}: old, {second}: new}}\n".encode()
+        block = f"values:\n  {first}: old\n  {second}: new\n".encode()
+        for raw in (flow, block):
+            assert review_content_sha256(raw, rulespec=True) is None
+            assert review_content_sha256(raw, rulespec=False) is None
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "!!value a",
+        "!!timestamp 2024-01-01",
+        "!!binary YQ==",
+        "!foo a",
+        "!!python/name:x a",
+        "!!int 1_000",
+        "!!bool yes",
+        "? [1, 2]\n ",
+        "? {a: 1}\n ",
+    ],
+)
+def test_a_key_that_one_dialect_cannot_construct_has_no_content_digest(key):
+    raw = f"values:\n  {key}: x\n".encode()
+
+    assert review_content_sha256(raw, rulespec=True) is None
+    assert review_content_sha256(raw, rulespec=False) is None
+
+
+def test_value_tag_key_order_cannot_pass_a_review_of_other_content():
+    # The probe of the review: A reviewed, B applied.
+    reviewed = b"values: {!!value a: old, a: new}\n"
+    applied = b"values: {a: new, !!value a: old}\n"
+    assert yaml.safe_load(reviewed) != yaml.safe_load(applied)
+
+    record = build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=reviewed)),
+        [applied_pair(applied, TEST_BYTES)],
+    )
+
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "unreadable_review_result"
+
+
+def test_every_scalar_key_has_an_identity():
+    for text in ("a: 1\n", "1: 1\n", "'1': 1\n", "yes: 1\n", "=: 1\n", "~: 1\n"):
+        root = yaml.compose(text, Loader=record_module._ReviewContentLoader)
+        assert record_module._scalar_key_identities(root.value[0][0])
+
+
+@pytest.mark.parametrize("text", ["", "[]\n", "[]  # comment\n", "~\n", "# only\n"])
+def test_an_empty_companion_is_shown_to_the_reviewer_it_is_credited_to(
+    tmp_path, monkeypatch, text
+):
+    prompts = []
+    rule = _candidate(tmp_path, test_text=text)
+    monkeypatch.setattr(
+        validator_pipeline,
+        "run_claude_code",
+        lambda prompt, **_k: (prompts.append(prompt), ('{"score":9,"passed":true}', 0))[
+            1
+        ],
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    record = _record_for(result, rule, required=True)
+
+    # The record credits the companion, so the prompt has its section, also
+    # for a 0-byte file.
+    assert f"\n## Companion Test File\n{text}\n" in prompts[0]
+    assert result.details["review_evidence"]["reviewed_test_sha256"] == _sha(
+        tmp_path / "rule.test.yaml"
+    )
+    assert record["status"] == "passed"
+
+
+@pytest.mark.parametrize(
+    ("later", "status"),
+    [
+        # Binding is by canonical content: an empty list, a null document, a
+        # 0-byte file and a comment are one content.
+        (b"[]\n", "passed"),
+        (b"[]  # comment\n", "passed"),
+        (b"~\n", "passed"),
+        (b"", "passed"),
+        # A companion with cases is other content.
+        (TEST_BYTES, "unavailable"),
+        (b"- name: one\n", "unavailable"),
+        (b"[[]]\n", "unavailable"),
+        (b"[null]\n", "unavailable"),
+        (b"{a: 1}\n", "unavailable"),
+    ],
+)
+def test_a_reviewed_empty_companion_binds_equivalent_content_only(
+    tmp_path, monkeypatch, later, status
+):
+    rule, result = _review(tmp_path, monkeypatch, '{"score":9,"passed":true}')
+    assert (tmp_path / "rule.test.yaml").read_bytes() == b"[]\n"
+
+    (tmp_path / "rule.test.yaml").write_bytes(later)
+    record = _record_for(result, rule, required=True)
+
+    assert record["status"] == status
+    assert (review_requirement_refusal(record) is None) is (status == "passed")
+    if status == "passed":
+        # The record names the bytes on both sides.
+        assert record["reviewed"]["test_sha256"] == _EMPTY_COMPANION_SHA
+        assert record["applied"]["test_sha256"] == hashlib.sha256(later).hexdigest()
+
+
+_PASS = '{"passed":true,"score":9}'
+_LENIENT_COMPETING_OUTPUTS = [
+    # The four inputs of the review.
+    '{"p' + _CYRILLIC_A + 'ssed":false,}\n' + _PASS,
+    '{"passed ":false,}\n' + _PASS,
+    '{"p_assed":false,}\n' + _PASS,
+    _PASS + "\n{'p" + _CYRILLIC_A + "ssed': false}",
+    # Objects that only a lenient reader accepts, before and after.
+    '{"Passed":false,}\n' + _PASS,
+    _PASS + '\n{"p' + _CYRILLIC_A + 'ssed":false,}',
+    _PASS + '\n{"x":1,"PASSED ":false,}',
+    _PASS + '\n{"a":[1,2,],"pa' + _ZERO_WIDTH_SPACE + 'ssed":false}',
+    _PASS + "\n{'Passed ': false}",
+    _PASS + "\n{" + _CURLY_OPEN + "p_assed" + _CURLY_CLOSE + ": false}",
+    _PASS + "\n{ p" + _CYRILLIC_A + "ssed: false }",
+    _PASS + "\n{ Passed : false }",
+    '{"' + _FULLWIDTH_PASSED + '":false,}\n' + _PASS,
+    '{"passed\\u0020":false,}\n' + _PASS,
+    '{"pa\\ssed":false,}\n' + _PASS,
+    '{"p-a-s-s-e-d": false\n' + _PASS,
+    '"passed ": false\n' + _PASS,
+    _PASS + '\n"p' + _CYRILLIC_A + 'ssed" /* c */ : false',
+    _PASS + '\n{"Score":2,}',
+    _PASS + '\n{"blockingIssues":["bad"],}',
+    _PASS + "\n{'Blocking_Issues': ['bad']}",
+    '{"SCORE": 1,}\n```json\n' + _PASS + "\n```",
+    # Inside the verdict, decoded with the trailing-comma repair.
+    '{"passed":true,"score":9,"Passed":false,}',
+    '{"passed":true,"score":9,"meta":{"p' + _CYRILLIC_A + 'ssed":false,},}',
+    '{"passed":true,"score":9,"Blocking_Issues":["bad"]}',
+    '{"passed":true,"score":9,"blocking issues":["bad"]}',
+    '{"passed":true,"score":9,"Score":2}',
+    '{"passed":true,"score":9,"SCORE ":2,}',
+    # A mistyped score beside an explicit pass.
+    '{"passed":true,"score":"9"}',
+    '{"passed":true,"score":true}',
+    '{"passed":true,"score":[9]}',
+    '{"passed":true,"score":null}',
+    '{"passed":true,"score":{"value":9}}',
+]
+
+
+def test_lenient_competing_list_is_large_enough():
+    assert len(set(_LENIENT_COMPETING_OUTPUTS)) >= 30
+
+
+@pytest.mark.parametrize("output", _LENIENT_COMPETING_OUTPUTS)
+def test_competing_verdict_keys_outside_strict_json_never_yield_a_passed_record(
+    tmp_path, monkeypatch, output
+):
+    rule, result = _review(tmp_path, monkeypatch, output)
+
+    assert result.passed is False
+    for required in (False, True):
+        record = _record_for(result, rule, required=required)
+        assert record["status"] == "unavailable"
+    assert review_requirement_refusal(_record_for(result, rule, required=True))
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        # Thirteen shapes that stay valid.
+        '{"passed": true, "score": 9}',
+        '{"score": 9, "passed": true}',
+        '{"passed": true, "score": 9.5, "blocking_issues": []}',
+        '{"passed": true, "score": 7, "issues": [], "reasoning": "ok"}',
+        json.dumps(_VALID_PASS),
+        json.dumps(_VALID_PASS, indent=2),
+        "```json\n" + json.dumps(_VALID_PASS, indent=2) + "\n```",
+        "Here is my review.\n\n```json\n" + json.dumps(_VALID_PASS) + "\n```\nDone.",
+        "I compared each branch.\n" + json.dumps(_VALID_PASS) + "\nNo further notes.",
+        '```json\n{"score": 8.5, "passed": true, "blocking_issues": [],}\n```',
+        _BOM + json.dumps(_VALID_PASS),
+        '{"passed": true, "score": 9, "details": {"score": 8, "checks": 4}}',
+        '{"passed": true, "score": 9, "reasoning": "It\'s fine: the \'cap\' rule, '
+        'the \\"Passed\\": label and {braces}."}',
+    ],
+)
+def test_thirteen_valid_reviewer_shapes_still_pass(tmp_path, monkeypatch, output):
+    rule, result = _review(tmp_path, monkeypatch, output)
+    record = _record_for(result, rule, required=True)
+
+    assert result.passed is True
+    assert record["status"] == "passed"
+    assert review_requirement_refusal(record) is None
+
+
+def test_nested_other_case_of_passed_is_the_deliberate_refusal(tmp_path, monkeypatch):
+    rule, result = _review(
+        tmp_path,
+        monkeypatch,
+        '{"passed": true, "score": 9, "details": {"Passed": 4}}',
+    )
+
+    assert "reviewer_parse_failed" in result.issues
+    assert _record_for(result, rule, required=True)["status"] == "unavailable"
+
+
+@pytest.mark.parametrize("score", ['"9"', "true", "false", "null", "[9]", "{}"])
+def test_a_mistyped_score_is_a_parse_failure_for_every_reviewer(
+    tmp_path, monkeypatch, score
+):
+    for reviewer in ("generalist-reviewer", "formula-reviewer"):
+        _rule, result = _review(
+            tmp_path,
+            monkeypatch,
+            '{"passed": true, "score": ' + score + "}",
+            reviewer=reviewer,
+        )
+        assert result.passed is False
+        assert "reviewer_parse_failed" in result.issues

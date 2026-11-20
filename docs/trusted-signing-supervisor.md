@@ -137,17 +137,39 @@ apply. To make it stop, add `--require-review` to the supervised command:
 With the flag, the encode applies only when the reviewer ran, passed, and was
 shown the whole content of every applied file; otherwise it ends
 `apply_blocked_review` with a non-zero exit and nothing applied. A pass is the
-reviewer's own JSON boolean `"passed": true` in its one verdict object. A
-score without that field, a non-boolean value, or another spelling of the key
-anywhere in the output (for example `"Passed"`) is not a pass. Eval scoring
-keeps its older fallback from the score; that fallback never reaches the
-record.
+reviewer's own JSON boolean `"passed": true` in its one verdict object, with a
+JSON number as `score`. A score without that field, a non-boolean `passed`, a
+non-number `score`, or another spelling of a verdict key (`passed`, `score`,
+`blocking_issues`; for example `"Passed"` or `"Blocking_Issues"`) is not a
+pass. The spelling rule covers every key of decoded JSON in the output and
+every quoted key in the text around the verdict, also in an object that only
+a lenient reader accepts. It does not cover text inside a string value, an
+unquoted key after a comma on the same line, or other words for a verdict
+(`verdict`, `failed`). Eval scoring keeps its older fallback from the score;
+that fallback never reaches the record.
+
+The record binds a verdict by canonical YAML content, not by bytes. "Shown the
+whole content" means: the prompt showed the whole text of a file whose
+canonical content equals the applied file. Comments, key order and harmless
+quoting can differ; the record names the byte digests of both sides.
 
 For a deferred module without a companion test, apply writes an empty
 companion test (`[]`). The reviewer prompt shows that generated companion and
-the record binds its digest, so the whole-file statement also holds for it. A
-companion file that the reviewer was not shown is recorded as not reviewed:
-the record is `partial` and a required apply refuses. The flag is
+the record binds its canonical content, so the whole-file statement also
+holds for it. An empty list, a null document, a file with only comments and a
+0-byte file are one canonical content: a reviewed empty companion covers any
+of them. A companion with test cases is other content and is never covered by
+a review of an empty one. A companion file that exists is always shown in the
+prompt, also when it is empty. A companion that the reviewer was not shown is
+recorded as not reviewed: the record is `partial` and a required apply
+refuses.
+
+A file has no canonical content digest, and so no binding, when its mapping
+keys are ambiguous: a repeated key, two keys that PyYAML (YAML 1.1), a YAML
+1.2 core reader or a mix of their typed forms reads as one value (`0x10` and
+`16`, `0o20` and `0b10000`), a key that is not a scalar, or a key that one of
+those two dialects cannot construct (`!!value`, `!!timestamp`, a local tag).
+No other YAML dialect is modeled. The flag is
 the only switch. There is no environment variable for it, because the
 supervisor builds the child environment from empty and would drop one.
 

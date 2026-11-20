@@ -1385,16 +1385,62 @@ _REVIEW_KEY_TOKEN_OUTSIDE_VERDICT = re.compile(
         )
     )
 )
-# A key spelled with backslash escapes: up to 160 characters or escapes, more
-# than the longest review key written as \uXXXX throughout.
+# A double-quoted key: up to 160 characters or escapes, more than the longest
+# review key written as \uXXXX throughout.
 _ESCAPED_KEY_TOKEN = re.compile(
     _UNESCAPED + r'("(?:[^"\\\n]|\\.){0,160}")' + _KEY_COLON, re.DOTALL
+)
+# A key in single or curly quotes, or a bare word that opens an object. No
+# JSON reader accepts these; a lenient reader does.
+_LOOSE_KEY_TOKEN = re.compile(
+    "(?:"
+    + _UNESCAPED
+    + r"'([^'\n]{0,160})'"
+    + "|[‘’“”]([^‘’“”\n]{0,160})[‘’“”]"
+    + r"|\{"
+    + _LENIENT_SPACE
+    + r"([^\s\"'‘’“”{}\[\],:]{1,160})"
+    + ")"
+    + _KEY_COLON
 )
 
 
 _REVIEW_KEY_OUTSIDE_VERDICT_ERROR = (
     "Reviewer JSON key outside the verdict object in output"
 )
+_COMPETING_VERDICT_KEY_ERROR = "Competing spelling of a reviewer verdict key in output"
+# The keys that decide a verdict: the pass itself, the score (a pass needs
+# 7.0) and the blocking issues (one makes a pass invalid).
+_VERDICT_KEYS = ("passed", "score", "blocking_issues")
+_VERDICT_KEY_LETTERS = {
+    key: "".join(character for character in key if character.isalnum())
+    for key in _VERDICT_KEYS
+}
+
+
+def _is_competing_verdict_key(key: object) -> bool:
+    """Return whether ``key`` reads as a verdict key without being exactly it.
+
+    The verdict keys are ``passed``, ``score`` and ``blocking_issues``.
+    Compared after compatibility normalization and case folding, on letters
+    and digits only, so another case, a full-width form, added spaces,
+    punctuation, combining marks and invisible characters all count. A
+    letter outside ASCII stands for any letter: a look-alike from another
+    script counts without a table of look-alikes. Fails closed: a key of
+    the same length in another script is refused too.
+    """
+    if not isinstance(key, str) or key in _VERDICT_KEYS:
+        return False
+    folded = unicodedata.normalize("NFKC", key).casefold()
+    letters = [character for character in folded if character.isalnum()]
+    return any(
+        len(letters) == len(expected_letters)
+        and all(
+            character == expected or not character.isascii()
+            for character, expected in zip(letters, expected_letters, strict=True)
+        )
+        for expected_letters in _VERDICT_KEY_LETTERS.values()
+    )
 
 
 def _has_review_key_token(text: str) -> bool:
@@ -1402,15 +1448,23 @@ def _has_review_key_token(text: str) -> bool:
         return True
     for match in _ESCAPED_KEY_TOKEN.finditer(text):
         token = match.group(1)
-        if "\\" not in token:
-            continue
+        key: object = token[1:-1]
         with contextlib.suppress(ValueError):
             key = json.loads(token, strict=False)
-            if isinstance(key, str) and (
-                key in _REVIEW_JSON_KEYS or key.casefold() == "passed"
-            ):
-                return True
-    return False
+        if isinstance(key, str) and (
+            key in _REVIEW_JSON_KEYS
+            or key.casefold() == "passed"
+            or _is_competing_verdict_key(key)
+        ):
+            return True
+        # A token with a malformed escape still reads as its raw text.
+        if _is_competing_verdict_key(token[1:-1]):
+            return True
+    return any(
+        _is_competing_verdict_key(next(group for group in match.groups() if group))
+        for match in _LOOSE_KEY_TOKEN.finditer(text)
+        if any(match.groups())
+    )
 
 
 def _refuse_review_keys_outside_verdict(output: str, start: int, end: int) -> None:
@@ -1428,14 +1482,21 @@ def _refuse_review_keys_outside_verdict(output: str, start: int, end: int) -> No
     `Schema: { passed: <boolean> }`, or `checks run: 4,` then a line
     `passed: 4`. The scan cannot tell such prose from a second verdict.
 
+    A key in double, single or curly quotes, or a bare word that opens an
+    object, also counts when it is another spelling of a verdict key
+    (`_is_competing_verdict_key`): an object that only a lenient reader
+    accepts (`{"passed ": false,}`) is never decoded, so its keys are read
+    here.
+
     Between a counted key and its colon the scan skips whitespace, U+FEFF
     and `/* */` comments. Before an unquoted `passed` it also skips `#` and
     `//` line comments.
 
     Known limits, not detected: a key whose quotes are backslash-escaped
     outside any string (`{\\"passed\\": false}`); an unquoted `passed:` after
-    a comma on the same line; single-quoted or unquoted keys other than
-    `passed`; a comment longer than 200 characters, more than eight comments
+    a comma on the same line; single-quoted or unquoted exact keys other than
+    `passed` (`{'score': 1}`), and an unquoted other spelling of a verdict
+    key that does not open its object; a comment longer than 200 characters, more than eight comments
     in a row, or a line comment between a quoted key and its colon; an
     invisible character other than U+FEFF between a key and its colon.
     """
@@ -1444,37 +1505,16 @@ def _refuse_review_keys_outside_verdict(output: str, start: int, end: int) -> No
         raise ValueError(_REVIEW_KEY_OUTSIDE_VERDICT_ERROR)
 
 
-_COMPETING_PASSED_KEY_ERROR = "Competing spelling of the reviewer passed key in output"
-
-
-def _is_competing_passed_key(key: object) -> bool:
-    """Return whether ``key`` reads as ``passed`` without being that exact key.
-
-    Compared after compatibility normalization and case folding, on letters
-    and digits only, so another case, a full-width form, added spaces,
-    punctuation, combining marks and invisible characters all count. A
-    letter outside ASCII stands for any letter: a look-alike from another
-    script counts without a table of look-alikes. Fails closed: a six-letter
-    key in another script is refused too.
-    """
-    if not isinstance(key, str) or key == "passed":
-        return False
-    folded = unicodedata.normalize("NFKC", key).casefold()
-    letters = [character for character in folded if character.isalnum()]
-    return len(letters) == len("passed") and all(
-        character == expected or not character.isascii()
-        for character, expected in zip(letters, "passed", strict=True)
-    )
-
-
-def _refuse_competing_passed_keys(values: Iterable[Any]) -> None:
-    """Fail closed when any decoded object key is another spelling of `passed`.
+def _refuse_competing_verdict_keys(values: Iterable[Any]) -> None:
+    """Fail closed when a decoded object key is another spelling of a verdict key.
 
     The raw key scan covers the text outside the decoded verdict and its
-    well-formed wrapper. This covers the inside: every key of the verdict
-    and of every well-formed object of the output, at any depth. One verdict
-    must have one verdict key, so `{"score": 9, "Passed": false}` and a
-    wrapper that holds `{"Passed": false}` beside the verdict are refused.
+    well-formed wrapper, including objects that only a lenient reader
+    accepts. This covers the inside: every key of the verdict and of every
+    well-formed object of the output, at any depth. One verdict must have
+    one spelling of each verdict key, so `{"score": 9, "Passed": false}`,
+    `{"passed": true, "score": 9, "Blocking_Issues": ["bad"]}` and a wrapper
+    that holds `{"Passed": false}` beside the verdict are refused.
     Iterative: the depth of decoded JSON is not bounded by this function.
     """
     pending = list(values)
@@ -1482,8 +1522,8 @@ def _refuse_competing_passed_keys(values: Iterable[Any]) -> None:
         value = pending.pop()
         if isinstance(value, dict):
             for key, child in value.items():
-                if _is_competing_passed_key(key):
-                    raise ValueError(_COMPETING_PASSED_KEY_ERROR)
+                if _is_competing_verdict_key(key):
+                    raise ValueError(_COMPETING_VERDICT_KEY_ERROR)
                 pending.append(child)
         elif isinstance(value, list):
             pending.extend(value)
@@ -1495,12 +1535,13 @@ def _extract_json_object(output: str) -> dict[str, Any]:
     Three independent checks refuse a second verdict: the tolerant lexer, the
     decode of every well-formed object, and the scan for raw review key
     tokens outside the verdict. The last one holds when the others have lost
-    the string state. A fourth check refuses another spelling of the
-    ``passed`` key inside decoded JSON, where the raw scan does not look.
+    the string state. A fourth check refuses another spelling of a verdict
+    key (``passed``, ``score``, ``blocking_issues``) inside decoded JSON,
+    where the raw scan does not look.
     """
     data, start, end, well_formed = _select_reviewer_json_object(output)
     _refuse_review_keys_outside_verdict(output, start, end)
-    _refuse_competing_passed_keys([data, *(item[2] for item in well_formed)])
+    _refuse_competing_verdict_keys([data, *(item[2] for item in well_formed)])
     return data
 
 
@@ -42886,7 +42927,9 @@ class ValidatorPipeline:
         if review_context:
             review_context_section = f"\n## Review Context\n{review_context}\n"
         test_section = ""
-        if test_content:
+        # Presence decides, not truthiness: an empty companion file is shown
+        # as an empty section, because the evidence names it as reviewed.
+        if test_content is not None:
             test_section = (
                 "\n## Companion Test File\n"
                 f"{test_content[:3000]}{'...' if len(test_content) > 3000 else ''}\n"
@@ -42964,6 +43007,10 @@ Output ONLY valid JSON:
                 data = _extract_json_object(output)
                 if "passed" in data and type(data["passed"]) is not bool:
                     raise ValueError("Reviewer passed must be a JSON boolean")
+                if "score" in data and type(data["score"]) not in (int, float):
+                    # `"9"`, `true` and `null` are not a score; a verdict
+                    # with a mistyped field is not an unambiguous verdict.
+                    raise ValueError("Reviewer score must be a JSON number")
             except (ValueError, json.JSONDecodeError) as parse_err:
                 duration = int((time.time() - start) * 1000)
                 raw_snippet = (output or "").strip()
