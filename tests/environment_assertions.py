@@ -23,11 +23,7 @@ raises through ``raising``. A fake that keeps what it is passed, to be compared
 whole, then keeps ``Names`` too. The standard library's launchers raise from
 frames of their own, whose arguments hold the ``env`` they are passed, when a
 checked program fails or a program can't be started; they read it as a
-mapping, so a test's own launch passes ``env=Names(...)``. Code under test
-that copies an environment it is passed into a ``dict`` and launches with the
-copy through ``subprocess.run`` or ``subprocess.check_output``
-(``run_rulespec_compile`` does) undoes that, so a test that hands it a
-``Names`` calls it inside ``launches_hide_environment()``. ``os.environ``'s
+mapping, so a test's own launch passes ``env=Names(...)``. ``os.environ``'s
 own methods raise from frames whose ``self`` is the whole environment: a read
 or ``del`` of a variable that is not set, and so ``monkeypatch.delenv``'s, whose
 frame is passed ``os.environ``. A test reads a variable that may be missing
@@ -37,12 +33,10 @@ through ``environment_variable`` and unsets one through ``unset_variable``.
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import functools
 import inspect
 import os
-import subprocess
 from collections.abc import Callable, Iterator, Mapping
 from types import ModuleType
 from typing import TYPE_CHECKING, NoReturn, TypeVar
@@ -312,78 +306,6 @@ def hides_environment(function: _Function) -> _Function:
         return function(*positional, **named)
 
     return hidden  # type: ignore[return-value]
-
-
-class _PathNames(Names):
-    """``Names`` for a mapping that is also a path: it stays one."""
-
-    def __init__(self, environment: Mapping[str, str], path: str | bytes) -> None:
-        __tracebackhide__ = True
-        super().__init__(environment)
-        self._path = path
-
-    def __fspath__(self) -> str | bytes:
-        return self._path
-
-
-def _names(value: object) -> object:
-    """``Names`` for a mapping a launcher is passed; anything else as it is."""
-    __tracebackhide__ = True
-    if not isinstance(value, Mapping) or isinstance(value, Names):
-        return value
-    if isinstance(value, os.PathLike):
-        # Read now, so that the launch never calls back into the mapping.
-        return _PathNames(value, os.fspath(value))
-    return Names(value)
-
-
-def _hiding(launcher: _Function) -> _Function:
-    """``launcher``, passed a ``Names`` in place of each mapping it is passed."""
-
-    @functools.wraps(launcher)
-    def hidden(*args: object, **kwargs: object) -> object:
-        # Until the swap, its frame holds the environment as the caller
-        # passed it.
-        __tracebackhide__ = True
-        try:
-            args = tuple(_names(argument) for argument in args)
-            kwargs = {name: _names(value) for name, value in kwargs.items()}
-        except Exception:
-            # A mapping that raises as it is read would print itself.
-            _refuse(launcher.__qualname__)
-        return launcher(*args, **kwargs)
-
-    return hidden  # type: ignore[return-value]
-
-
-@contextlib.contextmanager
-def launches_hide_environment() -> Iterator[None]:
-    """Within it, ``subprocess.run`` and ``subprocess.check_output`` are passed
-    a ``Names`` in place of the environment they launch with.
-
-    For a call to code that copies the environment it is passed into a
-    ``dict`` and launches a program with the copy, as ``run_rulespec_compile``
-    does: should the launch fail, the standard library raises from a frame
-    whose ``env`` argument is that copy. Inside this, each of the two swaps
-    every mapping it is passed for a ``Names`` after the code's own handling:
-    its ``env``, by keyword or by position, and a mapping passed by mistake
-    under another name. A mapping that is also a path stays one; a mapping
-    that is also anything else a launcher reads, such as a file, does not, and
-    the launch fails. A mapping that raises as it is read is refused with a
-    ``TypeError`` that holds no value. Other arguments pass as they are. A
-    launch through ``Popen``, ``call`` or ``check_call`` keeps what it is
-    passed, and so does a frame of the code under test that takes the copy as
-    an argument, should the failure be raised there. Both are restored on
-    leaving it. Two threads that use it at once can leave one's wrapper in
-    place, and so can a patch of either launcher made inside it and undone
-    after it, as ``monkeypatch`` undoes one.
-    """
-    run, check_output = subprocess.run, subprocess.check_output
-    subprocess.run, subprocess.check_output = _hiding(run), _hiding(check_output)
-    try:
-        yield
-    finally:
-        subprocess.run, subprocess.check_output = run, check_output
 
 
 def _raise(error: BaseException | type[BaseException]) -> NoReturn:

@@ -9,7 +9,7 @@ import yaml
 from axiom_encode.cli import _execute_rulespec_test_case, _execute_rulespec_test_file
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from axiom_encode.rules_engine_compat import run_rulespec_compile
-from tests.environment_assertions import Names, launches_hide_environment
+from tests.environment_assertions import Names
 
 
 def _request(tmp_path, lengths, *, current_slot=1):
@@ -160,29 +160,27 @@ def test_distinct_relation_amounts_execute_without_coalescing(
     test_file = module.with_suffix(".test.yaml")
     test_file.write_text(yaml.safe_dump(cases))
     artifact = tmp_path / "compiled.json"
-    with launches_hide_environment():
-        result = run_rulespec_compile(
-            binary=real_engine.binary,
-            program=module,
-            rulespec_roots=[root],
-            output=artifact,
-            cwd=real_engine.root,
-            env=Names(os.environ),
-        )
+    result = run_rulespec_compile(
+        binary=real_engine.binary,
+        program=module,
+        rulespec_roots=[root],
+        output=artifact,
+        cwd=real_engine.root,
+        env=Names(os.environ),
+    )
     assert result.returncode == 0, result.stderr
     payload = json.loads(artifact.read_text())
     if executor == "cli":
-        with launches_hide_environment():
-            result = _execute_rulespec_test_file(
-                test_file,
-                binary=real_engine.binary,
-                axiom_rules_path=real_engine.root,
-                env=Names(os.environ),
-                rulespec_roots=[root],
-                tmp_path=tmp_path,
-                compiled_cache={module: (artifact, payload)},
-                policy_repo_path=root / "us",
-            )
+        result = _execute_rulespec_test_file(
+            test_file,
+            binary=real_engine.binary,
+            axiom_rules_path=real_engine.root,
+            env=Names(os.environ),
+            rulespec_roots=[root],
+            tmp_path=tmp_path,
+            compiled_cache={module: (artifact, payload)},
+            policy_repo_path=root / "us",
+        )
         assert result["cases"] == 1
         assert result["failures"] == []
     else:

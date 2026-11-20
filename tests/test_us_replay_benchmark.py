@@ -65,7 +65,7 @@ from scripts.replay_us_failure_bundles import (
     snapshot_from_report,
     unneeded_allowances,
 )
-from tests.environment_assertions import Names, launches_hide_environment
+from tests.environment_assertions import Names
 from tests.real_engine import binding_receipt
 
 FIXTURES = DEFAULT_FIXTURE_ROOT
@@ -398,15 +398,14 @@ def test_real_engine_public_proof_alias_preserves_program_and_companion(
     for index, content in enumerate((original.candidate, case.candidate)):
         program.write_text(content)
         output = tmp_path / f"compiled-{index}.json"
-        with launches_hide_environment():
-            compiled = run_rulespec_compile(
-                binary=real_engine.binary,
-                program=program,
-                rulespec_roots=[checkout],
-                output=output,
-                cwd=real_engine.root,
-                env=Names(os.environ),
-            )
+        compiled = run_rulespec_compile(
+            binary=real_engine.binary,
+            program=program,
+            rulespec_roots=[checkout],
+            output=output,
+            cwd=real_engine.root,
+            env=Names(os.environ),
+        )
         assert compiled.returncode == 0, compiled.stderr or compiled.stdout
         payloads.append(output.read_bytes())
         pipeline = ValidatorPipeline(

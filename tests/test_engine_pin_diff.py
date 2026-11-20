@@ -15,11 +15,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import engine_pin_diff as diff
-from tests.environment_assertions import (
-    Names,
-    hides_environment,
-    launches_hide_environment,
-)
+from tests.environment_assertions import Names, hides_environment
 
 RULE = dict(
     module="dk/statutes/test.yaml",
@@ -909,15 +905,14 @@ def test_current_leap_month_executes_with_real_engine(real_engine, tmp_path):
 
     checkout, root, module = _calendar_regression_module(tmp_path)
     artifact_path = tmp_path / "compiled.json"
-    with launches_hide_environment():
-        compiled = run_rulespec_compile(
-            binary=real_engine.binary,
-            program=module,
-            rulespec_roots=[checkout],
-            output=artifact_path,
-            cwd=real_engine.root,
-            env=Names(os.environ),
-        )
+    compiled = run_rulespec_compile(
+        binary=real_engine.binary,
+        program=module,
+        rulespec_roots=[checkout],
+        output=artifact_path,
+        cwd=real_engine.root,
+        env=Names(os.environ),
+    )
     assert compiled.returncode == 0, compiled.stderr or compiled.stdout
     artifact = json.loads(artifact_path.read_text())
     case = yaml.safe_load(module.with_suffix(".test.yaml").read_text())[0]

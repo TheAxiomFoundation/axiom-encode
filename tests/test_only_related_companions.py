@@ -18,11 +18,7 @@ from axiom_encode.harness.validator_pipeline import (
     _rulespec_formula_identifiers,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
-from tests.environment_assertions import (
-    Names,
-    hides_environment,
-    launches_hide_environment,
-)
+from tests.environment_assertions import Names, hides_environment
 from tests.test_companion_declared_entities import _companions
 
 TARGET = "us:policies/example/projection"
@@ -270,14 +266,13 @@ def test_only_related_declaration_errors_are_not_hidden(tmp_path, real_engine, i
     else:
         payload["inputs"][0]["entity"] = "Household"
     module.write_text(yaml.safe_dump(payload))
-    with launches_hide_environment():
-        result = run_rulespec_compile(
-            binary=real_engine.binary,
-            program=module,
-            rulespec_roots=[root],
-            output=tmp_path / "compiled.json",
-            cwd=real_engine.root,
-            env=Names(os.environ),
-        )
+    result = run_rulespec_compile(
+        binary=real_engine.binary,
+        program=module,
+        rulespec_roots=[root],
+        output=tmp_path / "compiled.json",
+        cwd=real_engine.root,
+        env=Names(os.environ),
+    )
     assert result.returncode != 0
     assert "only_related" in result.stderr

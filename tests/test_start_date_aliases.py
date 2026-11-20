@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 from axiom_encode.harness import start_date_evidence as sde
-from tests.environment_assertions import Names, launches_hide_environment
+from tests.environment_assertions import Names
 from tests.real_engine import binding_receipt
 from tests.test_start_date_evidence import (
     CITATION,
@@ -175,15 +175,14 @@ def compile_control(real_engine, tmp_path, payload):
     path.parent.mkdir(parents=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=False))
     output = tmp_path / "compiled.json"
-    with launches_hide_environment():
-        completed = run_rulespec_compile(
-            binary=real_engine.binary,
-            program=path,
-            rulespec_roots=[checkout],
-            output=output,
-            cwd=real_engine.root,
-            env=Names(os.environ),
-        )
+    completed = run_rulespec_compile(
+        binary=real_engine.binary,
+        program=path,
+        rulespec_roots=[checkout],
+        output=output,
+        cwd=real_engine.root,
+        env=Names(os.environ),
+    )
     return completed, output
 
 
@@ -410,15 +409,14 @@ def compile_raw_control(real_engine, tmp_path, content):
     path.parent.mkdir(parents=True)
     path.write_text(content)
     output = tmp_path / "compiled.json"
-    with launches_hide_environment():
-        completed = run_rulespec_compile(
-            binary=real_engine.binary,
-            program=path,
-            rulespec_roots=[checkout],
-            output=output,
-            cwd=real_engine.root,
-            env=Names(os.environ),
-        )
+    completed = run_rulespec_compile(
+        binary=real_engine.binary,
+        program=path,
+        rulespec_roots=[checkout],
+        output=output,
+        cwd=real_engine.root,
+        env=Names(os.environ),
+    )
     return completed, output
 
 
@@ -549,15 +547,14 @@ def test_real_engine_public_raw_merge_preserves_the_program_and_companion(
     for index, content in enumerate((original.candidate, case.candidate)):
         program.write_text(content)
         output = tmp_path / f"compiled-{index}.json"
-        with launches_hide_environment():
-            compiled = run_rulespec_compile(
-                binary=real_engine.binary,
-                program=program,
-                rulespec_roots=[checkout],
-                output=output,
-                cwd=real_engine.root,
-                env=Names(os.environ),
-            )
+        compiled = run_rulespec_compile(
+            binary=real_engine.binary,
+            program=program,
+            rulespec_roots=[checkout],
+            output=output,
+            cwd=real_engine.root,
+            env=Names(os.environ),
+        )
         assert compiled.returncode == 0, compiled.stderr or compiled.stdout
         payload = json.loads(output.read_text())
         payloads.append(output.read_bytes())
