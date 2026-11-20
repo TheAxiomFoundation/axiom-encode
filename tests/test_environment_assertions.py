@@ -179,7 +179,12 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tests.environment_assertions import Names, changed_names, hides_environment
+from tests.environment_assertions import (
+    Names,
+    changed_names,
+    hides_environment,
+    launches_hide_environment,
+)
 from tests.environment_flows import programs
 
 TESTS = Path(__file__).resolve().parent
@@ -9174,3 +9179,15 @@ def test_a_launcher_starts_a_child_with_what_names_holds(
     seen = _launched(Names(held), spawned)
     assert seen == _launched(held, spawned)
     assert held.items() <= seen.items()
+
+
+def test_launches_hide_environment_keeps_the_environment_and_restores_run() -> None:
+    run = subprocess.run
+    held = {"PATH": os.defpath, "AAA_PROBE": "probe-value"}
+    with pytest.raises(FileNotFoundError):
+        with launches_hide_environment():
+            assert subprocess.run is not run
+            inside = _launched(held, spawned=False)
+            subprocess.run(["/nonexistent/program"], env=dict(held))
+    assert subprocess.run is run
+    assert inside == _launched(held, spawned=False)
