@@ -1998,7 +1998,8 @@ def test_changed_manifests_beyond_the_read_bound_fail(monkeypatch):
 
 @pytest.mark.skip(
     reason="Case 15 needs the publisher binding: branch protection must require "
-    "the guard App's app_id. No App, workflow or check-run writer exists yet."
+    "the guard App's app_id. The shadow runner's neutral check cannot test that "
+    "binding, and no live run with the App has verified it."
 )
 def test_case_15_imitated_check_name_from_a_pr_workflow():
     raise AssertionError("not decidable by the single-PR evaluator")
@@ -2027,7 +2028,8 @@ def test_constants_follow_the_live_encoder_contract():
     assert cli._applied_encoding_manifest_path(Path(P)).as_posix() == M
     assert cli.APPLIED_ENCODING_MANIFEST_DIR.as_posix() == guard.MANIFEST_DIR
     assert guard.PROMOTION_TOOL == cli.APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
-    # No reader or writer knows v6 yet: this module must not make it live.
+    # The v6 reader is off by default and no writer emits v6: the encoder's
+    # current schema stays v5, and this module must not make v6 live.
     assert cli.APPLIED_ENCODING_MANIFEST_SCHEMA == V5
     assert guard.EARLIER_MANIFEST_SCHEMAS == {cli.APPLIED_ENCODING_MANIFEST_SCHEMA}
     assert guard.MANIFEST_SCHEMA_V6 == "axiom-encode/applied-rulespec/v6"
@@ -2058,11 +2060,17 @@ def test_nothing_in_the_encoder_calls_the_guard():
     ]
     # applied_manifest_v6.py names the merge requirement a v6 manifest must
     # carry (a string constant). It does not import or call the guard.
+    # The runner (change 3) calls the guard, in shadow only: its workflow has
+    # no trigger but a manual dispatch and refuses unless a repository
+    # variable is set (tests/test_merge_guard_runner.py pins both).
     assert sorted(callers) == [
+        ".github/workflows/merge-guard-runner.yml",
         "src/axiom_encode/applied_manifest_v6.py",
         "src/axiom_encode/cli.py",
+        "src/axiom_encode/merge_guard_runner.py",
     ]
-    # By import, not by text: only the lazy import of the CLI command.
+    # By import, not by text: the lazy import of the CLI command, and the
+    # runner.
     importers = set()
     for path in (root / "src" / "axiom_encode").rglob("*.py"):
         if path.name == "content_merge_guard.py":
@@ -2077,7 +2085,10 @@ def test_nothing_in_the_encoder_calls_the_guard():
             )
             if any(name.split(".")[-1] == "content_merge_guard" for name in names):
                 importers.add(path.relative_to(root).as_posix())
-    assert importers == {"src/axiom_encode/cli.py"}
+    assert importers == {
+        "src/axiom_encode/cli.py",
+        "src/axiom_encode/merge_guard_runner.py",
+    }
 
 
 # --- CLI --------------------------------------------------------------------

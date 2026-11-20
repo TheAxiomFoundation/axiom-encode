@@ -1,34 +1,75 @@
 """Content-bound merge guard: evaluate one RuleSpec pull request.
 
-INACTIVE. Nothing in the encoder, a workflow or a RuleSpec repository calls
-this module, no check run is written, and the manifest schema it reads is not
-emitted by any writer. See ``docs/content-bound-merge-guard.md``.
+The ``merge-guard`` CLI command and ``merge_guard_runner`` (command
+``merge-guard-run``) call this evaluator. Both commands can run outside
+``.github/workflows/merge-guard-runner.yml``. The Python runner accepts a
+token-shaped ``MERGE_GUARD_TOKEN`` from its environment without checking the
+ref, runner switch or credential provisioning.
 
-The guard stands aside (``not_applicable``) in two cases only:
+The workflow's ``gate`` job requires ``refs/heads/main`` and
+``vars.MERGE_GUARD_RUNNER_ENABLED`` equal to ``true``. The ``vars`` context
+can supply organization values; the gate checks no repository-only origin.
+The ``run`` job repeats the ref and switch checks and the checks of the
+``country`` and ``pr`` inputs in its first step, then checks the App client ID
+and private key. Its writer publishes only neutral shadow checks. Keep those checks out of required checks. The write
+filter constrains its caller, not other code in the same job.
 
-* ``no_guarded_content``: every path of the complete tree delta is on a short
-  allowlist of unvalidated locations, and every added or modified leaf is a
-  regular file. Everything else is guarded: jurisdiction directories, ``programs/``,
-  ``.axiom/``, ``.github/``, root ledgers, tooling and any new top-level entry.
-* ``earlier_lane_v5``: the delta holds only RuleSpec module files and apply
-  manifests, every changed manifest carries an earlier schema label, every
-  module file is listed by one of them, and the required check is green on
-  the head from this pull request's own ``pull_request`` run. The guard does
-  NOT verify the v5 signature and trusts no label for this: the verdict rests
-  on that CI run. The lane's scope proves that THIS pull request did not
-  change the workflow files or the toolchain pin the run used. It proves
-  nothing about an earlier pull request: whatever changed them and reached
-  ``main`` is the base this run trusts. So this lane is only as strong as
-  the control over changes to those files (design section 3, "Proposed
-  three-class lane").
+The design's checklist step 1 remains a precondition before anyone stores
+the App key or changes the runner switch, shadow mode included. Options
+(a), (b) and (c), and any complement, remain unchosen. Max must choose one
+mechanism and any complement; maintainers must implement the choice, and a
+fresh independent review must
+verify the whole key-exposure boundary.
+That boundary includes every job in any workflow that can select the
+key-bearing environment, including new, replaced or modified workflows and
+dynamic selectors, and who can land those workflows. It also includes all
+pre-token steps and persistence, builds, installation, dependencies and their
+hooks, interpreter startup, ``__init__.py``, the console entry point,
+``signing_broker`` startup and the import closure. Options (a) and (b) need
+a separate control that prevents other workflows from selecting the
+key-bearing environment.
+Recording the precondition does not satisfy it; this code does not implement
+that boundary.
 
-A guarded delta that no lane claims whole gives ``fail``. When the delta is
-one signed ``applied-rulespec/v6`` promotion unit, the evaluator decides
-whether it also carries a live approval, from an enrolled owner who is
-independent of the candidate author, of the dispatcher and of every commit
-author, on a commit whose primary, companion and manifest blobs are the blobs
-at the current head. Every read is live and goes through one injected
-``fetch`` callable. Any error, truncation or disagreement gives ``fail``.
+A holder of a valid App private key can mint tokens for any installation of
+that App, within each installation's granted repositories and permissions,
+while the key remains valid. One token's requested scope, one-hour lifetime
+or revocation does not constrain independently minted tokens.
+
+The v6 reader in ``applied_manifest_v6`` stays off behind
+``V6_READER_ENABLED = False``. The production manifest writer emits v5, and
+the runner offers no enforcing mode. See
+``docs/content-bound-merge-guard.md`` for the design and activation holds.
+
+The evaluator returns ``not_applicable`` in two cases:
+
+* ``no_guarded_content``: every path in the complete tree delta appears on
+  the allowlist of unvalidated locations, and every added or modified leaf
+  has regular-file mode. The evaluator guards every other path, including
+  jurisdiction directories, ``programs/``, ``.axiom/``, ``.github/``, root
+  ledgers, tooling and new top-level entries.
+* ``earlier_lane_v5``: the delta contains only RuleSpec module files and
+  apply manifests with earlier schema labels. Each module file has a listing
+  in its own manifest, and the required check passes on the current head in
+  this PR's own ``pull_request`` run. The lane excludes changes to workflow
+  files and the toolchain pin. The evaluator relies on that CI run for v5
+  signature verification; it does not verify the signature itself or accept
+  a schema label alone.
+  The lane's scope proves that THIS pull request did not change the workflow
+  files or the toolchain pin the run used. It proves nothing about an
+  earlier pull request: whatever changed them and reached ``main`` is the
+  base this run trusts. So this lane is only as strong as the control over
+  changes to those files (design section 3, "Proposed three-class lane").
+
+The evaluator returns ``fail`` when no lane covers the whole guarded delta.
+For one ``applied-rulespec/v6`` promotion unit, it checks the complete scope,
+canonical paths, signing-run binding and live approval from an enrolled
+owner independent of the candidate author, dispatcher and every commit
+author and committer. The approval must cover the same promotion scope and
+primary, companion and manifest blobs as the current head, and the required
+CI must pass on that head in this PR's own ``pull_request`` run. The
+evaluator makes every read live through one injected ``fetch`` callable and
+returns ``fail`` on an error, truncation or disagreement.
 """
 
 from __future__ import annotations
@@ -60,8 +101,9 @@ from axiom_encode.rulespec_citation_paths import (
     citation_rulespec_path,
 )
 
-# Schemas. The v6 manifest and its attestation scope do not exist yet; the
-# evaluator accepts exactly the shape below and nothing else.
+# Schemas. The design (section 5) proposes the v6 manifest and its attestation
+# scope, and no writer emits them yet. The evaluator accepts exactly the shape
+# below and nothing else.
 VERDICT_SCHEMA = "axiom-encode/content-bound-merge-guard-verdict/v1"
 MERGE_REQUIREMENT = "axiom-encode/content-bound-merge-guard/v1"
 MANIFEST_SCHEMA_V6 = "axiom-encode/applied-rulespec/v6"
