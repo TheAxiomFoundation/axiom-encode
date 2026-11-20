@@ -22394,8 +22394,9 @@ def _structural_clause_reading(
     Two rules, both only for a list that ``source_list_structure`` reads as
     alternatives:
 
-    1. A clause whose cue is not in the list's chapeau does not run on into
-       the list's marked items. It ends where the next marked item starts.
+    1. A clause whose cue stands inside the list (in an item, a note or an
+       unmarked child) and whose own text ends with a full stop does not run
+       on into the next marked item of the list.
     2. A clause whose cue is in a chapeau of the form "when|if any of the
        following ...:" has the chapeau's own facts as simultaneous facts and
        the items as alternatives. It ends with the list when a new sentence
@@ -22480,7 +22481,14 @@ def _structural_clause_reading(
         )
         if next_item is None:
             continue
-        if all(end <= next_item.start for _start, end in spans):
+        if (
+            # The cue stands inside the list (in an item, in a note or in an
+            # unmarked child), never before the list's own chapeau, and the
+            # text up to the next item is a finished sentence.
+            cue_at >= first_item
+            and source_text[: next_item.start].rstrip().endswith(".")
+            and all(end <= next_item.start for _start, end in spans)
+        ):
             return _StructuralClauseReading(bounded(clause.start, next_item.start))
         return None
     return None

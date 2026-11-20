@@ -163,6 +163,22 @@ def _ends_with_colon(text: str, block: SourceBlock) -> bool:
     return text[block.start : block.end].rstrip().endswith(":")
 
 
+def _items_end_alike(text: str, items: list[SourceBlock]) -> bool:
+    """Say whether the items' endings show where the last item ends.
+
+    Items with unmarked children aside, either every item ends with a full
+    stop, or every item ends with a letter,
+    a digit or a closing parenthesis (a list printed without end punctuation).
+    A mixed list, or an item that ends with a comma, a semicolon or a colon,
+    may continue after its last marker, so its end is not certain.
+    """
+
+    endings = [text[item.start : item.end].rstrip()[-1] for item in items]
+    return all(ending == "." for ending in endings) or all(
+        ending.isalnum() or ending == ")" for ending in endings
+    )
+
+
 def _chapeau_reading(chapeau_text: str) -> tuple[str, bool, bool]:
     """Return the reading, the cue form and whether item proofs bind."""
 
@@ -260,7 +276,14 @@ def parse_source_lists(text: str) -> tuple[SourceList, ...]:
                 items=tuple(items),
                 end=end,
                 end_is_certain=last not in with_children
-                and not _ends_with_colon(text, items[last]),
+                and _items_end_alike(
+                    text,
+                    [
+                        item
+                        for position, item in enumerate(items)
+                        if position not in with_children
+                    ],
+                ),
                 items_with_children=frozenset(with_children),
                 reading=reading,
                 cue_form=cue_form,

@@ -551,6 +551,53 @@ def test_an_excerpt_across_the_end_of_the_list_keeps_the_flat_reading(monkeypatc
     assert (off, on) == (1, 1)
 
 
+@pytest.mark.parametrize(
+    "items",
+    [
+        # Mixed endings, or an ending that can continue: the end of the list
+        # is not certain, so the clause is read flat.
+        ("New vehicle.", "Replacement permit", "When the fee amount is disputed"),
+        ("New vehicle;", "Replacement permit;", "When the fee amount is disputed;"),
+        ("New vehicle,", "Replacement permit,", "When the fee amount is disputed,"),
+        ("New vehicle", "Replacement permit", "When the fee amount is disputed:"),
+    ],
+)
+def test_a_list_with_unlike_item_endings_keeps_the_flat_reading(items, monkeypatch):
+    source = _list(ANY_CHAPEAU, items) + "\n\n" + TAIL
+    (only,) = structure.parse_source_lists(source)
+    assert not only.tail_starts_sentence(source)
+    content = _candidate([A, B, D], [("renewal", f"{A} or {B} or {D}", [ANY_CHAPEAU])])
+    assert _findings(content, source, on=True, monkeypatch=monkeypatch) == _findings(
+        content, source, on=False, monkeypatch=monkeypatch
+    )
+
+
+def test_a_cue_before_the_chapeau_keeps_the_flat_reading():
+    """The list's own rule is never read without its items."""
+
+    first = "A fee is refunded if the holder is a resident and"
+    source = (
+        first
+        + "\n\nAny of the following proofs is on file:\n\n"
+        + "● A lease that shows the address.\n\n"
+        + "● A bill that states the address."
+    )
+    lists = structure.parse_source_lists(source)
+    assert [found.reading for found in lists] == ["alternatives"]
+    clause = sc._SourceConditionClause((), 0, len(source), source)
+    for excerpt in (first, "Any of the following proofs is on file:", source):
+        assert (
+            sc._structural_clause_reading(
+                clause,
+                excerpt,
+                source_text=source,
+                source_lists=lists,
+                care_source_text="",
+            )
+            is None
+        )
+
+
 NOTE_TAIL = (
     ":\n\n● Fees charged to a company account\n\n"
     "NOTE When no due date is shown for a fee, the fee is considered due in the "
@@ -567,6 +614,15 @@ def test_a_note_in_a_list_of_alternatives_does_not_run_on_into_the_items(monkeyp
     source = "Any of the following parking fees are not refundable" + NOTE_TAIL
     rules = [("due", "fee_has_no_due_date_shown", [NOTE_QUOTE])]
     assert _both(["fee_has_no_due_date_shown"], rules, source, monkeypatch) == (1, 0)
+
+
+def test_a_note_without_a_full_stop_keeps_the_flat_reading(monkeypatch):
+    source = "Any of the following parking fees are not refundable" + NOTE_TAIL
+    source = source.replace("next month.", "next month and")
+    quote = NOTE_QUOTE.replace("next month.", "next month and")
+    rules = [("due", "fee_has_no_due_date_shown", [quote])]
+    off, on = _both(["fee_has_no_due_date_shown"], rules, source, monkeypatch)
+    assert off == on == 1
 
 
 @pytest.mark.parametrize(
