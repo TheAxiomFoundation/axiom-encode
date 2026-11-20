@@ -59,6 +59,23 @@ _ALL_CHAPEAU = re.compile(
     r"\b(?:all|each|every\s+one|both)\s+of\s+the\s+following\b[^.;!?]*:\s*\Z",
     re.IGNORECASE,
 )
+# The chapeau forms that put the list's items under a condition cue of the
+# chapeau itself: the cue stands directly before "all|each of the following",
+# or before a short subject and "meets|satisfies <how many> of the following".
+# Only these forms, and the cue form of alternatives, bind a rule that quotes
+# an item to the whole list. In "When X, all of the following apply:" the
+# items are consequences of X, not its conditions, so that form binds nothing.
+_CONDITION_LIST_CHAPEAU = re.compile(
+    r"\b(?:when|if)\s+(?:"
+    r"(?:all|each)\s+of\s+the\s+following"
+    + _ANY_TAIL
+    + r"|(?:[A-Za-z]+\s+){1,4}?(?:meets?|satisfy|satisfies)\s+"
+    r"(?:all|each|at\s+least\s+[A-Za-z0-9]+|[A-Za-z0-9]+\s+or\s+more)"
+    r"\s+of\s+the\s+following"
+    r"(?:\s+(?:conditions?|requirements?|criteria))?"
+    r")\s*:\s*\Z",
+    re.IGNORECASE,
+)
 # The flat reader ends a proposition after sentence punctuation only before
 # one of these starts. The end of the last item of an alternatives list is
 # given the same rule, nothing wider.
@@ -89,6 +106,8 @@ class SourceList:
     reading: str  # "alternatives", "conjunctive" or "unrecognised"
     # The chapeau states its own condition cue directly before the quantifier.
     cue_form: bool
+    # A rule that quotes an item is read against the whole list.
+    binds_items: bool
 
     def tail_starts_sentence(self, text: str) -> bool:
         """Say whether the text after the list starts a new proposition."""
@@ -144,17 +163,20 @@ def _ends_with_colon(text: str, block: SourceBlock) -> bool:
     return text[block.start : block.end].rstrip().endswith(":")
 
 
-def _chapeau_reading(chapeau_text: str) -> tuple[str, bool]:
+def _chapeau_reading(chapeau_text: str) -> tuple[str, bool, bool]:
+    """Return the reading, the cue form and whether item proofs bind."""
+
     collapsed = " ".join(chapeau_text.split())
     if len(re.findall(r"\bfollowing\b", collapsed, re.IGNORECASE)) != 1:
-        return "unrecognised", False
+        return "unrecognised", False, False
+    binds = _CONDITION_LIST_CHAPEAU.search(collapsed) is not None
     if _ANY_CUE_CHAPEAU.search(collapsed) is not None:
-        return "alternatives", True
+        return "alternatives", True, True
     if _ANY_SUBJECT_CHAPEAU.fullmatch(collapsed) is not None:
-        return "alternatives", False
+        return "alternatives", False, False
     if _ALL_CHAPEAU.search(collapsed) is not None:
-        return "conjunctive", False
-    return "unrecognised", False
+        return "conjunctive", False, binds
+    return "unrecognised", False, binds
 
 
 def parse_source_lists(text: str) -> tuple[SourceList, ...]:
@@ -203,14 +225,15 @@ def parse_source_lists(text: str) -> tuple[SourceList, ...]:
             elif block.kind in {"note", "example"}:
                 # Commentary on the item before it; the list goes on only when
                 # another marked item follows.
-                if not any(later.kind == "item" for later in blocks[cursor + 1 :]):
-                    break
                 following = next(
-                    later
-                    for later in blocks[cursor + 1 :]
-                    if later.kind not in {"note", "example"}
+                    (
+                        later
+                        for later in blocks[cursor + 1 :]
+                        if later.kind not in {"note", "example"}
+                    ),
+                    None,
                 )
-                if following.kind != "item":
+                if following is None or following.kind != "item":
                     break
             elif _ends_with_colon(text, items[-1]) or (len(items) - 1) in with_children:
                 with_children.add(len(items) - 1)
@@ -224,9 +247,13 @@ def parse_source_lists(text: str) -> tuple[SourceList, ...]:
         if len(items) > _ITEM_LIMIT:
             readable = False
         last = len(items) - 1
-        reading, cue_form = _chapeau_reading(text[chapeau.start : chapeau.end])
-        if not readable and reading == "alternatives":
-            reading, cue_form = "unrecognised", False
+        reading, cue_form, binds_items = _chapeau_reading(
+            text[chapeau.start : chapeau.end]
+        )
+        if not readable:
+            # The items cannot be told apart from nested ones: flat reading,
+            # and no rule is bound to a list whose members are not known.
+            reading, cue_form, binds_items = "unrecognised", False, False
         lists.append(
             SourceList(
                 chapeau=chapeau,
@@ -237,6 +264,7 @@ def parse_source_lists(text: str) -> tuple[SourceList, ...]:
                 items_with_children=frozenset(with_children),
                 reading=reading,
                 cue_form=cue_form,
+                binds_items=binds_items,
             )
         )
         # The next chapeau can only be a paragraph after this list.

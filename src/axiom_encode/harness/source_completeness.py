@@ -23658,7 +23658,8 @@ def _opaque_same_source_condition_input_issues(
 
         The flat reader sees a list only through a proof excerpt of its
         chapeau. Here a rule whose formula proof stands inside a marked item
-        of a list with a condition cue in its chapeau is bound to that list:
+        of a list whose chapeau puts the items under its own condition cue
+        (``SourceList.binds_items``, closed forms) is bound to that list:
         when no rule quotes the chapeau, one of the bound rules, or a rule
         that uses one of them, must pass the reading of the chapeau clause.
         """
@@ -23688,12 +23689,7 @@ def _opaque_same_source_condition_input_issues(
             chapeau = source_list.chapeau
             chapeau_text = source_text[chapeau.start : chapeau.end]
             if (
-                re.search(
-                    r"\b(?:if|when|provided\s+that|unless)\b",
-                    chapeau_text,
-                    flags=re.IGNORECASE,
-                )
-                is None
+                not source_list.binds_items
                 or len(re.findall(re.escape(chapeau_text), source_text)) != 1
                 or any(
                     start < chapeau.end and end > chapeau.start

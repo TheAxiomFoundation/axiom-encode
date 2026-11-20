@@ -304,7 +304,7 @@ def test_a_chapeau_that_is_itself_a_marked_item_is_not_a_list_head():
         "● The holder has paid the fee."
     )
     (only,) = structure.parse_source_lists(text)
-    assert only.reading == "conjunctive"
+    assert (only.reading, only.binds_items) == ("unrecognised", False)
     assert len(only.items) == 5
 
 
@@ -618,7 +618,54 @@ def test_the_same_sentence_under_a_conjunctive_list_keeps_the_flat_reading(monke
 # --- (c) a rule that quotes only items is read against the whole list --------------
 
 
-@pytest.mark.parametrize("chapeau", [ALL_CHAPEAU, PLAIN_CHAPEAU])
+COUNT_CHAPEAU = (
+    "A parking permit is granted if the holder meets at least 2 of the "
+    "following conditions:"
+)
+BINDING_CHAPEAUS = [
+    ALL_CHAPEAU,
+    COUNT_CHAPEAU,
+    "A parking permit is granted when each of the following is true:",
+    "A parking permit is granted only if all of the following conditions are met:",
+    "A parking permit is granted when the holder satisfies all of the following:",
+    "A parking permit is granted if it meets two or more of the following criteria:",
+]
+# The items of these lists are not put under the chapeau's cue by a closed
+# form: a consequence list, a cue far from the quantifier, or no quantifier.
+NON_BINDING_CHAPEAUS = [
+    PLAIN_CHAPEAU,
+    "When the holder moves, in the first month, all of the following apply:",
+    "If the holder moves and the fee is unpaid then all of the following apply:",
+    "A parking permit is granted if not all of the following apply:",
+    "A parking permit is granted if the holder who owns a second large vehicle "
+    "meets all of the following:",
+    "A parking permit is granted if the holder fails all of the following:",
+    "A parking permit is granted unless all of the following apply:",
+    "The holder must provide all of the following:",
+]
+
+
+@pytest.mark.parametrize("chapeau", BINDING_CHAPEAUS)
+def test_the_closed_condition_list_forms_bind_item_proofs(chapeau):
+    (only,) = structure.parse_source_lists(_list(chapeau, ALL_ITEMS))
+    assert only.binds_items and only.reading != "alternatives"
+
+
+@pytest.mark.parametrize("chapeau", NON_BINDING_CHAPEAUS)
+def test_any_other_chapeau_binds_no_item_proof(chapeau, monkeypatch):
+    (only,) = structure.parse_source_lists(_list(chapeau, ALL_ITEMS))
+    assert not only.binds_items
+    rules = [("granted", ALL_INPUTS[0], [ALL_ITEMS[0]])]
+    assert _both(ALL_INPUTS, rules, _list(chapeau, ALL_ITEMS), monkeypatch) == (0, 0)
+
+
+def test_an_unreadable_list_binds_no_item_proof():
+    text = ALL_CHAPEAU + "\n\n● The holder owns a vehicle:\n\n● A car\n\n● A van"
+    (only,) = structure.parse_source_lists(text)
+    assert (only.reading, only.binds_items) == ("unrecognised", False)
+
+
+@pytest.mark.parametrize("chapeau", [ALL_CHAPEAU, COUNT_CHAPEAU])
 def test_a_dropped_conjunct_is_refused_when_only_items_are_quoted(chapeau, monkeypatch):
     source = _list(chapeau, ALL_ITEMS)
     rules = [("granted", " and ".join(ALL_INPUTS[:2]), list(ALL_ITEMS[:2]))]
@@ -661,12 +708,6 @@ def test_item_only_proof_of_a_list_of_alternatives_is_verified(
 ):
     rules = [("renewal", formula, list(ANY_ITEMS))]
     assert _both(ANY_INPUTS, rules, ANY, monkeypatch) == (0, expected)
-
-
-def test_a_list_without_a_cue_in_its_chapeau_binds_nothing(monkeypatch):
-    source = _list("The holder must provide the following:", ALL_ITEMS)
-    rules = [("granted", ALL_INPUTS[0], [ALL_ITEMS[0]])]
-    assert _both(ALL_INPUTS, rules, source, monkeypatch) == (0, 0)
 
 
 def test_a_note_inside_a_list_binds_nothing(monkeypatch):
