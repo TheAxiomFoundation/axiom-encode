@@ -72,6 +72,7 @@ def test_finalized_exact_dependents_refuse_required_review_before_signing(
                 **review_evidence_digests(output.read_bytes(), companion.read_bytes()),
                 "rulespec_complete": True,
                 "test_complete": True,
+                "explicit_passed": True,
                 "reviewer_backend": "codex",
                 "reviewer_model": "fixture",
             },
