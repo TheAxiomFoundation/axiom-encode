@@ -1,0 +1,1 @@
+The complete-source analysis reuses formula tokens and string masks across the case environments it evaluates, and within one analysis reuses a case's dependency environment when the same rules, case and constants come back unchanged. Reusing them leaves its findings unchanged, and the slow evidence tests run faster.
