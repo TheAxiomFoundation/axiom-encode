@@ -3616,3 +3616,39 @@ def test_a_mistyped_score_is_a_parse_failure_for_every_reviewer(
         )
         assert result.passed is False
         assert "reviewer_parse_failed" in result.issues
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"values:\n  ? [1, 2]\n  : x\n",
+        b"values:\n  ? {a: 1}\n  : x\n",
+        b"values: {[1, 2]: x}\n",
+        b"values: {{a: 1}: x}\n",
+        b"values:\n  ? - 1\n    - 2\n  : x\n  plain: y\n",
+        b"values:\n  ? a: 1\n  : x\n  plain: y\n",
+    ],
+    ids=[
+        "sequence-key-flow-in-block",
+        "mapping-key-flow-in-block",
+        "sequence-key-flow",
+        "mapping-key-flow",
+        "sequence-key-block",
+        "mapping-key-block",
+    ],
+)
+def test_a_key_that_is_not_a_scalar_has_no_content_digest(raw):
+    # The node tree itself is readable: only the key rule refuses it.
+    root = yaml.compose(raw, Loader=record_module._ReviewContentLoader)
+    key_node = root.value[0][1].value[0][0]
+    assert not isinstance(key_node, yaml.ScalarNode)
+    with pytest.raises(yaml.YAMLError):
+        yaml.safe_load(raw)
+
+    assert review_content_sha256(raw, rulespec=True) is None
+    assert review_content_sha256(raw, rulespec=False) is None
+    record = build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=raw)), [applied_pair(raw, TEST_BYTES)]
+    )
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "unreadable_review_result"
