@@ -196,10 +196,10 @@ _WORKFLOW_ENTRY_FIELDS: Final = frozenset({"path", "repository_id", "ref", "sha"
 MULTI_UNIT_V6_ENABLED: Final[bool] = False
 # The most units of one batch candidate. Bounded by the request budget of the
 # enforcing guard run (design, "Multi-unit candidates", "Request budget"): one
-# evaluation of ``u`` units costs at most ``18 + 9u`` GitHub requests with one
+# evaluation of ``u`` units costs at most ``20 + 9u`` GitHub requests with one
 # page per list, and a pull-request run makes two evaluations and at most 101
-# polls under a cap of 350 requests: 2 x (18 + 9u) + 101 <= 350 gives u <= 11.
-# 10 leaves 33 requests for further pages.
+# polls under a cap of 350 requests: 2 x (20 + 9u) + 101 <= 350 gives u <= 11.
+# 10 leaves 29 requests for further pages.
 MAX_V6_UNITS: Final[int] = 10
 # Where a v6 manifest sits, and the roots a RuleSpec module lives under. This
 # file is loaded by path, outside the package, by the root provisioner, so it
@@ -918,30 +918,37 @@ def _batch_sibling_paths(paths: list, selector: PromotionSelector) -> frozenset[
     units. Judged from paths alone: the merge guard judges the final head,
     and the sibling bytes are not this run's subject.
 
-    Returns the empty set for a candidate with no sibling path, which is then
-    judged exactly as a single-unit candidate.
+    Returns the empty set for a candidate that holds no file of another
+    unit. Such a candidate is not a batch: the caller judges it exactly as a
+    single-unit candidate, with the single-unit words.
     """
 
     own = {selector.rulespec_path, selector.companion}
-    others = [path for path in paths if path not in own]
-    if not others:
+    own_stem = selector.rulespec_path.removesuffix(".yaml")
+    members = {
+        path: _batch_unit_member(path) if isinstance(path, str) else None
+        for path in paths
+        if path not in own
+    }
+    if not any(
+        member is not None and member[0] != own_stem for member in members.values()
+    ):
         return frozenset()
     siblings: dict[str, set[str]] = {}
-    for path in others:
-        member = _batch_unit_member(path) if isinstance(path, str) else None
+    for member in members.values():
         if member is None:
             raise AdmissionError(
                 "batch candidate changes a file that belongs to no promotion unit"
             )
         siblings.setdefault(member[0], set()).add(member[1])
-    if selector.rulespec_path.removesuffix(".yaml") in siblings:
+    if own_stem in siblings:
         raise AdmissionError("batch candidate already holds a manifest for this unit")
     if any(not {"primary", "companion"} <= roles for roles in siblings.values()):
         raise AdmissionError("batch candidate holds an incomplete sibling unit")
     limit = MAX_V6_UNITS
     if type(limit) is not int or len(siblings) + 1 > limit:
         raise AdmissionError("batch candidate holds more units than the batch limit")
-    return frozenset(others)
+    return frozenset(members)
 
 
 def _pages(fetch: Callable[[str], object], path: str) -> list[dict]:
@@ -1083,7 +1090,8 @@ def verify_reviewed_pr(
     paths = [item.get("filename") for item in files]
     # The multi-unit form (switched off): the other files of the candidate
     # may be complete sibling units, all new. With the switch off, or with no
-    # sibling path, the allowed set is the one of a single-unit candidate.
+    # file of another unit, the allowed set is the one of a single-unit
+    # candidate.
     siblings: frozenset[str] = frozenset()
     if (
         candidate_lane
