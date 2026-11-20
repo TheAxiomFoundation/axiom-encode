@@ -4133,6 +4133,7 @@ from tests.environment_assertions import (
     changed_names,
     environment_variable,
     hides_environment,
+    launches_hide_environment,
     raising,
     unset_variable,
 )
@@ -6361,6 +6362,11 @@ def test_hidden_missing_program():
     subprocess.run(["/nonexistent/program"], env=Names(os.environ))
 
 
+def test_hidden_copied_launch():
+    with launches_hide_environment():
+        under_test.copy_and_launch(["/nonexistent/program"], Names(os.environ))
+
+
 def test_hidden_spawned_missing_program():
     subprocess.Popen(
         ["/nonexistent/program"], env=Names(dict(os.environ)), close_fds=False
@@ -6893,6 +6899,7 @@ def test_flagged_os_of_an_object():
 # ``ci_parity`` and ``repo_routing`` do, so pytest prints the chain.
 UNDER_TEST = """
 import os
+import subprocess
 
 
 class Refusal(Exception):
@@ -6901,6 +6908,10 @@ class Refusal(Exception):
 
 def probe(command, environment):
     raise ValueError(command)
+
+
+def copy_and_launch(command, environment):
+    return subprocess.run(command, env=dict(environment))
 
 
 def make(record):

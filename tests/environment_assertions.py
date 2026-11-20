@@ -23,7 +23,10 @@ raises through ``raising``. A fake that keeps what it is passed, to be compared
 whole, then keeps ``Names`` too. The standard library's launchers raise from
 frames of their own, whose arguments hold the ``env`` they are passed, when a
 checked program fails or a program can't be started; they read it as a
-mapping, so a test's own launch passes ``env=Names(...)``. ``os.environ``'s
+mapping, so a test's own launch passes ``env=Names(...)``. Code under test
+that copies an environment it is passed into a ``dict`` and launches with the
+copy (``run_rulespec_compile`` does) undoes that, so a test that hands it a
+``Names`` calls it inside ``launches_hide_environment()``. ``os.environ``'s
 own methods raise from frames whose ``self`` is the whole environment: a read
 or ``del`` of a variable that is not set, and so ``monkeypatch.delenv``'s, whose
 frame is passed ``os.environ``. A test reads a variable that may be missing
@@ -33,10 +36,12 @@ through ``environment_variable`` and unsets one through ``unset_variable``.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import functools
 import inspect
 import os
+import subprocess
 from collections.abc import Callable, Iterator, Mapping
 from types import ModuleType
 from typing import TYPE_CHECKING, NoReturn, TypeVar
@@ -306,6 +311,27 @@ def hides_environment(function: _Function) -> _Function:
         return function(*positional, **named)
 
     return hidden  # type: ignore[return-value]
+
+
+@contextlib.contextmanager
+def launches_hide_environment() -> Iterator[None]:
+    """Within it, ``subprocess.run`` is passed a ``Names`` in each environment's
+    place.
+
+    For a call to code that copies the environment it is passed into a
+    ``dict`` and launches a program with the copy, as ``run_rulespec_compile``
+    does: should the launch fail, the standard library raises from a frame
+    whose ``env`` argument is that copy. Inside this, ``subprocess.run`` is
+    ``hides_environment(subprocess.run)``, so the launch is passed names
+    again after the code's own handling. ``subprocess.run`` is restored on
+    leaving it.
+    """
+    run = subprocess.run
+    subprocess.run = hides_environment(run)
+    try:
+        yield
+    finally:
+        subprocess.run = run
 
 
 def _raise(error: BaseException | type[BaseException]) -> NoReturn:

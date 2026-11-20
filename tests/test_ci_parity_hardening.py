@@ -38,6 +38,7 @@ from tests.environment_assertions import (
     Names,
     environment_variable,
     hides_environment,
+    launches_hide_environment,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
@@ -588,7 +589,8 @@ def test_python_build_probe_matches_the_in_process_label() -> None:
         sysconfig.get_config_var("Py_GIL_DISABLED"),
         sysconfig.get_config_var("Py_DEBUG"),
     )
-    probed = ci_parity._python_build_of(Path(sys.executable), Names(os.environ))
+    with launches_hide_environment():
+        probed = ci_parity._python_build_of(Path(sys.executable), Names(os.environ))
     assert probed == in_process
 
 

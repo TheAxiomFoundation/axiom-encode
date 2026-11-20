@@ -16,7 +16,11 @@ from hypothesis import strategies as st
 from axiom_encode.cli import _execute_rulespec_test_file
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from axiom_encode.rules_engine_compat import run_rulespec_compile
-from tests.environment_assertions import Names, hides_environment
+from tests.environment_assertions import (
+    Names,
+    hides_environment,
+    launches_hide_environment,
+)
 from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 FIXTURES = Path(__file__).parent / "fixtures" / "companion_declared_entities"
@@ -48,14 +52,15 @@ def _fixture_module(tmp_path: Path, family: str) -> tuple[Path, Path]:
 def _compile(
     binary: Path, engine_root: Path, root: Path, module: Path, artifact: Path
 ) -> dict:
-    result = run_rulespec_compile(
-        binary=binary,
-        program=module,
-        rulespec_roots=[root],
-        output=artifact,
-        cwd=engine_root,
-        env=Names(os.environ),
-    )
+    with launches_hide_environment():
+        result = run_rulespec_compile(
+            binary=binary,
+            program=module,
+            rulespec_roots=[root],
+            output=artifact,
+            cwd=engine_root,
+            env=Names(os.environ),
+        )
     assert result.returncode == 0, result.stderr or result.stdout
     return json.loads(artifact.read_text())
 
@@ -72,16 +77,17 @@ def _companions(
     payload = _compile(binary, engine_root, root, module, artifact)
     test_file = module.with_suffix(".test.yaml")
     if executor == "cli":
-        result = _execute_rulespec_test_file(
-            test_file,
-            binary=binary,
-            axiom_rules_path=engine_root,
-            env=Names(os.environ),
-            rulespec_roots=[root],
-            tmp_path=artifact.parent,
-            compiled_cache={module: (artifact, payload)},
-            policy_repo_path=root / module.relative_to(root).parts[0],
-        )
+        with launches_hide_environment():
+            result = _execute_rulespec_test_file(
+                test_file,
+                binary=binary,
+                axiom_rules_path=engine_root,
+                env=Names(os.environ),
+                rulespec_roots=[root],
+                tmp_path=artifact.parent,
+                compiled_cache={module: (artifact, payload)},
+                policy_repo_path=root / module.relative_to(root).parts[0],
+            )
         assert result["cases"] == len(yaml.safe_load(test_file.read_text()))
         return [failure["message"] for failure in result["failures"]]
     pipeline = ValidatorPipeline(
