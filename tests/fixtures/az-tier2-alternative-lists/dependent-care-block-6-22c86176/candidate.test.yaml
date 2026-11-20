@@ -1,0 +1,347 @@
+- name: new_application
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.new_application: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.renewal_application: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_expense_change_received: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_address_change_received: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.expense_amount_questionable: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#dependent_care_verification_required: holds
+- name: no_verification_occasion
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.new_application: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.renewal_application: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_expense_change_received: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_address_change_received: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.expense_amount_questionable: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#dependent_care_verification_required: not_holds
+- name: renewal
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.new_application: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.renewal_application: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_expense_change_received: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_address_change_received: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.expense_amount_questionable: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#dependent_care_verification_required: holds
+- name: expense_change
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.new_application: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.renewal_application: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_expense_change_received: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_address_change_received: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.expense_amount_questionable: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#dependent_care_verification_required: holds
+- name: address_change
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.new_application: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.renewal_application: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_expense_change_received: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_address_change_received: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.expense_amount_questionable: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#dependent_care_verification_required: holds
+- name: questionable_amount
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.new_application: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.renewal_application: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_expense_change_received: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.reported_address_change_received: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.expense_amount_questionable: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#dependent_care_verification_required: holds
+- name: adult_statement_complete
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.incapacitated_adult_care_expense_claimed: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_is_current: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_from_physician_or_psychologist: true
+    ? us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_indicates_adult_requires_supervision_or_personal_care
+    : true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#adult_care_statement_requirement_satisfied: holds
+- name: adult_statement_not_current
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.incapacitated_adult_care_expense_claimed: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_is_current: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_from_physician_or_psychologist: true
+    ? us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_indicates_adult_requires_supervision_or_personal_care
+    : true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#adult_care_statement_requirement_satisfied: not_holds
+- name: adult_statement_wrong_author
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.incapacitated_adult_care_expense_claimed: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_is_current: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_from_physician_or_psychologist: false
+    ? us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_indicates_adult_requires_supervision_or_personal_care
+    : true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#adult_care_statement_requirement_satisfied: not_holds
+- name: adult_statement_missing_care_need
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.incapacitated_adult_care_expense_claimed: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_is_current: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_from_physician_or_psychologist: true
+    ? us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_indicates_adult_requires_supervision_or_personal_care
+    : false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#adult_care_statement_requirement_satisfied: not_holds
+- name: no_adult_care_claim
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.incapacitated_adult_care_expense_claimed: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_is_current: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_from_physician_or_psychologist: false
+    ? us-az:policies/des/faa5/dependent-care-expense/block-6#input.statement_indicates_adult_requires_supervision_or_personal_care
+    : false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#adult_care_statement_requirement_satisfied: holds
+- name: requested_collateral_assistance
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.documented_amount_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_amount_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_contact_clarifies_documented_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.participant_unable_to_obtain_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.participant_requests_verification_assistance: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#collateral_contact_permitted: holds
+    us-az:policies/des/faa5/dependent-care-expense/block-6#care_expense_amount_verification_satisfied: holds
+- name: participant_can_obtain_verification
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.documented_amount_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_amount_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_contact_clarifies_documented_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.participant_unable_to_obtain_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.participant_requests_verification_assistance: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#collateral_contact_permitted: not_holds
+    us-az:policies/des/faa5/dependent-care-expense/block-6#care_expense_amount_verification_satisfied: not_holds
+- name: assistance_not_requested
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.documented_amount_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_amount_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_contact_clarifies_documented_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.participant_unable_to_obtain_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.participant_requests_verification_assistance: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#collateral_contact_permitted: not_holds
+    us-az:policies/des/faa5/dependent-care-expense/block-6#care_expense_amount_verification_satisfied: not_holds
+- name: clarification_contact
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.documented_amount_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_amount_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_contact_clarifies_documented_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.participant_unable_to_obtain_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.participant_requests_verification_assistance: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#collateral_contact_permitted: holds
+    us-az:policies/des/faa5/dependent-care-expense/block-6#care_expense_amount_verification_satisfied: holds
+- name: collateral_contact_did_not_verify_amount
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.documented_amount_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_amount_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_contact_clarifies_documented_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.participant_unable_to_obtain_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.participant_requests_verification_assistance: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#care_expense_amount_verification_satisfied: not_holds
+- name: na_all_verification_present
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.na_case: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_transportation_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.employment_search_information_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.snap_activities_information_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.documented_amount_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_amount_verification: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#care_expense_amount_verification_satisfied: holds
+    us-az:policies/des/faa5/dependent-care-expense/block-6#na_care_verification_requirements_satisfied: holds
+- name: na_transportation_unverified
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.na_case: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_transportation_verified: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.employment_search_information_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.snap_activities_information_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.documented_amount_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_amount_verification: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#care_expense_amount_verification_satisfied: holds
+    us-az:policies/des/faa5/dependent-care-expense/block-6#na_care_verification_requirements_satisfied: not_holds
+- name: na_employment_search_unverified
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.na_case: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_transportation_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.employment_search_information_verified: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.snap_activities_information_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.documented_amount_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_amount_verification: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#care_expense_amount_verification_satisfied: holds
+    us-az:policies/des/faa5/dependent-care-expense/block-6#na_care_verification_requirements_satisfied: not_holds
+- name: na_snap_activities_unverified
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.na_case: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_transportation_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.employment_search_information_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.snap_activities_information_verified: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.documented_amount_verification: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_amount_verification: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#care_expense_amount_verification_satisfied: holds
+    us-az:policies/des/faa5/dependent-care-expense/block-6#na_care_verification_requirements_satisfied: not_holds
+- name: na_amount_unverified
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.na_case: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_transportation_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.employment_search_information_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.snap_activities_information_verified: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.documented_amount_verification: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.collateral_amount_verification: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#care_expense_amount_verification_satisfied: not_holds
+    us-az:policies/des/faa5/dependent-care-expense/block-6#na_care_verification_requirements_satisfied: not_holds
+- name: na_requirement_inapplicable
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.na_case: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#na_care_verification_requirements_satisfied: holds
+- name: provider_documentation_complete
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_address_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_telephone_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.amount_billed_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billing_frequency_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.covered_period_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.care_recipient_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billed_participant_name_documented: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#provider_documentation_complete: holds
+- name: provider_name_missing
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_name_documented: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_address_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_telephone_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.amount_billed_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billing_frequency_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.covered_period_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.care_recipient_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billed_participant_name_documented: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#provider_documentation_complete: not_holds
+- name: provider_address_missing
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_address_documented: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_telephone_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.amount_billed_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billing_frequency_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.covered_period_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.care_recipient_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billed_participant_name_documented: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#provider_documentation_complete: not_holds
+- name: provider_telephone_missing
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_address_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_telephone_documented: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.amount_billed_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billing_frequency_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.covered_period_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.care_recipient_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billed_participant_name_documented: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#provider_documentation_complete: not_holds
+- name: billed_amount_missing
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_address_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_telephone_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.amount_billed_documented: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billing_frequency_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.covered_period_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.care_recipient_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billed_participant_name_documented: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#provider_documentation_complete: not_holds
+- name: billing_frequency_missing
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_address_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_telephone_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.amount_billed_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billing_frequency_documented: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.covered_period_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.care_recipient_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billed_participant_name_documented: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#provider_documentation_complete: not_holds
+- name: covered_period_missing
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_address_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_telephone_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.amount_billed_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billing_frequency_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.covered_period_documented: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.care_recipient_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billed_participant_name_documented: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#provider_documentation_complete: not_holds
+- name: care_recipient_name_missing
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_address_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_telephone_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.amount_billed_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billing_frequency_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.covered_period_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.care_recipient_name_documented: false
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billed_participant_name_documented: true
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#provider_documentation_complete: not_holds
+- name: billed_participant_name_missing
+  period: 2026-08
+  input:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_address_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.provider_telephone_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.amount_billed_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billing_frequency_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.covered_period_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.care_recipient_name_documented: true
+    us-az:policies/des/faa5/dependent-care-expense/block-6#input.billed_participant_name_documented: false
+  output:
+    us-az:policies/des/faa5/dependent-care-expense/block-6#provider_documentation_complete: not_holds

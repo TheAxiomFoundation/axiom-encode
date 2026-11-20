@@ -51,6 +51,9 @@ def test_the_committed_registry_is_valid_and_canonical():
         "block-14",
         "block-3",
         "block-4",
+        "block-16",
+        "block-17",
+        "block-6",
     ]
     # One compact JSON object per line, in the dataclass field order.
     for line, entry in zip(_committed_text().splitlines(), entries, strict=True):

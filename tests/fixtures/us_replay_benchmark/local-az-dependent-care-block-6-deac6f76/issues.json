@@ -1,0 +1,19 @@
+{
+  "id": "local-az-dependent-care-block-6-deac6f76",
+  "run_id": "local-az-dependent-care-block-6-deac6f76",
+  "citation": "us-az/manual/des/faa5/dependent-care-expense/block-6",
+  "module": "us-az/policies/des/faa5/dependent-care-expense/block-6.yaml",
+  "imports_resolved": 0,
+  "imports_unresolved": [],
+  "deferral_providers_resolved": [],
+  "deferral_providers_unresolved": [],
+  "split": "visible",
+  "control": false,
+  "issues": [
+    "[complete-source-unit:source-explicit-conditions] Derived formula version(s) delegate multiple conjunctive factual gates stated in their exact authoritative source clause to too few terminal local inputs or canonical imports: `dependent_care_expense_verification_required` versions[0] (`new_application` for 3 source gates) [source clause \"Expenses must be verified only when any of the following occurs: ● New application ● Renewal application ● When a reported change ... rsonal care is needed to allow incapacitated adult care expenses.\" states 3 facts by their source words: fact 1 (address, change, effecting, expense, information, received, reported, see); fact 2 (amount, expense, questionable); fact 3 (adult, allow, care, current, expense, incapacitated, indicating, needed). The least-supported formula path gives 0 of 3 facts its own input; no input name matches the source words of fact 1, fact 2, fact 3]; `incapacitated_adult_care_statement_requirement_satisfied` versions[0] (`care_is_for_incapacitated_adult` for 3 source gates) [source clause \"Expenses must be verified only when any of the following occurs: ● New application ● Renewal application ● When a reported change ... rsonal care is needed to allow incapacitated adult care expenses.\" states 3 facts by their source words: fact 1 (address, change, effecting, expense, information, received, reported, see); fact 2 (amount, expense, questionable); fact 3 (adult, allow, care, current, expense, incapacitated, indicating, needed). The least-supported formula path gives 0 of 3 facts its own input; no input name matches the source words of fact 1, fact 2, fact 3]. Encode the source-stated facts as distinct local inputs or canonical imports, declare every local fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`), combine them in a source-proved derived Judgment, and test each gate. For each fact that a bracket names without an input, declare one input or canonical import whose name uses that fact's source words, and use it on every formula path that the quoted clause governs. Reserve aggregate boundary statuses for source-atomic or externally determined conditions."
+  ],
+  "rules": {
+    "complete-source-unit:source-explicit-conditions": 1
+  },
+  "error": null
+}

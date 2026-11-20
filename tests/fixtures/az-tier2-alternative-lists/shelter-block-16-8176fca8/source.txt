@@ -1,0 +1,9 @@
+Expenses must be verified when any of the following occur:
+
+● New application
+
+● Renewal application
+
+● When a reported change in the expense or address is received (See Effecting Changes for change information)
+
+● When the expense amount is questionable(g)
