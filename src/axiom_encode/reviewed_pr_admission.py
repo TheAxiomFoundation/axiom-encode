@@ -176,6 +176,41 @@ _WORKFLOWS_PARAMETER_FIELDS: Final = frozenset(
     {"workflows", "do_not_enforce_on_create"}
 )
 _WORKFLOW_ENTRY_FIELDS: Final = frozenset({"path", "repository_id", "ref", "sha"})
+# --- Multi-unit ("batch") form of the v6 lane. SWITCHED OFF. ------------------
+#
+# Issue #2301, option A; design: ``docs/content-bound-merge-guard.md``, section
+# 5, "Multi-unit candidates". With the switch on, one candidate pull request
+# may carry up to ``MAX_V6_UNITS`` new modules, each with its own primary, its
+# own companion and its own signed v6 manifest, under one owner approval.
+#
+# ``MULTI_UNIT_V6_ENABLED`` is the one switch of both halves: this module's
+# admission of one unit out of a batch candidate (``verify_reviewed_pr``) and
+# the merge guard's evaluation of the final head
+# (``content_merge_guard._evaluate``). It is a constant on encoder main: no
+# environment variable, CLI flag, dispatch input or setting turns it. While
+# it is not exactly ``True`` both halves behave as before it existed: the
+# same reads, results and errors. It opens nothing by itself: the admission
+# half also needs every lock of the v6 writer above, and a multi-unit pass of
+# the guard carries its own reason code, which the enforcing runner does not
+# accept until a reviewed change adds it to the runner's success set.
+MULTI_UNIT_V6_ENABLED: Final[bool] = False
+# The most units of one batch candidate. Bounded by the request budget of the
+# enforcing guard run (design, "Multi-unit candidates", "Request budget"): one
+# evaluation of ``u`` units costs at most ``18 + 9u`` GitHub requests with one
+# page per list, and a pull-request run makes two evaluations and at most 101
+# polls under a cap of 350 requests: 2 x (18 + 9u) + 101 <= 350 gives u <= 11.
+# 10 leaves 33 requests for further pages.
+MAX_V6_UNITS: Final[int] = 10
+# Where a v6 manifest sits, and the roots a RuleSpec module lives under. This
+# file is loaded by path, outside the package, by the root provisioner, so it
+# imports nothing from the package: both are copies, pinned by a test to
+# ``content_merge_guard.MANIFEST_PREFIX`` and
+# ``rulespec_citation_paths.RULESPEC_ATOMIC_ROOTS``.
+_BATCH_MANIFEST_PREFIX: Final = ".axiom/encoding-manifests/"
+_BATCH_ATOMIC_ROOTS: Final = frozenset(
+    {"legislation", "policies", "regulations", "statutes"}
+)
+_BATCH_JURISDICTION: Final = re.compile(r"[a-z]{2}(-[a-z0-9]+)*")
 CANDIDATE_SCHEMA: Final = "axiom-encode/live-candidate-pr-admission/v1"
 CANDIDATE_FIELDS: Final = frozenset(
     {
@@ -829,6 +864,86 @@ def _revalidate_candidate_admission(
     return payload
 
 
+def multi_unit_v6_enabled() -> bool:
+    """Whether a v6 candidate may carry more than one unit (the one switch)."""
+
+    return MULTI_UNIT_V6_ENABLED is True
+
+
+def _batch_unit_member(path: str) -> tuple[str, str] | None:
+    """``(module stem, role)`` of a path that can belong to a promotion unit.
+
+    The stem is the primary without ``.yaml``. A unit is
+    ``<stem>.yaml`` (``primary``), ``<stem>.test.yaml`` (``companion``) and
+    ``.axiom/encoding-manifests/<stem>.json`` (``manifest``), where the stem
+    is ``<atomic root>/...`` or ``<jurisdiction>/<atomic root>/...`` with no
+    hidden segment. Everything else is ``None``.
+    """
+
+    if path.startswith(_BATCH_MANIFEST_PREFIX) and path.endswith(".json"):
+        stem, role = path[len(_BATCH_MANIFEST_PREFIX) : -len(".json")], "manifest"
+    elif path.endswith(".test.yaml"):
+        stem, role = path[: -len(".test.yaml")], "companion"
+    elif path.endswith(".yaml"):
+        stem, role = path[: -len(".yaml")], "primary"
+    else:
+        return None
+    parts = stem.split("/")
+    if (
+        any(not part or part.startswith(".") for part in parts)
+        or stem.endswith(".test")
+        or not (
+            (parts[0] in _BATCH_ATOMIC_ROOTS and len(parts) >= 2)
+            or (
+                len(parts) >= 3
+                and _BATCH_JURISDICTION.fullmatch(parts[0]) is not None
+                and parts[1] in _BATCH_ATOMIC_ROOTS
+            )
+        )
+    ):
+        return None
+    return stem, role
+
+
+def _batch_sibling_paths(paths: list, selector: PromotionSelector) -> frozenset[str]:
+    """The paths of the other units of a batch candidate, or a refusal.
+
+    Called only with every lock of the v6 writer open and the multi-unit
+    switch on. ``paths`` is the candidate pull request's file list. Besides
+    this run's own primary and companion, every path must belong to a
+    complete sibling unit: a primary and its companion, and optionally the
+    manifest at the canonical position of that primary (a sibling that an
+    earlier run of this batch already signed). The run's own unit must not
+    have a manifest yet. The whole batch holds at most ``MAX_V6_UNITS``
+    units. Judged from paths alone: the merge guard judges the final head,
+    and the sibling bytes are not this run's subject.
+
+    Returns the empty set for a candidate with no sibling path, which is then
+    judged exactly as a single-unit candidate.
+    """
+
+    own = {selector.rulespec_path, selector.companion}
+    others = [path for path in paths if path not in own]
+    if not others:
+        return frozenset()
+    siblings: dict[str, set[str]] = {}
+    for path in others:
+        member = _batch_unit_member(path) if isinstance(path, str) else None
+        if member is None:
+            raise AdmissionError(
+                "batch candidate changes a file that belongs to no promotion unit"
+            )
+        siblings.setdefault(member[0], set()).add(member[1])
+    if selector.rulespec_path.removesuffix(".yaml") in siblings:
+        raise AdmissionError("batch candidate already holds a manifest for this unit")
+    if any(not {"primary", "companion"} <= roles for roles in siblings.values()):
+        raise AdmissionError("batch candidate holds an incomplete sibling unit")
+    limit = MAX_V6_UNITS
+    if type(limit) is not int or len(siblings) + 1 > limit:
+        raise AdmissionError("batch candidate holds more units than the batch limit")
+    return frozenset(others)
+
+
 def _pages(fetch: Callable[[str], object], path: str) -> list[dict]:
     result = []
     for page in range(1, MAX_PAGES + 1):
@@ -966,15 +1081,27 @@ def verify_reviewed_pr(
     ):
         raise AdmissionError("new candidate paths already exist on main")
     paths = [item.get("filename") for item in files]
+    # The multi-unit form (switched off): the other files of the candidate
+    # may be complete sibling units, all new. With the switch off, or with no
+    # sibling path, the allowed set is the one of a single-unit candidate.
+    siblings: frozenset[str] = frozenset()
+    if (
+        candidate_lane
+        and MULTI_UNIT_V6_ENABLED is True
+        and len(set(paths)) == len(paths)
+        and expected.issubset(paths)
+    ):
+        siblings = _batch_sibling_paths(paths, selector)
+    allowed = expected | siblings if siblings else expected | {INDEX_PATH}
     if (
         len(set(paths)) != len(paths)
         or not expected.issubset(paths)
-        or not set(paths).issubset(expected | {INDEX_PATH})
+        or not set(paths).issubset(allowed)
         or before.get("changed_files") != len(files)
         or any(
             item.get("status") != "added"
             for item in files
-            if item.get("filename") in expected
+            if item.get("filename") in expected | siblings
         )
         or any(item.get("status") not in {"added", "modified"} for item in files)
     ):

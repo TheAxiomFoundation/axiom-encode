@@ -43,6 +43,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Callable
 
+from axiom_encode import reviewed_pr_admission as _admission
 from axiom_encode.applied_manifest_v6 import is_promotion_repository
 from axiom_encode.reviewed_pr_admission import (
     TRUSTED_SIGNING_REVIEWERS,
@@ -225,6 +226,18 @@ R_CITATION = "citation_not_canonical"
 R_MANIFEST_PATH = "manifest_path_not_canonical"
 R_SCOPE_PATHS = "scope_paths"
 R_SCOPE_NOT_NEW = "scope_not_new_module"
+# The multi-unit form of the v6 lane (off: ``reviewed_pr_admission.
+# MULTI_UNIT_V6_ENABLED``). None of these can occur while it is off. A pass
+# of two or more units has its own reason: a consumer that accepts verdicts by
+# verdict and reason does not accept a batch until it names this one.
+R_MULTI_UNIT_PASS = "content_bound_approval_multi_unit"
+R_TOO_MANY_UNITS = "too_many_v6_units"
+R_UNIT_INCOMPLETE = "v6_unit_incomplete"
+R_BATCH_EXTRA_PATH = "v6_batch_extra_path"
+R_UNITS_SHARE_PATH = "v6_units_share_a_path"
+R_UNITS_SHARE_RUN = "v6_units_share_a_signing_run"
+R_UNIT_CROSS_BOUND = "v6_unit_cross_bound"
+R_BATCH_NOT_FROZEN = "v6_batch_not_frozen_at_candidate"
 R_APPLIED_FILES = "applied_files_mismatch"
 R_RUN = "signing_run_not_bound"
 R_DISPATCHER_MISMATCH = "dispatcher_mismatch"
@@ -309,6 +322,27 @@ class _Manifest:
     dispatcher_login: str
     candidate_head: str
     candidate_base: str
+
+
+@dataclass(frozen=True)
+class _Unit:
+    """One promotion unit of a v6 candidate: a manifest and the pair it binds.
+
+    ``evidence`` is the dict this unit's facts are recorded in: the verdict's
+    own evidence for a single unit, one entry of ``evidence["units"]`` for a
+    batch.
+    """
+
+    manifest_path: str
+    manifest_raw: bytes
+    manifest: _Manifest
+    primary: str
+    companion: str
+    evidence: dict
+
+    @property
+    def paths(self) -> tuple[str, str, str]:
+        return (self.primary, self.companion, self.manifest_path)
 
 
 def _reader(fetch: Callable[[str], object]) -> Callable[[str], object]:
@@ -1003,6 +1037,94 @@ def _earlier_lane_refusal(
     return None
 
 
+def _v6_scope_refusal(
+    delta: dict[str, str], units: list[tuple[str, str, str]]
+) -> tuple[str, str] | None:
+    """Why the delta is not exactly the given new promotion units, or None.
+
+    ``units`` holds one ``(primary, companion, manifest)`` triple per changed
+    v6 manifest. The delta is admitted only when it is exactly the disjoint
+    union of these triples and every path is new on ``main``:
+
+    - no path belongs to two units (``v6_units_share_a_path``);
+    - every path of every unit is in the delta (``v6_unit_incomplete``);
+    - the delta holds no other path (``v6_batch_extra_path``);
+    - every path is ``added`` (``scope_not_new_module``).
+
+    One decision procedure serves one unit and many. For one unit the first
+    rule cannot fire, and the second and third keep the reason and the words
+    they had before the multi-unit form existed (``scope_paths``).
+    """
+    claimed = [path for unit in units for path in unit]
+    refusal = None
+    if len(set(claimed)) != len(claimed):
+        shared = sorted(path for path in set(claimed) if claimed.count(path) > 1)
+        refusal = (R_UNITS_SHARE_PATH, "two units name the path: " + shared[0])
+    elif missing := sorted(path for path in claimed if path not in delta):
+        refusal = (
+            R_UNIT_INCOMPLETE,
+            "a unit's primary, companion or manifest is not in the delta: "
+            + missing[0],
+        )
+    elif extra := sorted(set(delta) - set(claimed)):
+        refusal = (
+            R_BATCH_EXTRA_PATH,
+            "the delta holds a path of no promotion unit: " + extra[0],
+        )
+    elif any(delta[path] != "added" for path in claimed):
+        return R_SCOPE_NOT_NEW, "promotion paths already exist on main"
+    if (
+        refusal is not None
+        and len(units) == 1
+        and refusal[0]
+        in (
+            R_UNIT_INCOMPLETE,
+            R_BATCH_EXTRA_PATH,
+        )
+    ):
+        return (
+            R_SCOPE_PATHS,
+            "delta is not exactly the primary, companion and manifest",
+        )
+    return refusal
+
+
+@contextmanager
+def _in_unit(manifest_path: str, batch: bool):
+    """In a batch, name the unit a refusal belongs to. A single unit: no-op."""
+    try:
+        yield
+    except _Refusal as refusal:
+        if not batch:
+            raise
+        raise _Refusal(
+            refusal.reason, f"{manifest_path}: {refusal.detail}"
+        ) from refusal
+
+
+def _encoder_main_reader(read: Callable[[str], object]) -> Callable[[str], object]:
+    """Read the encoder's ``main`` tip, and each ancestry against it, once.
+
+    One reader serves one pass over the signing runs of a candidate, so every
+    unit of a batch is judged against the same encoder ``main`` tip, as the
+    one unit of a single-unit candidate is. An ancestry of two exact commits
+    is immutable. Every other path, the signing run itself above all, is read
+    each time. For one unit this changes no read: each of these paths is read
+    once per pass anyway.
+    """
+    tip_path = ENCODER_ROOT + "/git/ref/heads/main"
+    seen: dict[str, object] = {}
+
+    def cached(path: str) -> object:
+        if path != tip_path and not path.startswith(ENCODER_ROOT + "/compare/"):
+            return read(path)
+        if path not in seen:
+            seen[path] = read(path)
+        return seen[path]
+
+    return cached
+
+
 def evaluate(
     repository: str, pr: int, *, fetch: Callable[[str], object] = github_json
 ) -> Verdict:
@@ -1188,8 +1310,17 @@ def _evaluate(name, number, read, evidence) -> Verdict:
         )
     if len(schemas) != 1:
         raise _Refusal(R_MIXED_SCHEMAS, "v6 and earlier manifests in one PR")
-    if len(parsed) != 1:
-        raise _Refusal(R_MULTIPLE_V6, "exactly one v6 manifest is allowed per PR")
+    batch = len(parsed) != 1
+    if batch:
+        # The multi-unit form, switched off. While the switch is not exactly
+        # ``True`` a second v6 manifest is refused as before.
+        if _admission.MULTI_UNIT_V6_ENABLED is not True:
+            raise _Refusal(R_MULTIPLE_V6, "exactly one v6 manifest is allowed per PR")
+        limit = _admission.MAX_V6_UNITS
+        if type(limit) is not int or len(parsed) > limit:
+            raise _Refusal(
+                R_TOO_MANY_UNITS, "the candidate holds more v6 units than the limit"
+            )
     if not is_promotion_repository(repository):
         raise _Refusal(
             R_UNSUPPORTED_REPOSITORY,
@@ -1199,64 +1330,98 @@ def _evaluate(name, number, read, evidence) -> Verdict:
     if before.get("draft") is not False:
         raise _Refusal(R_PR_DRAFT, "a draft pull request has no merge verdict")
 
-    # 4. Scope and canonical paths: the delta is exactly one new unit.
-    ((manifest_path, (manifest_raw, payload)),) = parsed.items()
+    # 4. Scope and canonical paths: the delta is exactly one new unit, or, in
+    # the multi-unit form, exactly a set of new units. Every rule below is
+    # applied to each unit by the same code; a batch of one is a single unit.
     with _refuse_as(R_DELTA_DISAGREES):
         files = _pages(read, pr_path + "/files")
         if before.get("changed_files") != len(files):
             raise AdmissionError("PR file count differs from its file list")
         _require_immutable_delta(base_tree, head_tree, files, comparison)
-    manifest = _parse_manifest(
-        payload, repository=repository, number=number, author_id=author_id
-    )
-    evidence["dispatcher_id"] = manifest.dispatcher_id
-    evidence["run_id"] = manifest.run_id
-    evidence["candidate_head"] = manifest.candidate_head
-    try:
-        primary = str(citation_rulespec_path(manifest.citation))
-        selector = PromotionSelector(
-            country,
-            number,
-            head,
-            manifest.citation,
-            primary,
-            branch,
-            manifest.dispatcher_login,
-            manifest.run_id,
+    units: list[_Unit] = []
+    if batch:
+        evidence["units"] = []
+    for manifest_path in sorted(parsed):
+        manifest_raw, payload = parsed[manifest_path]
+        unit_evidence = evidence
+        if batch:
+            unit_evidence = {"manifest": manifest_path}
+            evidence["units"].append(unit_evidence)
+        with _in_unit(manifest_path, batch):
+            manifest = _parse_manifest(
+                payload, repository=repository, number=number, author_id=author_id
+            )
+            unit_evidence["dispatcher_id"] = manifest.dispatcher_id
+            unit_evidence["run_id"] = manifest.run_id
+            unit_evidence["candidate_head"] = manifest.candidate_head
+            try:
+                primary = str(citation_rulespec_path(manifest.citation))
+                selector = PromotionSelector(
+                    country,
+                    number,
+                    head,
+                    manifest.citation,
+                    primary,
+                    branch,
+                    manifest.dispatcher_login,
+                    manifest.run_id,
+                )
+            except Exception as exc:
+                raise _Refusal(R_CITATION, type(exc).__name__) from exc
+            companion = selector.companion
+            if (
+                manifest_path
+                != MANIFEST_PREFIX + primary.removesuffix(".yaml") + ".json"
+            ):
+                raise _Refusal(R_MANIFEST_PATH, manifest_path)
+            unit_evidence["paths"] = {
+                "primary": primary,
+                "companion": companion,
+                "manifest": manifest_path,
+            }
+        units.append(
+            _Unit(
+                manifest_path, manifest_raw, manifest, primary, companion, unit_evidence
+            )
         )
-    except Exception as exc:
-        raise _Refusal(R_CITATION, type(exc).__name__) from exc
-    companion = selector.companion
-    if manifest_path != MANIFEST_PREFIX + primary.removesuffix(".yaml") + ".json":
-        raise _Refusal(R_MANIFEST_PATH, manifest_path)
-    unit = (primary, companion, manifest_path)
-    evidence["paths"] = {
-        "primary": primary,
-        "companion": companion,
-        "manifest": manifest_path,
-    }
-    if set(delta) != set(unit):
-        raise _Refusal(
-            R_SCOPE_PATHS,
-            "delta is not exactly the primary, companion and manifest",
-        )
-    if any(delta[path] != "added" for path in unit):
-        raise _Refusal(R_SCOPE_NOT_NEW, "promotion paths already exist on main")
-    digests = {
-        primary: hashlib.sha256(
-            _blob(read, root, head_leaves[primary]["sha"])
-        ).hexdigest(),
-        companion: hashlib.sha256(
-            _blob(read, root, head_leaves[companion]["sha"])
-        ).hexdigest(),
-    }
-    evidence["primary_sha256"] = digests[primary]
-    evidence["companion_sha256"] = digests[companion]
-    evidence["manifest_sha256"] = hashlib.sha256(manifest_raw).hexdigest()
-    if manifest.applied != digests:
-        raise _Refusal(
-            R_APPLIED_FILES, "manifest applied_files differ from the head blobs"
-        )
+    refusal = _v6_scope_refusal(delta, [unit.paths for unit in units])
+    if refusal is not None:
+        raise _Refusal(*refusal)
+    every_path = [path for unit in units for path in unit.paths]
+    module_paths = [path for unit in units for path in (unit.primary, unit.companion)]
+    # One signing run signs one unit. Two manifests of one run are a shape no
+    # writer produces.
+    run_ids = [unit.manifest.run_id for unit in units]
+    if len(set(run_ids)) != len(run_ids):
+        raise _Refusal(R_UNITS_SHARE_RUN, "two units name one signing run")
+    for unit in units:
+        with _in_unit(unit.manifest_path, batch):
+            digests = {
+                unit.primary: hashlib.sha256(
+                    _blob(read, root, head_leaves[unit.primary]["sha"])
+                ).hexdigest(),
+                unit.companion: hashlib.sha256(
+                    _blob(read, root, head_leaves[unit.companion]["sha"])
+                ).hexdigest(),
+            }
+            unit.evidence["primary_sha256"] = digests[unit.primary]
+            unit.evidence["companion_sha256"] = digests[unit.companion]
+            unit.evidence["manifest_sha256"] = hashlib.sha256(
+                unit.manifest_raw
+            ).hexdigest()
+            if unit.manifest.applied != digests:
+                # Each manifest binds exactly its own primary and companion,
+                # by path and by sha256. Naming a file of another unit of the
+                # batch has its own reason.
+                foreign = set(unit.manifest.applied) - set(digests)
+                if foreign & set(every_path):
+                    raise _Refusal(
+                        R_UNIT_CROSS_BOUND,
+                        "manifest applied_files name a file of another unit",
+                    )
+                raise _Refusal(
+                    R_APPLIED_FILES, "manifest applied_files differ from the head blobs"
+                )
 
     # The PR's commits: the candidate the manifest names, and who wrote them.
     with _refuse_as(R_COMMITS):
@@ -1285,38 +1450,76 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             for path in paths
         )
 
+    # A tree and an ancestry of exact commits are immutable Git facts: units
+    # that name the same candidate commit or base share one read of each.
+    candidate_trees: dict[str, dict] = {}
+    base_descends: dict[str, bool] = {}
+
+    def candidate_tree(commit):
+        if commit not in candidate_trees:
+            candidate_trees[commit] = entries_at(commit, "candidate tree")
+        return candidate_trees[commit]
+
+    def base_descends_from(commit):
+        if commit not in base_descends:
+            base_descends[commit] = _is_ancestor(read, root, commit, base)
+        return base_descends[commit]
+
     # The candidate the signer validated is a commit of this PR that carries
     # the head's primary and companion, cut from an ancestor of this base.
-    with _refuse_as(R_MANIFEST_CANDIDATE):
-        if (
-            manifest.candidate_head not in commit_shas
-            or not same_blobs(
-                entries_at(manifest.candidate_head, "candidate tree"),
-                (primary, companion),
-            )
-            or not _is_ancestor(read, root, manifest.candidate_base, base)
-        ):
-            raise AdmissionError(
-                "manifest candidate is not a commit of this PR with the head content"
-            )
+    for unit in units:
+        with _in_unit(unit.manifest_path, batch):
+            with _refuse_as(R_MANIFEST_CANDIDATE):
+                if (
+                    unit.manifest.candidate_head not in commit_shas
+                    or not same_blobs(
+                        candidate_tree(unit.manifest.candidate_head),
+                        (unit.primary, unit.companion),
+                    )
+                    or not base_descends_from(unit.manifest.candidate_base)
+                ):
+                    raise AdmissionError(
+                        "manifest candidate is not a commit of this PR with the "
+                        "head content"
+                    )
+            # A batch is frozen before its first signing run: the commit each
+            # run validated already carried the primary and companion of
+            # every unit of the batch, with the bytes of the head. For one
+            # unit this is the rule above.
+            if not same_blobs(
+                candidate_tree(unit.manifest.candidate_head), module_paths
+            ):
+                raise _Refusal(
+                    R_BATCH_NOT_FROZEN,
+                    "the candidate commit does not carry every module of the "
+                    "batch with the head content",
+                )
 
     # 6 (first half). The signing run and the dispatcher it authenticates.
-    with _refuse_as(R_RUN):
-        signing_run = _signing_run(read, manifest.run_id)
-        run_actor_id, trigger_id, trigger_login = signing_run[:3]
-    if (
-        trigger_id != manifest.dispatcher_id
-        or trigger_login != manifest.dispatcher_login
-    ):
-        raise _Refusal(
-            R_DISPATCHER_MISMATCH, "manifest dispatcher is not the run's actor"
-        )
-    if (
-        manifest.dispatcher_id not in TRUSTED_SIGNING_REVIEWERS
-        or TRUSTED_SIGNING_REVIEWERS[manifest.dispatcher_id] != trigger_login
-    ):
-        raise _Refusal(R_DISPATCHER_NOT_ENROLLED, "dispatcher is not enrolled")
-    dispatchers = {manifest.dispatcher_id, run_actor_id, trigger_id}
+    signing_runs: dict[str, tuple] = {}
+    dispatchers: set[int] = set()
+    run_read = _encoder_main_reader(read)
+    for unit in units:
+        manifest = unit.manifest
+        with _in_unit(unit.manifest_path, batch):
+            with _refuse_as(R_RUN):
+                signing_run = _signing_run(run_read, manifest.run_id)
+                run_actor_id, trigger_id, trigger_login = signing_run[:3]
+            if (
+                trigger_id != manifest.dispatcher_id
+                or trigger_login != manifest.dispatcher_login
+            ):
+                raise _Refusal(
+                    R_DISPATCHER_MISMATCH, "manifest dispatcher is not the run's actor"
+                )
+            if (
+                manifest.dispatcher_id not in TRUSTED_SIGNING_REVIEWERS
+                or TRUSTED_SIGNING_REVIEWERS[manifest.dispatcher_id] != trigger_login
+            ):
+                raise _Refusal(R_DISPATCHER_NOT_ENROLLED, "dispatcher is not enrolled")
+        signing_runs[manifest.run_id] = signing_run
+        # The approver is independent of the dispatcher of every unit.
+        dispatchers |= {manifest.dispatcher_id, run_actor_id, trigger_id}
 
     # 5 and 7 (reviews). Effective reviews; a blocking review refuses.
     with _refuse_as(R_REVIEWS):
@@ -1331,6 +1534,8 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             raise _Refusal(R_CHANGES_REQUESTED, f"review {review['id']}")
 
     # 5 and 6. A counting approval is enrolled, independent and content-bound.
+    # One approval covers every unit: its commit carries exactly the paths of
+    # all units, each with the blob of the head.
     def content_bound(commit):
         if not isinstance(commit, str) or commit not in commit_shas:
             return False
@@ -1343,7 +1548,7 @@ def _evaluate(name, number, read, evidence) -> Verdict:
                 raise AdmissionError("approved commit has no merge base with main")
             approved = entries_at(commit, "approved tree")
             scope = set(_delta(entries_at(fork, "fork tree"), approved))
-        return scope == set(unit) and same_blobs(approved, unit)
+        return scope == set(every_path) and same_blobs(approved, every_path)
 
     approvals, rejected = [], []
     for reviewer_id in sorted(effective):
@@ -1406,10 +1611,17 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             or _pages(read, pr_path + "/reviews") != reviews
         ):
             raise AdmissionError("PR, main or reviews changed during evaluation")
-        if _signing_run(read, manifest.run_id) != signing_run:
-            raise AdmissionError("signing run changed during evaluation")
+        recheck_read = _encoder_main_reader(read)
+        for unit in units:
+            if (
+                _signing_run(recheck_read, unit.manifest.run_id)
+                != signing_runs[unit.manifest.run_id]
+            ):
+                raise AdmissionError("signing run changed during evaluation")
         if _require_green_ci(read, root, head, number) != ci_state:
             raise AdmissionError("required CI changed during evaluation")
+    if batch:
+        return Verdict(PASS, R_MULTI_UNIT_PASS, "", evidence)
     return Verdict(PASS, R_PASS, "", evidence)
 
 
