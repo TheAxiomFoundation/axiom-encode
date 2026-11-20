@@ -118,6 +118,66 @@ capability.
 The launcher is validated but never executed; the
 supervisor executes the validated interpreter and protected bootstrap directly.
 
+### Requiring the generalist review
+
+`encode --apply` records its generalist review in the encode outcome, and in
+the signed manifest for a target that verifies with the main encoder. That is
+a target whose protected base sets `[workflow_toolchain] encoder_verifier =
+"main"` and sets no `encoder_verifier_hold`. A hold verifies with one exact
+earlier encoder commit, which may predate the record field, so a held target
+gets the record in the encode outcome only, like a pinned target. The mode and
+the hold are read from one protected commit. By
+default a review that is unavailable, failed or partial does not stop the
+apply. To make it stop, add `--require-review` to the supervised command:
+
+```text
+  -- /opt/axiom/python/bin/axiom-encode encode ... --apply --require-review
+```
+
+With the flag, the encode applies only when the reviewer ran, passed, and was
+shown the whole content of every applied file; otherwise it ends
+`apply_blocked_review` with a non-zero exit and nothing applied. A pass is the
+reviewer's own JSON boolean `"passed": true` in its one verdict object, with a
+JSON number as `score`. A score without that field, a non-boolean `passed`, a
+non-number `score`, or another spelling of a verdict key (`passed`, `score`,
+`blocking_issues`; for example `"Passed"` or `"Blocking_Issues"`) is not a
+pass. The spelling rule covers every key of decoded JSON in the output and
+every quoted key in the text around the verdict, also in an object that only
+a lenient reader accepts. It does not cover text inside a string value, an
+unquoted key after a comma on the same line, or other words for a verdict
+(`verdict`, `failed`). Eval scoring keeps its older fallback from the score;
+that fallback never reaches the record.
+
+The record binds a verdict by canonical YAML content, not by bytes. "Shown the
+whole content" means: the prompt showed the whole text of a file whose
+canonical content equals the applied file. Comments, key order and harmless
+quoting can differ; the record names the byte digests of both sides.
+
+For a deferred module without a companion test, apply writes an empty
+companion test (`[]`). The reviewer prompt shows that generated companion and
+the record binds its canonical content, so the whole-file statement also
+holds for it. An empty list, a null document, a file with only comments and a
+0-byte file are one canonical content: a reviewed empty companion covers any
+of them. A companion with test cases is other content and is never covered by
+a review of an empty one. A companion file that exists is always shown in the
+prompt, also when it is empty. A companion that the reviewer was not shown is
+recorded as not reviewed: the record is `partial` and a required apply
+refuses.
+
+A file has no canonical content digest, and so no binding, when its mapping
+keys are ambiguous: a repeated key, two keys that PyYAML (YAML 1.1), a YAML
+1.2 core reader or a mix of their typed forms reads as one value (`0x10` and
+`16`, `0o20` and `0b10000`), a key that is not a scalar, or a key that one of
+those two dialects cannot construct (`!!value`, `!!timestamp`, a local tag).
+No other YAML dialect is modeled. The flag is
+the only switch. There is no environment variable for it, because the
+supervisor builds the child environment from empty and would drop one.
+
+Turn it on only where a reviewer CLI can start under the supervisor: the local
+trusted lane (#2037), after the trusted runtime is re-provisioned at a commit
+that has the flag. The hosted signed workflow has no reviewer CLI on its
+runner, so the flag would block every run there.
+
 The Python environment is constructed from empty. It contains fixed locale,
 bytecode/isolation controls, a fixed path containing only the validated runtime
 tool directory, and the anonymous
