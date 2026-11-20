@@ -8996,6 +8996,9 @@ def test_names_compares_by_value_and_prints_names(
     assert (names == Names(other)) == (kept == other)
     assert dict(names) == kept
     assert repr(names) == f"Names({sorted(kept)!r})"
+    # pytest diffs two dicts item by item, values included; a Names is no dict.
+    plain = isinstance(names, dict)
+    assert not plain
 
 
 passed = st.recursive(
@@ -9328,20 +9331,26 @@ def test_launches_hide_environment_hides_each_launch_in_it(launcher: str) -> Non
         {},
     ]
 
-    def launch(held: dict[str, str]) -> dict[str, object]:
+    def launch(index: int) -> dict[str, object]:
+        # The mapping itself, so that a second launch passes the same object.
+        held = environments[index]
         command = [sys.executable, *_reporting(held)]
         if launcher == "run":
             output = subprocess.run(
-                command, env=dict(held), capture_output=True, check=True
+                command, env=held, capture_output=True, check=True
             ).stdout
         else:
-            output = subprocess.check_output(command, env=dict(held))
+            output = subprocess.check_output(command, env=held)
         return json.loads(output)
 
-    expected = [_launch(lambda: launch(held)) for held in environments]
+    expected = [_launch(lambda: launch(index)) for index in range(3)]
     with launches_hide_environment():
         wrapped = (subprocess.run, subprocess.check_output)
-        seen = [_launch(lambda: launch(held)) for held in environments * 2]
+        seen = [_launch(lambda: launch(index)) for index in range(3)]
+        # The same mappings again, one of them changed since: each launch
+        # reads what its mapping holds then.
+        environments[0]["AAA_PROBE"] = "changed"
+        seen += [_launch(lambda: launch(index)) for index in range(3)]
         kept = (subprocess.run, subprocess.check_output) == wrapped
     assert seen == expected * 2
     unmatched = [report["unmatched"] for report in seen]
@@ -9582,8 +9591,11 @@ def test_launches_hide_environment_hides_what_a_failed_launch_holds(
     # the standard library's frames that takes the environment holds one for
     # each mapping it was passed.
     held_by = _mapping_types(raised.value)
-    kinds = {kind for kinds in held_by.values() for kind in kinds}
-    assert kinds == {"Names"}
+    # Frame names alone, so that a failure here prints no mapping.
+    others = sorted(
+        frame for frame, kinds in held_by.items() if set(kinds) != {"Names"}
+    )
+    assert others == []
     without = [frame for frame in frames if held_by.get(frame) != ["Names"] * mappings]
     assert without == []
     # Nor does pytest show a value, from a ``Names`` that prints one or from an
@@ -9593,7 +9605,8 @@ def test_launches_hide_environment_hides_what_a_failed_launch_holds(
 
 
 class _ReadError(Exception):
-    """An error no launcher raises, from reading a mapping."""
+    """An error no launcher raises, from reading a mapping, whose text holds
+    the probe, as a mapping's own error may hold a value."""
 
 
 class _Unreadable(collections.UserDict):
@@ -9601,7 +9614,7 @@ class _Unreadable(collections.UserDict):
     what it holds."""
 
     def keys(self) -> NoReturn:
-        raise _ReadError("unreadable")
+        raise _ReadError(_PROBE)
 
 
 class _UnreadablePath(dict):
@@ -9609,7 +9622,7 @@ class _UnreadablePath(dict):
     frame whose ``self`` prints what it holds."""
 
     def __fspath__(self) -> NoReturn:
-        raise _ReadError("unreadable")
+        raise _ReadError(_PROBE)
 
 
 @pytest.mark.parametrize("shape", ["keyword", "positional", "a path"])
@@ -9631,7 +9644,8 @@ def test_launches_hide_environment_refuses_a_mapping_it_cannot_read(
     assert kind == "TypeError"
     # pytest shows neither the wrapper's frame, which holds the mapping, nor
     # the error the mapping raised, and the refusal holds no value.
-    shown = _shown(raised.value)
-    assert shown == [{}]
+    # Frame names alone, so that a failure here prints no mapping.
+    shown = [sorted(held_by) for held_by in _shown(raised.value)]
+    assert shown == [[]]
     printed = _prints_probe(raised)
     assert not printed
