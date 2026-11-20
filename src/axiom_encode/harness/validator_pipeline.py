@@ -199,6 +199,7 @@ from .same_case_execution import (
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
     _LINE_BREAK_CHARS,
+    CompleteSourceUnitAnalysis,
     _is_us_manual_citation_path,
     _nested_outline_marker_spans,
     _qualified_parenthesized_legal_outline_markers,
@@ -37545,8 +37546,46 @@ class ValidatorPipeline:
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
-        if not self.require_complete_source_unit:
+        completeness = self._complete_source_unit_analysis(
+            content,
+            validation_source_texts=validation_source_texts,
+            test_cases=test_cases,
+            rules_file=rules_file,
+            proof_source_texts=proof_source_texts,
+            execution_evidence=execution_evidence,
+            local_relation_context=local_relation_context,
+        )
+        if completeness is None:
             return []
+        # Reported beside the CI result for the admission score; a result that
+        # carries no counts (a stubbed analyzer) records none.
+        recall = {
+            key: getattr(completeness, attribute, None)
+            for key, attribute in (
+                ("total", "source_numeric_occurrence_count"),
+                ("covered", "covered_source_numeric_occurrence_count"),
+                ("missing", "missing_source_numeric_occurrence_count"),
+            )
+        }
+        if all(type(value) is int for value in recall.values()):
+            self._complete_source_unit_recall = recall
+        return list(completeness.issues)
+
+    def _complete_source_unit_analysis(
+        self,
+        content: str,
+        *,
+        validation_source_texts: Mapping[str, str] | None,
+        test_cases: Sequence[object] | None,
+        rules_file: Path | None = None,
+        proof_source_texts: Mapping[str, str | None] | None = None,
+        execution_evidence: SameCaseEvidence | None = None,
+        local_relation_context: object | None = None,
+    ) -> CompleteSourceUnitAnalysis | None:
+        """Run the opt-in completeness analysis, or return None when disabled."""
+
+        if not self.require_complete_source_unit:
+            return None
         source_texts = (
             dict(validation_source_texts)
             if validation_source_texts is not None
@@ -37638,19 +37677,7 @@ class ValidatorPipeline:
                 corpus_citation_path
             ),
         )
-        # Reported beside the CI result for the admission score; a result that
-        # carries no counts (a stubbed analyzer) records none.
-        recall = {
-            key: getattr(completeness, attribute, None)
-            for key, attribute in (
-                ("total", "source_numeric_occurrence_count"),
-                ("covered", "covered_source_numeric_occurrence_count"),
-                ("missing", "missing_source_numeric_occurrence_count"),
-            )
-        }
-        if all(type(value) is int for value in recall.values()):
-            self._complete_source_unit_recall = recall
-        return list(completeness.issues)
+        return completeness
 
     def _complete_source_start_date_evidence(
         self, corpus_citation_path: str
@@ -39980,6 +40007,48 @@ class ValidatorPipeline:
             execution_capture.records.clear()
         return issues
 
+    def _companion_test_payload_issues(
+        self,
+        content: str,
+        payload: list[Any],
+        *,
+        rules_file: Path,
+        strict_layout_checks: bool,
+        compiled_payload: dict[str, Any] | None = None,
+    ) -> list[str]:
+        """Static companion-case checks that gate executing the test file."""
+
+        issues: list[str] = []
+        if strict_layout_checks:
+            issues.extend(
+                find_missing_derived_companion_output_issues(
+                    content,
+                    payload,
+                    rules_file=rules_file,
+                    policy_repo_path=self.policy_repo_path,
+                )
+            )
+            issues.extend(
+                find_judgment_positive_companion_output_issues(
+                    content,
+                    payload,
+                    rules_file=rules_file,
+                    policy_repo_path=self.policy_repo_path,
+                )
+            )
+        # Static unions include facts on unselected branches. For recognized
+        # strict-read IR, ordinary execution is authoritative about reached
+        # missing facts. Unknown/default-bearing compiled programs (or no
+        # compiled program) retain the conservative check.
+        if compiled_payload is None or not compiled_program_has_strict_input_reads(
+            compiled_payload
+        ):
+            issues.extend(find_test_input_assignment_issues(content, payload))
+        issues.extend(find_tax_filing_status_test_input_issues(payload))
+        issues.extend(find_exception_test_coverage_issues(content, payload))
+        issues.extend(find_zero_branch_test_coverage_issues(content, payload))
+        return issues
+
     def _rulespec_companion_input_entities(
         self,
         rules_file: Path,
@@ -40357,35 +40426,14 @@ class ValidatorPipeline:
                     complete_source_unit_test_cases = payload
                 if isinstance(payload, list) and compiled_payload and compiled_path:
                     pre_test_issue_count = len(issues)
-                    if strict_layout_checks:
-                        issues.extend(
-                            find_missing_derived_companion_output_issues(
-                                content,
-                                payload,
-                                rules_file=rules_file,
-                                policy_repo_path=self.policy_repo_path,
-                            )
-                        )
-                        issues.extend(
-                            find_judgment_positive_companion_output_issues(
-                                content,
-                                payload,
-                                rules_file=rules_file,
-                                policy_repo_path=self.policy_repo_path,
-                            )
-                        )
-                    # Static unions include facts on unselected branches. For
-                    # recognized strict-read IR, ordinary execution below is
-                    # authoritative about reached missing facts. Unknown/default-
-                    # bearing compiled programs retain the conservative check.
-                    if not compiled_program_has_strict_input_reads(compiled_payload):
-                        issues.extend(
-                            find_test_input_assignment_issues(content, payload)
-                        )
-                    issues.extend(find_tax_filing_status_test_input_issues(payload))
-                    issues.extend(find_exception_test_coverage_issues(content, payload))
                     issues.extend(
-                        find_zero_branch_test_coverage_issues(content, payload)
+                        self._companion_test_payload_issues(
+                            content,
+                            payload,
+                            rules_file=rules_file,
+                            strict_layout_checks=strict_layout_checks,
+                            compiled_payload=compiled_payload,
+                        )
                     )
                     if len(issues) == pre_test_issue_count:
                         from .local_case_custody import suite_scope
