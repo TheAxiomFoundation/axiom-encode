@@ -170,6 +170,7 @@ import os
 import re
 import subprocess
 import sys
+import traceback
 import types
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -6372,6 +6373,13 @@ def test_hidden_copied_launch():
         under_test.copy_and_launch(["/nonexistent/program"], Names(os.environ))
 
 
+def test_hidden_copied_positional_launch():
+    with launches_hide_environment():
+        under_test.copy_and_launch_positionally(
+            ["/nonexistent/program"], Names(os.environ)
+        )
+
+
 def test_hidden_spawned_missing_program():
     subprocess.Popen(
         ["/nonexistent/program"], env=Names(dict(os.environ)), close_fds=False
@@ -6917,6 +6925,13 @@ def probe(command, environment):
 
 def copy_and_launch(command, environment):
     return subprocess.run(command, env=dict(environment))
+
+
+def copy_and_launch_positionally(command, environment):
+    # ``env`` is ``Popen``'s eleventh positional argument.
+    return subprocess.run(
+        command, -1, None, None, None, None, None, True, False, None, dict(environment)
+    )
 
 
 def make(record):
@@ -9177,17 +9192,89 @@ def test_a_launcher_starts_a_child_with_what_names_holds(
 ) -> None:
     held = {"PATH": os.defpath, **drawn}
     seen = _launched(Names(held), spawned)
-    assert seen == _launched(held, spawned)
-    assert held.items() <= seen.items()
+    expected = _launched(held, spawned)
+    # Should ``Names`` lose its values, the comparison names what differs alone.
+    changed = changed_names(seen, expected)
+    assert changed == []
+    missing = [name for name in held if seen.get(name) != held[name]]
+    assert missing == []
 
 
 def test_launches_hide_environment_keeps_the_environment_and_restores_run() -> None:
     run = subprocess.run
     held = {"PATH": os.defpath, "AAA_PROBE": "probe-value"}
+    expected = [_launched(held, spawned) for spawned in (False, True)]
+    with launches_hide_environment():
+        assert subprocess.run is not run
+        seen = [_launched(held, spawned) for spawned in (False, True)]
+    assert subprocess.run is run
+    # Should the helper drop ``env``, the child starts with this process's
+    # environment, so the comparison names what differs alone.
+    changed = [changed_names(*launched) for launched in zip(seen, expected)]
+    assert changed == [[], []]
     with pytest.raises(FileNotFoundError):
         with launches_hide_environment():
-            assert subprocess.run is not run
-            inside = _launched(held, spawned=False)
             subprocess.run(["/nonexistent/program"], env=dict(held))
     assert subprocess.run is run
-    assert inside == _launched(held, spawned=False)
+
+
+class _Program(os.PathLike):
+    """A program's path that holds an environment of its own and prints the
+    path alone."""
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self.env = {"PATH": os.defpath}
+
+    def __fspath__(self) -> str:
+        return self.path
+
+    def __repr__(self) -> str:
+        return f"_Program({self.path!r})"
+
+
+# ``Popen``'s positional arguments between the command and ``env``: ``stdout`` is
+# a pipe.
+_BEFORE_ENV = (-1, None, None, subprocess.PIPE, None, None, True, False, None)
+_PRINT_ENVIRONMENT = "import json, os; print(json.dumps(dict(os.environ)))"
+
+
+def _environment_types(error: BaseException) -> dict[str, str]:
+    """The type of the ``env`` argument of each frame ``error`` passed
+    through that takes one, by function."""
+    kinds = {}
+    for frame, _ in traceback.walk_tb(error.__traceback__):
+        code = frame.f_code
+        if "env" in code.co_varnames[: code.co_argcount + code.co_kwonlyargcount]:
+            kinds[code.co_qualname] = type(frame.f_locals["env"]).__name__
+    return kinds
+
+
+@pytest.mark.parametrize("positional", [False, True], ids=["keyword", "positional"])
+def test_launches_hide_environment_swaps_env_alone(positional: bool) -> None:
+    held = {"PATH": os.defpath, "AAA_PROBE": "probe-value"}
+    command = [_Program(sys.executable), "-c", _PRINT_ENVIRONMENT]
+    expected = json.loads(
+        subprocess.run(command, *_BEFORE_ENV, dict(held), check=True).stdout
+    )
+    with launches_hide_environment():
+        if positional:
+            completed = subprocess.run(command, *_BEFORE_ENV, dict(held), check=True)
+        else:
+            completed = subprocess.run(
+                command, stdout=subprocess.PIPE, env=dict(held), check=True
+            )
+        with pytest.raises(FileNotFoundError) as raised:
+            if positional:
+                subprocess.run(["/nonexistent/program"], *_BEFORE_ENV, dict(held))
+            else:
+                subprocess.run(["/nonexistent/program"], env=dict(held))
+    # The launch is passed its other arguments as they are, the program
+    # among them, and the child starts with what ``env`` holds.
+    kept = completed.args is command
+    assert kept
+    changed = changed_names(json.loads(completed.stdout), expected)
+    assert changed == []
+    # Each frame that takes the failed launch's ``env`` holds ``Names``.
+    kinds = _environment_types(raised.value)
+    assert kinds and set(kinds.values()) == {"Names"}

@@ -54,6 +54,9 @@ _MISSING = object()
 # Arguments, keyword arguments, mapping keys and record fields that hold a
 # process environment.
 _ENVIRONMENTS = frozenset({"env", "environment"})
+# ``subprocess.run`` passes its positional arguments on to ``Popen``, and
+# ``env`` is the one at this position.
+_POPEN_ENV = list(inspect.signature(subprocess.Popen).parameters).index("env")
 
 _Function = TypeVar("_Function", bound=Callable[..., object])
 
@@ -313,21 +316,47 @@ def hides_environment(function: _Function) -> _Function:
     return hidden  # type: ignore[return-value]
 
 
+def _names(environment: object) -> object:
+    """``Names`` for an environment a launch is passed; anything else as it
+    is."""
+    __tracebackhide__ = True
+    if isinstance(environment, Mapping) and not isinstance(environment, Names):
+        return Names(environment)
+    return environment
+
+
 @contextlib.contextmanager
 def launches_hide_environment() -> Iterator[None]:
-    """Within it, ``subprocess.run`` is passed a ``Names`` in each environment's
-    place.
+    """Within it, ``subprocess.run`` is passed a ``Names`` in place of the
+    environment it launches with.
 
     For a call to code that copies the environment it is passed into a
     ``dict`` and launches a program with the copy, as ``run_rulespec_compile``
     does: should the launch fail, the standard library raises from a frame
-    whose ``env`` argument is that copy. Inside this, ``subprocess.run`` is
-    ``hides_environment(subprocess.run)``, so the launch is passed names
-    again after the code's own handling. ``subprocess.run`` is restored on
-    leaving it.
+    whose ``env`` argument is that copy. Inside this, ``subprocess.run`` swaps
+    its ``env``, passed by keyword or by position, for a ``Names`` after the
+    code's own handling, and passes its other arguments as they are.
+    ``check_output`` launches through ``subprocess.run`` and is covered too; a
+    direct ``Popen``, ``call`` or ``check_call`` is not. ``subprocess.run`` is
+    restored on leaving it.
     """
     run = subprocess.run
-    subprocess.run = hides_environment(run)
+
+    @functools.wraps(run)
+    def hidden(*popenargs: object, **kwargs: object) -> object:
+        # Its frame holds the environment as the caller passed it.
+        __tracebackhide__ = True
+        if len(popenargs) > _POPEN_ENV:
+            popenargs = (
+                *popenargs[:_POPEN_ENV],
+                _names(popenargs[_POPEN_ENV]),
+                *popenargs[_POPEN_ENV + 1 :],
+            )
+        if "env" in kwargs:
+            kwargs["env"] = _names(kwargs["env"])
+        return run(*popenargs, **kwargs)
+
+    subprocess.run = hidden
     try:
         yield
     finally:
