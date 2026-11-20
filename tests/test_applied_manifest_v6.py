@@ -453,6 +453,9 @@ def test_v6_hooks_are_reached_only_through_the_label():
         "is_v6_labelled",
         "CANDIDATE_REF_FIELD",
         "contract_issues",
+        # Change 5: the writer, behind the candidate lane (switched off).
+        "require_candidate_writer",
+        "as_v6_candidate_payload",
     }
     assert "V6_READER_ENABLED" not in source
     assert "applied-rulespec/v6" not in source.replace(
@@ -460,11 +463,27 @@ def test_v6_hooks_are_reached_only_through_the_label():
     )
 
 
-def test_no_writer_emits_v6():
+def test_the_only_v6_writer_is_switched_off():
+    """Change 5 added one writer. It is off; cli.py still never names v6."""
+
+    from axiom_encode import reviewed_pr_admission
+
     source = cli.Path(cli.__file__).read_text()
     assert '"schema_version": _manifest_v6' not in source
     assert "MANIFEST_SCHEMA_V6" not in source
     assert cli.APPLIED_ENCODING_MANIFEST_SCHEMA == "axiom-encode/applied-rulespec/v5"
+    assert reviewed_pr_admission.V6_WRITER_ENABLED is False
+    assert reviewed_pr_admission.GUARD_APP_ID is None
+    with pytest.raises(ValueError, match="writer is switched off"):
+        v6.as_v6_candidate_payload(
+            {},
+            v5_ref_field="reviewed_rulespec_ref",
+            repository="TheAxiomFoundation/rulespec-us",
+            pull_request=1,
+            base_sha="a" * 40,
+            author_id=1,
+            dispatcher={"id": 1, "login": "x"},
+        )
 
 
 # --- one contract with the evaluator ------------------------------------------
@@ -640,23 +659,77 @@ def test_v5_only_readers_do_not_know_v6(path):
     assert "applied_manifest_v6" not in source
 
 
-def test_enabled_telemetry_and_replacement_baseline_refuse_v6(enabled, promotion):
+def test_enabled_telemetry_and_replacement_baseline_refuse_v6(
+    enabled,
+    promotion,
+    manifest_fixture,  # noqa: F811
+):
     from axiom_encode import supabase_sync
+    from axiom_encode.harness.evals import resolve_corpus_source_unit
 
     repo, v5, _expected_identity = promotion
-    payload = _sign(_to_v6(v5))
     with pytest.raises(ValueError, match="not canonical"):
-        supabase_sync.run_from_apply_manifest(repo / MANIFEST, payload)
+        supabase_sync.run_from_apply_manifest(repo / MANIFEST, _sign(_to_v6(v5)))
+
+    # The replacement baseline. The checkout is ``repo`` (the manifest lives
+    # under ``repo/.axiom``), and the pair and the manifest are tracked at
+    # HEAD, so the manifest label is the only thing that differs between the
+    # v5 control (a baseline is captured) and the v6 manifest (none).
+    fixtures = manifest_fixture[0]
+    source_unit = resolve_corpus_source_unit("us/statute/26/1", fixtures.corpus_release)
+    rule = repo / "us/statutes/26/1.yaml"
+    companion = rule.with_name("1.test.yaml")
+    companion.write_text("[]\n")
+    v5 = copy.deepcopy(v5)
+    v5.pop("signature", None)
+    v5["applied_files"] = [
+        {"path": path.relative_to(repo).as_posix(), "sha256": cli._sha256_file(path)}
+        for path in (rule, companion)
+    ]
     path = repo / MANIFEST
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload) + "\n")
-    rule = repo / "us/statutes/26/1.yaml"
-    assert (
-        cli._canonical_replacement_baseline(
-            repo / "us", rule, rule.with_name("1.test.yaml"), source_unit=None
+
+    def baseline(payload):
+        path.write_text(json.dumps(_sign(payload)) + "\n")
+        _commit_all(repo)
+        return cli._canonical_replacement_baseline(
+            repo, rule, companion, source_unit=source_unit
         )
-        is None
+
+    control = baseline(copy.deepcopy(v5))
+    assert control is not None
+    assert control.context_role == "replacement_baseline"
+    assert (control.rulespec, control.tests) == (
+        rule.read_text(),
+        companion.read_text(),
     )
+    relabelled = _to_v6(v5)
+    assert v6.v6_admissible(relabelled) is True
+    assert baseline(relabelled) is None
+
+
+def _commit_all(repo):
+    import subprocess
+
+    def git(*arguments):
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                *arguments,
+            ],
+            check=True,
+        )
+
+    if not (repo / ".git").exists():
+        git("init", "-q")
+    git("add", "-A")
+    git("commit", "-qm", "fixture")
 
 
 @pytest.mark.parametrize(

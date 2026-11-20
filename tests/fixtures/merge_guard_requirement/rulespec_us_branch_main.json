@@ -1,0 +1,25 @@
+{
+ "note": "Public branch record, reduced: the commit and link objects are dropped. On this date main required only validate / validate from GitHub Actions (app 15368).",
+ "recorded": "2026-11-13",
+ "request": "GET /repos/TheAxiomFoundation/rulespec-us/branches/main (anonymous)",
+ "response": {
+  "name": "main",
+  "protected": true,
+  "protection": {
+   "enabled": true,
+   "required_status_checks": {
+    "checks": [
+     {
+      "app_id": 15368,
+      "context": "validate / validate"
+     }
+    ],
+    "contexts": [
+     "validate / validate"
+    ],
+    "enforcement_level": "everyone"
+   }
+  },
+  "protection_url": "https://api.github.com/repos/TheAxiomFoundation/rulespec-us/branches/main/protection"
+ }
+}
