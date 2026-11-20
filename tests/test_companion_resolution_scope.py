@@ -29,7 +29,9 @@ def companion_command(monkeypatch, tmp_path):
         _rulespec_compile_roots=lambda: [root],
     )
     monkeypatch.setattr(cli, "ValidatorPipeline", lambda **kw: pipeline)
-    return SimpleNamespace(root=root, paths=files, json=True, axiom_rules_path=root)
+    return SimpleNamespace(
+        root=root, paths=files, json=True, axiom_rules_path=root, corpus_path=None
+    )
 
 
 def test_companion_scopes_are_per_file_and_per_invocation(
