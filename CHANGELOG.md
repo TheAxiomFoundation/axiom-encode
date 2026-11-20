@@ -1,3 +1,7 @@
+## 0.2.2388
+
+- Report each companion-test gap once with source detail; require executed clamps (#1901)
+
 ## 0.2.2387
 
 - Keep "both to and from" as one fact in the gates-collapsed check (#2293)
