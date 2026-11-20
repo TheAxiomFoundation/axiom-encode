@@ -25,7 +25,8 @@ frames of their own, whose arguments hold the ``env`` they are passed, when a
 checked program fails or a program can't be started; they read it as a
 mapping, so a test's own launch passes ``env=Names(...)``. Code under test
 that copies an environment it is passed into a ``dict`` and launches with the
-copy (``run_rulespec_compile`` does) undoes that, so a test that hands it a
+copy through ``subprocess.run`` or ``subprocess.check_output``
+(``run_rulespec_compile`` does) undoes that, so a test that hands it a
 ``Names`` calls it inside ``launches_hide_environment()``. ``os.environ``'s
 own methods raise from frames whose ``self`` is the whole environment: a read
 or ``del`` of a variable that is not set, and so ``monkeypatch.delenv``'s, whose
@@ -54,9 +55,6 @@ _MISSING = object()
 # Arguments, keyword arguments, mapping keys and record fields that hold a
 # process environment.
 _ENVIRONMENTS = frozenset({"env", "environment"})
-# ``subprocess.run`` passes its positional arguments on to ``Popen``, and
-# ``env`` is the one at this position.
-_POPEN_ENV = list(inspect.signature(subprocess.Popen).parameters).index("env")
 
 _Function = TypeVar("_Function", bound=Callable[..., object])
 
@@ -316,51 +314,52 @@ def hides_environment(function: _Function) -> _Function:
     return hidden  # type: ignore[return-value]
 
 
-def _names(environment: object) -> object:
-    """``Names`` for an environment a launch is passed; anything else as it
-    is."""
+def _names(value: object) -> object:
+    """``Names`` for a mapping a launcher is passed; anything else as it is."""
     __tracebackhide__ = True
-    if isinstance(environment, Mapping) and not isinstance(environment, Names):
-        return Names(environment)
-    return environment
+    if isinstance(value, Mapping) and not isinstance(value, Names):
+        return Names(value)
+    return value
+
+
+def _hiding(launcher: _Function) -> _Function:
+    """``launcher``, passed a ``Names`` in place of each mapping it is passed."""
+
+    @functools.wraps(launcher)
+    def hidden(*args: object, **kwargs: object) -> object:
+        # Until the swap, its frame holds the environment as the caller
+        # passed it.
+        __tracebackhide__ = True
+        args = tuple(_names(argument) for argument in args)
+        kwargs = {name: _names(value) for name, value in kwargs.items()}
+        return launcher(*args, **kwargs)
+
+    return hidden  # type: ignore[return-value]
 
 
 @contextlib.contextmanager
 def launches_hide_environment() -> Iterator[None]:
-    """Within it, ``subprocess.run`` is passed a ``Names`` in place of the
-    environment it launches with.
+    """Within it, ``subprocess.run`` and ``subprocess.check_output`` are passed
+    a ``Names`` in place of the environment they launch with.
 
     For a call to code that copies the environment it is passed into a
     ``dict`` and launches a program with the copy, as ``run_rulespec_compile``
     does: should the launch fail, the standard library raises from a frame
-    whose ``env`` argument is that copy. Inside this, ``subprocess.run`` swaps
-    its ``env``, passed by keyword or by position, for a ``Names`` after the
-    code's own handling, and passes its other arguments as they are.
-    ``check_output`` launches through ``subprocess.run`` and is covered too; a
-    direct ``Popen``, ``call`` or ``check_call`` is not. ``subprocess.run`` is
-    restored on leaving it.
+    whose ``env`` argument is that copy. Inside this, each of the two swaps
+    every mapping it is passed for a ``Names`` after the code's own handling:
+    its ``env``, by keyword or by position, and a mapping passed by mistake
+    under another name. Other arguments pass as they are. A launch through
+    ``Popen``, ``call`` or ``check_call`` keeps what it is passed, and so does
+    a frame of the code under test that takes the copy as an argument, should
+    the failure be raised there. Both are restored on leaving it; two threads
+    that use it at once can leave one's wrapper in place.
     """
-    run = subprocess.run
-
-    @functools.wraps(run)
-    def hidden(*popenargs: object, **kwargs: object) -> object:
-        # Its frame holds the environment as the caller passed it.
-        __tracebackhide__ = True
-        if len(popenargs) > _POPEN_ENV:
-            popenargs = (
-                *popenargs[:_POPEN_ENV],
-                _names(popenargs[_POPEN_ENV]),
-                *popenargs[_POPEN_ENV + 1 :],
-            )
-        if "env" in kwargs:
-            kwargs["env"] = _names(kwargs["env"])
-        return run(*popenargs, **kwargs)
-
-    subprocess.run = hidden
+    run, check_output = subprocess.run, subprocess.check_output
+    subprocess.run, subprocess.check_output = _hiding(run), _hiding(check_output)
     try:
         yield
     finally:
-        subprocess.run = run
+        subprocess.run, subprocess.check_output = run, check_output
 
 
 def _raise(error: BaseException | type[BaseException]) -> NoReturn:

@@ -9164,12 +9164,15 @@ def test_hides_environment_passes_classes_and_modules_as_they_are() -> None:
     assert seen[0] is Holder and seen[1] is module
 
 
+PRINT_ENVIRONMENT = "import json, os; print(json.dumps(dict(os.environ)))"
+
+
 def _launched(variables: Mapping[str, str], spawned: bool) -> dict[str, str]:
     """The environment a child starts with when launched with ``variables``,
     through ``posix_spawn`` where the platform has it, or fork-exec, which a
     ``cwd`` forces (``posix_spawn`` takes none)."""
     completed = subprocess.run(
-        [sys.executable, "-c", "import json, os; print(json.dumps(dict(os.environ)))"],
+        [sys.executable, "-c", PRINT_ENVIRONMENT],
         env=variables,
         close_fds=not spawned,
         cwd=None if spawned else os.getcwd(),
@@ -9201,13 +9204,13 @@ def test_a_launcher_starts_a_child_with_what_names_holds(
 
 
 def test_launches_hide_environment_keeps_the_environment_and_restores_run() -> None:
-    run = subprocess.run
+    launchers = (subprocess.run, subprocess.check_output)
     held = {"PATH": os.defpath, "AAA_PROBE": "probe-value"}
     expected = [_launched(held, spawned) for spawned in (False, True)]
     with launches_hide_environment():
-        assert subprocess.run is not run
+        assert (subprocess.run, subprocess.check_output) != launchers
         seen = [_launched(held, spawned) for spawned in (False, True)]
-    assert subprocess.run is run
+    assert (subprocess.run, subprocess.check_output) == launchers
     # Should the helper drop ``env``, the child starts with this process's
     # environment, so the comparison names what differs alone.
     changed = [changed_names(*launched) for launched in zip(seen, expected)]
@@ -9215,7 +9218,7 @@ def test_launches_hide_environment_keeps_the_environment_and_restores_run() -> N
     with pytest.raises(FileNotFoundError):
         with launches_hide_environment():
             subprocess.run(["/nonexistent/program"], env=dict(held))
-    assert subprocess.run is run
+    assert (subprocess.run, subprocess.check_output) == launchers
 
 
 class _Program(os.PathLike):
@@ -9235,46 +9238,86 @@ class _Program(os.PathLike):
 
 # ``Popen``'s positional arguments between the command and ``env``: ``stdout`` is
 # a pipe.
-_BEFORE_ENV = (-1, None, None, subprocess.PIPE, None, None, True, False, None)
-_PRINT_ENVIRONMENT = "import json, os; print(json.dumps(dict(os.environ)))"
-
-
-def _environment_types(error: BaseException) -> dict[str, str]:
-    """The type of the ``env`` argument of each frame ``error`` passed
-    through that takes one, by function."""
-    kinds = {}
-    for frame, _ in traceback.walk_tb(error.__traceback__):
-        code = frame.f_code
-        if "env" in code.co_varnames[: code.co_argcount + code.co_kwonlyargcount]:
-            kinds[code.co_qualname] = type(frame.f_locals["env"]).__name__
-    return kinds
+BEFORE_ENV = (-1, None, None, subprocess.PIPE, None, None, True, False, None)
 
 
 @pytest.mark.parametrize("positional", [False, True], ids=["keyword", "positional"])
-def test_launches_hide_environment_swaps_env_alone(positional: bool) -> None:
+def test_launches_hide_environment_passes_other_arguments_as_they_are(
+    positional: bool,
+) -> None:
     held = {"PATH": os.defpath, "AAA_PROBE": "probe-value"}
-    command = [_Program(sys.executable), "-c", _PRINT_ENVIRONMENT]
+    command = [_Program(sys.executable), "-c", PRINT_ENVIRONMENT]
     expected = json.loads(
-        subprocess.run(command, *_BEFORE_ENV, dict(held), check=True).stdout
+        subprocess.run(command, *BEFORE_ENV, dict(held), check=True).stdout
     )
     with launches_hide_environment():
         if positional:
-            completed = subprocess.run(command, *_BEFORE_ENV, dict(held), check=True)
+            completed = subprocess.run(command, *BEFORE_ENV, dict(held), check=True)
         else:
             completed = subprocess.run(
                 command, stdout=subprocess.PIPE, env=dict(held), check=True
             )
-        with pytest.raises(FileNotFoundError) as raised:
-            if positional:
-                subprocess.run(["/nonexistent/program"], *_BEFORE_ENV, dict(held))
-            else:
-                subprocess.run(["/nonexistent/program"], env=dict(held))
-    # The launch is passed its other arguments as they are, the program
-    # among them, and the child starts with what ``env`` holds.
+    # The program reaches the launch as it is, and the child starts with what
+    # ``env`` holds.
     kept = completed.args is command
     assert kept
     changed = changed_names(json.loads(completed.stdout), expected)
     assert changed == []
-    # Each frame that takes the failed launch's ``env`` holds ``Names``.
-    kinds = _environment_types(raised.value)
-    assert kinds and set(kinds.values()) == {"Names"}
+
+
+def _mapping_types(error: BaseException) -> dict[str, list[str]]:
+    """The types of the mappings among the arguments of each frame ``error``
+    passed through, by function: those it takes by name, and those in its
+    ``*args`` and ``**kwargs``."""
+    held: dict[str, list[str]] = {}
+    for frame, _ in traceback.walk_tb(error.__traceback__):
+        code = frame.f_code
+        count = code.co_argcount + code.co_kwonlyargcount
+        values = [frame.f_locals[name] for name in code.co_varnames[:count]]
+        if code.co_flags & inspect.CO_VARARGS:
+            values += frame.f_locals[code.co_varnames[count]]
+            count += 1
+        if code.co_flags & inspect.CO_VARKEYWORDS:
+            values += frame.f_locals[code.co_varnames[count]].values()
+        kinds = sorted(
+            type(value).__name__ for value in values if isinstance(value, Mapping)
+        )
+        if kinds:
+            held[code.co_qualname] = kinds
+    return held
+
+
+@pytest.mark.parametrize(
+    "shape, error",
+    [
+        ("keyword", FileNotFoundError),
+        ("positional", FileNotFoundError),
+        ("another mapping", FileNotFoundError),
+        ("misnamed keyword", TypeError),
+        ("check_output", FileNotFoundError),
+        ("check_output's own check", ValueError),
+    ],
+)
+def test_launches_hide_environment_hides_what_a_failed_launch_holds(
+    shape: str, error: type[Exception]
+) -> None:
+    held = {"PATH": os.defpath, "AAA_PROBE": "probe-value"}
+    missing = ["/nonexistent/program"]
+    with pytest.raises(error) as raised:
+        with launches_hide_environment():
+            if shape == "keyword":
+                subprocess.run(missing, env=dict(held))
+            elif shape == "positional":
+                subprocess.run(missing, *BEFORE_ENV, dict(held))
+            elif shape == "another mapping":
+                subprocess.run(missing, env=types.MappingProxyType(dict(held)))
+            elif shape == "misnamed keyword":
+                subprocess.run(missing, environment=dict(held))
+            elif shape == "check_output":
+                subprocess.check_output(missing, env=dict(held))
+            else:
+                subprocess.check_output(missing, stdout=subprocess.PIPE, env=dict(held))
+    # Each frame the failure passed through holds ``Names`` alone.
+    held_by = _mapping_types(raised.value)
+    kinds = {kind for kinds in held_by.values() for kind in kinds}
+    assert held_by and kinds == {"Names"}
