@@ -314,12 +314,27 @@ def hides_environment(function: _Function) -> _Function:
     return hidden  # type: ignore[return-value]
 
 
+class _PathNames(Names):
+    """``Names`` for a mapping that is also a path: it stays one."""
+
+    def __init__(self, environment: Mapping[str, str], path: str | bytes) -> None:
+        __tracebackhide__ = True
+        super().__init__(environment)
+        self._path = path
+
+    def __fspath__(self) -> str | bytes:
+        return self._path
+
+
 def _names(value: object) -> object:
     """``Names`` for a mapping a launcher is passed; anything else as it is."""
     __tracebackhide__ = True
-    if isinstance(value, Mapping) and not isinstance(value, Names):
-        return Names(value)
-    return value
+    if not isinstance(value, Mapping) or isinstance(value, Names):
+        return value
+    if isinstance(value, os.PathLike):
+        # Read now, so that the launch never calls back into the mapping.
+        return _PathNames(value, os.fspath(value))
+    return Names(value)
 
 
 def _hiding(launcher: _Function) -> _Function:
@@ -330,8 +345,12 @@ def _hiding(launcher: _Function) -> _Function:
         # Until the swap, its frame holds the environment as the caller
         # passed it.
         __tracebackhide__ = True
-        args = tuple(_names(argument) for argument in args)
-        kwargs = {name: _names(value) for name, value in kwargs.items()}
+        try:
+            args = tuple(_names(argument) for argument in args)
+            kwargs = {name: _names(value) for name, value in kwargs.items()}
+        except Exception:
+            # A mapping that raises as it is read would print itself.
+            _refuse(launcher.__qualname__)
         return launcher(*args, **kwargs)
 
     return hidden  # type: ignore[return-value]
@@ -348,11 +367,15 @@ def launches_hide_environment() -> Iterator[None]:
     whose ``env`` argument is that copy. Inside this, each of the two swaps
     every mapping it is passed for a ``Names`` after the code's own handling:
     its ``env``, by keyword or by position, and a mapping passed by mistake
-    under another name. Other arguments pass as they are. A launch through
-    ``Popen``, ``call`` or ``check_call`` keeps what it is passed, and so does
-    a frame of the code under test that takes the copy as an argument, should
-    the failure be raised there. Both are restored on leaving it; two threads
-    that use it at once can leave one's wrapper in place.
+    under another name. A mapping that is also a path stays one; a mapping
+    that is also anything else a launcher reads, such as a file, does not, and
+    the launch fails. A mapping that raises as it is read is refused with a
+    ``TypeError`` that holds no value. Other arguments pass as they are. A
+    launch through ``Popen``, ``call`` or ``check_call`` keeps what it is
+    passed, and so does a frame of the code under test that takes the copy as
+    an argument, should the failure be raised there. Both are restored on
+    leaving it; two threads that use it at once can leave one's wrapper in
+    place.
     """
     run, check_output = subprocess.run, subprocess.check_output
     subprocess.run, subprocess.check_output = _hiding(run), _hiding(check_output)
