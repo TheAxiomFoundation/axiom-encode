@@ -125,7 +125,12 @@ from axiom_encode.form_numeric_structure import (
     mask_form_numeric_locators,
 )
 from axiom_encode.form_source_structure import mask_form_display
-from axiom_encode.generalist_review_record import review_evidence_digests
+from axiom_encode.generalist_review_record import (
+    EVIDENCE_EXPLICIT_PASSED,
+    GENERALIST_REVIEWER_NAME,
+    empty_deferred_companion_test,
+    review_evidence_digests,
+)
 from axiom_encode.harness.amendment_timing import amendment_timing_issues
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
@@ -1439,17 +1444,96 @@ def _refuse_review_keys_outside_verdict(output: str, start: int, end: int) -> No
         raise ValueError(_REVIEW_KEY_OUTSIDE_VERDICT_ERROR)
 
 
+_COMPETING_PASSED_KEY_ERROR = "Competing spelling of the reviewer passed key in output"
+
+
+def _is_competing_passed_key(key: object) -> bool:
+    """Return whether ``key`` reads as ``passed`` without being that exact key.
+
+    Compared after compatibility normalization and case folding, on letters
+    and digits only, so another case, a full-width form, added spaces,
+    punctuation, combining marks and invisible characters all count. A
+    letter outside ASCII stands for any letter: a look-alike from another
+    script counts without a table of look-alikes. Fails closed: a six-letter
+    key in another script is refused too.
+    """
+    if not isinstance(key, str) or key == "passed":
+        return False
+    folded = unicodedata.normalize("NFKC", key).casefold()
+    letters = [character for character in folded if character.isalnum()]
+    return len(letters) == len("passed") and all(
+        character == expected or not character.isascii()
+        for character, expected in zip(letters, "passed", strict=True)
+    )
+
+
+def _refuse_competing_passed_keys(values: Iterable[Any]) -> None:
+    """Fail closed when any decoded object key is another spelling of `passed`.
+
+    The raw key scan covers the text outside the decoded verdict and its
+    well-formed wrapper. This covers the inside: every key of the verdict
+    and of every well-formed object of the output, at any depth. One verdict
+    must have one verdict key, so `{"score": 9, "Passed": false}` and a
+    wrapper that holds `{"Passed": false}` beside the verdict are refused.
+    Iterative: the depth of decoded JSON is not bounded by this function.
+    """
+    pending = list(values)
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if _is_competing_passed_key(key):
+                    raise ValueError(_COMPETING_PASSED_KEY_ERROR)
+                pending.append(child)
+        elif isinstance(value, list):
+            pending.extend(value)
+
+
 def _extract_json_object(output: str) -> dict[str, Any]:
     """Extract one physical reviewer verdict; refuse multiple occurrences.
 
     Three independent checks refuse a second verdict: the tolerant lexer, the
     decode of every well-formed object, and the scan for raw review key
     tokens outside the verdict. The last one holds when the others have lost
-    the string state.
+    the string state. A fourth check refuses another spelling of the
+    ``passed`` key inside decoded JSON, where the raw scan does not look.
     """
-    data, start, end = _select_reviewer_json_object(output)
+    data, start, end, well_formed = _select_reviewer_json_object(output)
     _refuse_review_keys_outside_verdict(output, start, end)
+    _refuse_competing_passed_keys([data, *(item[2] for item in well_formed)])
     return data
+
+
+def _legacy_generalist_reviewer_passed(
+    data: Mapping[str, Any], *, score: float, blocking_issues: list[Any]
+) -> bool:
+    """Return the eval-scoring verdict of a generalist review.
+
+    Legacy fallback, kept for eval scoring only: without a ``passed`` key the
+    verdict comes from the absence of blocking issues, or else from the
+    score. ``ValidationResult.passed`` and the eval metrics carry this value.
+    It is not the reviewer's explicit verdict, and the generalist review
+    record does not accept it as one: see ``_explicit_reviewer_passed``.
+    """
+    if "passed" in data:
+        passed = bool(data["passed"])
+    elif "blocking_issues" in data:
+        passed = len(blocking_issues) == 0
+    else:
+        passed = score >= 7.0
+    return passed and not blocking_issues
+
+
+def _explicit_reviewer_passed(data: Mapping[str, Any]) -> bool | None:
+    """Return the reviewer's own boolean ``passed``, or None without one.
+
+    Exact key and exact type. This value alone can make a generalist review
+    record ``passed``; a verdict inferred from the score or from the absence
+    of blocking issues (the legacy eval fallback in ``_run_reviewer``) never
+    can.
+    """
+    value = data.get("passed")
+    return value if type(value) is bool else None
 
 
 def _decode_review_span(
@@ -1471,8 +1555,14 @@ def _decode_review_span(
     return data, len(output) if consumed > len(body) else span.start + consumed
 
 
-def _select_reviewer_json_object(output: str) -> tuple[dict[str, Any], int, int]:
-    """Return the verdict and the extent of the output that decoded as it."""
+def _select_reviewer_json_object(
+    output: str,
+) -> tuple[dict[str, Any], int, int, list[tuple[int, int, dict[str, Any]]]]:
+    """Return the verdict and the extent of the output that decoded as it.
+
+    Also returns every well-formed object of the output, for checks of the
+    decoded keys.
+    """
     spans = _review_json_object_spans(output)
     # Every object here decoded with unique keys (a repeated key refuses the
     # output), so an extent below never covers text that was not fully read.
@@ -1513,7 +1603,7 @@ def _select_reviewer_json_object(output: str) -> tuple[dict[str, Any], int, int]
         span, data = reviews[0]
         if data is None or not _looks_like_review_json(data):
             raise ValueError("Malformed reviewer JSON verdict object")
-        return (data, *extent(span, review_end))
+        return (data, *extent(span, review_end), well_formed)
 
     # No review key anywhere. Each failed span decode can cost time in
     # proportion to the output, so these attempts share the budget of the
@@ -1521,7 +1611,7 @@ def _select_reviewer_json_object(output: str) -> tuple[dict[str, Any], int, int]
     for span in spans:
         decoded = _decode_review_span(output, span)
         if decoded is not None:
-            return (decoded[0], *extent(span, decoded[1]))
+            return (decoded[0], *extent(span, decoded[1]), well_formed)
         failed_starts += 1
         _refuse_too_many_undecodable_starts(failed_starts)
 
@@ -42742,6 +42832,16 @@ class ValidatorPipeline:
             if companion_test.exists():
                 reviewed_test_bytes = companion_test.read_bytes()
                 test_content = reviewed_test_bytes.decode("utf-8")
+            elif reviewer_type == GENERALIST_REVIEWER_NAME:
+                # Apply writes an empty companion test for a deferred module
+                # that has none. Generate those bytes now, so the prompt
+                # shows them and the evidence names their digest: the record
+                # never credits a companion that the reviewer did not see.
+                reviewed_test_bytes = empty_deferred_companion_test(
+                    reviewed_rulespec_bytes
+                )
+                if reviewed_test_bytes is not None:
+                    test_content = reviewed_test_bytes.decode("utf-8")
             review_evidence.update(
                 review_evidence_digests(reviewed_rulespec_bytes, reviewed_test_bytes)
             )
@@ -42891,6 +42991,9 @@ Output ONLY valid JSON:
                     prompt_sha256=prompt_sha256,
                 )
 
+            # The record of a model apply reads this value, never the
+            # verdict that the legacy fallbacks below can infer.
+            review_evidence[EVIDENCE_EXPLICIT_PASSED] = _explicit_reviewer_passed(data)
             score = float(data.get("score", 5.0))
             if not math.isfinite(score):
                 # JSON has no Infinity literal, but `1e309` parses to inf; a
@@ -42919,13 +43022,9 @@ Output ONLY valid JSON:
                 if not isinstance(non_blocking_issues, list):
                     non_blocking_issues = [str(non_blocking_issues)]
 
-                if "passed" in data:
-                    passed = bool(data["passed"])
-                elif "blocking_issues" in data:
-                    passed = len(blocking_issues) == 0
-                else:
-                    passed = score >= 7.0
-                passed = passed and not blocking_issues
+                passed = _legacy_generalist_reviewer_passed(
+                    data, score=score, blocking_issues=blocking_issues
+                )
 
                 reported_issues = data.get("issues", [])
                 if not isinstance(reported_issues, list):

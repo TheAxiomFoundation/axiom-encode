@@ -8,8 +8,10 @@ and nothing downstream could tell whether a model had reviewed it.
 The record states what happened, in one of five statuses:
 
 ``passed``
-    The reviewer ran, its output was read, it passed with a finite score of
-    at least 7.0, and it reviewed every applied file listed by this record in full.
+    The reviewer ran, its output was read, it passed with its own boolean
+    ``passed: true`` and a finite score of at least 7.0, and it reviewed
+    every applied file listed by this record in full. A pass that the eval
+    pipeline infers from the score alone is not a pass here.
 ``partial``
     The reviewer passed the candidate it read, but that is not everything
     that is applied: another file is applied that it never read, or its
@@ -43,7 +45,10 @@ node tree (each scalar with its resolved type and its exact text), with those
 two stamped keys left out. Key order, harmless quoting and comments do not
 change it; other edits do, including one that only a YAML 1.1 reader
 treats as equal (``yes`` and ``true``, ``010`` and ``8``). A document with a
-repeated key, a collection alias or a merge key has no content digest.
+repeated key, a collection alias or a merge key has no content digest. Keys
+are repeated when their node is the same, and also when a YAML 1.1 or a YAML
+1.2 core reader gives two scalar keys equal values (``0x10`` and ``16``, ``1``
+and ``1.0``): the loaded value would depend on the key order.
 
 An applied file is bound only when its content digest equals that of the
 reviewed file. A different dump-derived digest is never an alternate binding:
@@ -163,6 +168,8 @@ CHECK_REVIEW_RECORD_BINDING = declare_check(
 )
 
 PASS_SCORE_THRESHOLD = 7.0
+# Evidence key: the boolean `passed` the reviewer wrote itself, or None.
+EVIDENCE_EXPLICIT_PASSED = "explicit_passed"
 _MAX_SCORE = 10.0
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _REVIEWER_BACKENDS = frozenset({"claude", "codex"})
@@ -220,13 +227,102 @@ class _ReviewContentLoader(yaml.SafeLoader):
     def compose_scalar_node(self, anchor):
         event = self.peek_event()
         node = super().compose_scalar_node(anchor)
+        pyyaml_tag = node.tag
         styled_nonspecific = event.tag == "!" and event.style is not None
         if styled_nonspecific:
             # PyYAML marks even quoted/block `!` scalars implicit and resolves
             # them as plain values. Their source type is explicitly string.
             node.tag = _STR_TAG
         node._review_implicit_plain = event.implicit[0] and not styled_nonspecific
+        # The tag PyYAML itself resolved: what `yaml.safe_load` constructs.
+        node._review_pyyaml_tag = pyyaml_tag
         return node
+
+
+_YAML12_NULLS = frozenset({"", "~", "null", "Null", "NULL"})
+_YAML12_BOOLS = {
+    **dict.fromkeys(("true", "True", "TRUE"), True),
+    **dict.fromkeys(("false", "False", "FALSE"), False),
+}
+_YAML12_INT = re.compile(r"([-+]?)(?:([0-9]+)|0o([0-7]+)|0x([0-9a-fA-F]+))")
+_KEY_VALUE_CONSTRUCTOR = yaml.constructor.SafeConstructor()
+
+
+def _yaml12_core_value(text: str) -> object:
+    """The value a YAML 1.2 core reader gives a plain non-string scalar."""
+
+    if text in _YAML12_NULLS:
+        return None
+    if text in _YAML12_BOOLS:
+        return _YAML12_BOOLS[text]
+    integer = _YAML12_INT.fullmatch(text)
+    if integer is not None:
+        sign, decimal, octal, hexadecimal = integer.groups()
+        if decimal is not None:
+            number = int(decimal)
+        elif octal is not None:
+            number = int(octal, 8)
+        else:
+            number = int(hexadecimal, 16)
+        return -number if sign == "-" else number
+    lowered = text.lower()
+    if lowered.endswith(".nan"):
+        return math.nan
+    if lowered.endswith(".inf"):
+        return -math.inf if text.startswith("-") else math.inf
+    return float(text)
+
+
+def _scalar_key_identities(node: yaml.ScalarNode) -> list[tuple[object, ...]]:
+    """The values that readers give one scalar mapping key, as set members.
+
+    One identity per reader: ``yaml.safe_load`` (YAML 1.1) and a YAML 1.2
+    core reader. Two keys with an equal identity are one key for that reader:
+    its mapping keeps one of the two values, and which one depends on the
+    order. Equality is Python's, as in the mapping that the reader builds, so
+    ``1``, ``1.0`` and ``true`` are equal; every NaN equals every NaN. A key
+    that a reader cannot construct raises ``ValueError``.
+    """
+
+    def identity(reader: str, value: object) -> tuple[object, ...]:
+        if isinstance(value, float) and math.isnan(value):
+            return (reader, "nan")
+        hash(value)
+        return (reader, "value", value)
+
+    text = node.value
+    found: list[tuple[object, ...]] = []
+    pyyaml_tag = getattr(node, "_review_pyyaml_tag", node.tag)
+    construct = yaml.constructor.SafeConstructor.yaml_constructors.get(pyyaml_tag)
+    yaml11: object = None
+    has_yaml11 = construct is not None
+    if has_yaml11:
+        try:
+            yaml11 = construct(
+                _KEY_VALUE_CONSTRUCTOR, yaml.ScalarNode(pyyaml_tag, text)
+            )
+            found.append(identity("yaml 1.1", yaml11))
+        except Exception as exc:  # noqa: BLE001 - any constructor failure
+            # PyYAML's scalar constructors fail in several ways on a value
+            # that does not fit an explicit tag (KeyError, AttributeError).
+            raise ValueError("unreadable YAML key") from exc
+    if node.tag == _STR_TAG and not (
+        getattr(node, "_review_implicit_plain", False)
+        and is_yaml12_core_non_string(text)
+    ):
+        found.append(identity("yaml 1.2", text))
+    elif is_yaml12_core_non_string(text):
+        try:
+            found.append(identity("yaml 1.2", _yaml12_core_value(text)))
+        except (ArithmeticError, ValueError) as exc:
+            raise ValueError("unreadable YAML key") from exc
+    elif getattr(node, "_review_implicit_plain", False):
+        # A YAML 1.1-only implicit type (`yes`, `1:30`, a date): a string
+        # for a YAML 1.2 core reader.
+        found.append(identity("yaml 1.2", text))
+    elif has_yaml11:
+        found.append(identity("yaml 1.2", yaml11))
+    return found
 
 
 def _is_empty(node: yaml.Node | None) -> bool:
@@ -267,7 +363,9 @@ def _canonical_node(
     ``1`` differ, and so do ``yes`` and ``true``. ``drop`` names, per mapping
     node, the keys to leave out. A collection reached twice (an alias), a
     merge key and a repeated key raise ``ValueError``: a reader may resolve
-    them in more than one way, so the document has no digest.
+    them in more than one way, so the document has no digest. Two scalar keys
+    are also a repeated key when a YAML 1.1 or a YAML 1.2 core reader gives
+    them equal values, whatever their text (``0x10`` and ``16``).
     """
 
     if node is None:
@@ -318,6 +416,7 @@ def _canonical_node(
         dropped = drop.get(id(node), frozenset())
         items = []
         keys = set()
+        key_values: set[tuple[object, ...]] = set()
         for key_node, value_node in node.value:
             if key_node.tag == _MERGE_TAG:
                 raise ValueError("YAML merge key")
@@ -327,6 +426,15 @@ def _canonical_node(
             if key in keys:
                 raise ValueError("repeated YAML key")
             keys.add(key)
+            if isinstance(key_node, yaml.ScalarNode):
+                # Keys with different text can still be one key for a reader
+                # (`0x10` and `16`): the loaded value then depends on the key
+                # order, which this digest ignores. Refuse them like a
+                # repeated key.
+                for identity in _scalar_key_identities(key_node):
+                    if identity in key_values:
+                        raise ValueError("repeated YAML key")
+                    key_values.add(identity)
             # A left-out value is still walked, so an alias of it is refused.
             item = _canonical_node(value_node, drop=drop, seen=seen)
             if (
@@ -424,6 +532,46 @@ def dumped_review_content_sha256(raw: bytes) -> str | None:
     return dumped_digest if dumped_digest == original_digest else None
 
 
+# The companion test that apply writes for a deferred module without one.
+EMPTY_DEFERRED_COMPANION_TEST = b"[]\n"
+
+
+def deferred_module_needs_empty_companion_test(payload: object) -> bool:
+    """Return whether a loaded RuleSpec document is a deferred module that
+    gets an empty companion test at apply.
+
+    One rule for the apply planner and for the reviewer call, so the reviewer
+    is shown the companion exactly when apply writes it.
+    """
+
+    if not isinstance(payload, dict):
+        return False
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return False
+    if module.get("status") != "deferred":
+        return False
+    if payload.get("rules") != []:
+        return False
+    deferred_outputs = module.get("deferred_outputs")
+    return isinstance(deferred_outputs, list) and bool(deferred_outputs)
+
+
+def empty_deferred_companion_test(rulespec: bytes) -> bytes | None:
+    """Return the companion bytes apply would write for ``rulespec`` alone.
+
+    None when apply writes no companion for it, or when it cannot be read.
+    """
+
+    try:
+        payload = yaml.safe_load(rulespec.decode("utf-8"))
+    except (UnicodeError, yaml.YAMLError, RecursionError, ValueError):
+        return None
+    if deferred_module_needs_empty_companion_test(payload):
+        return EMPTY_DEFERRED_COMPANION_TEST
+    return None
+
+
 @dataclass(frozen=True)
 class AppliedPair:
     """One applied RuleSpec file and its companion test, by digest."""
@@ -465,8 +613,10 @@ class GeneralistReviewState:
     ``metrics_pass``, ``score``, ``issue_count`` and ``prompt_sha256`` are the
     values the eval pipeline already produces. ``evidence`` is what the
     reviewer call itself measured (digests of the files it read, whether its
-    prompt showed each one whole, and the CLI it started); it is absent when
-    no scored review happened.
+    prompt showed each one whole, the boolean ``passed`` that the reviewer
+    wrote itself, and the CLI it started); it is absent when no scored review
+    happened. ``metrics_pass`` may come from the eval pipeline's score
+    fallback, so a pass also needs the explicit boolean in ``evidence``.
     """
 
     metrics_pass: object = None
@@ -618,6 +768,10 @@ def build_generalist_review_record(
         )
         or not _is_sha256(evidence.get("reviewed_test_content_sha256"))
         or (verdict is True and score < PASS_SCORE_THRESHOLD)
+        # A passing verdict counts only as the reviewer's own boolean
+        # `passed: true`. The eval pipeline can infer a pass from the score
+        # or from the absence of blocking issues; that never reaches here.
+        or (verdict is True and evidence.get(EVIDENCE_EXPLICIT_PASSED) is not True)
     ):
         return _unscored_record(
             STATUS_UNAVAILABLE,
@@ -660,7 +814,10 @@ def build_generalist_review_record(
         seen_whole = {
             bound_pair.rulespec_sha256: evidence.get("rulespec_complete") is True
         }
-        if bound_pair.test_sha256 is not None:
+        # A reviewer that read no companion test has reviewed no applied
+        # companion file, not even an empty one whose content equals an
+        # absent one: that file stays unreviewed and the record is partial.
+        if bound_pair.test_sha256 is not None and reviewed["test_sha256"] is not None:
             seen_whole[bound_pair.test_sha256] = evidence.get("test_complete") is True
         files = _file_entries(all_files, seen_whole)
         if not verdict:
@@ -877,7 +1034,12 @@ def generalist_review_record_issues(
         ]
     pair_files = {
         digest
-        for digest in (applied_block["rulespec_sha256"], applied_block["test_sha256"])
+        for digest in (
+            applied_block["rulespec_sha256"],
+            # An applied companion counts as reviewed only when the reviewer
+            # read a companion file.
+            None if reviewed["test_sha256"] is None else applied_block["test_sha256"],
+        )
         if digest is not None
     }
     if (

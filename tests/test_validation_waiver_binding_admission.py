@@ -16,6 +16,7 @@ import json
 import os
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -577,6 +578,7 @@ def test_real_apply_staging_reads_the_record_gate_from_the_real_checkout(
                 **review_evidence_digests(rule_bytes, test_bytes),
                 "rulespec_complete": True,
                 "test_complete": True,
+                "explicit_passed": True,
             },
             required=True,
         ),
@@ -638,6 +640,74 @@ def test_real_apply_staging_reads_the_record_gate_from_the_real_checkout(
             )
             if "exact" in issue or "generalist_review" in issue
         ]
+
+
+_HOLD = "a" * 40
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "admits"),
+    [
+        # The probe of review 5984585097: `main`, then `pinned`.
+        ({"encoder_verifier": "main"}, {"encoder_verifier": "pinned"}, True),
+        # Neither commit admits the record: the first holds, the second is
+        # pinned. Two reads paired the mode of one with the hold of the other.
+        (
+            {"encoder_verifier": "main", "encoder_verifier_hold": _HOLD},
+            {"encoder_verifier": "pinned"},
+            False,
+        ),
+        (
+            {"encoder_verifier": "main", "encoder_verifier_hold": _HOLD},
+            {"encoder_verifier": "main"},
+            False,
+        ),
+        (
+            {"encoder_verifier": "main"},
+            {"encoder_verifier": "main", "encoder_verifier_hold": _HOLD},
+            True,
+        ),
+        ({"encoder_verifier": "pinned"}, {"encoder_verifier": "main"}, False),
+        (None, {"encoder_verifier": "main"}, False),
+    ],
+)
+def test_review_record_gate_reads_mode_and_hold_from_one_protected_commit(
+    tmp_path, first, second, admits
+):
+    """A ref update between two reads must not mix two protected commits."""
+    tables = [first, second]
+    reads = []
+
+    def moving_base(root):
+        reads.append(root)
+        return tables[min(len(reads), len(tables)) - 1]
+
+    with patch(
+        "axiom_encode.cli._target_protected_workflow_toolchain_table",
+        side_effect=moving_base,
+    ):
+        assert cli._target_admits_generalist_review_record(tmp_path) is admits
+
+    # One read: the answer is the answer of the first commit alone.
+    assert len(reads) == 1
+    with patch(
+        "axiom_encode.cli._target_protected_workflow_toolchain_table",
+        return_value=first,
+    ):
+        assert cli._target_admits_generalist_review_record(tmp_path) is admits
+
+
+def test_review_record_gate_refuses_a_malformed_mode_before_it_reads_the_hold(
+    tmp_path,
+):
+    with (
+        patch(
+            "axiom_encode.cli._target_protected_workflow_toolchain_table",
+            return_value={"encoder_verifier": "latest"},
+        ),
+        pytest.raises(RuntimeError, match="Cannot sign RuleSpec"),
+    ):
+        cli._target_admits_generalist_review_record(tmp_path)
 
 
 def test_review_record_gate_refuses_to_sign_on_a_malformed_protected_mode(

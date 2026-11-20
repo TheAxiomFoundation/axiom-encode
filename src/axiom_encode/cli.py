@@ -200,6 +200,7 @@ from .engine_binding import (
 )
 from .failure_classes import PRE_ENCODE_BLOCKED_STATUS, failure_class_payload
 from .generalist_review_record import (
+    EMPTY_DEFERRED_COMPANION_TEST,
     GENERALIST_REVIEW_FIELD,
     AppliedPair,
     GeneralistReviewState,
@@ -207,6 +208,7 @@ from .generalist_review_record import (
     applied_pair,
     apply_stamp_dump,
     build_generalist_review_record,
+    deferred_module_needs_empty_companion_test,
     generalist_review_record_issues,
     review_requirement_refusal,
 )
@@ -28672,7 +28674,14 @@ def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
     or key keeps the set-digest shape; a malformed value refuses to sign.
     """
 
-    table = _target_protected_workflow_toolchain_table(policy_repo_path)
+    return _protected_table_verifies_with_main(
+        _target_protected_workflow_toolchain_table(policy_repo_path)
+    )
+
+
+def _protected_table_verifies_with_main(table: Mapping[str, object] | None) -> bool:
+    """Decide the verifier mode from one read of the protected table."""
+
     if table is None or "encoder_verifier" not in table:
         return False
     mode = table["encoder_verifier"]
@@ -28696,11 +28705,15 @@ def _target_admits_generalist_review_record(policy_repo_path: Path) -> bool:
     which may predate the field. The value comes from protected Git objects,
     so ``policy_repo_path`` must be inside the real checkout, not a staged
     copy of it; a malformed value refuses to sign.
+
+    The mode and the hold come from one read of the protected table, that is
+    from one protected commit: with two reads, a ref update between them
+    could pair the mode of one commit with the hold of another.
     """
 
-    if not _target_uses_per_file_waiver_bindings(policy_repo_path):
-        return False
     table = _target_protected_workflow_toolchain_table(policy_repo_path)
+    if not _protected_table_verifies_with_main(table):
+        return False
     return table is not None and table.get("encoder_verifier_hold") is None
 
 
@@ -63391,7 +63404,9 @@ def _planned_apply_file_bytes(
             test_source.read_bytes()
         )
     elif _needs_empty_deferred_companion_test(output_file):
-        planned[_canonical_apply_relative_path(relative_test)] = b"[]\n"
+        planned[_canonical_apply_relative_path(relative_test)] = (
+            EMPTY_DEFERRED_COMPANION_TEST
+        )
         wrote_empty_companion_test = True
 
     roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
@@ -63445,7 +63460,9 @@ def _require_planned_apply_bytes_match_validation_snapshot(
             raise RuntimeError("Apply validation snapshot lacks companion test digest")
         expected[relative_test] = test_sha256
     elif wrote_empty_companion_test:
-        expected[relative_test] = hashlib.sha256(b"[]\n").hexdigest()
+        expected[relative_test] = hashlib.sha256(
+            EMPTY_DEFERRED_COMPANION_TEST
+        ).hexdigest()
 
     for item in supplemental:
         if not isinstance(item, dict):
@@ -65919,17 +65936,9 @@ def _needs_empty_deferred_companion_test(output_file: Path) -> bool:
         payload = yaml.safe_load(output_file.read_text())
     except (OSError, yaml.YAMLError, ValueError):
         return False
-    if not isinstance(payload, dict):
-        return False
-    module = payload.get("module")
-    if not isinstance(module, dict):
-        return False
-    if module.get("status") != "deferred":
-        return False
-    if payload.get("rules") != []:
-        return False
-    deferred_outputs = module.get("deferred_outputs")
-    return isinstance(deferred_outputs, list) and bool(deferred_outputs)
+    # The reviewer call uses the same rule, so it shows the reviewer the
+    # companion exactly when this plan writes it.
+    return deferred_module_needs_empty_companion_test(payload)
 
 
 def _resolver_attestation_for_manifest_source(

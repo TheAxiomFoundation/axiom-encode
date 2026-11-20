@@ -122,6 +122,7 @@ def _evidence(rulespec=RULE_BYTES, test=TEST_BYTES, **overrides):
         **review_evidence_digests(rulespec, test),
         "rulespec_complete": True,
         "test_complete": True,
+        "explicit_passed": True,
         "reviewer_backend": "codex",
         "reviewer_model": "gpt-test",
     }
@@ -716,22 +717,38 @@ def test_reader_refuses_a_passed_record_with_a_truncated_file():
     ]
 
 
-def test_review_without_a_companion_test_covers_an_absent_or_empty_one():
+def test_review_without_a_companion_test_covers_an_absent_one_only():
     evidence = _evidence(test=None)
     assert evidence["reviewed_test_sha256"] is None
 
-    for applied in (applied_pair(RULE_BYTES, None), applied_pair(RULE_BYTES, b"[]\n")):
-        record = _build(applied=[applied], evidence=evidence)
-        assert record["status"] == "passed"
-        assert record["applied"]["test_sha256"] == applied.test_sha256
-        assert (
-            _issues(
-                record,
-                [applied.rulespec_sha256]
-                + ([applied.test_sha256] if applied.test_sha256 else []),
-            )
-            == []
+    absent = applied_pair(RULE_BYTES, None)
+    record = _build(applied=[absent], evidence=evidence)
+    assert record["status"] == "passed"
+    assert record["applied"]["test_sha256"] is None
+    assert _issues(record, [absent.rulespec_sha256]) == []
+
+    # An applied empty companion has the content of an absent one, so the
+    # verdict binds; but the reviewer never read that file, so the record
+    # does not mark it reviewed and a required review refuses.
+    empty = applied_pair(RULE_BYTES, b"[]\n")
+    record = _build(applied=[empty], evidence=evidence, required=True)
+    assert record["status"] == "partial"
+    assert record["reason"] == "unreviewed_applied_files"
+    assert record["applied"]["test_sha256"] == empty.test_sha256
+    assert record["files"] == _files(
+        (empty.rulespec_sha256, True, True), (empty.test_sha256, False, False)
+    )
+    assert review_requirement_refusal(record) is not None
+    assert (
+        _issues(
+            {**record, "required": False}, [empty.rulespec_sha256, empty.test_sha256]
         )
+        == []
+    )
+    # A reviewer that was shown the empty companion covers it.
+    shown = _build(applied=[empty], evidence=_evidence(test=b"[]\n"), required=True)
+    assert shown["status"] == "passed"
+    assert _issues(shown, [empty.rulespec_sha256, empty.test_sha256]) == []
     # ...and not a companion test that has cases the reviewer never saw.
     assert _build(evidence=evidence)["status"] == "unavailable"
 
@@ -1066,6 +1083,7 @@ def test_scored_review_records_the_digests_of_the_bytes_it_read(tmp_path, monkey
         "reviewed_rulespec_dumped_content_sha256": PAIR.rulespec_content_sha256,
         "rulespec_complete": True,
         "test_complete": True,
+        "explicit_passed": True,
         # The mocked runner started no CLI, so the identity stays unknown.
         "reviewer_backend": None,
         "reviewer_model": None,
@@ -1231,9 +1249,11 @@ def test_review_without_a_companion_test_file(tmp_path, monkeypatch):
 
     assert result.details["review_evidence"]["reviewed_test_sha256"] is None
     assert _record_for(result, rule)["status"] == "passed"
-    # Apply writes an empty companion test for a deferred module.
+    # This module is not deferred, so the reviewer was shown no companion. An
+    # empty one that appears later is a file the reviewer did not read.
     (tmp_path / "rule.test.yaml").write_text("[]\n")
-    assert _record_for(result, rule)["status"] == "passed"
+    assert _record_for(result, rule)["status"] == "partial"
+    assert _record_for(result, rule)["reason"] == "unreviewed_applied_files"
     (tmp_path / "rule.test.yaml").write_bytes(TEST_BYTES)
     assert _record_for(result, rule)["status"] == "unavailable"
 
@@ -2839,3 +2859,481 @@ def test_writer_refusal_has_its_own_exception_type(tmp_path):
             review_state=_bound_state(required=True, metrics_pass=False, score=2.0),
         )
     assert issubclass(ReviewRequirementRefused, RuntimeError)
+
+
+# --- review 5984585097: an explicit pass, and only what the reviewer saw ---
+
+
+def _review(tmp_path, monkeypatch, output, *, reviewer="generalist-reviewer", **kw):
+    rule = _candidate(tmp_path, **kw)
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *_a, **_k: (output, 0)
+    )
+    return rule, _pipeline(tmp_path)._run_reviewer(reviewer, rule)
+
+
+# The three inputs of the review, verbatim.
+_REVIEW_5984585097_PROBES = [
+    '{"score":9}',
+    '{"score":9,"Passed":false}',
+    '{"final":{"Passed":false},"draft":{"passed":true,"score":9}}',
+]
+
+
+@pytest.mark.parametrize("output", _REVIEW_5984585097_PROBES)
+def test_score_without_an_explicit_pass_cannot_satisfy_required_review(
+    tmp_path, monkeypatch, output
+):
+    rule, result = _review(tmp_path, monkeypatch, output)
+    record = _record_for(result, rule, required=True)
+
+    assert record["status"] == "unavailable"
+    assert record["verdict"]["passed"] is None
+    assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize(
+    "output",
+    ['{"score":9}', '{"score":9,"blocking_issues":[]}', '{"score": 7.0, "issues": []}'],
+)
+def test_legacy_score_fallback_stays_in_eval_scoring_and_out_of_the_record(
+    tmp_path, monkeypatch, output
+):
+    rule, result = _review(tmp_path, monkeypatch, output)
+
+    # Eval scoring keeps its fallback: the reviewer result still passes.
+    assert result.passed is True
+    assert result.details["review_evidence"]["explicit_passed"] is None
+    # The record does not take it for a verdict, required or not.
+    for required in (False, True):
+        record = _record_for(result, rule, required=required)
+        assert record["status"] == "unavailable"
+        assert record["reason"] == "unreadable_review_result"
+    assert review_requirement_refusal(_record_for(result, rule, required=True))
+
+
+@pytest.mark.parametrize("explicit", [None, False, "true", 1, 1.0, [True], "absent"])
+def test_record_needs_the_explicit_boolean_pass_in_the_evidence(explicit):
+    evidence = _evidence()
+    if explicit == "absent":
+        del evidence["explicit_passed"]
+    else:
+        evidence["explicit_passed"] = explicit
+
+    record = _build(evidence=evidence, required=True)
+
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "unreadable_review_result"
+    assert review_requirement_refusal(record) is not None
+    # A failing verdict needs no explicit pass to stay failed.
+    assert _build(evidence=evidence, metrics_pass=False)["status"] == "failed"
+
+
+_CYRILLIC_A = "а"
+_ADVERSARIAL_VERDICTS = [
+    # no explicit verdict
+    '{"score":9}',
+    '{"score":9,"blocking_issues":[]}',
+    '{"score":10,"issues":[],"reasoning":"passed"}',
+    "﻿" + '{"score": 9}',
+    # key case and spacing variants
+    '{"score":9,"Passed":false}',
+    '{"score":9,"PASSED":true}',
+    '{"score":9,"passed ":true}',
+    '{"score":9," passed":true}',
+    '{"score":9,"p_a_s_s_e_d":true}',
+    '{"passed":true,"score":9,"Passed":false}',
+    '{"passed":true,"score":9,"pAsSeD":true}',
+    # look-alike keys
+    '{"score":9,"p' + _CYRILLIC_A + 'ssed":true}',
+    '{"passed":true,"score":9,"p' + _CYRILLIC_A + 'ssed":false}',
+    '{"passed":true,"score":9,"ｐａｓｓｅｄ":false}',
+    '{"passed":true,"score":9,"pa​ssed":false}',
+    '{"passed":true,"score":9,"pa̶ssed":false}',
+    '{"passed":true,"score":9,"passed\\u0000":false}',
+    '{"passed":true,"score":9,"\\u0050assed":false}',
+    '{"score":9,"\\u0070assed":false}',
+    # duplicate keys
+    '{"passed":false,"passed":true,"score":9}',
+    '{"passed":true,"passed":true,"score":9}',
+    # nested wrappers
+    '{"final":{"Passed":false},"draft":{"passed":true,"score":9}}',
+    '{"draft":{"passed":true,"score":9},"final":{"Passed":false}}',
+    '{"result":{"passed":true,"score":9},"final":{"passed":false}}',
+    '{"a":{"b":{"c":{"PASSED":false}}},"draft":{"passed":true,"score":9}}',
+    '{"score":9,"passed":true,"details":{"Passed":false}}',
+    '{"score":9,"passed":true,"details":[{"x":[{"passed ":false}]}]}',
+    # arrays
+    '[{"passed":false,"score":2},{"passed":true,"score":9}]',
+    '[{"Passed":false},{"passed":true,"score":9}]',
+    # non-boolean values
+    '{"passed":"true","score":9}',
+    '{"passed":1,"score":9}',
+    '{"passed":null,"score":9}',
+    '{"passed":[true],"score":9}',
+    '{"passed":{"value":true},"score":9}',
+    '{"passed":True,"score":9}',
+    # strings that contain JSON
+    '{"score":9,"reasoning":"{\\"passed\\": true}"}',
+    '{"score":9,"note":"\\"passed\\": true, final"}',
+    # a second object after the verdict
+    '{"passed":true,"score":9}\n{"passed":false,"score":2}',
+    '{"passed":true,"score":9}\n{"Passed":false}',
+    '{"passed":true,"score":9}\n{"x":{"PASSED":false}}',
+    # BOM and comments
+    '{"passed":true,"score":9}\n{"passed"﻿: false}',
+    '{"passed":true,"score":9}\n{ /* c */ passed: false }',
+    '{"score":9, /* "passed": true */ "reasoning":"x"}',
+    '{"score":9, // "passed": true\n "reasoning":"x"}',
+    # other spellings of the document
+    "{'passed': true, 'score': 9}",
+    "passed: true\nscore: 9\n",
+    # an explicit pass that the rest of the verdict contradicts
+    '{"score":9,"passed":true,"blocking_issues":["bad"]}',
+    '{"score":6.9,"passed":true}',
+    '{"passed":true}',
+    '{"passed":true,"score":1e309}',
+]
+
+
+def test_adversarial_verdict_list_is_large_enough():
+    assert len(set(_ADVERSARIAL_VERDICTS)) >= 25
+
+
+@pytest.mark.parametrize("output", _ADVERSARIAL_VERDICTS)
+def test_adversarial_verdicts_never_yield_a_passed_record(
+    tmp_path, monkeypatch, output
+):
+    rule, result = _review(tmp_path, monkeypatch, output)
+
+    for required in (False, True):
+        record = _record_for(result, rule, required=required)
+        assert record["status"] != "passed"
+        assert record["status"] != "partial"
+    assert review_requirement_refusal(_record_for(result, rule, required=True))
+    evidence = (result.details or {}).get("review_evidence", {})
+    if evidence.get("explicit_passed") is True:
+        # Only an explicit pass that something else overrides gets this far.
+        assert result.passed is False
+
+
+_VALID_PASS = {
+    "score": 9,
+    "passed": True,
+    "blocking_issues": [],
+    "non_blocking_issues": ["rename the helper"],
+    "reasoning": "All branches of the cited text are present; tests passed {ok}.",
+}
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        '{"passed": true, "score": 9}',
+        json.dumps(_VALID_PASS),
+        json.dumps(_VALID_PASS, indent=2),
+        "Here is my review of the encoding.\n\n```json\n"
+        + json.dumps(_VALID_PASS, indent=2)
+        + "\n```\n\nThe module is safe to promote.",
+        "I compared each branch with the source text.\n"
+        + json.dumps(_VALID_PASS)
+        + "\nNo further notes.",
+        '```json\n{"score": 8.5, "passed": true, "blocking_issues": [],}\n```',
+        "﻿" + json.dumps(_VALID_PASS),
+    ],
+)
+def test_a_plain_explicit_pass_still_satisfies_required_review(
+    tmp_path, monkeypatch, output
+):
+    rule, result = _review(tmp_path, monkeypatch, output)
+    record = _record_for(result, rule, required=True)
+
+    assert result.passed is True
+    assert result.details["review_evidence"]["explicit_passed"] is True
+    assert record["status"] == "passed"
+    assert record["verdict"]["passed"] is True
+    assert review_requirement_refusal(record) is None
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "Passed",
+        "PASSED",
+        " passed",
+        "passed ",
+        "p a s s e d",
+        "passed?",
+        "p" + _CYRILLIC_A + "ssed",
+        "раѕѕеԁ",
+        "ｐａｓｓｅｄ",
+        "pa​ssed",
+        "passed\x00",
+    ],
+)
+def test_other_spellings_of_the_passed_key_are_competing(key):
+    assert validator_pipeline._is_competing_passed_key(key) is True
+    with pytest.raises(ValueError, match="Competing spelling"):
+        validator_pipeline._extract_json_object(
+            json.dumps({"passed": True, "score": 9, "meta": {key: False}})
+        )
+
+
+@pytest.mark.parametrize(
+    "key", ["passed", "score", "pass", "passes", "failed", "bypassed", "passed_checks"]
+)
+def test_other_keys_are_not_spellings_of_the_passed_key(key):
+    assert validator_pipeline._is_competing_passed_key(key) is False
+
+
+def test_non_generalist_reviewers_keep_the_legacy_fallback(tmp_path, monkeypatch):
+    _rule, result = _review(
+        tmp_path, monkeypatch, '{"score": 9}', reviewer="formula-reviewer"
+    )
+
+    assert result.passed is True
+
+
+_DEFERRED_RULE_TEXT = """format: rulespec/v1
+module:
+  status: deferred
+  deferred_outputs:
+    - output: us:statutes/x#y
+      reason: The entity is not supported.
+rules: []
+"""
+_EMPTY_COMPANION_SHA = hashlib.sha256(b"[]\n").hexdigest()
+
+
+def _planned_record(rule, result, *, required=True):
+    """The record of the real apply plan for one reviewed candidate."""
+
+    relative = Path("statutes/rule.yaml")
+    planned, wrote_empty = cli._planned_apply_file_bytes(
+        rule, relative_output=relative, supplemental_files={}
+    )
+    test = planned.get(Path("statutes/rule.test.yaml"))
+    record = build_generalist_review_record(
+        cli._encode_generalist_review_state(
+            SimpleNamespace(metrics=_metrics_from(result)),
+            skipped_by_flag=False,
+            required=required,
+        ),
+        [applied_pair(planned[relative], test)],
+        [hashlib.sha256(raw).hexdigest() for raw in planned.values()],
+    )
+    return planned, wrote_empty, record
+
+
+def test_reviewer_sees_the_empty_companion_that_apply_writes(tmp_path, monkeypatch):
+    prompts = []
+    rule = _candidate(tmp_path, rule_text=_DEFERRED_RULE_TEXT, test_text=None)
+    monkeypatch.setattr(
+        validator_pipeline,
+        "run_claude_code",
+        lambda prompt, **_k: (prompts.append(prompt), ('{"score":9,"passed":true}', 0))[
+            1
+        ],
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    planned, wrote_empty, record = _planned_record(rule, result)
+
+    # The planner writes the companion; nothing wrote it before the review.
+    assert wrote_empty is True
+    assert not (tmp_path / "rule.test.yaml").exists()
+    assert planned[Path("statutes/rule.test.yaml")] == b"[]\n"
+    # The reviewer was shown exactly those bytes and the evidence names them.
+    assert "\n## Companion Test File\n[]\n" in prompts[0]
+    evidence = result.details["review_evidence"]
+    assert evidence["reviewed_test_sha256"] == _EMPTY_COMPANION_SHA
+    assert evidence["test_complete"] is True
+    assert record["reviewed"]["test_sha256"] == _EMPTY_COMPANION_SHA
+    assert record["applied"]["test_sha256"] == _EMPTY_COMPANION_SHA
+    assert record["status"] == "passed"
+    assert record["files"] == _files(
+        (_sha(rule), True, True), (_EMPTY_COMPANION_SHA, True, True)
+    )
+    assert review_requirement_refusal(record) is None
+    assert _issues(record, [entry["sha256"] for entry in record["files"]]) == []
+
+
+def test_companion_that_the_reviewer_never_saw_is_not_credited(tmp_path, monkeypatch):
+    # The probe of the review: the evidence of a review without a companion,
+    # against a plan that writes the empty one.
+    rule, result = _review(
+        tmp_path,
+        monkeypatch,
+        '{"score":9,"passed":true}',
+        rule_text=_DEFERRED_RULE_TEXT,
+        test_text=None,
+    )
+    evidence = result.details["review_evidence"]
+    evidence.update(review_evidence_digests(rule.read_bytes(), None))
+    assert evidence["reviewed_test_sha256"] is None
+
+    planned, wrote_empty, record = _planned_record(rule, result)
+
+    assert wrote_empty is True
+    assert record["status"] == "partial"
+    assert record["reason"] == "unreviewed_applied_files"
+    assert record["files"] == _files(
+        (_sha(rule), True, True), (_EMPTY_COMPANION_SHA, False, False)
+    )
+    assert review_requirement_refusal(record) is not None
+    assert _issues(record, [entry["sha256"] for entry in record["files"]]) == [
+        "generalist_review was required but the recorded status is partial"
+    ]
+
+
+def test_reader_refuses_a_pass_that_credits_an_unseen_companion():
+    applied = applied_pair(RULE_BYTES, b"[]\n")
+    honest = _build(applied=[applied], evidence=_evidence(test=None))
+    assert honest["status"] == "partial"
+
+    forged = copy.deepcopy(honest)
+    forged["status"], forged["reason"] = "passed", None
+    for entry in forged["files"]:
+        entry["reviewed"] = entry["complete"] = True
+
+    assert forged["reviewed"]["test_sha256"] is None
+    assert "generalist_review verdict is not bound to the applied file digests" in (
+        _issues(forged, [applied.rulespec_sha256, applied.test_sha256])
+    )
+
+
+@pytest.mark.parametrize(
+    "rule_text",
+    [
+        _DEFERRED_RULE_TEXT,
+        _DEFERRED_RULE_TEXT.replace("status: deferred", "status: active"),
+        _DEFERRED_RULE_TEXT.replace("rules: []", "rules: [{name: x}]"),
+        _DEFERRED_RULE_TEXT.replace("rules: []\n", ""),
+        "format: rulespec/v1\nmodule:\n  status: deferred\nrules: []\n",
+        "format: rulespec/v1\nmodule:\n  status: deferred\n"
+        "  deferred_outputs: []\nrules: []\n",
+        "format: rulespec/v1\nrules: []\n",
+        "- a\n- b\n",
+        "{unclosed",
+        RULE_BYTES.decode(),
+    ],
+)
+def test_reviewer_and_planner_agree_on_the_empty_companion(tmp_path, rule_text):
+    rule = _candidate(tmp_path, rule_text=rule_text, test_text=None)
+
+    planner = cli._needs_empty_deferred_companion_test(rule)
+
+    assert (
+        record_module.empty_deferred_companion_test(rule.read_bytes()) is not None
+    ) is planner
+    if planner:
+        assert (
+            record_module.empty_deferred_companion_test(rule.read_bytes())
+            == cli._planned_apply_file_bytes(
+                rule, relative_output=Path("statutes/rule.yaml"), supplemental_files={}
+            )[0][Path("statutes/rule.test.yaml")]
+        )
+
+
+def test_only_the_generalist_reviewer_is_shown_a_generated_companion(
+    tmp_path, monkeypatch
+):
+    prompts = []
+    rule = _candidate(tmp_path, rule_text=_DEFERRED_RULE_TEXT, test_text=None)
+    monkeypatch.setattr(
+        validator_pipeline,
+        "run_claude_code",
+        lambda prompt, **_k: (prompts.append(prompt), ('{"score":9,"passed":true}', 0))[
+            1
+        ],
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("formula-reviewer", rule)
+
+    assert "Companion Test File" not in prompts[0]
+    assert result.details["review_evidence"]["reviewed_test_sha256"] is None
+
+
+# Keys that a YAML 1.1 reader (yaml.safe_load) or a YAML 1.2 core reader
+# gives one value.
+_EQUAL_TYPED_KEYS = [
+    ("0x10", "16"),
+    ("1", "1.0"),
+    ("010", "8"),
+    ("0o10", "8"),
+    ("1_000", "1000"),
+    ("1:30", "90"),
+    ("yes", "true"),
+    ("true", "1"),
+    (".nan", ".NaN"),
+    ("~", "null"),
+    ('! "16"', "16"),
+    ("!!int '16'", "16"),
+    ("+1", "1"),
+    ("1e0", "1"),
+]
+
+
+@pytest.mark.parametrize(("left", "right"), _EQUAL_TYPED_KEYS)
+def test_semantically_equal_typed_keys_have_no_content_digest(left, right):
+    for first, second in ((left, right), (right, left)):
+        raw = f"values: {{{first}: old, {second}: new}}\n".encode()
+        block = f"values:\n  {first}: old\n  {second}: new\n".encode()
+        for rulespec in (False, True):
+            assert review_content_sha256(raw, rulespec=rulespec) is None
+            assert review_content_sha256(block, rulespec=rulespec) is None
+
+
+def test_typed_key_order_cannot_change_the_loaded_value_under_one_digest():
+    # The probe of the review.
+    forward = b"values: {0x10: old, 16: new}\n"
+    reverse = b"values: {16: new, 0x10: old}\n"
+    assert yaml.safe_load(forward) != yaml.safe_load(reverse)
+
+    assert review_content_sha256(forward, rulespec=True) is None
+    assert review_content_sha256(reverse, rulespec=True) is None
+    for raw in (forward, reverse):
+        record = build_generalist_review_record(
+            _state(evidence=_evidence(rulespec=raw)), [applied_pair(raw, TEST_BYTES)]
+        )
+        assert record["status"] == "unavailable"
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        ("1", "'1'"),
+        ("1", "2"),
+        ("a", "b"),
+        ("a", "A"),
+        ("yes", "'true'"),
+        ("2024-01-01", "2025-01-01"),
+        ("0x10", "17"),
+        ("1.5", "2.5"),
+        ("null", "'null'"),
+        ("true", "false"),
+        ("1", "2", "3", "4", "5", "6", "7", "8"),
+    ],
+)
+def test_distinct_typed_keys_keep_a_content_digest(keys):
+    raw = ("values:\n" + "".join(f"  {key}: x\n" for key in keys)).encode()
+    reverse = ("values:\n" + "".join(f"  {key}: x\n" for key in keys[::-1])).encode()
+
+    assert review_content_sha256(raw, rulespec=True) is not None
+    assert review_content_sha256(raw, rulespec=True) == review_content_sha256(
+        reverse, rulespec=True
+    )
+    assert yaml.safe_load(raw) == yaml.safe_load(reverse)
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["!!bool maybe", "!!timestamp nope", "!!int abc", "!!float x"],
+)
+def test_a_key_that_safe_load_cannot_construct_has_no_content_digest(key):
+    raw = f"values:\n  {key}: x\n".encode()
+    with pytest.raises(Exception):  # noqa: B017, PT011 - any PyYAML failure
+        yaml.safe_load(raw)
+
+    assert review_content_sha256(raw, rulespec=True) is None
+    assert review_content_sha256(raw, rulespec=False) is None

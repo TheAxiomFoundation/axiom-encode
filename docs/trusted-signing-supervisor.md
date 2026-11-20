@@ -121,7 +121,12 @@ supervisor executes the validated interpreter and protected bootstrap directly.
 ### Requiring the generalist review
 
 `encode --apply` records its generalist review in the encode outcome, and in
-the signed manifest for a target that verifies with the main encoder. By
+the signed manifest for a target that verifies with the main encoder. That is
+a target whose protected base sets `[workflow_toolchain] encoder_verifier =
+"main"` and sets no `encoder_verifier_hold`. A hold verifies with one exact
+earlier encoder commit, which may predate the record field, so a held target
+gets the record in the encode outcome only, like a pinned target. The mode and
+the hold are read from one protected commit. By
 default a review that is unavailable, failed or partial does not stop the
 apply. To make it stop, add `--require-review` to the supervised command:
 
@@ -131,7 +136,18 @@ apply. To make it stop, add `--require-review` to the supervised command:
 
 With the flag, the encode applies only when the reviewer ran, passed, and was
 shown the whole content of every applied file; otherwise it ends
-`apply_blocked_review` with a non-zero exit and nothing applied. The flag is
+`apply_blocked_review` with a non-zero exit and nothing applied. A pass is the
+reviewer's own JSON boolean `"passed": true` in its one verdict object. A
+score without that field, a non-boolean value, or another spelling of the key
+anywhere in the output (for example `"Passed"`) is not a pass. Eval scoring
+keeps its older fallback from the score; that fallback never reaches the
+record.
+
+For a deferred module without a companion test, apply writes an empty
+companion test (`[]`). The reviewer prompt shows that generated companion and
+the record binds its digest, so the whole-file statement also holds for it. A
+companion file that the reviewer was not shown is recorded as not reviewed:
+the record is `partial` and a required apply refuses. The flag is
 the only switch. There is no environment variable for it, because the
 supervisor builds the child environment from empty and would drop one.
 
