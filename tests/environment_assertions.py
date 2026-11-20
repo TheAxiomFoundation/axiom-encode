@@ -374,8 +374,9 @@ def launches_hide_environment() -> Iterator[None]:
     launch through ``Popen``, ``call`` or ``check_call`` keeps what it is
     passed, and so does a frame of the code under test that takes the copy as
     an argument, should the failure be raised there. Both are restored on
-    leaving it; two threads that use it at once can leave one's wrapper in
-    place.
+    leaving it. Two threads that use it at once can leave one's wrapper in
+    place, and so can a patch of either launcher made inside it and undone
+    after it, as ``monkeypatch`` undoes one.
     """
     run, check_output = subprocess.run, subprocess.check_output
     subprocess.run, subprocess.check_output = _hiding(run), _hiding(check_output)
