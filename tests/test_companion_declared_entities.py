@@ -16,7 +16,11 @@ from hypothesis import strategies as st
 from axiom_encode.cli import _execute_rulespec_test_file
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from axiom_encode.rules_engine_compat import run_rulespec_compile
-from tests.environment_assertions import Names, hides_environment
+from tests.environment_assertions import (
+    Names,
+    environment_variable,
+    hides_environment,
+)
 from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 FIXTURES = Path(__file__).parent / "fixtures" / "companion_declared_entities"
@@ -54,7 +58,7 @@ def _compile(
         rulespec_roots=[root],
         output=artifact,
         cwd=engine_root,
-        env=Names(os.environ),
+        env={"PATH": environment_variable("PATH")},
     )
     assert result.returncode == 0, result.stderr or result.stdout
     return json.loads(artifact.read_text())

@@ -15,7 +15,11 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import engine_pin_diff as diff
-from tests.environment_assertions import Names, hides_environment
+from tests.environment_assertions import (
+    Names,
+    environment_variable,
+    hides_environment,
+)
 
 RULE = dict(
     module="dk/statutes/test.yaml",
@@ -911,7 +915,7 @@ def test_current_leap_month_executes_with_real_engine(real_engine, tmp_path):
         rulespec_roots=[checkout],
         output=artifact_path,
         cwd=real_engine.root,
-        env=Names(os.environ),
+        env={"PATH": environment_variable("PATH")},
     )
     assert compiled.returncode == 0, compiled.stderr or compiled.stdout
     artifact = json.loads(artifact_path.read_text())

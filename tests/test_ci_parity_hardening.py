@@ -35,7 +35,6 @@ from axiom_encode.ci_parity import (
     verify_python_version,
 )
 from tests.environment_assertions import (
-    Names,
     environment_variable,
     hides_environment,
 )
@@ -578,7 +577,6 @@ def test_python_build_label_is_bare_only_for_release_cpython_with_the_gil() -> N
 
 def test_python_build_probe_matches_the_in_process_label() -> None:
     """Differential: the subprocess probe and verify_python_version agree."""
-    import os
     import sysconfig
 
     in_process = ci_parity._python_build_label(
@@ -588,7 +586,9 @@ def test_python_build_probe_matches_the_in_process_label() -> None:
         sysconfig.get_config_var("Py_GIL_DISABLED"),
         sysconfig.get_config_var("Py_DEBUG"),
     )
-    probed = ci_parity._python_build_of(Path(sys.executable), Names(os.environ))
+    probed = ci_parity._python_build_of(
+        Path(sys.executable), {"PATH": environment_variable("PATH")}
+    )
     assert probed == in_process
 
 
