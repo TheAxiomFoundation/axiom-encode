@@ -58,6 +58,7 @@ from axiom_encode.bound_schedule_structure import (
 from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check, retype
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.harness import source_list_structure as _list_structure
 from axiom_encode.harness.bound_form_operands import (
     OrderedFormBinding,
     bind_ordered_form,
@@ -115,7 +116,7 @@ from axiom_encode.statute import (
 
 from .physical_allowance_conditions import read_physical_allowance_condition
 from .same_case_execution import SameCaseEvidence, formula_witnesses
-from .signed_condition_paths import signed_granting_paths
+from .signed_condition_paths import SignedPath, signed_granting_paths
 
 if TYPE_CHECKING:
     from axiom_encode.harness.worksheet_composition_evidence import (
@@ -20733,8 +20734,13 @@ def _source_conjunctive_fact_gates(
     care_source_text: str | None = None,
     reviewed_alternative_lists: Sequence[ReviewedAlternativeList] = (),
     text_start: int | None = None,
+    minimum_gates: int = 2,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
     """Return distinct entity/predicate signatures from one condition.
+
+    ``minimum_gates`` is 2 for the flat reading: one fact cannot collapse.
+    The structural reading asks for the facts of one list item or of a
+    chapeau with 1, because there each part is matched by itself.
 
     ``reviewed_alternative_lists`` are registry entries bound to the citation
     and exact source text that ``text`` comes from, and ``text_start`` is the
@@ -20867,7 +20873,7 @@ def _source_conjunctive_fact_gates(
     segments = _source_gate_split_conjunctive_conditions(
         membership_body, keep_correlative_prepositions=True
     )
-    if len(segments) < 2:
+    if len(segments) < minimum_gates:
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
     inherited_entities: frozenset[str] = frozenset()
@@ -20929,7 +20935,7 @@ def _source_conjunctive_fact_gates(
         gates.append((entities, predicates))
     if reason_gates:
         gates.append((frozenset(), reason_gates))
-    return tuple(gates) if len(gates) >= 2 else ()
+    return tuple(gates) if len(gates) >= minimum_gates else ()
 
 
 def _source_conjunctive_fact_gate_count(text: str) -> int:
@@ -22022,8 +22028,13 @@ def _source_gates_without_distinct_terminal(
     *,
     terminal_evidence: Mapping[str, _TerminalGateEvidence],
     neutral_polarity_imports: frozenset[str] = frozenset(),
+    candidates_out: list[tuple[str, ...]] | None = None,
 ) -> tuple[int, ...]:
-    """Return the gates that a maximum distinct name matching leaves unmatched."""
+    """Return the gates that a maximum distinct name matching leaves unmatched.
+
+    ``candidates_out`` receives, for each gate in order, the names that can
+    match it. It stays empty when a size limit ends the reading early.
+    """
 
     if not gates:
         return ()
@@ -22292,6 +22303,8 @@ def _source_gates_without_distinct_terminal(
                 continue
             matches.append(name)
         candidates.append(tuple(matches))
+    if candidates_out is not None:
+        candidates_out.extend(candidates)
     order = sorted(range(len(gates)), key=lambda index: (len(candidates[index]), index))
 
     matched_gate_by_terminal: dict[str, int] = {}
@@ -22313,6 +22326,283 @@ def _source_gates_without_distinct_terminal(
     return tuple(
         sorted(gate_index for gate_index in order if not augment(gate_index, set()))
     )
+
+
+_STRUCTURAL_NAME_LIMIT = 16
+_STRUCTURAL_FREE_NAME_LIMIT = 6
+_STRUCTURAL_OPTION_LIMIT = 256
+_STRUCTURAL_BINDING_LIST_LIMIT = 8
+_STRUCTURAL_BINDING_RULE_LIMIT = 6
+
+
+@dataclass(frozen=True)
+class _StructuralClauseReading:
+    """One clause as the list structure bounds it (structural reading only)."""
+
+    clause: _SourceConditionClause
+    # None: the re-bounded clause goes to the flat reader. Else one tuple of
+    # gates for each marked item of an alternatives list.
+    alternatives: (
+        tuple[tuple[tuple[frozenset[str], frozenset[str]], ...], ...] | None
+    ) = None
+    chapeau_gates: tuple[tuple[frozenset[str], frozenset[str]], ...] = ()
+    chapeau_text: str = ""
+
+
+def _structural_excerpt_pattern(excerpt: str) -> re.Pattern[str] | None:
+    """The pattern that proof ownership uses to place an excerpt in the text."""
+
+    excerpt_text = _collapse_text(excerpt)
+    if not excerpt_text:
+        return None
+    return re.compile(
+        r"\s+".join(re.escape(part) for part in excerpt_text.split()),
+        flags=re.IGNORECASE,
+    )
+
+
+def _structural_item_gates(
+    body: str, *, care_source_text: str | None
+) -> tuple[tuple[frozenset[str], frozenset[str]], ...] | None:
+    """Read the facts of one list item; ``None`` when it states none."""
+
+    words = re.sub(r"\A(?:when|if)\s+", "", body, flags=re.IGNORECASE)
+    gates = _source_conjunctive_fact_gates(
+        "when " + words, care_source_text=care_source_text, minimum_gates=1
+    )
+    if gates:
+        return gates
+    # A nominal item ("New application") has no predicate wording, so the flat
+    # reader skips it. As an alternative it still needs an input of its own.
+    tokens = _source_gate_semantic_tokens(words, care_source_text=care_source_text)
+    predicates = tokens - _SOURCE_GATE_ENTITIES - _SOURCE_GATE_SUBJECT_PRONOUNS
+    if not predicates:
+        return None
+    return ((tokens & _SOURCE_GATE_ENTITIES, predicates),)
+
+
+def _structural_clause_reading(
+    clause: _SourceConditionClause,
+    excerpt: str,
+    *,
+    source_text: str,
+    source_lists: Sequence[_list_structure.SourceList],
+    care_source_text: str | None,
+) -> _StructuralClauseReading | None:
+    """Bound one clause by the list structure, or decline (flat reading).
+
+    Two rules, both only for a list that ``source_list_structure`` reads as
+    alternatives:
+
+    1. A clause whose cue is not in the list's chapeau does not run on into
+       the list's marked items. It ends where the next marked item starts.
+    2. A clause whose cue is in a chapeau of the form "when|if any of the
+       following ...:" has the chapeau's own facts as simultaneous facts and
+       the items as alternatives. It ends with the list when a new sentence
+       starts there.
+
+    ``None`` keeps the flat reading: an unread layout, an excerpt that
+    crosses a bound, a special clause form, or a list of another kind.
+    """
+
+    raw = source_text[clause.start : clause.end]
+    if raw.strip(" ;,") != clause.text:
+        return None
+    text_start = clause.start + len(raw) - len(raw.lstrip(" ;,"))
+    text_end = text_start + len(clause.text)
+    if (
+        _direct_exception_reverses_negative_proposition(clause.text)
+        or _concessive_form_completion_condition(clause.text) is not None
+    ):
+        return None
+    cue = re.search(
+        r"\b(?:if|when|provided\s+that|unless)\b", clause.text, flags=re.IGNORECASE
+    )
+    pattern = _structural_excerpt_pattern(excerpt)
+    if cue is None or pattern is None:
+        return None
+    cue_at = text_start + cue.start()
+    spans = [
+        match.span() for match in pattern.finditer(source_text, text_start, text_end)
+    ]
+    if not spans:
+        return None
+
+    def bounded(start: int, end: int) -> _SourceConditionClause:
+        return _SourceConditionClause(
+            clause.branch_path, start, end, source_text[start:end].strip(" ;,")
+        )
+
+    for source_list in source_lists:
+        if source_list.reading != "alternatives":
+            continue
+        first_item = source_list.items[0].start
+        if source_list.chapeau.start <= cue_at < source_list.chapeau.end:
+            if not source_list.cue_form or text_end <= first_item:
+                return None
+            boundary = source_list.end
+            if text_end > boundary:
+                if not source_list.tail_starts_sentence(source_text):
+                    return None
+                if all(start >= boundary for start, _end in spans):
+                    return _StructuralClauseReading(bounded(boundary, clause.end))
+                if any(end > boundary for _start, end in spans):
+                    return None
+            if source_list.items_with_children:
+                return None
+            stem = _list_structure.any_cue_chapeau_prefix(
+                source_text[text_start : source_list.chapeau.end]
+            )
+            if stem is None:
+                return None
+            alternatives = []
+            for item in source_list.items:
+                gates = _structural_item_gates(
+                    _list_structure.item_body(source_text, item),
+                    care_source_text=care_source_text,
+                )
+                if gates is None:
+                    return None
+                alternatives.append(gates)
+            return _StructuralClauseReading(
+                bounded(clause.start, min(clause.end, boundary)),
+                alternatives=tuple(alternatives),
+                chapeau_gates=_source_conjunctive_fact_gates(
+                    stem, care_source_text=care_source_text, minimum_gates=1
+                ),
+                chapeau_text=source_text[
+                    source_list.chapeau.start : source_list.chapeau.end
+                ],
+            )
+        next_item = next(
+            (item for item in source_list.items if cue_at < item.start < text_end),
+            None,
+        )
+        if next_item is None:
+            continue
+        if all(end <= next_item.start for _start, end in spans):
+            return _StructuralClauseReading(bounded(clause.start, next_item.start))
+        return None
+    return None
+
+
+def _alternative_list_defect(
+    paths: Sequence[SignedPath],
+    reading: _StructuralClauseReading,
+    *,
+    terminal_evidence: Mapping[str, _TerminalGateEvidence],
+    neutral_polarity_imports: frozenset[str],
+) -> str | None:
+    """Say how a Boolean formula fails to encode a list of alternatives.
+
+    ``paths`` are the signed true paths of the formula over its terminal
+    inputs, so the formula can be evaluated. The formula encodes the list
+    when, with the chapeau's facts true and for every value of every input
+    that matches no source fact:
+
+    - it is false while no input of any item is true;
+    - for each item there are distinct inputs, one for each fact of the item,
+      that make it true while every other item input is false, and it is
+      false again when one of them is false;
+    - no item's inputs are contained in another item's.
+
+    A name in an unreachable or constant arm changes no value, so it cannot
+    satisfy this. Returns ``""`` when the list is encoded, a description of
+    the defect, or ``None`` when the formula is outside what this can read
+    (the caller then keeps the flat reading).
+    """
+
+    alternatives = reading.alternatives or ()
+    if any(fact.relation != "boolean" for path in paths for fact in path.facts):
+        return None
+    names = frozenset(fact.name for path in paths for fact in path.facts)
+    if len(names) > _STRUCTURAL_NAME_LIMIT:
+        return None
+
+    def candidates(
+        gates: tuple[tuple[frozenset[str], frozenset[str]], ...],
+    ) -> list[tuple[str, ...]] | None:
+        found: list[tuple[str, ...]] = []
+        _source_gates_without_distinct_terminal(
+            names,
+            gates,
+            terminal_evidence=terminal_evidence,
+            neutral_polarity_imports=neutral_polarity_imports,
+            candidates_out=found,
+        )
+        return found if len(found) == len(gates) else None
+
+    item_candidates = [candidates(gates) for gates in alternatives]
+    chapeau_candidates = candidates(reading.chapeau_gates)
+    if chapeau_candidates is None or any(item is None for item in item_candidates):
+        return None
+    item_names = frozenset(
+        name for item in item_candidates for gate in item or () for name in gate
+    )
+    chapeau_names = (
+        frozenset(name for gate in chapeau_candidates for name in gate) - item_names
+    )
+    free_names = sorted(names - item_names - chapeau_names)
+    if len(free_names) > _STRUCTURAL_FREE_NAME_LIMIT:
+        return None
+    contexts = [
+        chapeau_names | frozenset(chosen)
+        for size in range(len(free_names) + 1)
+        for chosen in itertools.combinations(free_names, size)
+    ]
+
+    def holds(true_names: frozenset[str]) -> bool:
+        return any(
+            all((fact.name in true_names) == fact.positive for fact in path.facts)
+            for path in paths
+        )
+
+    if reading.chapeau_gates and any(
+        not _terminal_names_corroborate_source_gates(
+            frozenset(fact.name for fact in path.facts if fact.positive),
+            reading.chapeau_gates,
+            terminal_evidence=terminal_evidence,
+            neutral_polarity_imports=neutral_polarity_imports,
+        )
+        for path in paths
+    ):
+        return "a formula path does not state every fact of the list's chapeau"
+    if any(holds(context) for context in contexts):
+        return "the formula can be true while no listed alternative holds"
+    options: list[list[frozenset[str]]] = []
+    for index, gate_candidates in enumerate(item_candidates, start=1):
+        item_options: list[frozenset[str]] = []
+        for combination in itertools.islice(
+            itertools.product(*(gate_candidates or ())), _STRUCTURAL_OPTION_LIMIT
+        ):
+            chosen = frozenset(combination)
+            if len(chosen) != len(combination) or chosen in item_options:
+                continue
+            if all(holds(context | chosen) for context in contexts) and not any(
+                holds(context | (chosen - {name}))
+                for name in chosen
+                for context in contexts
+            ):
+                item_options.append(chosen)
+        if not item_options:
+            return (
+                f"alternative {index} of the list has no input of its own that "
+                "makes the rule true while every other alternative is false"
+            )
+        options.append(item_options[:8])
+
+    def distinct(index: int, picked: tuple[frozenset[str], ...]) -> bool:
+        if index == len(options):
+            return True
+        return any(
+            not any(option <= other or other <= option for other in picked)
+            and distinct(index + 1, (*picked, option))
+            for option in options[index]
+        )
+
+    if not distinct(0, ()):
+        return "two alternatives of the list are given the same inputs"
+    return ""
 
 
 CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
@@ -22361,8 +22651,14 @@ def _opaque_same_source_condition_input_issues(
     execution_evidence: SameCaseEvidence | None = None,
     source_context: Mapping[str, str | None] | None = None,
     execution_test_cases: Sequence[object] | None = None,
+    _structural_implied_excerpts: Mapping[str, tuple[str, ...]] | None = None,
 ) -> list[str]:
-    """Reject terminal selectors that collapse explicit same-source fact gates."""
+    """Reject terminal selectors that collapse explicit same-source fact gates.
+
+    ``_structural_implied_excerpts`` is set only by this function itself, for
+    the structural reading: the named rules are then read against the given
+    excerpts (a list chapeau) and not against their own proof excerpts.
+    """
 
     inputs = payload.get("inputs")
     schedule_binding = None
@@ -22821,6 +23117,87 @@ def _opaque_same_source_condition_input_issues(
     physical_inputs = {
         str(item.get("name")): item for item in inputs or () if isinstance(item, dict)
     }
+    # Structural reading (docs/gates-structural-reading.md). Off by default.
+    # A unit with a reviewed reading, a reviewed care source, a bound schedule
+    # or a physical-allowance list keeps its own reader.
+    structural_lists: tuple[_list_structure.SourceList, ...] = ()
+    if (
+        _list_structure.STRUCTURAL_GATE_READING_ENABLED
+        and not reviewed_alternative_lists
+        and not reviewed_care_source
+        and schedule_binding is None
+        and physical_allowance is None
+    ):
+        structural_lists = _list_structure.parse_source_lists(source_text)
+
+    def structural_resolve(name, lo, hi):
+        if name in named_rules:
+            dependency = named_rules[name]
+            if (
+                name in physical_inputs
+                or name in imported_names
+                or str(dependency.get("dtype", "")).lower()
+                not in {"boolean", "bool", "judgment"}
+            ):
+                raise ValueError("unread alternative-list dependency")
+            versions = tuple(
+                (_parse_formula_expression(child), child_start, child_end)
+                for _, child, child_start, child_end in interval_cache.get(name, ())
+            )
+            if any(expression is None for expression, _lo, _hi in versions):
+                raise ValueError("unread alternative-list dependency formula")
+            return versions
+        if name in imported_names and name not in physical_inputs:
+            return None
+        if (
+            name in physical_inputs
+            and str(physical_inputs[name].get("dtype", "")).lower()
+            in {"boolean", "bool"}
+            and sum(
+                isinstance(item, dict) and item.get("name") == name
+                for item in inputs or ()
+            )
+            == 1
+        ):
+            return None
+        raise ValueError("unread alternative-list terminal")
+
+    def alternative_list_defect(
+        reading: _StructuralClauseReading,
+        rule: Mapping[str, Any],
+        formula: str,
+        start: str | None,
+        end: str | None,
+    ) -> str | None:
+        if str(rule.get("dtype") or "").strip().lower() not in {
+            "judgment",
+            "boolean",
+            "bool",
+        }:
+            return None
+        expression = _parse_formula_expression(formula)
+        if expression is None:
+            return None
+        paths = signed_granting_paths(
+            expression,
+            start=start,
+            end=end,
+            resolve=structural_resolve,
+            intersect=_formula_interval_intersection,
+            limit=_SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT,
+            depth_limit=_SOURCE_EXPLICIT_CONDITION_DEPENDENCY_DEPTH_LIMIT,
+            numeric_names=frozenset(),
+        )
+        if paths is None or any(
+            (path.start, path.end) != (start, end) for path in paths
+        ):
+            return None
+        return _alternative_list_defect(
+            paths,
+            reading,
+            terminal_evidence=terminal_evidence,
+            neutral_polarity_imports=frozenset(imported_names),
+        )
 
     def physical_resolve(name, lo, hi, *, entity, period):
         if name in physical_inputs:
@@ -22851,7 +23228,7 @@ def _opaque_same_source_condition_input_issues(
 
     findings: list[tuple[str, int, int, frozenset[str]]] = []
     finding_details: list[
-        tuple[str, tuple[frozenset[str], ...], tuple[int, ...]] | None
+        tuple[str, tuple[frozenset[str], ...], tuple[int, ...]] | str | None
     ] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
@@ -22862,6 +23239,8 @@ def _opaque_same_source_condition_input_issues(
             continue
         for version_index, formula, start, end in interval_cache.get(rule_name, ()):
             excerpts = proof_excerpts.get(rule_name, {}).get(version_index, ())
+            if _structural_implied_excerpts is not None:
+                excerpts = _structural_implied_excerpts.get(rule_name, ())
             if physical_allowance is not None:
                 paths = signed_granting_paths(
                     _parse_formula_expression(formula),
@@ -22914,6 +23293,7 @@ def _opaque_same_source_condition_input_issues(
                 tuple[tuple[str, ...], int, int], frozenset[str]
             ] = {}
             ambiguous_ownership = False
+            structural_defects: list[tuple[int, str]] = []
             for excerpt in excerpts:
                 owned_clauses, ambiguous = _source_condition_clauses_owned_by_excerpt(
                     excerpt,
@@ -23048,6 +23428,37 @@ def _opaque_same_source_condition_input_issues(
                         )
                     ):
                         continue
+                    if structural_lists and not ambiguous:
+                        structural = _structural_clause_reading(
+                            clause,
+                            excerpt,
+                            source_text=source_text,
+                            source_lists=structural_lists,
+                            care_source_text=care_source_text,
+                        )
+                        if structural is not None and structural.alternatives is None:
+                            clause = structural.clause
+                        elif structural is not None:
+                            defect = alternative_list_defect(
+                                structural, rule, formula, start, end
+                            )
+                            if defect is not None:
+                                if defect:
+                                    structural_defects.append(
+                                        (
+                                            len(structural.alternatives or ())
+                                            + len(structural.chapeau_gates),
+                                            ' [source list "'
+                                            + _bounded_source_feedback_excerpt(
+                                                structural.chapeau_text, limit=200
+                                            )
+                                            + f'" states {len(structural.alternatives or ())} '
+                                            "alternatives: each needs inputs of its "
+                                            "own, combined with `or`, next to the "
+                                            f"facts of the chapeau; {defect}]",
+                                        )
+                                    )
+                                continue
                     gates = source_clause_gates(clause)
                     schedule_roles = schedule_role_sets.get(
                         (clause.branch_path, clause.start, clause.end)
@@ -23074,7 +23485,7 @@ def _opaque_same_source_condition_input_issues(
                         reversed_negative_gate_keys.add(clause_key)
                 ambiguous_ownership |= ambiguous and excerpt_has_gates
             gate_count = max((len(gates) for gates in gate_sets.values()), default=0)
-            if gate_count < 2:
+            if gate_count < 2 and not structural_defects:
                 continue
             reviewed_care_formula_failure = False
             if reviewed_care_source:
@@ -23129,7 +23540,7 @@ def _opaque_same_source_condition_input_issues(
             if not terminal_choices:
                 # A formula that is provably inactive on every path cannot grant
                 # the source benefit while bypassing its factual conditions.
-                if not reviewed_care_formula_failure:
+                if not reviewed_care_formula_failure and not structural_defects:
                     continue
                 terminal_choices = (
                     _TerminalGateAlternative(frozenset(), start, end, False),
@@ -23142,7 +23553,7 @@ def _opaque_same_source_condition_input_issues(
             failing_choices = [
                 choice
                 for choice in terminal_choices
-                if not choice.resolved
+                if (not choice.resolved and (gate_sets or not structural_defects))
                 or any(
                     (choice.names != schedule_role_sets[key])
                     if key in schedule_role_sets
@@ -23195,6 +23606,7 @@ def _opaque_same_source_condition_input_issues(
                 and not reversed_gate_failure
                 and not ambiguous_ownership
                 and not reviewed_care_formula_failure
+                and not structural_defects
             ):
                 continue
             least_supported = min(
@@ -23231,13 +23643,138 @@ def _opaque_same_source_condition_input_issues(
                 (
                     rule_name,
                     version_index,
-                    gate_count,
+                    max([gate_count, *(count for count, _text in structural_defects)]),
                     direct_selectors | least_supported.names,
                 )
             )
-            finding_details.append(weakest_detail)
+            finding_details.append(
+                structural_defects[0][1]
+                if structural_defects and not weakest_detail[1]
+                else weakest_detail
+            )
+
+    def structural_binding_issues() -> list[str]:
+        """Read a list against the rules that quote its items only.
+
+        The flat reader sees a list only through a proof excerpt of its
+        chapeau. Here a rule whose formula proof stands inside a marked item
+        of a list with a condition cue in its chapeau is bound to that list:
+        when no rule quotes the chapeau, one of the bound rules, or a rule
+        that uses one of them, must pass the reading of the chapeau clause.
+        """
+
+        eligible = {
+            name: rule
+            for name, rule in principal_rules.items()
+            if str(rule.get("dtype") or "").strip().lower()
+            in numeric_or_judgment_dtypes
+        }
+        spans: dict[str, list[tuple[int, int]]] = {}
+        for name in eligible:
+            for excerpts in proof_excerpts.get(name, {}).values():
+                for excerpt in excerpts:
+                    pattern = _structural_excerpt_pattern(excerpt)
+                    matches = (
+                        [match.span() for match in pattern.finditer(source_text)]
+                        if pattern is not None
+                        else []
+                    )
+                    # An excerpt that stands at two places binds nothing.
+                    if len(matches) == 1:
+                        spans.setdefault(name, []).extend(matches)
+        every_span = [span for rule_spans in spans.values() for span in rule_spans]
+        issues: list[str] = []
+        for source_list in structural_lists[:_STRUCTURAL_BINDING_LIST_LIMIT]:
+            chapeau = source_list.chapeau
+            chapeau_text = source_text[chapeau.start : chapeau.end]
+            if (
+                re.search(
+                    r"\b(?:if|when|provided\s+that|unless)\b",
+                    chapeau_text,
+                    flags=re.IGNORECASE,
+                )
+                is None
+                or len(re.findall(re.escape(chapeau_text), source_text)) != 1
+                or any(
+                    start < chapeau.end and end > chapeau.start
+                    for start, end in every_span
+                )
+            ):
+                continue
+            bound = {
+                name
+                for name, rule_spans in spans.items()
+                if any(
+                    item.start <= start and end <= item.end
+                    for start, end in rule_spans
+                    for item in source_list.items
+                )
+            }
+            if not bound:
+                continue
+            grew = True
+            while grew:
+                grew = False
+                for name, rule in eligible.items():
+                    if name not in bound and any(
+                        dependency in bound
+                        for _index, text, _lo, _hi in interval_cache.get(name, ())
+                        for dependency in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text)
+                    ):
+                        bound.add(name)
+                        grew = True
+            if len(bound) > _STRUCTURAL_BINDING_RULE_LIMIT:
+                continue
+            refusals: list[list[str]] = []
+            for name in sorted(bound):
+                refusal = _opaque_same_source_condition_input_issues(
+                    payload,
+                    child_credit=child_credit,
+                    retirement_transfer=retirement_transfer,
+                    source_text=source_text,
+                    consumer_content=consumer_content,
+                    branches=branches,
+                    principal_rules={name: eligible[name]},
+                    corpus_citation_path=corpus_citation_path,
+                    certified_transfers=certified_transfers,
+                    certified_paths=certified_paths,
+                    care_source_text=care_source_text,
+                    certified_country=certified_country,
+                    repayment_alternatives=repayment_alternatives,
+                    test_cases=test_cases,
+                    execution_evidence=execution_evidence,
+                    source_context=source_context,
+                    execution_test_cases=execution_test_cases,
+                    _structural_implied_excerpts={name: (chapeau_text,)},
+                )
+                if not refusal:
+                    break
+                refusals.append(refusal)
+            else:
+                first = refusals[0][0]
+                issues.append(
+                    ValidationIssue(
+                        str(first)
+                        + " The formula proof of this rule quotes an item of the "
+                        'list under "'
+                        + _bounded_source_feedback_excerpt(chapeau_text, limit=200)
+                        + '" and no rule quotes that chapeau, so the rule is read '
+                        "against the whole list.",
+                        check=CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
+                        subject=getattr(first, "subject", None),
+                        expected=getattr(first, "expected", None),
+                        found=getattr(first, "found", None),
+                    )
+                )
+        return issues
+
+    binding_issues: list[str] = (
+        structural_binding_issues()
+        if structural_lists and _structural_implied_excerpts is None
+        else []
+    )
     if not findings:
-        return []
+        return binding_issues
 
     ordered = sorted(
         zip(findings, finding_details, strict=True),
@@ -23249,6 +23786,8 @@ def _opaque_same_source_condition_input_issues(
     ) -> str:
         """Say which clause and which of its facts lack an input."""
 
+        if isinstance(detail, str):
+            return detail
         if detail is None or not detail[1]:
             return ""
         clause_text, gate_words, unmatched = detail
@@ -23297,7 +23836,9 @@ def _opaque_same_source_condition_input_issues(
     (first_rule, first_version, first_gate_count, first_evidence), first_detail = (
         ordered[0]
     )
-    if first_detail is not None and first_detail[1]:
+    if isinstance(first_detail, str):
+        first_found = "a list of alternatives that the formula does not encode as one"
+    elif first_detail is not None and first_detail[1]:
         first_found = (
             f"{len(first_detail[1]) - len(first_detail[2])} of "
             f"{len(first_detail[1])} source gates with their own terminal input "
@@ -23327,7 +23868,8 @@ def _opaque_same_source_condition_input_issues(
             ),
             expected=f"{first_gate_count} distinct gate inputs",
             found=first_found,
-        )
+        ),
+        *binding_issues,
     ]
 
 
