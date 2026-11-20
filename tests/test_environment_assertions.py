@@ -153,6 +153,11 @@ It misses what it can't read:
 - setting a variable to what the platform rejects (an empty name, one with ``=`` in
   it, a null byte), which raises from ``os.environ``'s frames; a test sets variables
   to names and strings it has written itself;
+- a ``Names`` handed to code under test that copies it into a dict and launches
+  with the copy (``run_rulespec_compile``, ``ci_parity._python_build_of``), whose
+  launcher frames print the copy's values when the launch fails: the check counts
+  a ``Names`` as hidden wherever it goes. A test passes such code only the
+  variables the launch needs, read by name;
 - ``--tb=long``, ``--showlocals`` and ``--fulltrace``, which print every frame's
   arguments or locals, the code under test's included.
 """

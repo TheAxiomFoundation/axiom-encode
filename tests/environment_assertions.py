@@ -23,10 +23,16 @@ raises through ``raising``. A fake that keeps what it is passed, to be compared
 whole, then keeps ``Names`` too. The standard library's launchers raise from
 frames of their own, whose arguments hold the ``env`` they are passed, when a
 checked program fails or a program can't be started; they read it as a
-mapping, so a test's own launch passes ``env=Names(...)``. ``os.environ``'s
-own methods raise from frames whose ``self`` is the whole environment: a read
-or ``del`` of a variable that is not set, and so ``monkeypatch.delenv``'s, whose
-frame is passed ``os.environ``. A test reads a variable that may be missing
+mapping, so a test's own call of one passes ``env=Names(...)``. Code under test
+that copies the environment it is passed into a dict and launches with the copy
+(``run_rulespec_compile``, ``ci_parity._python_build_of``) hands those frames
+the copy, which prints its values, ``Names`` or not. A test therefore passes such
+code only the variables the launch needs, read by name
+(``{"PATH": environment_variable("PATH")}``), and
+``tests/test_environment_assertions.py`` does not catch a ``Names`` handed to
+it. ``os.environ``'s own methods raise from frames whose ``self`` is the whole
+environment: a read or ``del`` of a variable that is not set, and so
+``monkeypatch.delenv``'s, whose frame is passed ``os.environ``. A test reads a variable that may be missing
 through ``environment_variable`` and unsets one through ``unset_variable``.
 ``tests/test_environment_assertions.py`` keeps the suite to this.
 """
@@ -101,7 +107,8 @@ class Names(Mapping[str, str]):
 
     A recorded invocation holding one compares equal to the expected
     invocation exactly when every value matches, while a failing comparison
-    shows names alone.
+    shows names alone. Only a ``Names`` itself prints names alone:
+    ``dict(names)``, or any copy code makes of it, prints the values.
     """
 
     def __init__(self, environment: Mapping[str, str]) -> None:
