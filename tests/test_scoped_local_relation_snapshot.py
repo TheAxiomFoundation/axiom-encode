@@ -12,6 +12,7 @@ from axiom_encode.harness import (
     scoped_execution,
 )
 from axiom_encode.harness import same_case_execution as e
+from tests.environment_assertions import hides_environment
 from tests.test_same_page_floor_binding import BODY, CITATION, CONTENT
 
 
@@ -58,7 +59,9 @@ def test_local_relation_recording_respects_scoped_ownership(
         _rulespec_test_path=lambda _: companion,
         _complete_source_unit_import_bindings=lambda _: (),
         _source_texts_for_rulespec_content=lambda _: sources,
-        _proof_source_texts_for_rulespec_content=lambda *args, **kwargs: sources,
+        _proof_source_texts_for_rulespec_content=hides_environment(
+            lambda *args, **kwargs: sources
+        ),
         _axiom_rules_binary=lambda: binary,
     )
     activations = []
