@@ -1,0 +1,694 @@
+format: rulespec/v1
+imports: []
+module:
+  summary: 'Complete Schedule N diagnostic: explicit Person amounts, supplied source-defined upstream results, conditional Part C and selected carry-over use, enclosure/contact/reference duties. No native clearance.'
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+    source_sha256: 06295f18048c53e225bf0e8ba0c2581b4ac500f4702358de380a79f62acc812f
+units:
+- name: CAD
+  kind: currency
+  minor_units: 2
+inputs:
+- name: schedule_n_specified_member_partnership_loss_line_10
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Explicit amount entered at the named Schedule N line for this individual; no implicit default or upstream eligibility inference.
+- name: schedule_n_carrying_charges_interest_line_12
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Explicit amount entered at the named Schedule N line for this individual; no implicit default or upstream eligibility inference.
+- name: schedule_n_exploration_development_expenses_line_14
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: 'Already calculated line14 result under guide260: 50% of (return241 minus the sum of the three specified Quebec expense amounts); supplied result, not raw241.'
+- name: schedule_n_other_property_income_expenses_line_16
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Entered source-defined property-income expenses excluding bad debts as guide260 directs.
+- name: schedule_n_taxable_canadian_dividends_line_20
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Explicit amount entered at the named Schedule N line for this individual; no implicit default or upstream eligibility inference.
+- name: schedule_n_interest_other_investment_income_line_22
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Explicit amount entered at the named Schedule N line for this individual; no implicit default or upstream eligibility inference.
+- name: schedule_n_specified_member_partnership_income_line_24
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Explicit amount entered at the named Schedule N line for this individual; no implicit default or upstream eligibility inference.
+- name: schedule_n_life_insurance_policy_income_line_26
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Explicit amount entered at the named Schedule N line for this individual; no implicit default or upstream eligibility inference.
+- name: schedule_n_resource_deduction_recovery_base
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Explicit amount entered at the named Schedule N line for this individual; no implicit default or upstream eligibility inference.
+- name: schedule_n_ordinary_annuities_ro_line_30
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Entered ordinary-annuity subtotal from RL2 boxB only where provenance codeRO applies.
+- name: schedule_n_other_trust_shareholder_property_income_line_32
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Explicit amount entered at the named Schedule N line for this individual; no implicit default or upstream eligibility inference.
+- name: schedule_n_taxable_capital_gains_line_34
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Already calculated line34 result under guide260 and its qualified-property work chart; supplied result, not arbitrary raw139.
+- name: schedule_n_limited_partnership_loss_line_50
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Explicit amount entered at the named Schedule N line for this individual; no implicit default or upstream eligibility inference.
+- name: schedule_n_net_capital_losses_other_years_line_52
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Explicit amount entered at the named Schedule N line for this individual; no implicit default or upstream eligibility inference.
+- name: schedule_n_unused_adjustment_prior_years_line_70
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: 'Supplied unused historical adjustment: total lines40/64 since2004 minus amounts already used in previous years; not inferred from current amounts.'
+- name: schedule_n_amount_from_return_line_252_line_78
+  entity: Person
+  dtype: Money
+  period: Year
+  unit: CAD
+  description: Already computed amount entered on return252, copied to Schedule N line78; not a requested deduction or a local entitlement assertion. No default.
+- name: limited_partnership_loss_deduction_entered
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit limited-partnership-loss deduction presence; other return289 losses do not establish this fact.
+- name: net_capital_loss_deduction_entered
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit net-capital-loss deduction presence, including entered zero; not positive amount inference.
+- name: deducting_net_capital_loss_from_qualified_capital_gains
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit source-defined circumstance triggering contact; upstream gain qualification is supplied, not locally calculated.
+- name: wants_copy_for_records
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit desire for a records copy, not compliance evidence.
+- name: completing_schedule_n
+  entity: Person
+  dtype: Boolean
+  period: Year
+  description: Explicit schedule-use fact for enclosure duty, not eligibility.
+rules:
+- name: quebec_2025_schedule_n_resource_recovery_rate
+  kind: parameter
+  dtype: Rate
+  source: 'Recovery of resource deductions (see line 154, point 11, in the guide)
+
+    multiplied by 50%'
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '0.5'
+    effective_to: '2025-12-31'
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: 'Recovery of resource deductions (see line 154, point 11, in the guide)
+
+            multiplied by 50%'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_part_c_applies
+  kind: derived
+  entity: Person
+  dtype: Boolean
+  period: Year
+  source: '09 Adjustment of other investment expenses The amount that you deduct as investment expenses cannot exceed your investment income. If you are deducting either of the following, complete Schedule N to calculate the amount to enter on line 276 of your return: • a limited partnership loss (included on line 289 of your return); • net capital losses from other years. On line 52 of Schedule N, enter the amount from line 290 of your return.'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if limited_partnership_loss_deduction_entered == true or net_capital_loss_deduction_entered == true:\n    true\nelse:\n    false"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/main-return/guide
+          excerpt: '09 Adjustment of other investment expenses The amount that you deduct as investment expenses cannot exceed your investment income. If you are deducting either of the following, complete Schedule N to calculate the amount to enter on line 276 of your return: • a limited partnership loss (included on line 289 of your return); • net capital losses from other years. On line 52 of Schedule N, enter the amount from line 290 of your return.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_part_c_input_consistent
+  kind: derived
+  entity: Person
+  dtype: Boolean
+  period: Year
+  source: "Complete this part only if you entered an amount on lines 289 and 290 of your return.\nLimited partnership loss\n(included on line 289 of your return)\nNet capital losses from other years (see line 276, point 9, in the guide)\nAdd lines 50 and 52.\nAmount from line 36 above\nAmount from line 18 above\nSubtract line 58 from line 56. If the result is negative, enter 0.\nSubtract line 60 from line 54. If the result is negative, enter 0.\nCarry the result to line 276 of your return.\b\n"
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if schedule_n_part_c_applies == true or (schedule_n_limited_partnership_loss_line_50 == 0 and schedule_n_net_capital_losses_other_years_line_52 == 0):\n    true\nelse:\n    false"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: "Complete this part only if you entered an amount on lines 289 and 290 of your return.\nLimited partnership loss\n(included on line 289 of your return)\nNet capital losses from other years (see line 276, point 9, in the guide)\nAdd lines 50 and 52.\nAmount from line 36 above\nAmount from line 18 above\nSubtract line 58 from line 56. If the result is negative, enter 0.\nSubtract line 60 from line 54. If the result is negative, enter 0.\nCarry the result to line 276 of your return.\b\n"
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_net_investment_income_for_carryover
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: 'If, for 2025, your investment income (line 36 of Schedule N) is greater than your investment expenses (lines 18 and 54 of Schedule N), you can deduct the unused portion of the adjustment of investment expenses (up to the difference between your investment income and your investment expenses). Unused portion of the adjustment of investment expenses (line 70 of Schedule N) The unused portion of the adjustment of investment expenses is equal to the total of the amounts entered since 2004 on lines 40 and 64 of Schedule N, minus the amount already used to reduce your investment income for a previous year. '
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_n_investment_income_line_36 - schedule_n_investment_expenses_line_18 - schedule_n_other_investment_expenses_line_54
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/main-return/guide
+          excerpt: 'If, for 2025, your investment income (line 36 of Schedule N) is greater than your investment expenses (lines 18 and 54 of Schedule N), you can deduct the unused portion of the adjustment of investment expenses (up to the difference between your investment income and your investment expenses). Unused portion of the adjustment of investment expenses (line 70 of Schedule N) The unused portion of the adjustment of investment expenses is equal to the total of the amounts entered since 2004 on lines 40 and 64 of Schedule N, minus the amount already used to reduce your investment income for a previous year. '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_maximum_allowable_return_252
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: 'If, for 2025, your investment income (line 36 of Schedule N) is greater than your investment expenses (lines 18 and 54 of Schedule N), you can deduct the unused portion of the adjustment of investment expenses (up to the difference between your investment income and your investment expenses). Unused portion of the adjustment of investment expenses (line 70 of Schedule N) The unused portion of the adjustment of investment expenses is equal to the total of the amounts entered since 2004 on lines 40 and 64 of Schedule N, minus the amount already used to reduce your investment income for a previous year. '
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: 'if schedule_n_net_investment_income_for_carryover > 0: min(schedule_n_unused_adjustment_prior_years_line_70, schedule_n_net_investment_income_for_carryover) else: 0'
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/main-return/guide
+          excerpt: 'If, for 2025, your investment income (line 36 of Schedule N) is greater than your investment expenses (lines 18 and 54 of Schedule N), you can deduct the unused portion of the adjustment of investment expenses (up to the difference between your investment income and your investment expenses). Unused portion of the adjustment of investment expenses (line 70 of Schedule N) The unused portion of the adjustment of investment expenses is equal to the total of the amounts entered since 2004 on lines 40 and 64 of Schedule N, minus the amount already used to reduce your investment income for a previous year. '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_entered_return252_within_source_upper_conditions
+  kind: derived
+  entity: Person
+  dtype: Boolean
+  period: Year
+  source: 'If, for 2025, your investment income (line 36 of Schedule N) is greater than your investment expenses (lines 18 and 54 of Schedule N), you can deduct the unused portion of the adjustment of investment expenses (up to the difference between your investment income and your investment expenses). Unused portion of the adjustment of investment expenses (line 70 of Schedule N) The unused portion of the adjustment of investment expenses is equal to the total of the amounts entered since 2004 on lines 40 and 64 of Schedule N, minus the amount already used to reduce your investment income for a previous year. '
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "if schedule_n_amount_from_return_line_252_line_78 == 0 or (schedule_n_net_investment_income_for_carryover > 0 and schedule_n_amount_from_return_line_252_line_78 <= schedule_n_unused_adjustment_prior_years_line_70 and schedule_n_amount_from_return_line_252_line_78 <= schedule_n_net_investment_income_for_carryover):\n    true\nelse:\n    false"
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/main-return/guide
+          excerpt: 'If, for 2025, your investment income (line 36 of Schedule N) is greater than your investment expenses (lines 18 and 54 of Schedule N), you can deduct the unused portion of the adjustment of investment expenses (up to the difference between your investment income and your investment expenses). Unused portion of the adjustment of investment expenses (line 70 of Schedule N) The unused portion of the adjustment of investment expenses is equal to the total of the amounts entered since 2004 on lines 40 and 64 of Schedule N, minus the amount already used to reduce your investment income for a previous year. '
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_investment_expenses_line_18
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: Add lines 10 through 16.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_n_specified_member_partnership_loss_line_10 + schedule_n_carrying_charges_interest_line_12 + schedule_n_exploration_development_expenses_line_14 + schedule_n_other_property_income_expenses_line_16
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Add lines 10 through 16.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_resource_deduction_recovery_line_28
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: 'Recovery of resource deductions (see line 154, point 11, in the guide)
+
+    multiplied by 50%'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_n_resource_deduction_recovery_base * quebec_2025_schedule_n_resource_recovery_rate
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: 'Recovery of resource deductions (see line 154, point 11, in the guide)
+
+            multiplied by 50%'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_investment_income_line_36
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: Add lines 20 through 34.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_n_taxable_canadian_dividends_line_20 + schedule_n_interest_other_investment_income_line_22 + schedule_n_specified_member_partnership_income_line_24 + schedule_n_life_insurance_policy_income_line_26 + schedule_n_resource_deduction_recovery_line_28 + schedule_n_ordinary_annuities_ro_line_30 + schedule_n_other_trust_shareholder_property_income_line_32 + schedule_n_taxable_capital_gains_line_34
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Add lines 20 through 34.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_investment_expense_adjustment_line_260
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: 'Subtract line 36 from line 18. If the result is negative, enter 0.
+
+    Carry the result to line 260 of your return.'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: max(0, schedule_n_investment_expenses_line_18 - schedule_n_investment_income_line_36)
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: 'Subtract line 36 from line 18. If the result is negative, enter 0.
+
+            Carry the result to line 260 of your return.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_other_investment_expenses_line_54
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: "Complete this part only if you entered an amount on lines 289 and 290 of your return.\nLimited partnership loss\n(included on line 289 of your return)\nNet capital losses from other years (see line 276, point 9, in the guide)\nAdd lines 50 and 52.\nAmount from line 36 above\nAmount from line 18 above\nSubtract line 58 from line 56. If the result is negative, enter 0.\nSubtract line 60 from line 54. If the result is negative, enter 0.\nCarry the result to line 276 of your return.\b\n"
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: "match schedule_n_part_c_input_consistent:\n    true => schedule_n_limited_partnership_loss_line_50 + schedule_n_net_capital_losses_other_years_line_52"
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: "Complete this part only if you entered an amount on lines 289 and 290 of your return.\nLimited partnership loss\n(included on line 289 of your return)\nNet capital losses from other years (see line 276, point 9, in the guide)\nAdd lines 50 and 52.\nAmount from line 36 above\nAmount from line 18 above\nSubtract line 58 from line 56. If the result is negative, enter 0.\nSubtract line 60 from line 54. If the result is negative, enter 0.\nCarry the result to line 276 of your return.\b\n"
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_investment_income_excess_line_60
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: Subtract line 58 from line 56. If the result is negative, enter 0.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: max(0, schedule_n_investment_income_line_36 - schedule_n_investment_expenses_line_18)
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Subtract line 58 from line 56. If the result is negative, enter 0.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_other_investment_expense_adjustment_line_276
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: 'Subtract line 60 from line 54. If the result is negative, enter 0.
+
+    Carry the result to line 276 of your return.'
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: max(0, schedule_n_other_investment_expenses_line_54 - schedule_n_investment_income_excess_line_60)
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: 'Subtract line 60 from line 54. If the result is negative, enter 0.
+
+            Carry the result to line 276 of your return.'
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_adjustment_available_line_76
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: Add lines 70 through 74.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_n_unused_adjustment_prior_years_line_70 + schedule_n_investment_expense_adjustment_line_260 + schedule_n_other_investment_expense_adjustment_line_276
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Add lines 70 through 74.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_adjustment_used_line_252
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: Amount from line 252 of your 2025 return
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_n_amount_from_return_line_252_line_78
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Amount from line 252 of your 2025 return
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_adjustment_carryforward_line_80
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Year
+  source: Subtract line 78 from line 76.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: schedule_n_adjustment_available_line_76 - schedule_n_adjustment_used_line_252
+  unit: CAD
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Subtract line 78 from line 76.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_enclosure_required
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: Enclose this schedule with your return.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: completing_schedule_n == true
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Enclose this schedule with your return.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_copy_guide_reference_applies
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: If you want to keep a copy for your records, see the guide.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: wants_copy_for_records == true
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: If you want to keep a copy for your records, see the guide.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+- name: schedule_n_qualified_gain_loss_contact_required
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  source: However, if you are deducting a net capital loss from capital gains that qualify for the capital gains deduction, contact us.
+  versions:
+  - effective_from: '2025-01-01'
+    effective_to: '2025-12-31'
+    formula: deducting_net_capital_loss_from_qualified_capital_gains == true
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/main-return/guide
+          excerpt: However, if you are deducting a net capital loss from capital gains that qualify for the capital gains deduction, contact us.
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment
+          excerpt: Revenu Quebec Schedule N 2025 - Adjustment of Investment Expenses

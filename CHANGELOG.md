@@ -1,3 +1,16 @@
+## 0.2.2389
+
+- Validate complete T1170 source obligations against execution evidence (#2110)
+
+## 0.2.2388
+
+- Report each companion-test gap once with source detail; require executed clamps (#1901)
+
+## 0.2.2387
+
+- Keep "both to and from" as one fact in the gates-collapsed check (#2293)
+- Guide the encoder not to add a zero floor the source does not state (#2299)
+
 ## 0.2.2386
 
 - Keep See Example reference ordinals out of numeric recall (#2291)

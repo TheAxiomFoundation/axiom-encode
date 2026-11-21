@@ -72,6 +72,7 @@ from axiom_encode.encode_timing import (
     timed_phase,
 )
 from axiom_encode.harness.same_case_execution import (
+    ExecutionGitOrigin,
     bind_execution_overlay_origin,
     capture_execution_git_origin,
 )
@@ -8840,6 +8841,116 @@ def _build_existing_target_oracle_contract_for_file(
     )
 
 
+def _eval_existing_target_oracle_contract(
+    rulespec_file: Path,
+    policy_repo_root: Path,
+) -> ExistingTargetOracleContract | None:
+    """Bind the existing canonical target's oracle contract, when one exists."""
+
+    relative_target = _relative_rulespec_source_path(rulespec_file)
+    if relative_target is None:
+        return None
+    existing_target = Path(policy_repo_root).resolve() / relative_target
+    if not existing_target.is_file() or existing_target.is_symlink():
+        return None
+    target = (
+        f"{Path(policy_repo_root).name}:{relative_target.with_suffix('').as_posix()}"
+    )
+    return _build_existing_target_oracle_contract_for_file(
+        existing_target,
+        target=target,
+    )
+
+
+def _eval_execution_git_origin(
+    *,
+    policy_repo_root: Path,
+    require_complete_source_unit: bool,
+    rulespec_dependency_roots: Sequence[Path],
+    legacy_replacement: LegacyReplacementContract | None,
+    replacement_overlay_scope: bool,
+) -> ExecutionGitOrigin | None:
+    """Capture the checkout's Git identity before validation stages a copy."""
+
+    if (
+        require_complete_source_unit
+        and legacy_replacement is None
+        and not replacement_overlay_scope
+        and not rulespec_dependency_roots
+    ):
+        return capture_execution_git_origin(Path(policy_repo_root))
+    return None
+
+
+def _eval_validator_pipeline(
+    *,
+    validation_file: Path,
+    policy_repo_root: Path,
+    axiom_rules_path: Path,
+    axiom_compose_path: Path | None,
+    oracle: EvalOracleMode,
+    policyengine_runtime: PolicyEngineRuntime | None,
+    policyengine_rule_hint: str | None,
+    source_text: str,
+    source_metadata: dict[str, object] | None,
+    local_corpus_release: _corpus_resolver.LocalCorpusRelease,
+    source_citation_path: str | None,
+    rulespec_dependency_roots: Sequence[Path],
+    require_complete_source_unit: bool,
+    amendment_documents: Sequence[CorpusAmendmentDocument],
+    existing_target_oracle_contract: ExistingTargetOracleContract | None,
+    execution_git_origin: ExecutionGitOrigin | None = None,
+    legacy_replacement: LegacyReplacementContract | None = None,
+    replacement_overlay_scope: bool = False,
+    axiom_rules_engine_ref: str | None = None,
+) -> ValidatorPipeline:
+    """Build the one validation pipeline used to evaluate and to repair."""
+
+    validation_policy_repo_root = _validation_policy_repo_root(
+        validation_file, policy_repo_root
+    )
+    validation_dependency_roots = _validation_rulespec_dependency_roots(
+        validation_file=validation_file,
+        policy_repo_root=policy_repo_root,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+    )
+    return ValidatorPipeline(
+        policy_repo_path=validation_policy_repo_root,
+        execution_overlay_origin=(
+            bind_execution_overlay_origin(
+                execution_git_origin, validation_policy_repo_root
+            )
+            if legacy_replacement is None
+            and not replacement_overlay_scope
+            and not validation_dependency_roots
+            else None
+        ),
+        axiom_rules_path=axiom_rules_path,
+        **(
+            {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+            if axiom_rules_engine_ref is not None
+            else {}
+        ),
+        axiom_compose_path=axiom_compose_path,
+        enable_oracles=oracle != "none",
+        policyengine_runtime=policyengine_runtime,
+        policyengine_rule_hint=policyengine_rule_hint,
+        require_policy_proofs=True,
+        source_text=source_text,
+        source_metadata=source_metadata,
+        local_corpus_release=local_corpus_release,
+        source_citation_path=source_citation_path,
+        rulespec_dependency_roots=validation_dependency_roots,
+        validation_staging_root=_RULESPEC_VALIDATION_STAGING_ROOT.get(),
+        require_complete_source_unit=require_complete_source_unit,
+        amendment_documents=amendment_documents,
+        amendment_source_texts={
+            document.citation_path: document.body for document in amendment_documents
+        },
+        existing_target_oracle_contract=existing_target_oracle_contract,
+    )
+
+
 def _evaluate_artifact_in_scope(
     rulespec_file: Path,
     policy_repo_root: Path,
@@ -8862,28 +8973,15 @@ def _evaluate_artifact_in_scope(
     axiom_rules_engine_ref: str | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
-    existing_target_oracle_contract: ExistingTargetOracleContract | None = None
-    relative_target = _relative_rulespec_source_path(rulespec_file)
-    if relative_target is not None:
-        existing_target = Path(policy_repo_root).resolve() / relative_target
-        if existing_target.is_file() and not existing_target.is_symlink():
-            target = (
-                f"{Path(policy_repo_root).name}:"
-                f"{relative_target.with_suffix('').as_posix()}"
-            )
-            existing_target_oracle_contract = (
-                _build_existing_target_oracle_contract_for_file(
-                    existing_target,
-                    target=target,
-                )
-            )
-    execution_git_origin = (
-        capture_execution_git_origin(Path(policy_repo_root))
-        if require_complete_source_unit
-        and legacy_replacement is None
-        and not replacement_overlay_scope
-        and not rulespec_dependency_roots
-        else None
+    existing_target_oracle_contract = _eval_existing_target_oracle_contract(
+        rulespec_file, policy_repo_root
+    )
+    execution_git_origin = _eval_execution_git_origin(
+        policy_repo_root=policy_repo_root,
+        require_complete_source_unit=require_complete_source_unit,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+        legacy_replacement=legacy_replacement,
+        replacement_overlay_scope=replacement_overlay_scope,
     )
     with _rulespec_validation_target(
         rulespec_file,
@@ -8892,50 +8990,26 @@ def _evaluate_artifact_in_scope(
         legacy_replacement=legacy_replacement,
         replacement_overlay_scope=replacement_overlay_scope,
     ) as validation_file:
-        validation_policy_repo_root = _validation_policy_repo_root(
-            validation_file, policy_repo_root
-        )
-        validation_staging_root = _RULESPEC_VALIDATION_STAGING_ROOT.get()
-        validation_dependency_roots = _validation_rulespec_dependency_roots(
+        pipeline = _eval_validator_pipeline(
             validation_file=validation_file,
             policy_repo_root=policy_repo_root,
-            rulespec_dependency_roots=rulespec_dependency_roots,
-        )
-        pipeline = ValidatorPipeline(
-            policy_repo_path=validation_policy_repo_root,
-            execution_overlay_origin=(
-                bind_execution_overlay_origin(
-                    execution_git_origin, validation_policy_repo_root
-                )
-                if legacy_replacement is None
-                and not replacement_overlay_scope
-                and not validation_dependency_roots
-                else None
-            ),
             axiom_rules_path=axiom_rules_path,
-            **(
-                {"axiom_rules_engine_ref": axiom_rules_engine_ref}
-                if axiom_rules_engine_ref is not None
-                else {}
-            ),
+            axiom_rules_engine_ref=axiom_rules_engine_ref,
             axiom_compose_path=axiom_compose_path,
-            enable_oracles=oracle != "none",
+            oracle=oracle,
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
-            require_policy_proofs=True,
             source_text=source_text,
             source_metadata=source_metadata,
             local_corpus_release=local_corpus_release,
             source_citation_path=source_citation_path,
-            rulespec_dependency_roots=validation_dependency_roots,
-            validation_staging_root=validation_staging_root,
+            rulespec_dependency_roots=rulespec_dependency_roots,
             require_complete_source_unit=require_complete_source_unit,
             amendment_documents=amendment_documents,
-            amendment_source_texts={
-                document.citation_path: document.body
-                for document in amendment_documents
-            },
             existing_target_oracle_contract=existing_target_oracle_contract,
+            execution_git_origin=execution_git_origin,
+            legacy_replacement=legacy_replacement,
+            replacement_overlay_scope=replacement_overlay_scope,
         )
         report_phase(PHASE_VALIDATE)
         compile_result = pipeline._run_compile_check(validation_file)
@@ -11786,6 +11860,10 @@ def _format_validation_retry_feedback(
   affected principal output. If the occurrence is a threshold, add its
   contrasting side as a same-period case with otherwise identical inputs.
   Merely placing the number in an unrelated input or test name is not credited.
+  The issue's `Boundary details` quote the source text of each boundary and
+  name its covering principal output(s) and the numeric input(s) their
+  formulas compare with it. A boundary with no covering principal output needs
+  a principal derived rule for that source comparison before any test.
 """
     completeness_repair_guidance = ""
     if completeness_repair and any(
@@ -13365,6 +13443,7 @@ RuleSpec requirements:
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
 - Benefit, allotment, credit, deduction, allowance, and subsidy formulas must never emit negative money. When subtracting an income, contribution, or other reduction from a maximum amount, floor the result with `max(0, ...)` before applying downstream minimum-benefit or issuance branches. When a nonnegative credit, deduction, allowance, subsidy, or benefit is a percentage of `min(income, cap)` or similar, floor the income base at zero: use `rate * min(max(0, earned_income), cap)`, not `rate * min(earned_income, cap)`.
 - Outputs named `taxable_income` or ending in `_taxable_income` must also never be negative. Wrap the final selected branch at zero, including both sides of conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`, not `if condition: branch_a else: branch_b`.
+- A single source-stated amount or a bare input that a rule returns as its result (not a difference, not an operand of the floor rules above, and not the cap clamp or excess forms below) gets no zero floor of its own: do not wrap it in `max(0, ...)` unless the source states a floor for it ("not less than zero", "but not below zero", "cannot be negative") or the existing encoding of the same rule already has one. If the rule returns that amount, return it without a floor, e.g. `if amount_qualifies: stated_amount else: 0`, not `if amount_qualifies: max(0, stated_amount) else: 0`. This bullet does not change any rule about a difference, a subtraction, an income base, taxable income, an excess, or a cap: those keep the forms required above and below.
 - Taxpayer elections such as electing to itemize deductions are legitimate
   election-state inputs to the legal computation. Do not mark a taxable-income
   rule unsupported merely because the taxpayer could optimize that election
