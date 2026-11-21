@@ -108,7 +108,8 @@ class Names(Mapping[str, str]):
     A recorded invocation holding one compares equal to the expected
     invocation exactly when every value matches, while a failing comparison
     shows names alone. Only a ``Names`` itself prints names alone:
-    ``dict(names)``, or any copy code makes of it, prints the values.
+    ``dict(names)``, or any ``dict`` that code copies it into, prints the
+    values.
     """
 
     def __init__(self, environment: Mapping[str, str]) -> None:

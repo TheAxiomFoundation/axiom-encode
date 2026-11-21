@@ -3,7 +3,8 @@
 See ``tests/environment_assertions.py`` for why, and for the helpers a test uses
 instead. ``_Check`` reads a test module and flags what may print one, and
 ``test_no_failing_assert_prints_a_whole_environment`` runs it over every module
-in ``tests/``.
+in ``tests/`` but ``tests/environment_assertions.py``, whose frames that take an
+environment hide themselves.
 
 What pytest prints when a test fails, which the check models. Its assertion
 rewriting (``_pytest/assertion/rewrite.py``) prints:
