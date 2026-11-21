@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.environment_assertions import hides_environment
+
 ROOT = Path(__file__).parents[1]
 CORPUS_DIR = ROOT / "benchmarks" / "verifier" / "real_defects_v0"
 TOOLS_DIR = CORPUS_DIR / "tools"
@@ -1480,6 +1482,7 @@ def test_reader_records_are_checked_against_the_bundle_texts(tmp_path):
     manifest = {"others": [{"file": "other/001.txt", "citation": "us/guidance/x"}]}
     check = provision_review.check_reader_record
 
+    @hides_environment
     def record(**fields):
         return {"verdict": "in_provision", "defect_real": "yes", **fields}
 

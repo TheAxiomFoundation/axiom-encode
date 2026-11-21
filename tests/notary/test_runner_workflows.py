@@ -8,6 +8,7 @@ from axiom_encode.notary.canonical import jcs_dumps, strict_parse
 from axiom_encode.notary.identity import IdentityRefusal
 from axiom_encode.notary.runner import Configuration, run_gates
 from axiom_encode.notary.workflows import render
+from tests.environment_assertions import hides_environment
 
 from .chain_fixtures import Epoch
 from .lineage_fixtures import LANE
@@ -150,6 +151,7 @@ def test_gate_outcome_is_actual_process_result_and_has_no_credentials(
         def fetch(self, commit):
             return commit
 
+        @hides_environment
         def _run(self, *args, **kwargs):
             if args[0] == "clone":
                 __import__("pathlib").Path(args[-1]).mkdir()
@@ -170,6 +172,7 @@ def test_gate_outcome_is_actual_process_result_and_has_no_credentials(
     monkeypatch.setenv("GITHUB_TOKEN", "fixture-must-not-reach-candidate")
     seen = []
 
+    @hides_environment
     def execute(argv, **kwargs):
         assert "GITHUB_TOKEN" not in kwargs["env"]
         assert "ACTIONS_ID_TOKEN_REQUEST_TOKEN" not in kwargs["env"]

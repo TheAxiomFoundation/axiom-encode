@@ -13,13 +13,13 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import os
 import re
 
 import pytest
 
 from axiom_encode import cli
 from axiom_encode import validation_waivers as waivers_module
+from tests.environment_assertions import environment_variable, hides_environment
 from tests.test_cli import TEST_PINNED_ENCODER_IDENTITY
 from tests.test_retired_apply_paths import (
     _commit,
@@ -535,7 +535,7 @@ def test_writer_shape_reads_the_protected_base_through_the_trusted_git_wrapper(
         frozen_repo, '[workflow_toolchain]\nencoder_verifier = "main"\n'
     )
     _commit(frozen_repo.repo, "protected main mode")
-    monkeypatch.setenv("PATH", f"{tools}:{os.environ['PATH']}")
+    monkeypatch.setenv("PATH", f"{tools}:{environment_variable('PATH')}")
     assert cli._target_uses_per_file_waiver_bindings(frozen_repo.repo) is True
 
 
@@ -544,6 +544,7 @@ def test_writer_refuses_when_the_protected_base_cannot_be_resolved(
 ):
     real_run = cli.subprocess.run
 
+    @hides_environment
     def refusing_run(command, *args, **kwargs):
         if command[:2] == ["git", "-C"] and "--verify" in command:
             return cli.subprocess.CompletedProcess(command, 126, b"", b"refused")
@@ -568,6 +569,7 @@ def test_writer_keeps_the_set_digest_shape_outside_a_git_checkout(
 
     real_run = cli.subprocess.run
 
+    @hides_environment
     def unsafe_run(command, *args, **kwargs):
         if command[:2] == ["git", "-C"] and "--verify" in command:
             return cli.subprocess.CompletedProcess(

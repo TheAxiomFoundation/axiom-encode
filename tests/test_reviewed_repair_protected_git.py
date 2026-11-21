@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from axiom_encode import reviewed_repair_patch as patch
+from tests.environment_assertions import environment_variable
 from tests.test_provision_supervisor import provisioner
 from tests.test_reviewed_repair_patch import lineage_fixture
 from tests.test_reviewed_repair_patch import registered as registered_fixture
@@ -29,7 +30,7 @@ def install_wrapper(tmp_path, monkeypatch):
         Path(sys.executable).resolve(),
         provisioner._resolve_trusted_git(real_git),
     )
-    monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", str(tools) + os.pathsep + environment_variable("PATH"))
 
 
 def test_registered_package_through_actual_protected_wrapper(

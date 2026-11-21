@@ -36,6 +36,7 @@ from axiom_encode.notary.producers import (
     require_enrolled_submission,
 )
 from axiom_encode.notary.verification import verify_snapshots
+from tests.environment_assertions import Names, hides_environment
 
 from .chain_fixtures import Epoch
 from .lineage_fixtures import Identities, public_entry
@@ -311,6 +312,7 @@ def test_host_generate_has_no_auth_or_command_and_preserves_owner_retry(
 
     host._base = base
 
+    @hides_environment
     def run(**kwargs):
         assert kwargs["auth"] is None
         host.calls.append(kwargs["request"]["run_id"])
@@ -434,6 +436,7 @@ def test_controller_observes_after_worker_exit_and_refuses_drift(
     attempts = []
     real_run = subprocess.run
 
+    @hides_environment
     def execute(argv, **kwargs):
         if argv[0] == "/usr/bin/systemctl":
             stopped.append(True)
@@ -469,7 +472,7 @@ def test_controller_observes_after_worker_exit_and_refuses_drift(
         return original_observe(*args)
 
     monkeypatch.setattr(runtime_module, "observe_outputs", observe)
-    kwargs = dict(
+    arguments = dict(
         job=job,
         request={"operation": "generate", "run_id": "1" * 32},
         base=epoch.active,
@@ -479,9 +482,9 @@ def test_controller_observes_after_worker_exit_and_refuses_drift(
     try:
         if fault:
             with pytest.raises(IdentityRefusal):
-                runtime.run(**kwargs)
+                runtime.run(**arguments)
         else:
-            observed, auth = runtime.run(**kwargs)
+            observed, auth = runtime.run(**arguments)
             assert observed["outputs"] == {"rules/example.yaml": b"captured source2026"}
             assert auth is None
             assert len(measured) == 3
@@ -518,7 +521,7 @@ def test_copied_interpreter_cannot_borrow_unmeasured_stdlib(tmp_path):
             str(tmp_path / "absent-job"),
         ],
         capture_output=True,
-        env=environment,
+        env=Names(environment),
     )
     assert result.returncode != 0
     assert b"external import roots" in result.stderr

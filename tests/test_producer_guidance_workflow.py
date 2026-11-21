@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.environment_assertions import Names
+
 WORKFLOW = (
     Path(__file__).resolve().parents[1]
     / ".github/workflows/targeted-signed-reencode.yml"
@@ -42,7 +44,7 @@ def execute_branch(tmp_path, finding, *, lane="target"):
     command = 'set -euo pipefail\nargs=()\nreview_finding="$TEST_FINDING"\ncitation="$CITATION"\noutput_lane="$TEST_LANE"\n'
     command += generation_branch() + '\nprintf "%s\\0" "${args[@]}"\n'
     return subprocess.run(
-        ["bash", "-c", command], env=env, cwd=tmp_path, capture_output=True
+        ["bash", "-c", command], env=Names(env), cwd=tmp_path, capture_output=True
     )
 
 
@@ -188,7 +190,7 @@ def test_refusal_records_typed_issue_but_never_depends_on_reporter(
         + "\ntouch MUST_NOT_RUN\n"
     )
     result = subprocess.run(
-        ["bash", "-c", command], env=env, cwd=tmp_path, capture_output=True
+        ["bash", "-c", command], env=Names(env), cwd=tmp_path, capture_output=True
     )
     assert result.returncode == 1
     assert not (tmp_path / "MUST_NOT_RUN").exists()

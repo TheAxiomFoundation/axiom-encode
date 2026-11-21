@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from axiom_encode import cli
+from tests.environment_assertions import hides_environment
 from tests.release_object_fixtures import bind_test_corpus_release
 
 TEST_CORPUS_RELEASE = "validation-waiver-test-release"
@@ -405,6 +406,7 @@ def test_independent_companion_matches_shared_test_command_root(tmp_path: Path):
     engine = _engine(tmp_path)
     companion_policy_roots = []
 
+    @hides_environment
     def execute(*args, **kwargs):
         companion_policy_roots.append(kwargs["policy_repo_path"])
         return {"cases": 0, "compiled": 1, "failures": []}
@@ -457,6 +459,7 @@ def test_companion_parse_failure_is_deterministic_and_paths_are_normalized(
     engine = _engine(tmp_path)
     _FakePipeline.result = _pipeline_result(passed=True)
 
+    @hides_environment
     def fail_parse(*args, **kwargs):
         raise ValueError(
             f"bad test under {root}; engine={engine}; tmp={kwargs['tmp_path']}"

@@ -19,6 +19,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.environment_assertions import Names, hides_environment
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ".github/workflows/targeted-signed-reencode.yml"
 FETCH_STEP = "Fetch pinned corpus provision objects"
@@ -132,10 +134,11 @@ def test_the_preflight_runs_before_the_gate_and_before_the_budget():
     assert "secrets.R2_CORPUS_READ_SECRET_ACCESS_KEY != ''" in expression
 
 
+@hides_environment
 def _run(script: str, env: dict[str, str]) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["bash", "-c", script],
-        env={"PATH": "/usr/bin:/bin", **env},
+        env=Names({"PATH": "/usr/bin:/bin", **env}),
         capture_output=True,
         text=True,
     )
@@ -192,10 +195,11 @@ def _bash4() -> str | None:
     return None
 
 
+@hides_environment
 def _run_fetch(step, tmp_path, release, path, env, bash="bash"):
     return subprocess.run(
         [bash, "-c", step["run"]],
-        env={"PATH": path, "RELEASE_OBJECT": str(release), **env},
+        env=Names({"PATH": path, "RELEASE_OBJECT": str(release), **env}),
         cwd=tmp_path,
         capture_output=True,
         text=True,

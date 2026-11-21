@@ -5,11 +5,13 @@ from subprocess import CompletedProcess
 import pytest
 
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from tests.environment_assertions import hides_environment
 
 
 def _run(monkeypatch, responses, *, composed=False):
     calls = []
 
+    @hides_environment
     def fake_run(command, **kwargs):
         calls.append((command, kwargs))
         return responses.pop(0)
@@ -170,7 +172,7 @@ def test_legacy_contract_rejects_roots_containing_path_separator(monkeypatch):
     )
     monkeypatch.setattr(
         "axiom_encode.rules_engine_compat.subprocess.run",
-        lambda command, **kwargs: unsupported,
+        hides_environment(lambda command, **kwargs: unsupported),
     )
     root = Path(f"/rulespec{os.pathsep}other/rulespec-us")
 

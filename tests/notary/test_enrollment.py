@@ -6,10 +6,12 @@ import subprocess
 import pytest
 
 from axiom_encode.notary import enrollment
+from tests.environment_assertions import hides_environment
 from tests.notary.lineage_fixtures import LANE
 
 
 def permission(monkeypatch, value, *, login="team-writer", role_name=None):
+    @hides_environment
     def run(argv, **kwargs):
         assert argv == [
             "gh",
@@ -85,6 +87,7 @@ def test_permission_loss_is_not_cached(monkeypatch):
     ],
 )
 def test_permission_failure_never_fails_open(monkeypatch, capsys, failure):
+    @hides_environment
     def run(argv, **kwargs):
         if failure == "missing-gh":
             raise FileNotFoundError("private details")
@@ -117,7 +120,9 @@ def test_permission_failure_never_fails_open(monkeypatch, capsys, failure):
 )
 def test_identity_cannot_change_endpoint(monkeypatch, repository, operator):
     monkeypatch.setattr(
-        enrollment.subprocess, "run", lambda *a, **k: pytest.fail("must not call gh")
+        enrollment.subprocess,
+        "run",
+        hides_environment(lambda *a, **k: pytest.fail("must not call gh")),
     )
     result = enrollment.check_write_access(repository, operator)
     assert result.reason == "invalid-identity"

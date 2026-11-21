@@ -10,6 +10,7 @@ from axiom_encode.producer_review_guidance import (
     MAX_GUIDANCE_BYTES,
     read_producer_review_guidance,
 )
+from tests.environment_assertions import environment_variable
 
 CITATION = "ca/policy/example"
 SOURCE = "a" * 64
@@ -837,7 +838,7 @@ def test_reader_through_actual_protected_git_wrapper(
     tools = tmp_path / "protected-tools"
     tools.mkdir()
     provisioner._install_trusted_git_wrapper(tools, Path(sys.executable), trusted_git)
-    monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", str(tools) + os.pathsep + environment_variable("PATH"))
     if mode == "regular":
         path.write_text("working-tree substitution")
         assert (

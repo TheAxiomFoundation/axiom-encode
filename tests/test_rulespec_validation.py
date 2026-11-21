@@ -154,6 +154,10 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline as _ValidatorPipeline,
 )
 from axiom_encode.repo_routing import find_policy_repo_root
+from tests.environment_assertions import (
+    environment_variable,
+    hides_environment,
+)
 from tests.process_limits import HANG_TIMEOUT_SECONDS
 from tests.real_engine import ABSENT_ROOT
 from tests.release_object_fixtures import bind_test_corpus_release
@@ -361,6 +365,7 @@ def test_rulespec_run_compiled_timeout_is_reproducible_across_temp_roots(
         enable_oracles=False,
     )
 
+    @hides_environment
     def timeout_with_command_path(command, **kwargs):
         raise subprocess.TimeoutExpired(command, kwargs["timeout"])
 
@@ -488,6 +493,7 @@ output.write_text('format: rulespec/v1\\nrules: []\\n')
     pipeline._axiom_rules_binary = lambda: tmp_path / "engine"
     observed: dict[str, object] = {}
 
+    @hides_environment
     def fake_compile(*, program, output, rulespec_roots, **_kwargs):
         observed["program"] = program
         observed["roots"] = rulespec_roots
@@ -566,6 +572,7 @@ def test_composition_uses_explicit_roots_and_credential_free_environment(
     )
     observed: dict[str, object] = {}
 
+    @hides_environment
     def fake_run(command, **kwargs):
         observed["command"] = command
         observed["env"] = kwargs["env"]
@@ -1179,10 +1186,11 @@ def test_rulespec_engine_env_excludes_model_and_repository_credentials(
     env = pipeline._rulespec_engine_env()
 
     assert env["NON_SENSITIVE_SENTINEL"] == "preserved"
-    assert "OPENAI_API_KEY" not in env
-    assert "ANTHROPIC_API_KEY" not in env
-    assert "GH_TOKEN" not in env
-    assert "AXIOM_REPO_TOKEN" not in env
+    names = set(env)
+    assert "OPENAI_API_KEY" not in names
+    assert "ANTHROPIC_API_KEY" not in names
+    assert "GH_TOKEN" not in names
+    assert "AXIOM_REPO_TOKEN" not in names
 
 
 def test_rulespec_compile_roots_ignore_ambient_env_and_sibling_roots(
@@ -1360,6 +1368,7 @@ def test_rulespec_compile_passes_only_explicit_root_arguments(monkeypatch, tmp_p
     )
     original_run = validator_pipeline.subprocess.run
 
+    @hides_environment
     def fake_run(command, **kwargs):
         if command[0] == "git":
             return original_run(command, **kwargs)
@@ -1400,7 +1409,9 @@ def test_rulespec_engine_binary_ignores_ambient_path(monkeypatch, tmp_path):
     ambient_engine = ambient_bin / "axiom-rules-engine"
     ambient_engine.write_text("#!/bin/sh\nexit 0\n")
     ambient_engine.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{ambient_bin}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv(
+        "PATH", f"{ambient_bin}{os.pathsep}{environment_variable('PATH')}"
+    )
     pipeline = ValidatorPipeline(
         policy_repo_path=policy_repo,
         axiom_rules_path=engine_root,
@@ -1432,6 +1443,7 @@ def test_rulespec_validation_run_compiled_scrubs_ambient_root_env(
     captured_env: dict[str, str] | None = None
     original_run = validator_pipeline.subprocess.run
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         nonlocal captured_env
         if cmd[0] == "git":
@@ -1484,9 +1496,13 @@ def test_rulespec_validation_run_compiled_scrubs_ambient_root_env(
     assert outputs is not None
     assert outputs["us:statutes/1/1#benefit"]["value"]["value"] == 6
     assert captured_env is not None
-    assert "AXIOM_RULESPEC_REPO_ROOTS" not in captured_env
-    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in captured_env
-    assert str(stale_root) not in captured_env.values()
+    names = set(captured_env)
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in names
+    assert "AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE" not in names
+    names_holding_stale_root = sorted(
+        name for name, value in captured_env.items() if value == str(stale_root)
+    )
+    assert names_holding_stale_root == []
 
 
 def _write_engine_pinned_toolchain(checkout_root: Path, engine_ref: str) -> Path:
@@ -1652,6 +1668,7 @@ def test_rulespec_compile_uses_pinned_receipted_binary(monkeypatch, tmp_path):
     captured: dict[str, object] = {}
     original_run = validator_pipeline.subprocess.run
 
+    @hides_environment
     def fake_run(command, **kwargs):
         if command[0] == "git":
             return original_run(command, **kwargs)
@@ -2510,6 +2527,7 @@ def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
     )
     captured_request: dict[str, object] | None = None
 
+    @hides_environment
     def fake_run(cmd, **kwargs):
         nonlocal captured_request
         if "input" not in kwargs:
@@ -8300,6 +8318,7 @@ def test_policyengine_oracle_uses_policyengine_only_inputs_for_legal_facts(tmp_p
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:114.514\n")
@@ -8396,6 +8415,7 @@ def test_policyengine_oracle_compares_parameter_value_mapping(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:250000\n")
@@ -8449,6 +8469,7 @@ def test_policyengine_parameter_mapping_ignores_unrelated_legal_inputs(tmp_path)
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:3\n")
@@ -8500,6 +8521,7 @@ def test_policyengine_oracle_compares_multi_key_parameter_value_mapping(tmp_path
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:1650\n")
@@ -8552,6 +8574,7 @@ def test_policyengine_oracle_passes_through_parameter_key_input(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:298\n")
@@ -8611,6 +8634,7 @@ def test_policyengine_oracle_compares_nested_parameter_key_path(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:12400\n")
@@ -8670,6 +8694,7 @@ def test_policyengine_oracle_clamps_nested_parameter_key_path(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:2876\n")
@@ -8720,6 +8745,7 @@ def test_policyengine_oracle_compares_integer_parameter_key_path(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:0.26\n")
@@ -8770,6 +8796,7 @@ def test_policyengine_oracle_compares_parameter_attribute_key_path(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:0.2\n")
@@ -8822,6 +8849,7 @@ def test_policyengine_oracle_compares_parameter_scale_calc_input(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:2200\n")
@@ -8874,6 +8902,7 @@ def test_policyengine_oracle_applies_result_multiplier(tmp_path):
 
     scripts = []
 
+    @hides_environment
     def fake_run(script, *_args, **_kwargs):
         scripts.append(script)
         return OracleSubprocessResult(returncode=0, stdout="RESULT:100\n")
@@ -53636,6 +53665,7 @@ def test_rulespec_companion_rejects_ambiguous_runtime_response(
             + "}}]}"
         )
 
+    @hides_environment
     def fake_run(command, **kwargs):
         if mutation != "duplicate_json_key":
             query = json.loads(kwargs["input"])["queries"][0]
@@ -53714,6 +53744,7 @@ def test_rulespec_companion_binds_response_to_query(
         enable_oracles=False,
     )
 
+    @hides_environment
     def fake_run(command, **kwargs):
         request = json.loads(kwargs["input"])
         rows = [

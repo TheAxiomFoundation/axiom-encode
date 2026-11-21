@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from scripts.provision_verification_supervisor import _install_trusted_git_wrapper
+from tests.environment_assertions import environment_variable, hides_environment
 
 
 @pytest.fixture
@@ -44,6 +45,7 @@ def broker(tmp_path):
     return wrapper, native, source, snapshot_parent / "rulespec-ca"
 
 
+@hides_environment
 def invoke(broker, *args, env=None):
     return subprocess.run(
         [str(broker[0]), *map(str, args)],
@@ -388,7 +390,9 @@ def test_real_engine_overlay_snapshot_through_actual_broker(
 
     def through_broker(*args, **kwargs):
         with monkeypatch.context() as context:
-            context.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+            context.setenv(
+                "PATH", str(tools) + os.pathsep + environment_variable("PATH")
+            )
             return evaluate(*args, **kwargs)
 
     monkeypatch.setattr(evals, "evaluate_artifact", through_broker)

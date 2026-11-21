@@ -6,6 +6,7 @@ from types import MappingProxyType
 import pytest
 
 from axiom_encode import reviewed_repair_patch as patch
+from tests.environment_assertions import Names
 
 
 @pytest.mark.parametrize(
@@ -1407,7 +1408,7 @@ def test_workflow_queues_exact_reviewed_command_without_model_fallback(
             "-c",
             'queue_operation() { printf "%s\\0" "$@" >> "$QUEUE_LOG"; }\n' + branch,
         ],
-        env=env,
+        env=Names(env),
         capture_output=True,
         text=True,
     )

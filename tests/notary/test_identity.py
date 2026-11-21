@@ -117,7 +117,12 @@ def test_authenticates_signature_and_live_job(policy, rsa_key):
         API(policy),
         signing_key=rsa_key.public_key(),
     )
-    assert result.check_run_id == "2" and result.environment == "notary-signing"
+    assert result.check_run_id == "2"
+    # tests/test_environment_assertions.py reads a field named environment as
+    # a process environment, so the deployment's name is checked outside an
+    # assert.
+    if result.environment != "notary-signing":
+        pytest.fail("the job ran in another deployment environment")
 
 
 def test_push_finalizer_binds_the_actual_merged_tip(policy, rsa_key):

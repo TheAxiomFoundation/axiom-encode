@@ -62,16 +62,18 @@ def payload():
     }
 
 
-def environment(p=None, case=None):
+def formula_environment(p=None, case=None):
     return s._formula_environment_for_case(
         s._constant_rule_environment(p or payload()),
         {"period": "2025-01-01"} if case is None else case,
     )
 
 
-def evaluate(text, env):
-    actual = s._evaluate_condition_expression(ast.parse(text, mode="eval").body, env)
-    ordinary = s._evaluate_rulespec_formula(text, environment=env)
+def evaluate(text, formula_env):
+    actual = s._evaluate_condition_expression(
+        ast.parse(text, mode="eval").body, formula_env
+    )
+    ordinary = s._evaluate_rulespec_formula(text, environment=formula_env)
     assert ordinary == actual
     return actual
 
@@ -81,10 +83,10 @@ def evaluate(text, env):
     [(date(2022, 12, 31), True), (date(2023, 1, 1), False), (date(2023, 1, 2), False)],
 )
 def test_typed_date_boundary(value, expected):
-    env = environment()
-    env["acquired"] = value
-    assert evaluate("acquired < cutoff[year]", env) is expected
-    table = env["cutoff"]
+    formula_env = formula_environment()
+    formula_env["acquired"] = value
+    assert evaluate("acquired < cutoff[year]", formula_env) is expected
+    table = formula_env["cutoff"]
     assert {a[0] for a in table.source_atoms} == {
         "versions[0].values",
         "versions[0].effective_from",
@@ -98,7 +100,7 @@ def test_typed_date_boundary(value, expected):
 )
 def test_no_missing_or_outside_period_fallback(case):
     assert (
-        evaluate("cutoff[year]", environment(case=case))
+        evaluate("cutoff[year]", formula_environment(case=case))
         is s._UNRESOLVED_CONDITION_VALUE
     )
 
@@ -163,7 +165,10 @@ def test_malformed_or_ambiguous_table_refuses(mutation):
         ]
     elif mutation == "bad_period":
         v["effective_from"] = "2026-01-01"
-    assert evaluate("cutoff[year]", environment(p)) is s._UNRESOLVED_CONDITION_VALUE
+    assert (
+        evaluate("cutoff[year]", formula_environment(p))
+        is s._UNRESOLVED_CONDITION_VALUE
+    )
 
 
 @pytest.mark.parametrize(
@@ -171,16 +176,16 @@ def test_malformed_or_ambiguous_table_refuses(mutation):
     ["cutoff[2025]", "cutoff[other]", "cutoff[year + 0]", "cutoff[:]"],
 )
 def test_no_arbitrary_indexing(expr):
-    env = environment()
-    env.update(other=2025, raw={2025: date(2023, 1, 1)})
-    assert evaluate(expr, env) is s._UNRESOLVED_CONDITION_VALUE
+    formula_env = formula_environment()
+    formula_env.update(other=2025, raw={2025: date(2023, 1, 1)})
+    assert evaluate(expr, formula_env) is s._UNRESOLVED_CONDITION_VALUE
 
 
 @pytest.mark.parametrize("key", [True, 2025.0, "2025", 2024])
 def test_index_must_be_exact_integer_present(key):
-    env = environment()
-    env["year"] = key
-    assert evaluate("cutoff[year]", env) is s._UNRESOLVED_CONDITION_VALUE
+    formula_env = formula_environment()
+    formula_env["year"] = key
+    assert evaluate("cutoff[year]", formula_env) is s._UNRESOLVED_CONDITION_VALUE
 
 
 def test_multiple_disjoint_versions_select_without_fallback():
@@ -203,12 +208,12 @@ def test_multiple_disjoint_versions_select_without_fallback():
     assert (
         evaluate("cutoff[year]", prior) is s._UNRESOLVED_CONDITION_VALUE
     )  # index not applicable
-    assert evaluate("cutoff[year]", environment(p)) == date(2023, 1, 1)
+    assert evaluate("cutoff[year]", formula_environment(p)) == date(2023, 1, 1)
 
 
 def test_existing_scalar_missing_period_behavior_unchanged():
-    assert environment(case={})["year"] == 2025
-    assert "cutoff" not in environment(case={})
+    assert formula_environment(case={})["year"] == 2025
+    assert "cutoff" not in formula_environment(case={})
 
 
 @pytest.mark.parametrize(
@@ -235,11 +240,14 @@ def test_index_contract_refuses(mutation):
         index["metadata"]["proof"]["atoms"][0]["source"]["corpus_citation_path"] = (
             "wrong"
         )
-    assert evaluate("cutoff[year]", environment(p)) is s._UNRESOLVED_CONDITION_VALUE
+    assert (
+        evaluate("cutoff[year]", formula_environment(p))
+        is s._UNRESOLVED_CONDITION_VALUE
+    )
 
 
 def test_selected_index_lineage_retained():
-    table = environment()["cutoff"]
+    table = formula_environment()["cutoff"]
     assert {a[0] for a in table.selected_index_atoms} == {
         "versions[0].formula",
         "versions[0].effective_from",
@@ -258,7 +266,7 @@ def test_selected_index_lineage_retained():
 )
 def test_date_table_refuses_invalid_complete_period(period):
     assert (
-        evaluate("cutoff[year]", environment(case={"period": period}))
+        evaluate("cutoff[year]", formula_environment(case={"period": period}))
         is s._UNRESOLVED_CONDITION_VALUE
     )
 
@@ -274,6 +282,6 @@ def test_date_table_refuses_invalid_complete_period(period):
     ],
 )
 def test_supported_complete_period_representations(period):
-    assert evaluate("cutoff[year]", environment(case={"period": period})) == date(
-        2023, 1, 1
-    )
+    assert evaluate(
+        "cutoff[year]", formula_environment(case={"period": period})
+    ) == date(2023, 1, 1)

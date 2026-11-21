@@ -7,6 +7,7 @@ import pytest
 
 from axiom_encode.harness import same_case_execution as e
 from axiom_encode.harness import scoped_execution
+from tests.environment_assertions import hides_environment
 from tests.test_same_page_floor_binding import BODY, CITATION, CONTENT
 
 
@@ -51,6 +52,7 @@ def test_floor_route_never_overrides_scoped_ownership(tmp_path, monkeypatch, mod
     sources = {CITATION: BODY if mode != "unbound" else "unrelated source"}
     source_calls = []
 
+    @hides_environment
     def proof_sources(*args, **kwargs):
         source_calls.append(True)
         if mode == "source_changes" and len(source_calls) > 1:

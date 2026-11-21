@@ -47,6 +47,10 @@ from axiom_encode.ci_parity import (
     run_ci,
     verify_dependency_inputs,
 )
+from tests.environment_assertions import (
+    environment_variable,
+    hides_environment,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 US_CALLER_TEXT = (FIXTURES / "us-caller.yml").read_text(encoding="utf-8")
@@ -99,6 +103,7 @@ def embedded_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
     real = ci_parity._run_embedded_python
 
+    @hides_environment
     def spy(script: str, **kwargs: Any) -> tuple[int, str, str]:
         calls.append({"script": script, **kwargs})
         return real(script, **kwargs)
@@ -217,10 +222,13 @@ def _step_environment(tmp_path: Path) -> dict[str, str]:
         for name, value in os.environ.items()
         if not name.startswith(("GITHUB_", "RUNNER_"))
     }
-    environment["PATH"] = f"{_python_shim(tmp_path)}{os.pathsep}{os.environ['PATH']}"
+    environment["PATH"] = (
+        f"{_python_shim(tmp_path)}{os.pathsep}{environment_variable('PATH')}"
+    )
     return environment
 
 
+@hides_environment
 def _bash(run: str, *, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess:
     # GitHub writes the run block to a file and executes `shell: bash` as
     # `bash --noprofile --norc -eo pipefail {0}`.
@@ -484,12 +492,12 @@ def test_anon_key_falls_back_to_environment(
     assert not any("environment-key-9c1d" in line for line in caller.resolutions)
 
 
-@pytest.mark.parametrize("environment", [None, ""], ids=["unset", "empty"])
+@pytest.mark.parametrize("anon_key", [None, ""], ids=["unset", "empty"])
 def test_anon_key_without_override_or_environment_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, environment: str | None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, anon_key: str | None
 ) -> None:
-    if environment is not None:
-        monkeypatch.setenv(RELEASE_REGISTRY_ANON_KEY_ENV, environment)
+    if anon_key is not None:
+        monkeypatch.setenv(RELEASE_REGISTRY_ANON_KEY_ENV, anon_key)
     repo = _rules_repo(tmp_path)
 
     with pytest.raises(ValueError) as excinfo:

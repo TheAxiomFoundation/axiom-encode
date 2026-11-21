@@ -21,6 +21,7 @@ from axiom_encode import ci_parity
 from axiom_encode.ci_parity import GateResult, ShardSelection, execute_workflow_gates
 from axiom_encode.validation_waivers import load_validation_waivers
 from tests import test_ci_parity_workflow_gates as workflow_gates
+from tests.environment_assertions import Names, hides_environment
 from tests.test_ci_parity_runtime import _CiHarness
 from tests.test_ci_parity_workflow_gates import (
     CHANGED,
@@ -62,6 +63,7 @@ def test_resolution_failure_preserves_the_completed_shards_job(
 ) -> None:
     harness = _CiHarness(tmp_path, monkeypatch, workflow_sha=pin)
 
+    @hides_environment
     def fail(*_args, **_kwargs):
         raise ValueError(f"{phase} failed")
 
@@ -525,6 +527,7 @@ def test_companion_groups_execute_exactly_through_the_first_failure(
     )
     executed: list[int] = []
 
+    @hides_environment
     def batch(invocations, **_kwargs):
         results = []
         for call in invocations:
@@ -581,7 +584,7 @@ done
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
+        env=Names({**os.environ, "LC_ALL": "C", "TZ": "UTC"}),
         check=False,
     )
     result = ci_parity._gate_companion_tests(run, _spec("companion_tests", pin))
@@ -691,6 +694,7 @@ def test_retired_schema_unexpected_nonfirst_execution_failure_fails_closed(
 ) -> None:
     run = _module_run(tmp_path, {"us-ak": ((), ()), "us": ((), ())})
 
+    @hides_environment
     def execute(_script, *, cwd, argv, environment):
         if environment["IS_FIRST_SHARD"] == "true":
             Path(argv[0]).write_text("", encoding="utf-8")
@@ -761,7 +765,7 @@ def test_waiver_path_spelling_matches_git_tree_lookup(
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env=ci_parity._git_environment(),
+        env=Names(ci_parity._git_environment()),
     )
 
     result, recorder = workflow_gates._waiver_gate(run, monkeypatch)
@@ -847,8 +851,10 @@ def test_waiver_audit_runs_only_for_exactly_spelled_keys(
         patch.setattr(
             ci_parity.subprocess,
             "run",
-            lambda *args, **kwargs: SimpleNamespace(
-                returncode=0, stdout=b"", stderr=b""
+            hides_environment(
+                lambda *args, **kwargs: SimpleNamespace(
+                    returncode=0, stdout=b"", stderr=b""
+                )
             ),
         )
         patch.setattr(ci_parity, "_run_embedded_python", lambda *a, **kw: (0, "", ""))

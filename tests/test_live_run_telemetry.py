@@ -24,6 +24,7 @@ from axiom_encode.live_run_telemetry import (
     runner_identity,
     telemetry_mode,
 )
+from tests.environment_assertions import unset_variable
 
 _GITHUB_ENV_VARS = (
     "GITHUB_ACTIONS",
@@ -226,7 +227,7 @@ class TestTelemetryMode:
         # Without the explicit "on" override, in-process test detection wins
         # even when hermetic tests have scrubbed every env marker: the
         # pytest module itself is the signal.
-        monkeypatch.delenv("AXIOM_ENCODE_TELEMETRY")
+        unset_variable(monkeypatch, "AXIOM_ENCODE_TELEMETRY")
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         assert telemetry_mode() == "off"
 
