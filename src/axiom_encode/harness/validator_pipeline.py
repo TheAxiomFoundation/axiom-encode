@@ -62,9 +62,9 @@ from axiom_encode.bare_structure import bare_outline, mask_bare_labels
 from axiom_encode.checks import (
     IssueSubject,
     ValidationIssue,
-    declare_check,
     advisory_issue_records,
     advisory_review_context,
+    declare_check,
     map_issue_text,
     partition_by_enforcement,
 )

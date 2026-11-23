@@ -68,6 +68,62 @@ tries and runs. Two subjects need to differ wherever two problems differ:
   relative to the checkout root, so the same relative path in two
   jurisdictions gets two fingerprints.
 
+## Enforcement: blocking and advisory
+
+A check is `blocking` unless its declaration says `enforcement="advisory"`.
+
+```python
+declare_check(..., gate="ci", enforcement="advisory")
+```
+
+A finding of an advisory check is computed as before. It does not refuse the
+candidate by itself, and it does not start a feedback retry by itself. It is
+recorded, and the reviewer gets it as a warning to examine.
+
+Rules (each has a test in `tests/test_check_enforcement.py`):
+
+- Only the exact value `"advisory"` is advisory. `declare_check` refuses any
+  other value. A registry entry that has another value anyway blocks.
+- A check without the field is `blocking`. The committed registry and an issue
+  record name `enforcement` only when it is `advisory`.
+- Only a check of the `ci` gate can be advisory; `declare_check` refuses the
+  declaration for another gate, because that gate would still refuse.
+- Only a typed issue can be advisory. A plain string with the same message, and
+  a typed issue whose check id is not declared, block.
+- A stored record cannot make an issue advisory: the enforcement of a re-typed
+  issue comes from the registry of the running code.
+- One check is advisory:
+  `complete-source-unit:source-explicit-conditions/gates-collapsed` (issue
+  #2300). A test pins that list.
+
+`checks.partition_by_enforcement(issues)` gives `(blocking, advisory)`. The CI
+step of the validator pipeline calls it once, where it builds its result:
+`ValidationResult.issues`, `passed` and `error` hold blocking findings only, and
+`ValidationResult.advisory_issues` holds the advisory ones.
+
+Inside the analyzer nothing changes. A unit with a `gates-collapsed` finding
+still gets no worksheet certification, so every blocking finding that depends
+on that certification is reported as before.
+
+Where an advisory finding goes:
+
+| Surface | Field | Shape |
+| --- | --- | --- |
+| CI result | `ValidationResult.advisory_issues` | the typed issues, staging paths removed as for `issues` |
+| Eval result JSON (`metrics`) | `advisory_issues` | `validation-issue/v2` records with `"enforcement": "advisory"` and the whole message; the key is absent when there is none |
+| Reviewer prompt | `## Review Context` | a "Validator warnings to examine" block: check id, title, requirement, reason, and the validator message. Without a finding the prompt is unchanged |
+| `validate` session events | `validation_ci_end.advisory_issues` | the same records |
+| `run_log.v1` export | `gate.ci` | findings with the check id as `code`, severity `info`, message prefix `[advisory]`; `attrs.advisory_finding_count`, `attrs.advisory_checks` |
+| Trace span | `axiom_encode.advisory_issue_count` | count |
+| Replay benchmark | report `advisory`, snapshot `advisory_findings` | messages; they do not decide clean or refused |
+
+Not covered: the per-try `issue_document` of the local run database and of
+Supabase, the outcome `validation_failures`, the failure bundle `issues.json`
+and the text that `axiom-encode validate` prints. `cli.py` builds those from
+the blocking issue lists. An advisory finding is not in them.
+
+An advisory finding is not sent back to the encoder in retry feedback.
+
 ## Where typed issues go
 
 | Surface | Field | Shape |
