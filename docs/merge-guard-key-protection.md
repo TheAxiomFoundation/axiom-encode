@@ -41,7 +41,9 @@ App, environment, secret or ruleset, and satisfies no activation condition.
   `rulespec-us` from signed v6 bytes: any write account can move the reader
   pin forward again. So the recommended response to a guard problem is to
   repair forward, or to keep the ruleset `Active` with the writer off,
-  which blocks every merge (§4.4, R13).
+  which stops new v6 signing; allowlisted and eligible earlier-lane (v5)
+  changes still pass, and only a guard that cannot pass blocks every merge
+  (§4.4, R13).
   (3) With the measured CI times, landings are serial at about 3 to 4 a day
   (§4.4, R11). (4) A comment from Max's account is not sufficient evidence of
   this decision; the evidence is an organization owner creating the
@@ -815,8 +817,9 @@ exist today (§5 "Now") and for the second fallback:
   `V6_WRITER_ENABLED` back to `False` on encoder `main`; then no run of
   `targeted-signed-reencode.yml` queued, waiting for the
   `production-signing` approval or in progress, and the reader pin of
-  `rulespec-us` reverted (or, as the weaker form, no open pull request
-  with a signed v6 manifest); only then the ruleset or the queue.
+  `rulespec-us` reverted (required whenever a signed v6 manifest is
+  outstanding or unaccounted for, on an open or closed pull request or on
+  any branch); only then the ruleset or the queue.
   **A signing run that was dispatched before the writer-off commit still
   has the writer on.** It executes its own commit, and a re-run of it
   executes that commit too, for 30 days [docs D9; code:
@@ -1123,7 +1126,7 @@ the candidate SHA (checklist step 5).
     with its `updated_at`, paginated, with `listed` equal to
     `total_count`; a read that is not whole is not a record).
     An organization owner lists all organization secrets, with `admin:org`:
-    `gh api orgs/TheAxiomFoundation/actions/secrets --jq '[.secrets[] | {name, visibility}]'`,
+    `gh api --paginate orgs/TheAxiomFoundation/actions/secrets --jq '.total_count as $n | [.secrets[] | {name, visibility, updated_at}] | {listed: length, total_count: $n, secrets: .}'`,
     and the installed Apps:
     with the two reads of the design's checklist step 11: each App with
     its permissions, its `updated_at` and its effective list of target
@@ -1215,8 +1218,10 @@ a ruleset off for a time, and keeps a ruleset history of 180 days
 > move the reader pin forward again in the pull request that lands them
 > [inferred; R13]. Do not weaken the ruleset for a guard problem. Repair
 > forward (a pin move to a fixed guard while the ruleset is `Active`), or
-> turn the writer off and keep the ruleset `Active`: it then blocks every
-> merge, which is the fail-closed state. If the ruleset is weakened in
+> turn the writer off and keep the ruleset `Active`: that stops new v6
+> signing, while allowlisted and eligible v5 changes still pass [code:
+> `SUCCESS_VERDICTS`]; if the guard cannot pass, it blocks every merge,
+> which is the fail-closed state. If the ruleset is weakened in
 > spite of that, the three standing conditions of R13 hold for as long as
 > it is weak.
 
@@ -1265,27 +1270,42 @@ the guard reads neither switch nor `GUARD_WORKFLOW`
    organization owner, read, change one value, write, compare:
 
    ```sh
+   set -euo pipefail
+   NEW_SHA="<new 40-hex commit SHA>"
+   BODY='{name, target, enforcement, bypass_actors, conditions, rules}'
    gh api orgs/TheAxiomFoundation/rulesets/<id> > before.json
-   jq --arg sha "<new 40-hex commit SHA>" '{name, target, enforcement, bypass_actors, conditions, rules} | .rules[0].parameters.workflows[0].sha = $sha' before.json > move.json
-   jq -e '(.rules | length) == 1 and (.rules[0].parameters.workflows | length) == 1 and .rules[0].type == "workflows"' before.json
+   jq -e '(.bypass_actors | type) == "array" and (.rules | length) == 1 and .rules[0].type == "workflows" and (.rules[0].parameters.workflows | length) == 1 and (.enforcement | type) == "string"' before.json > /dev/null
+   jq --arg sha "$NEW_SHA" "$BODY | .rules[0].parameters.workflows[0].sha = \$sha" before.json > move.json.tmp
+   mv move.json.tmp move.json
    gh api -X PUT orgs/TheAxiomFoundation/rulesets/<id> --input move.json > after.json
-   jq -S '{name, target, enforcement, bypass_actors, conditions, rules} | .rules[0].parameters.workflows[0].sha = "PIN"' before.json > before.cmp
-   jq -S '{name, target, enforcement, bypass_actors, conditions, rules} | .rules[0].parameters.workflows[0].sha = "PIN"' after.json > after.cmp
-   diff before.cmp after.cmp && jq -r '[.enforcement, .rules[0].parameters.workflows[0].sha] | @tsv' after.json
+   jq -S "$BODY | .rules[0].parameters.workflows[0].sha = \"PIN\"" before.json > before.cmp
+   jq -S "$BODY | .rules[0].parameters.workflows[0].sha = \"PIN\"" after.json > after.cmp
+   diff before.cmp after.cmp
+   jq -e --arg sha "$NEW_SHA" '.rules[0].parameters.workflows[0].sha == $sha' after.json > /dev/null
+   jq -r '[.enforcement, .rules[0].parameters.workflows[0].sha] | @tsv' after.json
    ```
 
-   The third command must print `true` (one rule, one workflow entry; if
-   not, stop and edit by hand). `diff` must print nothing: the enforcement,
-   the targeting (`conditions`, `target`), the bypass list and the rest of
-   the rule are what they were. The last line must show the enforcement
-   that the ruleset had before the move, **`active` from checklist step 11
-   on**, and the new SHA. If it shows `evaluate` or `disabled` after
-   step 11, the gate is off: switch it back to `Active` at once ("Switch to
+   Run the lines as one script: `set -euo pipefail` stops it at the first
+   line that fails, so **nothing is written and nothing is sent unless the
+   check before it passed**. The check (the first `jq -e`) refuses a stored
+   ruleset that is not exactly one `workflows` rule with one workflow
+   entry: with a `merge_queue` rule first, the filter would otherwise put
+   the SHA into the wrong rule. It also refuses a `bypass_actors` that is
+   not a list: GitHub returns `null` there to a caller who cannot read the
+   bypass list (a non-owner), and `null` means "could not read", not
+   "empty". If the script stops, edit the ruleset by hand in the web form.
+   `diff` must print nothing: the enforcement, the targeting
+   (`conditions`, `target`), the bypass list and the rest of the rule are
+   what they were. The last line must show the enforcement that the
+   ruleset had before the move, **`active` from checklist step 11 on**,
+   and the new SHA. If it shows `evaluate` or `disabled` after step 11,
+   the gate is off: switch it back to `Active` at once ("Switch to
    `Active`" above) and treat the interval as a weakening of the ruleset
    (R13). Then read the active rule as a non-owner sees it: the first two
    rows of the health check (design §8) must still list `workflows` and
-   show the new SHA. The jq filters are exercised on a stored-ruleset
-   fixture by a test [code: `tests/test_merge_guard_runner.py`]; that the
+   show the new SHA. A test runs this script, as written here, on
+   stored-ruleset fixtures with a stand-in for `gh`
+   [code: `tests/test_merge_guard_recommendation_review.py`]; that the
    API accepts the body that the filter builds from its own `GET` response
    is [experiment X19].
 7. Open pull requests keep the result of their last run. A new run starts on

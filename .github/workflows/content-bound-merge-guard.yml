@@ -119,7 +119,7 @@ jobs:
 
       - name: Build the bundle and check its digest
         env:
-          BUNDLE_SHA256: d968e1e886eb9f73ee3d2772c51ca9d2b08ac962cb068d66ccb17f5b76b34f62
+          BUNDLE_SHA256: 94ff0a4055efab3970517d62b77b89909b75fd5cb9666462dda785d0edcdbc28
         run: |
           set -euo pipefail
           source_root="$GITHUB_WORKSPACE/guard-source"

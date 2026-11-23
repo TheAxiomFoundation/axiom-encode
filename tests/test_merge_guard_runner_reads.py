@@ -68,7 +68,9 @@ ACCEPTED_TOKENS = {
     "4-kb": FOUR_KB_TOKEN,
     "upper-bound": "u" * runner.MAX_TOKEN_CHARS,
     "lower-bound": "l" * runner.MIN_TOKEN_CHARS,
-    "every-allowed-character": "AZaz09-._~+/=" * 4,
+    "every-allowed-character": "AZaz09-._~+/" * 4,
+    "trailing-padding": "AZaz09-._~+/" * 4 + "==",
+    "one-trailing-equals": "g" * 39 + "=",
     "jwt-shaped": "eyJhbGciOiJ" + "A" * 300 + "." + "B" * 400 + "." + "C_-" * 100,
 }
 REFUSED_TOKENS = {
@@ -98,6 +100,11 @@ REFUSED_TOKENS = {
     "zero-width-joiner": "ghs_" + "x" * 20 + "\u200d" + "x" * 20,
     "line-separator": LEGACY_TOKEN + "\u2028",
     "bearer-prefix": "Bearer " + LEGACY_TOKEN,
+    "inner-equals": "ghs_" + "x" * 18 + "=" + "x" * 18,
+    "leading-equals": "=" + LEGACY_TOKEN,
+    "padding-then-more": LEGACY_TOKEN + "==x",
+    "only-equals": "=" * 40,
+    "key-value": "token=" + LEGACY_TOKEN,
     "comma": LEGACY_TOKEN + "," + LEGACY_TOKEN,
     "double-quote": '"' + LEGACY_TOKEN + '"',
     "colon": "user:" + LEGACY_TOKEN,
@@ -228,16 +235,25 @@ def test_command_refuses_a_hostile_token_before_any_request(capsys, label, mode)
 
 
 def test_the_token_rule_has_no_format_knowledge_and_stays_header_safe():
-    pattern = runner._TOKEN.pattern
-    # No prefix, no dot count, no fixed length: only a character class and
-    # transport bounds.
-    assert pattern == "[A-Za-z0-9._~+/=-]{20,16384}"
+    # No prefix, no dot count, no fixed length: the b64token grammar of
+    # RFC 6750 (``=`` only as padding at the end) and transport bounds.
+    assert runner._TOKEN.pattern == "[A-Za-z0-9._~+/-]+=*"
+    assert (runner.MIN_TOKEN_CHARS, runner.MAX_TOKEN_CHARS) == (20, 16384)
     assert runner.MAX_TOKEN_CHARS >= 8 * 520
     for code in [*range(0, 0x21), 0x7F, *range(0x80, 0x100), 0x2028, 0xFF11]:
         hostile = "x" * 30 + chr(code) + "x" * 30
-        assert runner._TOKEN.fullmatch(hostile) is None, hex(code)
-    for forbidden in " \"\\,;:%()<>@[]{}?&#!$^*|`'":
-        assert runner._TOKEN.fullmatch("x" * 30 + forbidden + "x" * 30) is None
+        assert not runner._valid_token(hostile), hex(code)
+    for forbidden in " \"\\,;:%()<>@[]{}?&#!$^*|`'=":
+        assert not runner._valid_token("x" * 30 + forbidden + "x" * 30), forbidden
+    # The shapes GitHub issues: the legacy token and the stateless one.
+    for real in (
+        LEGACY_TOKEN,
+        CURRENT_TOKEN,
+        "ghp_" + "A1b2" * 9,
+        "github_pat_" + "x" * 82,
+    ):
+        assert runner._valid_token(real)
+        assert "=" not in real
 
 
 # --- 2. an incomplete read is never a completed evaluation -------------------
@@ -917,3 +933,164 @@ def test_a_pull_request_that_moves_across_a_page_boundary_can_be_missed():
     assert "It does not mean that the work list held every open pull request" in (
         " ".join(runner.__doc__.split())
     )
+
+
+# --- a response that lacks a required field is an incomplete read --------------
+#
+# Independent review of a3c621254: ``{}`` for the comparison, the second read
+# of the pull request, the CI workflow run or the encoder comparison gave a
+# plain ``fail`` and a completed run. The rule now: a key the evaluator needs
+# that is absent is an incomplete read; a key that is present with another
+# value is a decision.
+
+
+def answers_of(make):
+    world = make()
+    answers = []
+    fetch = world.fetch
+
+    def recording(path):
+        answers.append((path, fetch(path)))
+        return answers[-1][1]
+
+    guard.evaluate(NAME, 42, fetch=recording)
+    return answers
+
+
+def run_with(make, index, replacement):
+    world = make()
+    count = {"reads": 0}
+    fetch = world.fetch
+
+    def changed(path):
+        position = count["reads"]
+        count["reads"] += 1
+        value = fetch(path)
+        return replacement(value) if position == index else value
+
+    report, code = runner.run(NAME, [42], runner.DRY_RUN, fetch=changed)
+    assert count["reads"] > index
+    return report, code
+
+
+V6_ANSWERS = answers_of(build)
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    ["/compare/", "/pulls/42", "/actions/runs/888", "axiom-encode/compare/"],
+)
+def test_the_review_probe_an_empty_object_is_not_a_completed_evaluation(fragment):
+    # The four reads the review named; for the pull request the SECOND read.
+    indexes = [i for i, (path, _v) in enumerate(V6_ANSWERS) if fragment in path]
+    indexes = [i for i in indexes if isinstance(V6_ANSWERS[i][1], dict)]
+    assert indexes
+    index = indexes[-1] if fragment == "/pulls/42" else indexes[0]
+    report, code = run_with(build, index, lambda _value: {})
+    assert_incomplete(report, code)
+
+
+OBJECT_READS = [
+    (label, index)
+    for label, make in EVALUATED_WORLDS.items()
+    for index, (_path, value) in enumerate(answers_of(make))
+    if isinstance(value, dict)
+]
+
+
+@pytest.mark.parametrize(("label", "index"), OBJECT_READS)
+def test_an_empty_object_for_any_read_is_an_incomplete_read(label, index):
+    report, code = run_with(EVALUATED_WORLDS[label], index, lambda _value: {})
+    assert_incomplete(report, code)
+
+
+KEY_GRID = [
+    (label, index, key)
+    for label, make in EVALUATED_WORLDS.items()
+    for index, (_path, value) in enumerate(answers_of(make))
+    if isinstance(value, dict)
+    for key in sorted(value)
+]
+
+
+def test_the_key_grid_covers_every_field_of_every_object_read():
+    assert len(KEY_GRID) >= 190
+    assert {label for label, _i, _k in KEY_GRID} == set(EVALUATED_WORLDS)
+
+
+@pytest.mark.parametrize(("label", "index", "key"), KEY_GRID)
+def test_a_missing_field_is_unused_or_an_incomplete_read(label, index, key):
+    """One top-level key is absent from one response.
+
+    Either the evaluator does not need the key (the verdict is unchanged),
+    or the run is an error with the incomplete-read mark. It is never a
+    plain ``fail`` that looks like a decision, and never a new success.
+    """
+    make = EVALUATED_WORLDS[label]
+    wanted = make().evaluate()
+
+    def without(value):
+        return {name: item for name, item in value.items() if name != key}
+
+    report, code = run_with(make, index, without)
+    (entry,) = report["results"]
+    verdict = entry["verdict"]
+    if (verdict["verdict"], verdict["reason"]) == (wanted.verdict, wanted.reason):
+        assert guard.EVIDENCE_INCOMPLETE_READ not in verdict["evidence"]
+        return
+    assert_incomplete(report, code)
+
+
+NESTED = [
+    (lambda api: api[PR]["head"].pop("ref"), guard.R_PR_IDENTITY),
+    (lambda api: api[PR]["head"].pop("repo"), guard.R_PR_IDENTITY),
+    (lambda api: api[PR]["base"].pop("ref"), guard.R_PR_IDENTITY),
+    (lambda api: api[PR]["base"].pop("repo"), guard.R_PR_IDENTITY),
+    (lambda api: api[PR]["base"].pop("sha"), guard.R_PR_IDENTITY),
+    (lambda api: api[PR]["user"].pop("id"), guard.R_PR_IDENTITY),
+    (
+        lambda api: api[f"{ROOT}/compare/{api[PR]['base']['sha']}...{H}"][
+            "merge_base_commit"
+        ].pop("sha"),
+        guard.R_BASE_NOT_CURRENT,
+    ),
+    (
+        lambda api: api[ROOT + "/git/ref/heads/main"].pop("object"),
+        guard.R_BASE_NOT_CURRENT,
+    ),
+    (lambda api: api[CI_LISTING]["check_runs"][0].pop("conclusion"), guard.R_CI),
+    (lambda api: api[CI_LISTING]["check_runs"][0].pop("app"), guard.R_CI),
+    (lambda api: api[CI_LISTING]["check_runs"][0]["app"].pop("id"), guard.R_CI),
+    (lambda api: api[CI_LISTING]["check_runs"][0].pop("details_url"), guard.R_CI),
+    (
+        lambda api: api[f"{ROOT}/actions/runs/888"]["repository"].pop("full_name"),
+        guard.R_CI,
+    ),
+    (lambda api: api[f"{ROOT}/actions/runs/888"].pop("pull_requests"), guard.R_CI),
+]
+CI_LISTING = (
+    f"{ROOT}/commits/{H}/check-runs?check_name=validate%20%2F%20validate"
+    "&filter=latest&per_page=100"
+)
+
+
+@pytest.mark.parametrize(("change", "reason"), NESTED)
+def test_a_missing_nested_field_is_an_incomplete_read(change, reason):
+    world = build()
+    change(world.api)
+    report, code = sweep(NAME, [42], runner.DRY_RUN, fetch=world.fetch)
+    entry = assert_incomplete(report, code)
+    assert entry["verdict"]["reason"] == reason
+
+
+def test_a_commit_entry_without_its_author_field_is_an_incomplete_read():
+    world = build()
+    del world.api[PR + "/commits" + PAGE][0]["author"]
+    report, code = sweep(NAME, [42], runner.DRY_RUN, fetch=world.fetch)
+    assert_incomplete(report, code)
+    # Present and null stays the decision it was: GitHub cannot attribute it.
+    world = build()
+    world.api[PR + "/commits" + PAGE][0]["author"] = None
+    report, code = sweep(NAME, [42], runner.DRY_RUN, fetch=world.fetch)
+    assert code == 0 and report["complete"] is True
+    assert report["results"][0]["verdict"]["reason"] == guard.R_UNATTRIBUTED

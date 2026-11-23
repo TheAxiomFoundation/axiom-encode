@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -24,9 +25,6 @@ EXPERIMENT = "docs/merge-guard-ruleset-experiment.md"
 DESIGN = "docs/content-bound-merge-guard.md"
 NEW_SHA = "b" * 40
 OLD_SHA = "a" * 40
-BODY_FIELDS = "{name, target, enforcement, bypass_actors, conditions, rules}"
-MOVE_FILTER = BODY_FIELDS + " | .rules[0].parameters.workflows[0].sha = $sha"
-COMPARE_FILTER = BODY_FIELDS + ' | .rules[0].parameters.workflows[0].sha = "PIN"'
 
 
 def text(name: str) -> str:
@@ -89,36 +87,161 @@ def test_the_review_probe_the_creation_body_with_a_new_sha_says_evaluate():
     assert "**`active` from checklist step 11 on**" in step
 
 
-def test_the_pin_procedure_holds_the_filters_this_file_exercises():
-    step = pin_step()
-    assert step.count("'" + MOVE_FILTER + "' before.json > move.json") == 1
-    assert step.count("'" + COMPARE_FILTER + "' before.json > before.cmp") == 1
-    assert step.count("'" + COMPARE_FILTER + "' after.json > after.cmp") == 1
-    assert "gh api orgs/TheAxiomFoundation/rulesets/<id> > before.json" in step
-    assert (
-        "gh api -X PUT orgs/TheAxiomFoundation/rulesets/<id> --input move.json" in step
+def pin_script() -> str:
+    """The shell lines of the pin procedure, exactly as the document has them."""
+    (block,) = re.findall(r"```sh\n(.*?)```", pin_step(), re.S)
+    return "\n".join(
+        line[3:] if line.startswith("   ") else line for line in block.splitlines()
     )
-    assert "diff before.cmp after.cmp" in step
-    # One PUT, of the body built from the stored ruleset, and no POST.
-    assert step.count("-X PUT") == 1 and "-X POST" not in step
-    assert "ruleset.json" not in step
 
 
-def model_move(stored: dict, sha: str) -> dict:
-    """The move filter, written out: six fields of the stored ruleset, one SHA."""
-    body = {
-        key: copy.deepcopy(stored[key])
-        for key in (
-            "name",
-            "target",
-            "enforcement",
-            "bypass_actors",
-            "conditions",
-            "rules",
-        )
+GH_STAND_IN = r"""#!/usr/bin/env bash
+# A stand-in for `gh api`: GET prints the stored ruleset, PUT records the body
+# it is given and answers as GitHub would (the stored ruleset with that body).
+set -euo pipefail
+if [ "$1" != "api" ]; then exit 64; fi
+shift
+if [ "$1" = "-X" ]; then
+  [ "$2" = "PUT" ] || exit 65
+  [ "$3" = "orgs/TheAxiomFoundation/rulesets/4242" ] || exit 66
+  [ "$4" = "--input" ] || exit 67
+  cp "$5" "$LAB/put.json"
+  jq -s '.[0] * .[1] * (if env.ANSWER_ENFORCEMENT != "" then {enforcement: env.ANSWER_ENFORCEMENT} else {} end)' "$LAB/stored.json" "$5"
+else
+  [ "$1" = "orgs/TheAxiomFoundation/rulesets/4242" ] || exit 68
+  cat "$LAB/stored.json"
+fi
+"""
+
+needs_shell = pytest.mark.skipif(
+    shutil.which("jq") is None or shutil.which("bash") is None,
+    reason="runs the documented shell lines; needs bash and jq",
+)
+
+
+def run_pin_script(tmp_path, stored: dict, answer_enforcement: str = ""):
+    (tmp_path / "bin").mkdir()
+    gh = tmp_path / "bin" / "gh"
+    gh.write_text(GH_STAND_IN, encoding="utf-8")
+    gh.chmod(0o755)
+    (tmp_path / "stored.json").write_text(json.dumps(stored), encoding="utf-8")
+    script = (
+        pin_script().replace("<id>", "4242").replace("<new 40-hex commit SHA>", NEW_SHA)
+    )
+    work = tmp_path / "work"
+    work.mkdir()
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=work,
+        env={
+            "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}",
+            "LAB": str(tmp_path),
+            "ANSWER_ENFORCEMENT": answer_enforcement,
+        },
+        capture_output=True,
+        text=True,
+    )
+    return result, work, tmp_path / "put.json"
+
+
+def test_the_pin_procedure_is_one_script_that_stops_at_the_first_failure():
+    script = pin_script()
+    lines = script.splitlines()
+    assert lines[0] == "set -euo pipefail"
+    assert sum("-X PUT" in line for line in lines) == 1 and "-X POST" not in script
+    put = next(i for i, line in enumerate(lines) if "-X PUT" in line)
+    check = next(i for i, line in enumerate(lines) if line.startswith("jq -e"))
+    # The check of the stored ruleset comes before anything is built or sent.
+    assert check < put and "move.json" not in "\n".join(lines[: check + 1])
+    assert '(.bypass_actors | type) == "array"' in lines[check]
+    assert "(.rules | length) == 1" in lines[check]
+    assert '.rules[0].type == "workflows"' in lines[check]
+    assert "(.rules[0].parameters.workflows | length) == 1" in lines[check]
+    assert "ruleset.json" not in script and ";" not in script and "||" not in script
+    assert (
+        "BODY='{name, target, enforcement, bypass_actors, conditions, rules}'" in script
+    )
+
+
+@needs_shell
+@pytest.mark.parametrize("enforcement", ["active", "evaluate", "disabled"])
+def test_the_documented_script_moves_the_pin_and_keeps_everything_else(
+    tmp_path, enforcement
+):
+    stored = stored_ruleset(enforcement)
+    result, _work, put = run_pin_script(tmp_path, stored)
+    assert result.returncode == 0, result.stderr
+    sent = json.loads(put.read_text())
+    for key in ("name", "target", "enforcement", "bypass_actors", "conditions"):
+        assert sent[key] == stored[key], key
+    assert sent["enforcement"] == enforcement
+    assert set(sent) == set(creation_body())
+    (rule,) = sent["rules"]
+    assert rule["parameters"]["workflows"] == [
+        {
+            "repository_id": 1125775893,
+            "path": ".github/workflows/content-bound-merge-guard.yml",
+            "sha": NEW_SHA,
+        }
+    ]
+    # The last line the owner reads: the enforcement and the new pin.
+    assert result.stdout.strip().splitlines()[-1] == f"{enforcement}\t{NEW_SHA}"
+
+
+MERGE_QUEUE_RULE = {"type": "merge_queue", "parameters": {"merge_method": "SQUASH"}}
+
+
+def refused_rulesets():
+    plain = stored_ruleset()
+    workflows_rule = plain["rules"][0]
+    two_entries = copy.deepcopy(workflows_rule)
+    two_entries["parameters"]["workflows"].append(
+        two_entries["parameters"]["workflows"][0] | {"path": "x.yml"}
+    )
+    return {
+        "a merge_queue rule first (the review's case)": plain
+        | {"rules": [MERGE_QUEUE_RULE, workflows_rule]},
+        "a merge_queue rule second": plain
+        | {"rules": [workflows_rule, MERGE_QUEUE_RULE]},
+        "only a merge_queue rule": plain | {"rules": [MERGE_QUEUE_RULE]},
+        "no rule": plain | {"rules": []},
+        "two workflow entries": plain | {"rules": [two_entries]},
+        "no workflow entry": plain
+        | {"rules": [{"type": "workflows", "parameters": {"workflows": []}}]},
+        "bypass_actors is null (a read without the right)": plain
+        | {"bypass_actors": None},
+        "bypass_actors is absent": {
+            key: value for key, value in plain.items() if key != "bypass_actors"
+        },
+        "enforcement is absent": {
+            key: value for key, value in plain.items() if key != "enforcement"
+        },
     }
-    body["rules"][0]["parameters"]["workflows"][0]["sha"] = sha
-    return body
+
+
+@needs_shell
+@pytest.mark.parametrize("label", sorted(refused_rulesets()))
+def test_the_documented_script_sends_nothing_for_a_ruleset_it_cannot_move(
+    tmp_path, label
+):
+    result, work, put = run_pin_script(tmp_path, refused_rulesets()[label])
+    assert result.returncode != 0
+    assert not put.exists(), "no PUT was sent"
+    assert not (work / "move.json").exists(), "no body was written"
+    assert not (work / "move.json.tmp").exists()
+
+
+@needs_shell
+@pytest.mark.parametrize("answer", ["evaluate", "disabled"])
+def test_the_documented_script_fails_when_the_ruleset_comes_back_weaker(
+    tmp_path, answer
+):
+    result, _work, put = run_pin_script(tmp_path, stored_ruleset("active"), answer)
+    assert put.exists()
+    assert result.returncode != 0
+    # ``diff`` printed the difference, and the last line was never reached.
+    assert "enforcement" in result.stdout
+    assert f"{answer}\t{NEW_SHA}" not in result.stdout
 
 
 def jq(filter_text: str, value: dict, *arguments: str) -> dict:
@@ -130,42 +253,6 @@ def jq(filter_text: str, value: dict, *arguments: str) -> dict:
         check=True,
     )
     return json.loads(result.stdout)
-
-
-@pytest.mark.parametrize("enforcement", ["active", "evaluate", "disabled"])
-@pytest.mark.parametrize(
-    "bypass", [[], [{"actor_id": 1, "actor_type": "Team", "bypass_mode": "always"}]]
-)
-def test_the_documented_move_keeps_enforcement_targeting_and_bypass(
-    enforcement, bypass
-):
-    stored = stored_ruleset(enforcement) | {"bypass_actors": bypass}
-    expected = model_move(stored, NEW_SHA)
-    assert expected["enforcement"] == enforcement
-    assert expected["bypass_actors"] == bypass
-    assert expected["conditions"] == stored["conditions"]
-    assert expected["target"] == stored["target"]
-    assert expected["rules"][0]["parameters"]["workflows"][0] == {
-        "repository_id": 1125775893,
-        "path": ".github/workflows/content-bound-merge-guard.yml",
-        "sha": NEW_SHA,
-    }
-    assert set(expected) == set(creation_body())
-    if shutil.which("jq") is None:  # pragma: no cover - the model stands in
-        return
-    # Where jq exists, the documented filter itself is run on the fixture.
-    moved = jq(MOVE_FILTER, stored, "--arg", "sha", NEW_SHA)
-    assert moved == expected
-    # The comparison of the procedure: nothing but the SHA differs.
-    after = stored | moved | {"updated_at": "2026-11-22T00:00:00Z"}
-    assert jq(COMPARE_FILTER, stored) == jq(COMPARE_FILTER, after)
-    # And it does notice a ruleset that came back weaker.
-    for weaker in (
-        {"enforcement": "evaluate" if enforcement != "evaluate" else "disabled"},
-        {"bypass_actors": [*bypass, {"actor_id": 9, "actor_type": "Integration"}]},
-        {"conditions": stored["conditions"] | {"ref_name": {"include": []}}},
-    ):
-        assert jq(COMPARE_FILTER, stored) != jq(COMPARE_FILTER, after | weaker)
 
 
 def test_the_lab_pin_move_uses_the_same_procedure():
@@ -181,6 +268,7 @@ def test_the_lab_pin_move_uses_the_same_procedure():
     assert "Do not send the creation body of §1.3 again" in step
     assert "the enforcement must still be `active`" in step
     assert "the conditions and the bypass list must be unchanged" in step
+    assert "**Any other enforcement after the move fails this step**" in step
 
 
 # --- 2. the rollback shortcut -------------------------------------------------
@@ -250,6 +338,53 @@ REQUIRED = {
         "`min_entries_to_merge: 1` and `max_entries_to_build: 1`",
     ],
 }
+
+
+# Pins added after the independent review of ab311944e, which found nine doc
+# mutants that no pin caught, and for the corrections of that round.
+REQUIRED[DESIGN] += [
+    '`grouping_strategy: "ALLGREEN"`, `max_entries_to_merge: 1`, '
+    "`min_entries_to_merge: 1`, `max_entries_to_build: 1`.",
+    "{grouping_strategy, max_entries_to_merge, min_entries_to_merge, "
+    "max_entries_to_build}",
+    "any other value, or a missing field, stops the activation",
+    "Max states it himself, outside any agent session, to the second maintainer",
+    "the deployment branch policy lists `main` only",
+    "Leaving the revert out, which (iii) allows only with a complete inventory, "
+    "leaves that gap open",
+    "[.secrets[] | {name, visibility, updated_at}]",
+    "**A residual that only the owner's experiment can settle** [inferred, untested]",
+]
+REQUIRED[KEY_PROTECTION] += [
+    "on an open pull request, on a closed one, or on any branch",
+    'an inventory with one unknown entry is "unknown"',
+    'must print `["main"]`',
+    "**nothing is written and nothing is sent unless the check before it passed**",
+    '`null` means "could not read", not "empty"',
+    "which stops new v6 signing; allowlisted and eligible earlier-lane (v5) "
+    "changes still pass, and only a guard that cannot pass blocks every merge "
+    "(§4.4, R13).",
+    "that stops new v6 signing, while allowlisted and eligible v5 changes still "
+    "pass [code: `SUCCESS_VERDICTS`]; if the guard cannot pass, it blocks every "
+    "merge, which is the fail-closed state.",
+    "(required whenever a signed v6 manifest is outstanding or unaccounted for, "
+    "on an open or closed pull request or on any branch)",
+    "[.secrets[] | {name, visibility, updated_at}]",
+]
+REQUIRED[EXPERIMENT] += [
+    "the imitation's `merge_group` job completed with `success`",
+    "the ordinary check `lab-slow` completed with `success`",
+    "failed for the dismissed approval",
+    "**Any other enforcement after the move fails this step**",
+    "- **A re-run after the guard job ended (record only; it has no pass rule "
+    "and no class of its own).**",
+]
+STALE[DESIGN] += ['The form "no open pull request holds a signed v6 manifest"']
+STALE[KEY_PROTECTION] += [
+    "(or, as the weaker form, no open pull request",
+    "which blocks every merge (§4.4, R13)",
+    "it then blocks every merge",
+]
 
 
 def problems(name: str, document: str) -> list[str]:

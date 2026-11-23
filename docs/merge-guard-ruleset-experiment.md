@@ -779,6 +779,16 @@ the window that remains.
   "evaluation starts at" is later than the line "lab-slow completed on the
   group commit at"; the `lab-guard` job ends after the `lab-slow` job; and
   the pull request merges only after the `lab-guard` job has ended.
+- **A re-run after the guard job ended (record only; it has no pass
+  rule and no class of its own).** In one more run of case (c), after the
+  `lab-guard` job of the group has ended green and before the group
+  merges, start a re-run of the group's `lab-slow` run, if GitHub offers
+  one. Record: whether a re-run of a check on a group commit is possible;
+  whether the queue then waits for the new attempt; whether the earlier
+  `lab-guard` result still counts; and whether a dismissal in that
+  interval reaches the merge. The design (§6, "A residual that only the
+  owner's experiment can settle") treats such a re-run as a reason to
+  remove the entry until this record exists.
 - **Record.** For each case: the merge-group run's conclusion, whether the
   entry left the queue, whether the pull request merged. For (c) also: the
   JSON lines of the wait step; the `completed_at` of both jobs
@@ -863,7 +873,11 @@ Class: informational; it can change the pin procedure.
   result, compare. Do not send the creation body of §1.3 again: it sets
   `"enforcement": "evaluate"` and would switch the lab's `Active` ruleset
   off. Read the ruleset back: the enforcement must still be `active`, and
-  the conditions and the bypass list must be unchanged. Do not push to
+  the conditions and the bypass list must be unchanged. **Any other
+  enforcement after the move fails this step**, whatever the three
+  observations below show: the pin procedure then does not preserve
+  enforcement, and it must be corrected before any pin move in
+  production. Do not push to
   PR-G. Then: (i) read the merge box of PR-G; (ii) add PR-G to the queue
   and read the marker that its `merge_group` run prints; (iii) push to
   another pull request and read its marker.

@@ -705,7 +705,8 @@ token, about 520 for a stateless one,
 [changelog of 2026-10-02](https://github.blog/changelog/2026-10-02-stateless-github-app-installation-tokens-rolled-out/),
 cited by the review of head `36bab7533`; not read by the author). The CLI
 tests two things only: every character is one of an HTTP `Bearer` credential
-(ASCII letters, digits and `-._~+/=`, RFC 6750 `b64token`), so the value
+(RFC 6750 `b64token`: ASCII letters, digits and `-._~+/`, then `=` only as
+padding at the end), so the value
 cannot split the `Authorization` header, and the length is 20 to 16,384
 characters, a transport bound and not a format rule. An earlier revision
 capped the length at 512 and refused a current token before any request.
@@ -739,7 +740,11 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
   command exits 1. That covers a failed request, a tree GitHub truncates, a
   review, commit or file listing at the evaluator's page bound, a blob that
   cannot be read whole, a required-check listing that does not add up, and a
-  response that is not the object or list its read asked for. The evaluator
+  response that is not the object or list its read asked for, and a
+  response that lacks a field the evaluator needs (an empty object for a
+  comparison, a workflow run or the pull request is never a decision: an
+  absent field is an incomplete read, a field with another value than the
+  guard requires is a decision). The evaluator
   marks such a verdict with `incomplete_read: true` in its evidence
   (`INCOMPLETE_READ_REASONS` for the reasons that always mean it, the mark
   alone for a mixed reason such as `ci_not_green`). The runner counts an
@@ -1438,7 +1443,8 @@ queue or ruleset uses it; only the enforcing runner calls it, for a
   without a numeric id, and a run without a numeric `run_attempt`, are
   refused at the first read, because they could not be compared later.
   What remains open after this read is the time from it to the merge:
-  two reads and the end of the job.
+  the end of the job and the queue's own delay. No read follows the second
+  read of the check.
 - **What fails with no evaluation.** The wait ends without such a check
   (timeout, also when no check ever appears); a poll cannot be read whole or
   raises; a listed check is not the group's own run; or the check or its run
@@ -1461,6 +1467,19 @@ queue or ruleset uses it; only the enforcing runner calls it, for a
   delay: seconds, if the queue merges promptly [inferred]. It was hours
   before this change. Nothing here measured the queue's delay
   [experiment X15].
+- **A residual that only the owner's experiment can settle** [inferred,
+  untested]: a re-run of the group's validation that someone starts AFTER
+  the guard job has ended. The guard job is then already green and nothing
+  starts it again; if the queue waits for the new attempt of the group's
+  check, the merge is held for that time with the guard's result from
+  before it, and a dismissal in that interval is not seen. Whether the
+  queue does wait for a re-run of a required check on a group commit,
+  whether a re-run is possible there at all, and whether the guard's
+  result still counts afterwards, is not on the pages read [experiment X15, the
+  record of a re-run]. Until a live
+  run shows it, a re-run of a group's validation after the guard job ended
+  is to be treated as a reason to remove the entry from the queue and add
+  it again.
 - **Algorithm of the evaluation.**
   1. `evaluate(repository, N)` gives the verdict `V` for head `H` over the
      live `main` tip `B`. A `fail` is the group's verdict.
@@ -1776,8 +1795,8 @@ queue was verified):
 > no transaction.** A signing run can be re-run, and a signed manifest can
 > be pushed, after the read and before the ruleset changes. The reader pin
 > revert narrows that gap: while the pin is reverted, validation refuses a
-> v6 manifest. The form "no open pull request holds a signed v6 manifest"
-> leaves that gap open and depends on the rule of (ii).
+> v6 manifest. Leaving the revert out, which (iii) allows only with a
+> complete inventory, leaves that gap open and depends on the rule of (ii).
 >
 > **After point 3 nothing technical protects `rulespec-us` from signed v6
 > bytes. This order is not a durable rollback.** The reader pin is content
@@ -2534,7 +2553,7 @@ rollback.
         record: an owner or administrator verifies the list in the
         settings pages.
       - An organization owner, with `admin:org`:
-        `gh api orgs/TheAxiomFoundation/actions/secrets --jq '[.secrets[] | {name, visibility}]'`.
+        `gh api --paginate orgs/TheAxiomFoundation/actions/secrets --jq '.total_count as $n | [.secrets[] | {name, visibility, updated_at}] | {listed: length, total_count: $n, secrets: .}'`.
         The maintainer's token gets HTTP 403 there
         [live read 2026-11-18].
       - An organization owner:

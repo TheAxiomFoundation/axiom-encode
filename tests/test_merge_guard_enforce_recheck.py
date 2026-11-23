@@ -726,6 +726,12 @@ DESIGN_REQUIRED = {
         "check run id, the id of its workflow run and that run's `run_attempt`",
         "at another attempt (a green one too)",
         "The second read does not wait",
+        "No read follows the second read of the check.",
+        "**A residual that only the owner's experiment can settle** [inferred, "
+        "untested]: a re-run of the group's validation that someone starts AFTER "
+        "the guard job has ended.",
+        "is to be treated as a reason to remove the entry from the queue and add "
+        "it again",
     ],
     "group membership": [
         "**Group size 1 is a required queue setting, not something the evaluator proves.**",
@@ -1048,3 +1054,88 @@ def test_a_group_whose_tree_is_the_head_of_its_last_member_judges_that_member_on
     assert not any("/pulls/41" in path for path in world.calls)
     doc = " ".join(guard.evaluate_merge_group.__doc__.split())
     assert "not its membership" in doc
+
+
+# --- a response of the wrong shape never starts the wait -----------------------
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        {},
+        {"id": 888},
+        {"status": "completed", "conclusion": "success"},
+        [],
+        None,
+    ],
+)
+def test_the_review_probe_an_empty_workflow_run_does_not_start_the_wait(replacement):
+    # Independent review of 519603227: ``{}`` for the CI workflow run gave
+    # ``ci_not_green`` with no mark, then a poll and a second evaluation.
+    world = build()
+    world.api[f"{ROOT}/actions/runs/888"] = replacement
+    time = Time()
+    report, code = runner.enforce(
+        "pull_request",
+        REPO,
+        pr_event(),
+        fetch=world.fetch,
+        sleep=time.sleep,
+        clock=time.clock,
+    )
+    assert code == 1 and reason_of(report) == ("fail", guard.R_CI)
+    assert report["error"] == "an evaluation could not read GitHub"
+    assert (report["evaluations"], report["ci_polls"], time.sleeps) == (1, 0, [])
+
+
+def enforce_object_reads():
+    cases = []
+    for label, (make, event, name) in ENFORCE_WORLDS.items():
+        answers = []
+        world = make()
+        fetch = world.fetch
+
+        def recording(path, fetch=fetch, answers=answers):
+            answers.append(fetch(path))
+            return answers[-1]
+
+        runner.enforce(
+            name,
+            REPO,
+            pr_event() if event is ... else event,
+            fetch=recording,
+            sleep=Time().sleep,
+            clock=Time().clock,
+        )
+        cases += [
+            (label, index) for index, a in enumerate(answers) if isinstance(a, dict)
+        ]
+    return cases
+
+
+@pytest.mark.parametrize(("label", "index"), enforce_object_reads())
+def test_an_empty_object_for_any_read_never_ends_the_job_with_success(label, index):
+    make, event, name = ENFORCE_WORLDS[label]
+    world = make()
+    count = {"reads": 0}
+    fetch = world.fetch
+
+    def injected(path):
+        position = count["reads"]
+        count["reads"] += 1
+        value = fetch(path)
+        return {} if position == index else value
+
+    time = Time()
+    report, code = runner.enforce(
+        name,
+        REPO,
+        pr_event() if event is ... else event,
+        fetch=injected,
+        sleep=time.sleep,
+        clock=time.clock,
+    )
+    assert count["reads"] > index
+    assert code == 1 and report["error"], report
+    # No wait starts on a response of the wrong shape.
+    assert time.sleeps == [] or name == "merge_group"
