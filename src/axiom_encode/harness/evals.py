@@ -14179,9 +14179,10 @@ exceptions:
     cited definition is not available: follow that rule. Such rules cover the
     local boundary input for the value of a named legal base of a rate-applied
     result; semantic local boundary inputs for an externally determined base,
-    amount, rate, status, or fact in a source-stated formula; the source-named
-    boundary input for one affected subtype, carve-out, or branch;
-    paragraph-specific local inputs for a `subject to` lead-in that cites
+    amount, rate, status, or fact in a source-stated formula; deferral of
+    only that branch, or a source-named boundary input for it, when one
+    subtype, carve-out, or branch is affected; paragraph-specific local inputs
+    in an isolated slice artifact for a `subject to` lead-in that cites
     paragraphs; and the local override/displacement boolean for a
     `Subject to ...` leaf.
 In every case keep encoding the independent rules from this source.
@@ -15533,9 +15534,9 @@ def _importable_context_resolves_source_citations(
     the cited provision than the blocked file: it encodes the cited provision
     or an ancestor of it below the blocked file. A citation of the blocked
     file itself is never resolved, a child of the cited provision never
-    resolves it, and a citation that goes on as a list or a range (`63(a) or
-    (b)`) is never resolved. The result does not depend on the order of the
-    context files.
+    resolves it, and a citation whose sentence may name more provisions
+    (`63(a) or (b)`) is never resolved. The result does not depend on the
+    order of the context files.
     """
     blocked = _import_target_to_statute_citation(blocked_item.import_path)
     if blocked is None:
@@ -15558,8 +15559,8 @@ def _importable_context_resolves_source_citations(
         source_text, blocked
     ):
         if continues:
-            # A list or a range names provisions that were not read; a
-            # provider for the first of them does not provide for the rest.
+            # The rest of the sentence may name provisions that were not
+            # read; a provider for the first one does not provide for them.
             return False
         if cited[:depth] == blocked.fragments:
             # The blocked file is the cited provision or an ancestor of it.
@@ -15855,16 +15856,46 @@ def _import_target_to_statute_citation(import_path: str) -> _StatuteCitation | N
 
 
 _CITATION_FRAGMENT_TAIL = re.compile(r"(?:\s*\(\s*[A-Za-z0-9]+\s*\))*")
-# After the fragments of a citation: a separator and one more parenthesized
-# fragment, as in `63(a) or (b)`, `63(a), (b), and (c)` or `63(a) through (d)`.
-# The citation then names more provisions than the fragments read so far.
-_CITATION_LIST_CONTINUATION = re.compile(
-    r"(?:\s|[,;/&]|[-\u2010-\u2015]"
-    r"|\b(?:and|or|nor|through|thru|to|subsections?|paragraphs?|subparagraphs?"
-    r"|clauses?)\b)+"
-    r"\(\s*[A-Za-z0-9]+\s*\)",
+# The end of the sentence that holds a citation: a period before a capital
+# letter or the end of the text, or a blank line. A period before anything
+# else (`subsec. (b)`, `et seq. and`) does not end it, so the span errs long.
+_CITATION_SENTENCE_END = re.compile(r"\.(?=\s+[A-Z]|\s*\Z)|\n[ \t]*\n")
+# A short token in brackets, such as `(b)`, `(2)`, `(ii)` or `[b]`. A
+# parenthetical of several words, such as `(relating to income)`, is not one.
+_CITATION_FRAGMENT_TOKEN = re.compile(r"[(\[]\s*[A-Za-z0-9]{1,4}\s*[)\]]")
+_CITATION_OPEN_END = re.compile(
+    r"\bet\s+seq\b|\band\s+following\b|\bff\b"
+    # A bare item after `or` or `and`, as in `63(a) or b.`
+    r"|\b(?:or|and)\s+[A-Za-z0-9]\s*(?:\Z|[,;:)\]])",
     flags=re.IGNORECASE,
 )
+_CITATION_RANGE_MARKS = frozenset("~\u2212\u223c\uff5e")
+
+
+def _citation_may_name_more_provisions(
+    source_text: str, end: int, section: str
+) -> bool:
+    """Return whether the rest of the sentence may add provisions to a citation.
+
+    `end` is where the fragments of one citation end. The citation names
+    exactly the provision read so far only when the rest of its sentence has
+    none of: a short bracketed token; the same section number again; `et
+    seq`, `and following` or `ff`; a bare one-character item after `or` or
+    `and`; a dash, minus or tilde of any kind right after the fragments. The
+    words between do not matter, so no list of separator words is needed.
+    One reading is not covered: `63(a) (b)` is read as the nested fragments
+    a and b, because the fragments of a citation may be spaced.
+    """
+    stop = _CITATION_SENTENCE_END.search(source_text, end)
+    rest = source_text[end : stop.start() if stop else len(source_text)]
+    first = rest.lstrip()[:1]
+    return bool(
+        _CITATION_FRAGMENT_TOKEN.search(rest)
+        or re.search(rf"(?<![\w.]){re.escape(section)}(?![\w.])", rest, re.IGNORECASE)
+        or _CITATION_OPEN_END.search(rest)
+        or first in _CITATION_RANGE_MARKS
+        or unicodedata.category(first or " ") == "Pd"
+    )
 
 
 def _iter_source_statute_citation_matches(
@@ -15877,9 +15908,9 @@ def _iter_source_statute_citation_matches(
     copied file". Each match yields the section and the fragments that the
     source text names at that place, read to the end of its parenthesized
     fragments, so `section 63 (a)(1)` yields section 63 with fragments a and 1
-    for a copied file of section 63. The third value says that the citation
-    goes on as a list or a range, as in `section 63(a) or (b)`: the yielded
-    fragments are then only the first of the provisions it names.
+    for a copied file of section 63. The third value says that the rest of
+    the sentence may add provisions, as in `section 63(a) or (b)`: the yielded
+    fragments are then not all that the citation names.
     """
 
     def cited_from(
@@ -15888,7 +15919,9 @@ def _iter_source_statute_citation_matches(
         tail = _CITATION_FRAGMENT_TAIL.match(source_text, start)
         return (
             fragments + tuple(re.findall(r"[A-Za-z0-9]+", tail.group(0))),
-            _CITATION_LIST_CONTINUATION.match(source_text, tail.end()) is not None,
+            _citation_may_name_more_provisions(
+                source_text, tail.end(), citation.section
+            ),
         )
 
     citation_pattern = re.escape(citation.section)

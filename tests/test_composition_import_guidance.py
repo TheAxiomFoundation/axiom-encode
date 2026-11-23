@@ -843,9 +843,10 @@ NOT_IMPORT_TARGETS_RULES = (
     "    cited definition is not available: follow that rule. Such rules cover the\n"
     "    local boundary input for the value of a named legal base of a rate-applied\n"
     "    result; semantic local boundary inputs for an externally determined base,\n"
-    "    amount, rate, status, or fact in a source-stated formula; the source-named\n"
-    "    boundary input for one affected subtype, carve-out, or branch;\n"
-    "    paragraph-specific local inputs for a `subject to` lead-in that cites\n"
+    "    amount, rate, status, or fact in a source-stated formula; deferral of\n"
+    "    only that branch, or a source-named boundary input for it, when one\n"
+    "    subtype, carve-out, or branch is affected; paragraph-specific local inputs\n"
+    "    in an isolated slice artifact for a `subject to` lead-in that cites\n"
     "    paragraphs; and the local override/displacement boolean for a\n"
     "    `Subject to ...` leaf.\n"
     "In every case keep encoding the independent rules from this source."
@@ -870,16 +871,17 @@ FALLBACK_RULES = (
         "executable with semantic local boundary inputs",
     ),
     (
-        "the source-named boundary input for one affected subtype, carve-out, "
-        "or branch;",
+        "deferral of only that branch, or a source-named boundary input for "
+        "it, when one subtype, carve-out, or branch is affected;",
         "If a missing special rule or unavailable cited definition affects only "
         "one subtype, carve-out, or branch, defer only that branch or expose a "
         "source-named boundary input for that branch",
     ),
     (
-        "paragraph-specific local inputs for a `subject to` lead-in that cites "
-        "paragraphs;",
-        "If they are not available, paragraph-specific local inputs are acceptable",
+        "paragraph-specific local inputs in an isolated slice artifact for a "
+        "`subject to` lead-in that cites paragraphs;",
+        "If they are not available, paragraph-specific local inputs are "
+        "acceptable for an isolated slice artifact",
     ),
     (
         "and the local override/displacement boolean for a `Subject to ...` leaf.",
@@ -1415,9 +1417,12 @@ def test_one_cited_provision_without_a_provider_keeps_the_parent_unavailable(
     )
 
 
-# A citation that goes on as a list or a range names provisions beyond the
-# first one. The importable file of 63(a) does not provide for them, so the
-# blocked parent stays listed, whichever fragment the source names first.
+# A citation names exactly the provision read so far only when the rest of
+# its sentence adds nothing: no short bracketed token, no second mention of
+# the section, no open end, no bare item after `or`/`and`, no dash or tilde
+# after the fragments. The words between do not matter. In every form below
+# the importable file of 63(a) does not provide for all that may be cited, so
+# the blocked parent stays listed.
 SECTION_63_LISTS = (
     "See section 63(a) or (b).",
     "See section 63(a), (b), and (c).",
@@ -1425,11 +1430,52 @@ SECTION_63_LISTS = (
     "See section 63(a) through (d).",
     "See section 63(b) or (a).",
     "See section 63(a) to (c).",
-    "See section 63(a)\u2013(d).",
-    "See section 63(a), or subsection (b).",
-    # In doubt, not resolved: this may or may not name a paragraph of 63.
-    "See section 63(a); paragraph (2) does not apply.",
+    "See section 63(a)-(c).",
+    "See section 63(a)\u2013(c).",
+    "See section 63(a)\u2014(c).",
+    "See section 63(a)\u2212(c).",
+    "See section 63(a) \u2013 (c).",
+    "See section 63(a) ~ (c).",
+    "See section 63(a)-63(c).",
+    "See section 63(a)\u2013c.",
+    "See section 63(a)/(b).",
+    "See section 63(a) & (b).",
+    "See section 63(a); (b).",
+    "See section 63(a) and/or (b).",
+    "See section 63(a), and also (b).",
+    "See section 63(a) as well as (b).",
+    "See section 63(a) plus (b).",
+    "See section 63(a), inclusive of (b).",
+    "See section 63(a) or, alternatively, (b).",
+    "See section 63(a), as amended, or (b).",
+    "See section 63(a) and the first sentence of (b).",
+    "See section 63(a) or either of (b) and (c).",
+    "See section 63(a) [or (b)].",
+    "See section 63(a) (or (b)).",
+    "See section 63(a) or [b].",
+    "See section 63(a) or b.",
+    "See section 63(a) OR B.",
+    "See section 63(a) OR (B).",
+    "See section 63(a) or\n(b).",
+    "See section 63(a),\n  (b), and\n  (c).",
+    "See section 63(a) or subsection (b).",
+    "See section 63(a) or in subsection (b).",
+    "See section 63(a) or subsec. (b).",
+    "See section 63(a) and subdivision (b).",
+    "See section 63(a) & subsection (b).",
+    "See section 63(a) and subsections (b) and (c).",
+    "See section 63(a)(1) or (2).",
     "See section 63 (a)(1) and (2).",
+    "See section 63(a) or 63(b).",
+    "See section 63(a), 63(b).",
+    "See section 63(a) et seq.",
+    "See section 63(a) ET SEQ. and the rules under it.",
+    "See section 63(a) and following.",
+    "See section 63(a) ff.",
+    # Fail closed: the token may belong to something else in the sentence.
+    "See section 63(a) or the amount in (1) above.",
+    "See section 63(a), which applies as the notice says in item (2).",
+    "See section 63(a); paragraph (2) does not apply.",
     # Controls: each provision is cited in full; 63(b) has no provider.
     "See section 63(a) and section 63(b).",
     "See sections 63(a) and 63(b).",
@@ -1458,21 +1504,72 @@ def test_a_list_or_range_of_fragments_keeps_the_blocked_parent_unavailable(
 @pytest.mark.parametrize(
     "source",
     [
+        "See section 63(a).",
+        "See section 63(a)(1).",
+        "See section 63 (a) of the Act.",
+        "See section 63(a) (relating to income).",
         "See section 63(a) (relating to taxable income).",
+        "See section 63(a) and section 152.",
+        "See section 63(a) or section 152.",
+        "See section 63(a), and the amount is 5.",
         "See section 63(a), and compute the amount (if any).",
         "See section 63(a); the amount (if any) applies.",
-        "See section 63(a) or section 152.",
-        "See section 63(a), which applies as the notice says in item (2).",
+        "See section 63(a) and a deduction or an amount.",
+        # The sentence of the citation ends before the token.
+        "See section 63(a). Paragraph (2) of this notice applies.",
+        "See section 63(a).\n\n(b) Another rule.",
+        # Read as the nested fragments a and b of one provision: the
+        # fragments of a citation may be spaced. A known limit.
+        "See section 63(a) (b).",
     ],
 )
-def test_words_after_a_citation_that_are_no_fragment_list_do_not_block_it(
-    tmp_path, source
-):
+def test_a_single_citation_is_still_provided_by_its_exact_file(tmp_path, source):
     _modules, prompt = _render_section_63(
         tmp_path, COMPOSITION, ATOMIC, reverse=False, source=source
     )
 
     assert UNAVAILABLE not in prompt
+    assert "`us:statutes/26/63/a#taxable_income`" in _section(prompt, MANDATORY)
+
+
+@pytest.mark.parametrize(
+    ("rest", "more"),
+    [
+        ("", False),
+        (".", False),
+        (" of this title.", False),
+        (" (relating to income).", False),
+        (". Subsection (b) differs.", False),
+        (".\n\n(b) Next.", False),
+        (". (b) applies.", True),
+        (".\n(b) Next.", True),
+        (" or subsec. (b).", True),
+        (" (b)", True),
+        (" [ii]", True),
+        (" (abcd)", True),
+        (" (abcde)", False),
+        (" and section 63.", True),
+        (" and section 163 or 63.5 or 63A.", False),
+        (" et seq.", True),
+        (" and following.", True),
+        (" ff.", True),
+        (" or b.", True),
+        (" and 2, as amended.", True),
+        (" or a deduction.", False),
+        ("\u2212 see below.", True),
+        (" \u2013 see below.", True),
+        ("-c.", True),
+        (" \uff5e see below.", True),
+        (", minus (in words) nothing.", False),
+    ],
+)
+def test_the_rest_of_the_sentence_decides_whether_more_may_be_cited(rest, more):
+    text = "See section 63(a)" + rest
+
+    assert (
+        evals._citation_may_name_more_provisions(text, len("See section 63(a)"), "63")
+        == more
+    )
 
 
 def test_a_file_of_another_section_does_not_provide_for_a_blocked_file(tmp_path):
@@ -1484,7 +1581,7 @@ def test_a_file_of_another_section_does_not_provide_for_a_blocked_file(tmp_path)
     prompt = _render(
         tmp_path,
         modules,
-        source_text="Amounts are defined in section 63(a) and section 64(a).",
+        source_text="Amounts are defined in section 64(a) and section 63(a).",
     )
 
     assert "`us:statutes/26/64/a#taxable_income`" in _section(prompt, MANDATORY)
