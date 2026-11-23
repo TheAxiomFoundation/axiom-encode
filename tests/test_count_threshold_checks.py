@@ -492,6 +492,29 @@ def test_number_link_needs_a_one_sided_limit():
     )
 
 
+LISTED_CONDITIONS = (
+    "A lending unit is eligible for a group loan when it meets {wording} of the "
+    "following conditions:\n\n"
+    "● The unit has a tool steward.\n\n"
+    "● The unit has paid its dues.\n\n"
+    "● The unit has a storage room."
+)
+
+
+@pytest.mark.parametrize("wording", ["at least 2", "two or more", "2 or more"])
+def test_number_link_is_off_for_a_count_of_listed_conditions(wording):
+    # One Count input for "at least 2 of the following conditions" hides each
+    # listed condition. The number in the line that introduces the list is
+    # not a link for a pair on that input.
+    source = LISTED_CONDITIONS.format(wording=wording)
+    name = "group_loan_tally"
+    payload = _payload(
+        source, [_input(name, "Count")], f"{name} >= {THRESHOLD}", threshold=2
+    )
+    cases = [_case({name: value}, value >= 2) for value in (1, 2)]
+    assert "pair" in _checks(_issues(payload, source, cases))
+
+
 TWO_LIMITS_SAME_NUMBER = (
     "A lending unit is eligible for a group loan when the lending unit has at "
     "least 4 members.\n\n"

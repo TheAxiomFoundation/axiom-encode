@@ -40289,6 +40289,10 @@ def _numeric_pair_is_bound_to_stated_limit(
     - the output's formula compares that input directly with a literal or
       parameter of that value;
     - one case of the pair sits exactly on the stated number;
+    - the number does not stand in a line that introduces a list ("at least 2
+      of the following conditions:"). There the number counts the listed
+      items, each item is its own condition, and one pair on one input must
+      not stand for the list;
     - the check reads from the source whether the condition enables or
       blocks the output. Where it reads no such direction, a pair with the
       effect reversed also passes the caller's tests, and only the name test
@@ -40317,6 +40321,12 @@ def _numeric_pair_is_bound_to_stated_limit(
     if not any(
         math.isclose(value, limit, rel_tol=0.0, abs_tol=1e-9) for value in transition
     ):
+        return False
+    line_end = condition_recall_text.find("\n", bound.end)
+    line_rest = condition_recall_text[
+        bound.end : line_end if line_end >= 0 else len(condition_recall_text)
+    ]
+    if line_rest.rstrip().endswith(":"):
         return False
     declaration = input_declarations.get(witness.selector_name)
     if not isinstance(declaration, dict):
