@@ -8,9 +8,10 @@ authenticated as the guard GitHub App, and reports the verdict.
 What it can and cannot do:
 
 - ``dry-run`` (the default) reads and prints. It writes nothing to GitHub.
-- ``shadow`` also writes one check run per judged head, named
-  ``SHADOW_CHECK_NAME``, whose conclusion is always ``neutral``. The verdict is
-  in the title and the summary. A shadow check cannot block a merge and must
+- ``shadow`` also writes one check run per judged pull request on its head
+  commit, named ``SHADOW_CHECK_NAME``, whose conclusion is always
+  ``neutral``. The pull request number and the verdict are in the title and
+  the summary. A shadow check cannot block a merge and must
   never be made a required check: ``neutral`` satisfies a required check, so
   requiring it would require nothing.
 - There is no enforcing mode. ``GUARD_CHECK_NAME`` is the name reserved for
