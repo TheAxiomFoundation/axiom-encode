@@ -1132,6 +1132,42 @@ def _already_v6(payload):
     payload["schema_version"] = v6.MANIFEST_SCHEMA_V6
 
 
+def _no_schema_label(payload):
+    del payload["schema_version"]
+
+
+def _unrelated_schema_label(payload):
+    payload["schema_version"] = "axiom-encode/eval-result/v1"
+
+
+def _older_schema_label(payload):
+    payload["schema_version"] = "axiom-encode/applied-rulespec/v4"
+
+
+def _null_schema_label(payload):
+    payload["schema_version"] = None
+
+
+def _non_string_schema_label(payload):
+    payload["schema_version"] = [cli.APPLIED_ENCODING_MANIFEST_SCHEMA]
+
+
+class _ClaimsTheV5Label(str):
+    """Another label that compares equal to the v5 label, and to nothing else."""
+
+    def __eq__(self, other):
+        return other == "axiom-encode/applied-rulespec/v5"
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    __hash__ = str.__hash__
+
+
+def _lookalike_schema_label(payload):
+    payload["schema_version"] = _ClaimsTheV5Label("axiom-encode/other/v1")
+
+
 def _has_candidate_ref(payload):
     payload["candidate_rulespec_ref"] = "d" * 40
 
@@ -1157,6 +1193,12 @@ def _other_root(payload):
         _model_tool,
         _backend,
         _already_v6,
+        _no_schema_label,
+        _unrelated_schema_label,
+        _older_schema_label,
+        _null_schema_label,
+        _non_string_schema_label,
+        _lookalike_schema_label,
         _has_candidate_ref,
         _has_scope,
         _bad_ref,
@@ -1171,6 +1213,15 @@ def test_writer_relabels_only_an_unsigned_promotion_payload(
     change(payload)
     with pytest.raises(ValueError):
         v6.as_v6_candidate_payload(payload, **SCOPE_ARGUMENTS)
+
+
+def test_the_writer_input_label_is_the_live_v5_promotion_schema(writable, promotion):
+    # The writer's input contract names the v5 label literally. The literal
+    # must be the label the promotion command writes.
+    _repo, v5, _identity = promotion
+    assert v6.PROMOTION_INPUT_SCHEMA == cli.APPLIED_ENCODING_MANIFEST_SCHEMA
+    assert v5["schema_version"] == v6.PROMOTION_INPUT_SCHEMA
+    assert type(v5["schema_version"]) is str
 
 
 def test_the_writer_is_reached_from_one_place_behind_the_candidate_lane():
@@ -1206,12 +1257,124 @@ def test_the_switch_rule_is_stated_at_the_writer_switch():
     assert "OPERATOR PRECONDITION" in flat
 
 
+STEP_1 = (
+    "**M** **On hold. Do not carry out this step as written.** "
+    "`docs/merge-guard-key-protection.md` (its second paragraph) suspends it: "
+    "nobody may store the guard App key or set `MERGE_GUARD_RUNNER_ENABLED`, "
+    "shadow mode included, until Max chooses a mechanism and complement, "
+    "maintainers implement them, and a fresh independent review verifies the "
+    "whole key-exposure set (§6 of that document), which covers every workflow "
+    "that can reach the key. Until then follow #2257, not this step; #2237 "
+    "replaces it. The superseded instruction, kept only so that references to "
+    '"step 1" stay readable: create the guard App, install it on `rulespec-us`, '
+    "and store its key in an axiom-encode environment restricted to branch "
+    "`main`. A branch restriction alone does not protect the key."
+)
+
+
+def test_every_place_that_presupposes_the_app_key_carries_the_hold():
+    # Independent review of ``3e7e031c1``: checklist step 2 (the shadow check)
+    # and the "Runner" item of section 4 need the key too.
+    text = _design_lines()
+    step = _checklist_step(text, 2)
+    assert (
+        "**The shadow check is on hold with step 1:** it needs the guard App's "
+        "key, and `docs/merge-guard-key-protection.md` forbids storing the key or "
+        "setting `MERGE_GUARD_RUNNER_ENABLED`, shadow mode included, until its "
+        "conditions are met (#2257)."
+    ) in step
+    runner = " ".join(text.split("- **Runner**:", 1)[1].split("\n- **", 1)[0].split())
+    assert "holds the guard App's private key. **On hold:** nobody may store" in runner
+    assert (
+        "**On hold:** nobody may store that key, for a shadow run either, until "
+        "the mechanism of `docs/merge-guard-key-protection.md` is chosen, "
+        "implemented and independently reviewed (checklist step 1 of §8; #2257)."
+    ) in runner
+
+
+def test_the_branch_record_is_not_called_never_cached():
+    # GitHub serves it with max-age=60. The encoder keeps no copy; that is all.
+    design = " ".join(_design_lines().split())
+    source = " ".join(Path(admission.__file__).read_text().replace("#", " ").split())
+    for text in (design, source):
+        assert "never cached" not in text
+        assert "never cache" not in text
+        assert "keeps no local copy between reads" in text
+        assert "max-age=60, s-maxage=60" in text
+        assert "up to about a minute old" in text
+
+
+def _design_lines():
+    return (REPOSITORY_ROOT / "docs/content-bound-merge-guard.md").read_text("utf-8")
+
+
+def _checklist_step(text, number):
+    """The text of one numbered step of the activation checklist."""
+    checklist = text.split("### Activation checklist", 1)[1]
+    step = checklist.split(f"\n{number}. ", 1)[1]
+    return " ".join(step.split(f"\n{number + 1}. ", 1)[0].split())
+
+
+def test_checklist_step_1_carries_the_key_hold_and_its_reference():
+    # Step 1 told the maintainer to store the App key in a main-restricted
+    # environment. The key proposal suspends that; the hold must stand IN the
+    # step, before the superseded instruction, so that an operator who follows
+    # the checklist meets the hold first.
+    step = _checklist_step(_design_lines(), 1)
+    assert step.startswith("**M** **On hold. Do not carry out this step as written.**")
+    for needed in (
+        "`docs/merge-guard-key-protection.md`",
+        "nobody may store the guard App key or set `MERGE_GUARD_RUNNER_ENABLED`, "
+        "shadow mode included, until Max chooses a mechanism and complement, "
+        "maintainers implement them, and a fresh independent review verifies the "
+        "whole key-exposure set",
+        "every workflow that can reach the key",
+        "follow #2257, not this step",
+    ):
+        assert needed in step, needed
+    assert step.index("On hold") < step.index("store its key in")
+    # The whole step, word for word: a sentence added after the hold (for
+    # example one that makes it optional) must fail here.
+    assert step == STEP_1
+    # The hold the step cites exists in the cited document.
+    proposal = " ".join(
+        (REPOSITORY_ROOT / "docs/merge-guard-key-protection.md").read_text().split()
+    )
+    assert (
+        "Nobody may store the guard App key or set `MERGE_GUARD_RUNNER_ENABLED`, "
+        "shadow mode included, until Max chooses a mechanism and complement"
+    ) in proposal
+
+
+def test_every_mention_of_checklist_step_1_as_a_prerequisite_carries_the_hold():
+    # The delivery row and the lock table make step 1 a prerequisite. Each
+    # must say that the step is on hold.
+    text = _design_lines()
+    mentions = [line for line in text.splitlines() if "fter checklist step 1" in line]
+    assert len(mentions) == 2
+    for line in mentions:
+        assert "on hold" in line, line
+    (row,) = [line for line in mentions if line.startswith("| 5b |")]
+    assert "`docs/merge-guard-key-protection.md`" in row
+    assert "nobody may store the guard App key" in row
+    assert "#2257" in row
+
+
 # --- the promotion command ------------------------------------------------------
 
 
-def _promote(tmp_path, monkeypatch, *, live, per_file=False, revalidate=None):
+def _promote(
+    tmp_path, monkeypatch, *, live, per_file=False, revalidate=None, validation=None
+):
     """Run ``promote-reviewed-candidate`` with ``live`` as the provisioned
-    admission. Returns (manifest path, signer context mock, revalidate mock)."""
+    admission.
+
+    ``events`` records, in order, every admission revalidation
+    (``"revalidate"``), every validation run (``"validate"``) and every
+    signature REQUEST that reaches the signing broker (``"sign"``). The spy
+    sits on the broker's ``apply_ed25519_sign`` itself, so a request made by any
+    code path is recorded, also when the command fails afterwards and writes no
+    manifest."""
 
     repo, rule, companion, ref = _reviewed_candidate_checkout(tmp_path)
     binding = _reviewed_candidate_binding(rule, companion)
@@ -1249,8 +1412,24 @@ def _promote(tmp_path, monkeypatch, *, live, per_file=False, revalidate=None):
     )
     monkeypatch.setenv(_TRUSTED_RUNTIME_ENV, "1")
     execution = {"schema": "axiom-encode/apply-validation-execution/v2"}
+    events: list[str] = []
+    broker_type = type(TEST_APPLY_SIGNING_BROKER)
+    real_sign = broker_type.apply_ed25519_sign
+
+    def sign_request(broker, payload):
+        events.append("sign")
+        return real_sign(broker, payload)
+
+    def revalidation(record):
+        events.append("revalidate")
+        if revalidate is not None:
+            return revalidate(record)
+        return None
 
     def validate(result, **_kwargs):
+        events.append("validate")
+        if validation is not None:
+            return validation(result, **_kwargs)
         setattr(
             result,
             _APPLY_VALIDATION_SNAPSHOT_ATTR,
@@ -1288,8 +1467,11 @@ def _promote(tmp_path, monkeypatch, *, live, per_file=False, revalidate=None):
         ),
         patch(
             "axiom_encode.reviewed_pr_admission.revalidate_admission",
-            **({} if revalidate is None else {"side_effect": revalidate}),
+            side_effect=revalidation,
         ) as live_check,
+        patch.object(
+            broker_type, "apply_ed25519_sign", autospec=True, side_effect=sign_request
+        ),
         patch(
             "axiom_encode.cli._promotion_reviewed_rulespec_record_root",
             return_value=record_root,
@@ -1347,10 +1529,17 @@ def _promote(tmp_path, monkeypatch, *, live, per_file=False, revalidate=None):
         signer=signer_context,
         overlay=overlay,
         live_check=live_check,
+        events=events,
         error=error,
         ref=ref,
         record=record,
     )
+
+
+# The only order in which a manifest may be signed: admission is checked,
+# validation runs, admission is checked AGAIN, and only then one signature
+# request reaches the broker.
+SIGNED_SEQUENCE = ["revalidate", "validate", "revalidate", "sign"]
 
 
 def _candidate_record(selector, record):
@@ -1383,8 +1572,10 @@ def test_on_the_command_writes_a_signed_v6_manifest(
 ):
     run = _promote(tmp_path, monkeypatch, live=_candidate_record, per_file=per_file)
     assert run.error is None
-    # Before validation and again immediately before signing.
+    # Before validation and again immediately before signing: the one
+    # signature request comes after the final revalidation.
     assert run.live_check.call_count == 2
+    assert run.events == SIGNED_SEQUENCE
     payload = json.loads(run.manifest.read_text())
     assert payload["schema_version"] == v6.MANIFEST_SCHEMA_V6
     assert "reviewed_rulespec_ref" not in payload
@@ -1437,6 +1628,7 @@ def test_on_the_command_writes_a_signed_v6_manifest(
 def test_on_a_reviewed_admission_still_writes_v5(tmp_path, monkeypatch, writable):
     run = _promote(tmp_path, monkeypatch, live=_reviewed_record)
     assert run.error is None
+    assert run.events == SIGNED_SEQUENCE
     payload = json.loads(run.manifest.read_text())
     assert payload["schema_version"] == cli.APPLIED_ENCODING_MANIFEST_SCHEMA
     assert payload["reviewed_rulespec_ref"] == run.ref
@@ -1458,6 +1650,7 @@ def test_off_the_command_refuses_a_candidate_admission_before_any_work(
     assert str(run.error) == "invalid provisioned admission"
     run.signer.assert_not_called()
     run.overlay.assert_not_called()
+    assert run.events == ["revalidate"]
     assert not run.manifest.exists()
 
 
@@ -1477,6 +1670,7 @@ def test_writer_on_and_reader_off_refuses_before_validation(tmp_path, monkeypatc
     assert "reader is switched off" in str(run.error)
     run.signer.assert_not_called()
     run.overlay.assert_not_called()
+    assert "sign" not in run.events and "validate" not in run.events
     assert not run.manifest.exists()
 
 
@@ -1490,7 +1684,78 @@ def test_on_a_revoked_candidate_is_not_signed(tmp_path, monkeypatch, writable):
 
     run = _promote(tmp_path, monkeypatch, live=_candidate_record, revalidate=revalidate)
     assert isinstance(run.error, AdmissionError)
+    assert str(run.error) == "candidate has unresolved changes requested"
     assert len(calls) == 2
+    # The refusal is the final revalidation, and NO signature request reached
+    # the broker: an absent manifest alone does not prove that (a request made
+    # before the refusal leaves no file either).
+    assert run.events == ["revalidate", "validate", "revalidate"]
+    assert not run.manifest.exists()
+
+
+@pytest.mark.parametrize("live", ["candidate", "reviewed"])
+@pytest.mark.parametrize("per_file", [False, True])
+def test_on_an_admission_revoked_during_validation_requests_no_signature(
+    tmp_path, monkeypatch, writable, live, per_file
+):
+    # Both lanes and both waiver forms: the approval or the candidate state is
+    # withdrawn while validation runs.
+    seen = []
+
+    def revalidate(_record):
+        seen.append(1)
+        if len(seen) == 2:
+            raise AdmissionError("admission was withdrawn during validation")
+
+    run = _promote(
+        tmp_path,
+        monkeypatch,
+        live=_candidate_record if live == "candidate" else _reviewed_record,
+        per_file=per_file,
+        revalidate=revalidate,
+    )
+    assert isinstance(run.error, AdmissionError)
+    assert str(run.error) == "admission was withdrawn during validation"
+    assert run.events == ["revalidate", "validate", "revalidate"]
+    assert not run.manifest.exists()
+
+
+@pytest.mark.parametrize("live", ["candidate", "reviewed"])
+def test_on_an_admission_revoked_before_validation_does_no_work(
+    tmp_path, monkeypatch, writable, live
+):
+    def revalidate(_record):
+        raise AdmissionError("admission is not live")
+
+    run = _promote(
+        tmp_path,
+        monkeypatch,
+        live=_candidate_record if live == "candidate" else _reviewed_record,
+        revalidate=revalidate,
+    )
+    assert isinstance(run.error, AdmissionError)
+    assert run.events == ["revalidate"]
+    run.overlay.assert_not_called()
+    assert not run.manifest.exists()
+
+
+@pytest.mark.parametrize("live", ["candidate", "reviewed"])
+def test_on_a_failed_validation_requests_no_signature(
+    tmp_path, monkeypatch, writable, live
+):
+    # The third way to reach the signing line without the right: validation
+    # itself fails. No final revalidation, no signature request.
+    def failing(_result, **_kwargs):
+        return False, ["validation failed"], {}
+
+    run = _promote(
+        tmp_path,
+        monkeypatch,
+        live=_candidate_record if live == "candidate" else _reviewed_record,
+        validation=failing,
+    )
+    assert run.error is not None
+    assert "sign" not in run.events
     assert not run.manifest.exists()
 
 
@@ -1514,6 +1779,8 @@ def test_on_an_unusable_candidate_record_is_not_signed(
 
     run = _promote(tmp_path, monkeypatch, live=live)
     assert run.error is not None
+    # Zero signature requests, not only an absent manifest.
+    assert "sign" not in run.events
     assert not run.manifest.exists()
 
 

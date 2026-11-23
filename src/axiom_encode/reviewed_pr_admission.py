@@ -64,9 +64,10 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # Change 5c: a SECOND accepted form of locks 2 and 3, for the mechanism that
 # has no guard App (an organization ruleset "Require workflows to pass before
 # merging"; a recommendation, not accepted). Exactly one of ``GUARD_APP_ID``
-# and ``GUARD_WORKFLOW`` may be recorded: with neither, and with both, the
-# lane refuses before any read. Both are ``None`` here. In the ruleset form
-# locks 2 and 3 are:
+# and ``GUARD_WORKFLOW`` may be recorded: with neither, and with both,
+# ``require_guard_enforced`` refuses before any read of its own (admission
+# reads the signing run first, and then makes no guard read). Both are
+# ``None`` here. In the ruleset form locks 2 and 3 are:
 #
 # 2. ``GUARD_WORKFLOW``. ``None`` until a reviewed change records the
 #    repository id, the path and the reviewed commit SHAs of the guard
@@ -78,7 +79,9 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 #    calls it). It refuses unless the listing shows exactly one
 #    ``workflows`` rule, from a ruleset of the organization, that pins the
 #    recorded workflow at a recorded commit, and a ``merge_queue`` rule of
-#    the RuleSpec repository's own ruleset.
+#    the RuleSpec repository's own ruleset that merges every entry alone and
+#    only on its own passing checks (``ALLGREEN``, group size 1, build
+#    concurrency 1).
 #    This read proves LESS than the App form's ("for administrators too"). It
 #    proves that the two rules were in the listing at each read. It does not
 #    show who may bypass them: no read of this module returns a bypass list,
@@ -101,10 +104,13 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # activation checklist step 4 is done.
 #
 # RESIDUAL RISK the owners would accept by opening lock 1 (a proposal: they
-# have not accepted it). Lock 3 is read again, never
-# cached, at five points: preflight (start and end), root provisioner (start
-# and end), before validation, immediately before signing, before
-# publication. AFTER publication only the GitHub setting protects the merge.
+# have not accepted it). Lock 3 is read again by the encoder, which keeps no
+# local copy between reads, at five points (GitHub serves the anonymous
+# branch record with ``cache-control: public, max-age=60, s-maxage=60``, so
+# an answer can be up to about a minute old): preflight (start and end),
+# root provisioner (start and end), before validation, immediately before
+# signing, before publication. AFTER publication only the GitHub setting
+# protects the merge.
 # Today the approval before signing is enforced by this module, independent
 # of repository settings. After activation an enrolled owner who is also a
 # repository administrator can sign their own candidate, then remove the
@@ -118,11 +124,16 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # repository alone, the merge queue's ruleset.
 #
 # KNOWN LIMIT (availability only). Every read is anonymous. One signing run
-# of this lane makes at least 45 reads (7 of them the branch record) and one
-# of the reviewed lane at least 38, counted by the reviewer at 880238c7 with
-# every list on one page; pagination adds reads. GitHub allows 60 per hour
-# per address, so a second run in the same hour from the same address is
-# refused. Follow-up: send the reads with the
+# of this lane that goes through publication makes at least 45 reads (7 of
+# them the branch record) and one of the reviewed lane at least 38, counted
+# by the reviewer at 880238c7 with every list on one page; pagination adds
+# reads. 45 is the count through the last publication check, counted at
+# change 5, where the hosted workflow's v5 evidence step stopped a v6
+# manifest before it. The evidence step of change 5b
+# (``candidate_promotion_evidence``) lets it through and adds one read of the
+# branch record per v6 manifest: at least 46. Neither was measured again.
+# GitHub allows 60 per hour per address, so a second run in the same hour
+# from the same address is refused. Follow-up: send the reads with the
 # workflow token when one is available. The record is public, so a token
 # only raises the limit; any error must still refuse.
 V6_WRITER_ENABLED: Final[bool] = False
@@ -176,6 +187,32 @@ _WORKFLOWS_PARAMETER_FIELDS: Final = frozenset(
     {"workflows", "do_not_enforce_on_create"}
 )
 _WORKFLOW_ENTRY_FIELDS: Final = frozenset({"path", "repository_id", "ref", "sha"})
+# ``repository-rule-merge-queue`` parameters, all seven of the schema. Any
+# other key of a merge queue rule's parameters refuses.
+_MERGE_QUEUE_PARAMETER_FIELDS: Final = frozenset(
+    {
+        "check_response_timeout_minutes",
+        "grouping_strategy",
+        "max_entries_to_build",
+        "max_entries_to_merge",
+        "merge_method",
+        "min_entries_to_merge",
+        "min_entries_to_merge_wait_minutes",
+    }
+)
+# The one queue configuration the lock accepts: every entry merges alone, and
+# only on its own passing merge-group checks. ``ALLGREEN`` (schema: "the merge
+# commit created by merge queue for each PR in the group must pass all
+# required checks to merge") and a group of exactly one entry each give that;
+# both are required, with a build concurrency of one, which is the
+# configuration the experiment of the ruleset proposal runs (X5, X15). An
+# exact ``str`` and exact ``int`` each: ``True`` is not ``1``.
+_MERGE_QUEUE_REQUIRED: Final = (
+    ("grouping_strategy", "ALLGREEN"),
+    ("max_entries_to_build", 1),
+    ("min_entries_to_merge", 1),
+    ("max_entries_to_merge", 1),
+)
 # --- Multi-unit ("batch") form of the v6 lane. SWITCHED OFF. ------------------
 #
 # Issue #2301, option A; design: ``docs/content-bound-merge-guard.md``, section
@@ -241,8 +278,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         raise AdmissionError("GitHub admission requests must not redirect")
 
 
-def github_json(path: str) -> object:
-    """Read a bounded response only from the fixed GitHub API origin."""
+def _github_response(path: str) -> bytes:
+    """The bounded response body of one read of the fixed GitHub API origin."""
     if not path.startswith("/repos/TheAxiomFoundation/") or "#" in path:
         raise AdmissionError("invalid admission API path")
     request = urllib.request.Request(
@@ -262,7 +299,41 @@ def github_json(path: str) -> object:
         raw = response.read(MAX_RESPONSE_BYTES + 1)
     if len(raw) > MAX_RESPONSE_BYTES:
         raise AdmissionError("GitHub admission response exceeds its bound")
-    return json.loads(raw)
+    return raw
+
+
+def github_json(path: str) -> object:
+    """Read a bounded response only from the fixed GitHub API origin."""
+    return json.loads(_github_response(path))
+
+
+# The reader above, by identity: the ruleset form of the guard lock replaces
+# exactly this function with the one below, and no injected reader.
+_SHARED_GITHUB_READER: Final = github_json
+
+
+def _unique_keys(pairs: list[tuple[str, object]]) -> dict:
+    """``object_pairs_hook`` that refuses a JSON object with a repeated key."""
+
+    result: dict = {}
+    for key, value in pairs:
+        if key in result:
+            raise AdmissionError("GitHub response repeats a JSON object key")
+        result[key] = value
+    return result
+
+
+def _github_json_unique_keys(path: str) -> object:
+    """``github_json``, refusing a repeated object key at every level.
+
+    ``json.loads`` keeps the LAST value of a repeated key. For the branch
+    rules that would let ``"max_entries_to_merge": 5, "max_entries_to_merge":
+    1`` read as 1, and ``"type": "merge_queue", "type": "deletion"`` hide a
+    queue rule. Whether GitHub's own code reads the first or the last is not
+    known, so such a response refuses.
+    """
+
+    return json.loads(_github_response(path), object_pairs_hook=_unique_keys)
 
 
 @dataclass(frozen=True)
@@ -475,7 +546,9 @@ def require_guard_enforced(
     above) and ``GUARD_WORKFLOW`` (the organization-ruleset form,
     ``_require_guard_workflow_ruleset``) may be recorded. Neither, or both,
     refuses before any read. The two forms return records with different
-    keys; callers compare the record as a whole and read no key of it.
+    keys. Admission and revalidation compare the record as a whole and read
+    no key of it; the evidence step (``candidate_promotion_evidence``) calls
+    this function for its refusal only and discards the record.
     """
 
     if GUARD_APP_ID is None and GUARD_WORKFLOW is None:
@@ -591,16 +664,24 @@ def _require_guard_workflow_ruleset(
     with no key outside ``_BRANCH_RULE_FIELDS``, from a ruleset of the
     organization ``GUARD_RULESET_ORGANIZATION``, with exactly one workflow
     entry that names the recorded repository id, the recorded path and a
-    ``sha`` of the recorded set, and no ``ref``; and at least one rule of
-    type ``merge_queue``, each of them a well-formed rule of a ruleset of
-    ``repository`` itself. Without the merge queue a pass on the pull request
-    stays green after a dismissed approval; only the merge-group run reads
-    the reviews again at merge time.
+    ``sha`` of the recorded set, and has no ``ref`` key; and at least one rule
+    of type ``merge_queue``, each of them a well-formed rule of a ruleset of
+    ``repository`` itself whose parameters make every entry merge alone and
+    only on its own passing merge-group checks (``_MERGE_QUEUE_REQUIRED``).
+    Without the merge queue a pass on the pull request stays green after a
+    dismissed approval; only the merge-group run reads the reviews again at
+    merge time.
 
     Decisions, each the stricter reading until experiment X14 records a live
     response:
-    - An entry with a ``ref`` that is not null refuses, also next to a good
-      ``sha``: which of the two GitHub follows is not documented.
+    - An entry that HAS a ``ref`` key refuses, whatever its value (``null``,
+      ``""``, ``false``, ``0``, a list, an object, a ref name), also next to
+      a good ``sha``. The schema
+      (``repository-rule-params-workflow-file-reference``) declares ``ref``
+      an optional string that is not nullable, so ``"ref": null`` is outside
+      the schema; and which of ``ref`` and ``sha`` GitHub follows when both
+      are present is not documented. If the live response of X14 carries a
+      ``ref`` key in any form, the lock stays shut until a reviewed change.
     - Unknown keys in the rule's ``parameters`` or in the workflow entry
       refuse.
     - Unknown keys of the ``workflows`` rule itself refuse, in particular
@@ -625,24 +706,88 @@ def _require_guard_workflow_ruleset(
       exactly ``repository`` and a positive integer ``ruleset_id``. A queue
       rule "from another repository's ruleset" is not a state GitHub is
       documented to report, and refuses.
-    The queue's parameters are NOT checked (``merge_method``,
-    ``grouping_strategy``, ``max_entries_to_build``, ``max_entries_to_merge``,
-    ``min_entries_to_merge``, ``min_entries_to_merge_wait_minutes``,
-    ``check_response_timeout_minutes``; all seven of
-    ``repository-rule-merge-queue`` were examined). Reason: the merge-group
-    evaluation of the enforcing guard (``evaluate_merge_group`` of change 3b; on
-    this branch it is a stub that fails) passes only when
-    the group is built on the live ``main`` tip and its tree is the tree of
-    one judged pull request head. A group of two or more pull requests has
-    another tree or another base and fails at the guard, with ``ALLGREEN``
-    and with ``HEADGREEN``, and whatever the merge method, because trees are
-    compared. The size, wait and concurrency parameters only decide whether
-    and when a group forms; a check that does not report within the timeout
-    counts as failed (schema text). So no parameter value lets a merge pass
-    the merge-group check without a judged tree; a wrong value stops merges.
-    This rests on that guard, which this function does not read.
+    The queue's parameters. No key outside the seven of the schema
+    ``repository-rule-merge-queue`` (``_MERGE_QUEUE_PARAMETER_FIELDS``), and
+    four of them are REQUIRED, present and exact (``_MERGE_QUEUE_REQUIRED``):
+    ``grouping_strategy`` ``"ALLGREEN"``, ``max_entries_to_merge`` ``1``,
+    ``min_entries_to_merge`` ``1`` and ``max_entries_to_build`` ``1``. Why
+    (review of ``e2d12f5c2``; an earlier version of this text claimed that no
+    parameter mattered, and that was wrong):
+    - What the merge-group evaluation of the enforcing guard proves
+      (``evaluate_merge_group`` of change 3b; on this branch it is a stub that
+      fails): for the ONE pull request that the group ref names, the tree of
+      the group commit is the tree of that pull request's judged head, and the
+      group's reported base is the judged ``main`` tip. That binds the FINAL
+      TREE to one judgment. It does not prove that the group holds only that
+      pull request: nothing in it reads the other members.
+    - So a group of two pull requests does NOT always fail there. If the
+      second pull request contains the commits of the first, the final tree
+      is the tree of the second head; with a reported base equal to the
+      ``main`` tip, the evaluation passes and has read only the second pull
+      request (reproduced against ``content_merge_guard.py`` of
+      ``claude/merge-guard-enforce`` at ``519603227``). What
+      ``merge_group.base_sha`` is for an entry behind another is not verified
+      (experiment X5).
+    - With ``HEADGREEN`` GitHub requires only "the commit at the head of the
+      merge group" to pass (schema text), so the first pull request merges
+      although its own merge-group check failed or never judged it. Its
+      bytes are bound through the second pull request's judgment, but that
+      pull request itself merges with no fresh judgment: a dismissed
+      approval or a changes-requested review on it does not stop it.
+    - The admission without the approval before signing needs more than the
+      final-tree binding: EVERY queue entry that merges must have its own
+      fresh passing judgment at merge time. (An entry, not every pull
+      request: a pull request whose commits are all inside another judged
+      pull request's head is marked merged by GitHub when that one merges,
+      without entering the queue; its bytes are bound through the other
+      judgment.) The guard cannot prove that for
+      a group of several entries, so the lock refuses every queue that can
+      merge an entry without its own passing check: anything but
+      ``ALLGREEN``, and any group size but exactly one. A build concurrency
+      of one is required with them: an entry behind another is built on the
+      first one's commit, the configuration that the experiment does not
+      run. Each of ``ALLGREEN`` and a group of one would give the property
+      alone; both are required because GitHub's behaviour for either is
+      documented, not observed here.
+    - Not checked: ``merge_method`` (trees are compared, so the method does
+      not matter), ``min_entries_to_merge_wait_minutes`` (with a minimum of
+      one entry nothing waits) and ``check_response_timeout_minutes`` (a
+      check that does not report in time counts as failed; a wrong value
+      stops merges).
+    This rests on that guard, which this function does not read, on GitHub
+    applying these parameters as its schema describes them [not verified:
+    experiments X5 and X15], and on the listing showing them as the one
+    recorded live queue rule does (axiom-encode, 2026-11-17).
+
+    A repeated key in the response text refuses, at every level
+    (``_github_json_unique_keys``): ``json.loads`` would keep the last value,
+    and which one GitHub's own code reads is not known. This holds for the
+    production reader of this read only. The other reads of this module (the
+    pull request, the reviews, the signing run, the branch record of the App
+    form) go through the shared ``github_json`` of the reviewed lane, which
+    keeps the last value; that reader is not changed here, because it is the
+    reader of the lane that is active today.
+
+    The paging assumption. The listing is read in pages of 100 and ends at
+    the first page with fewer than 100 rules (``_pages``). If GitHub ever
+    returned a short page that is not the last one, the rules after it would
+    not be read: a second ``workflows`` rule or a weak queue rule there would
+    be missed. GitHub documents no such page; nothing here verifies it.
 
     What this read cannot see, and what the lock therefore does not prove:
+    - A merge queue that is set in classic branch protection. This read
+      lists rulesets only. If such a queue exists beside the ruleset's queue
+      rule, which of the two governs a merge is not known, and the classic
+      one's settings are not checked. Precondition for activation: no merge
+      queue in classic branch protection of ``main``.
+    - The age of the answer. GitHub serves this listing, like the branch
+      record, with a cache lifetime of 60 seconds for an anonymous reader
+      (``cache-control: public, max-age=60, s-maxage=60``, read on
+      2026-11-22), so a change of the rules can be up to about a minute old
+      before a read shows it.
+    - The time between the end of the guard's merge-group job and the merge.
+      A dismissal in that window is not judged again; only experiment X15 of
+      the ruleset proposal measures it.
     - The bypass list of the organization ruleset.
       ``GET /repos/{owner}/{repo}/rulesets/{id}`` returns ``bypass_actors``
       only to a caller with write access to the ruleset (same documentation
@@ -679,6 +824,11 @@ def _require_guard_workflow_ruleset(
         or re.fullmatch(r"TheAxiomFoundation/rulespec-[a-z]{2}", repository) is None
     ):
         raise AdmissionError("invalid repository for the merge guard requirement")
+    # The production reader parses the response text itself here, so that a
+    # repeated key refuses. An injected reader (tests) hands over parsed
+    # objects; a repeated key is then already gone and cannot be seen.
+    if fetch is _SHARED_GITHUB_READER:
+        fetch = _github_json_unique_keys
     try:
         rules = _pages(fetch, f"/repos/{repository}/rules/branches/main")
     except AdmissionError:
@@ -737,9 +887,11 @@ def _require_guard_workflow_ruleset(
             "the required workflow is not the recorded merge guard workflow "
             "(repository id or path differs)"
         )
-    if entry.get("ref") is not None:
+    # Presence, not value: ``"ref": null`` is outside the schema too.
+    if "ref" in entry:
         raise AdmissionError(
-            "the required workflow follows a ref; only a pinned commit SHA is accepted"
+            "the required workflow entry has a ref; only a pinned commit SHA "
+            "with no ref is accepted"
         )
     sha = entry.get("sha")
     if type(sha) is not str or re.fullmatch(r"[0-9a-f]{40}", sha) is None:
@@ -771,6 +923,20 @@ def _require_guard_workflow_ruleset(
                 "a merge queue rule of main is not from a ruleset of the "
                 "RuleSpec repository itself"
             )
+        settings = queue["parameters"]
+        if not set(settings) <= _MERGE_QUEUE_PARAMETER_FIELDS:
+            raise AdmissionError("a merge queue rule of main has an unknown parameter")
+        for name, wanted in _MERGE_QUEUE_REQUIRED:
+            if (
+                name not in settings
+                or type(settings[name]) is not type(wanted)
+                or settings[name] != wanted
+            ):
+                raise AdmissionError(
+                    "a merge queue rule of main can merge a pull request without "
+                    f"its own passing merge-group check: {name} must be "
+                    f"{json.dumps(wanted)}"
+                )
     return {
         "form": GUARD_RULESET_FORM,
         "ruleset_id": ruleset_id,

@@ -529,7 +529,10 @@ None of this exists. It is the proposal for changes 3 and later (§8).
   RuleSpec PR cannot change it.
 - **Runner**: a new workflow in axiom-encode that refuses to run unless
   `github.ref == refs/heads/main`, with an environment restricted to branch
-  `main` that holds the guard App's private key.
+  `main` that holds the guard App's private key. **On hold:** nobody may
+  store that key, for a shadow run either, until the mechanism of
+  `docs/merge-guard-key-protection.md` is chosen, implemented and
+  independently reviewed (checklist step 1 of §8; #2257).
 - **Publisher binding**: a dedicated GitHub App installed on `rulespec-*` with
   `checks: write`, `pull_requests: read`, `contents: read`, `actions: read`.
   Branch protection requires the guard's check with that App's `app_id`.
@@ -655,7 +658,7 @@ Neither form is recorded, and at most one may be.
 | # | Lock | State today | Opened by |
 |---|---|---|---|
 | 1 | `reviewed_pr_admission.V6_WRITER_ENABLED` | `False` | Change 6, a reviewed one-line change |
-| 2 | `reviewed_pr_admission.GUARD_APP_ID` | `None` | A reviewed change that records the guard App's numeric App ID, after checklist step 1 |
+| 2 | `reviewed_pr_admission.GUARD_APP_ID` | `None` | A reviewed change that records the guard App's numeric App ID, after checklist step 1 (on hold: see that step in §8) |
 | 3 | `require_guard_enforced`: a live read of the public branch record `GET /repos/<repo>/branches/main` | refuses: `main` requires only `validate / validate` | Checklist step 4 (a maintainer makes `content-bound-merge-guard` a required check with the App's `app_id`) |
 
 - Lock 3 passes only when the record shows `protected: true`,
@@ -678,7 +681,9 @@ Neither form is recorded, and at most one may be.
     variable, flag, dispatch input or setting sets it.
   - Exactly one of `GUARD_APP_ID` and `GUARD_WORKFLOW` may be recorded.
     With neither recorded (today), and with both, `require_guard_enforced`
-    refuses before any read.
+    refuses before any read of its own. (Admission, `verify_reviewed_pr`,
+    reads the signing run before it calls `require_guard_enforced`; in that
+    state it makes that one read and no guard read.)
   - Lock 3 then reads the active rules of the branch, anonymously:
     `GET /repos/<repo>/rules/branches/main`, every page within a bound. It
     passes only when the whole listing has exactly one rule of type
@@ -687,18 +692,24 @@ Neither form is recorded, and at most one may be.
     ruleset of the organization (`ruleset_source_type: "Organization"`,
     `ruleset_source: "TheAxiomFoundation"`, an integer `ruleset_id`); it
     names exactly one workflow with the recorded repository id, the
-    recorded path, a `sha` of the recorded set and no `ref`; and the
-    listing has at least one rule of type `merge_queue`, each of them a
-    well-formed rule of the RuleSpec repository's own ruleset (below). The
+    recorded path, a `sha` of the recorded set and no `ref` key (a `ref`
+    key refuses whatever its value, `null` included: the schema's `ref` is
+    an optional string that is not nullable, so `"ref": null` is outside
+    the schema; if the live response of X14 carries the key, the lock
+    stays shut until a reviewed change); and the listing has at least one
+    rule of type `merge_queue`, each of them a well-formed rule of the
+    RuleSpec repository's own ruleset whose parameters make every entry
+    merge alone and only on its own passing checks (below). The
     rules of a ruleset in `Evaluate` or `Disabled` mode are not in the
     listing [docs: "Rules in rulesets with "evaluate" or "disabled"
     enforcement statuses are not returned", REST "Get rules for a branch",
     read 2026-11-17]; the listing can still hold rules of other rulesets.
     With the guard's ruleset in such a mode the listing has no `workflows`
     rule, so it refuses. A rule of a repository ruleset, a second
-    `workflows` rule, a second workflow, a `ref`, an unknown key in the
-    entry, in the parameters or in the rule, a read error and a rate limit
-    all refuse.
+    `workflows` rule, a second workflow, a `ref` key, an unknown key in the
+    entry, in the parameters or in the rule, a queue rule with another
+    grouping strategy or group size, a read error and a rate limit all
+    refuse.
   - Two decisions about the `workflows` rule, each the stricter reading
     until X14 records a live response (review round 1, P2-2):
     - A key of the rule outside the five above refuses, in particular
@@ -729,7 +740,8 @@ Neither form is recorded, and at most one may be.
     keys, `parameters` a JSON object, `ruleset_source_type: "Repository"`,
     `ruleset_source` exactly the repository that is checked, a positive
     integer `ruleset_id`. A rule of type `merge_queue` alone, and a queue
-    rule that names another repository, refuse.
+    rule that names another repository, refuse. The parameters are held to
+    the settings described two items below.
   - **The limit of the queue half.** The queue rule lives in a repository
     ruleset, which the administrators of the RuleSpec repository can edit,
     disable or give a bypass list. The read cannot see that ruleset's
@@ -737,29 +749,123 @@ Neither form is recorded, and at most one may be.
     pull-request pass that stays green after a dismissed approval. The lock
     proves only that the rule was present at each of its reads: the start
     and the end of admission and each revalidation.
-  - The queue's parameters are not checked. All seven of the schema
-    `repository-rule-merge-queue` were examined: `merge_method`,
-    `grouping_strategy`, `max_entries_to_build`, `max_entries_to_merge`,
-    `min_entries_to_merge`, `min_entries_to_merge_wait_minutes`,
-    `check_response_timeout_minutes`. Reason: the merge-group evaluation of
-    the enforcing guard (change 3b; a stub that fails on this branch)
-    passes only when the group is built on the live `main` tip and its
-    tree is the tree of one judged pull request head [read in
-    `content_merge_guard.py` of `claude/merge-guard-enforce` at
-    `9888240e9`]. A group of two or more pull requests has another tree or
-    another base and fails at the guard, with `ALLGREEN` and with
-    `HEADGREEN`, and for every merge method, because trees are compared.
-    The size, wait and concurrency values decide whether and when a group
-    forms; a check that does not report within the timeout counts as failed
-    [schema text]. So no value lets a merge pass the merge-group check
-    without a judged tree; a wrong value stops merges. This rests on that
-    guard, which the lock does not read, and on GitHub requiring the
-    workflow on the merge group [not verified; §6].
+  - **The queue's parameters, and what the merge-group evaluation proves**
+    (review of `e2d12f5c2`; the earlier text here said that no parameter
+    mattered, and that was wrong). The lock accepts no parameter key outside
+    the seven of the schema `repository-rule-merge-queue`, and requires
+    four of them, present and exact: `grouping_strategy: "ALLGREEN"`,
+    `max_entries_to_merge: 1`, `min_entries_to_merge: 1` and
+    `max_entries_to_build: 1`. Any other value, type or a missing key
+    refuses, for every `merge_queue` rule of the listing.
+    - What the merge-group evaluation of the enforcing guard proves (change
+      3b, #2286; a stub that fails on this branch): for the one pull
+      request that the group ref names, the tree of the group commit is the
+      tree of that pull request's judged head, and the group's reported
+      base is the judged `main` tip [read in `content_merge_guard.py` of
+      `claude/merge-guard-enforce` at `519603227`]. That binds the **final
+      tree** to one judgment. It does not prove that the group holds only
+      that pull request; the evaluation reads no other member.
+    - A group of two pull requests therefore does **not** always fail at
+      the guard. When the second pull request contains the commits of the
+      first, the final tree is the tree of the second head; with a reported
+      base equal to the `main` tip the evaluation returns `pass` and has
+      read only the second pull request [reproduced against that module at
+      `519603227` with its own fixtures; what `merge_group.base_sha` is for
+      an entry behind another is not verified: experiment X5 of #2287].
+      With `HEADGREEN` GitHub requires only "the commit at the head of the
+      merge group" to pass [schema text of `grouping_strategy`], so the
+      first pull request merges although its own merge-group check failed
+      or never judged it. Its bytes are bound through the second pull
+      request's judgment. The first pull request itself merges with no
+      fresh judgment: a dismissed approval or a changes-requested review on
+      it does not stop it.
+    - What safety requires. The admission without the approval before
+      signing needs more than the final-tree binding: **every queue entry
+      that merges must have its own fresh passing judgment at merge time**.
+      (An entry, not every pull request: a pull request whose commits are
+      all inside another judged pull request's head is marked merged by
+      GitHub when that one merges, without entering the queue. Its bytes
+      are bound through the other judgment, and no setting of the queue
+      changes that.)
+      The guard cannot prove that for a group of several entries. So the
+      queue must merge every entry alone and only on its own passing
+      merge-group checks, and the lock refuses every queue rule that does
+      not say so. `ALLGREEN` ("the merge commit created by merge queue for
+      each PR in the group must pass all required checks to merge" [schema
+      text]) and a group of exactly one entry would each give the property
+      alone; both are required, because GitHub's behaviour for either is
+      documented and not observed here. A build concurrency of one is
+      required with them: an entry behind another is built on the first
+      one's commit, a configuration the experiment does not run. These are
+      the settings that #2287 already asks of the `rulespec-us`
+      administrator (its checklist step that turns the queue on: only merge
+      non-failing pull requests, group size 1, build concurrency 1) and
+      that its experiments X5 and X15 run. This change makes the lock check
+      them at every read.
+    - Not checked: `merge_method` (trees are compared, so the method does
+      not matter), `min_entries_to_merge_wait_minutes` (with a minimum of
+      one entry nothing waits) and `check_response_timeout_minutes` (a
+      check that does not report in time counts as failed [schema text]; a
+      wrong value stops merges).
+    - A model run, not evidence about GitHub: 696 queue scenarios (groups
+      of 1, 2 and 3 entries; each position failing; stacked and independent
+      heads; a final tree equal to an inner member's head; both readings of
+      `base_sha`; a moved `main`; both strategies; group sizes 1 to 3),
+      with each entry's check computed by the real evaluator of
+      `claude/merge-guard-enforce` at `519603227` and the queue's merge
+      rule modelled from the schema text. A pull request merged without its
+      own passing check in 7 scenarios, all of them `HEADGREEN` with a
+      group size above 1, and in none with the settings the lock requires
+      [fix-agent-executed 2026-11-22; the harness is not in the
+      repository]. This is a consistency check of the argument above and no
+      more. The zero for `ALLGREEN` follows from the model's own merge rule
+      (every entry's check must pass) together with one assertion on the
+      evaluator, that it never passes an entry whose own pull request
+      judgment fails; the 696 scenarios reduce to 16 distinct calls of the
+      evaluator. It says nothing about what GitHub does, and it does not
+      model the time between a judgment and the merge.
+    - This rests on that guard, which the lock does not read; on GitHub
+      requiring the workflow on the merge group and applying the queue
+      parameters as its schema describes them [not verified: experiments
+      X5 and X15 of #2287]; and on the listing showing the parameters as
+      the one recorded live queue rule does (axiom-encode, 2026-11-17). An
+      administrator of the RuleSpec repository can change the parameters
+      after a read ("The limit of the queue half" above); the lock reads
+      them again at each revalidation.
   - The admission record's `guard` is then `{form:
     "organization_ruleset_workflow", ruleset_id, repository_id, path,
     sha}`; the App form's record is unchanged. Revalidation compares the
     whole record, so a pin that moves between admission and signing
     refuses, also to another recorded SHA.
+  - **A repeated key in the response text refuses**, at every level of the
+    listing. `json.loads` keeps the last value of a repeated key, so the
+    text `"max_entries_to_merge": 5, "max_entries_to_merge": 1` would read
+    as 1, and `"type": "merge_queue", "type": "deletion"` would hide a weak
+    queue rule; which value GitHub's own code reads is not known. The
+    production reader of this listing parses the text itself and refuses.
+    The limit: the other reads of the module (the pull request, the
+    reviews, the signing run, the App form's branch record) use the shared
+    reader of the reviewed lane, which keeps the last value; it is the
+    reader of the lane that is active today and is not changed here.
+  - **The paging assumption.** The listing is read in pages of 100 and
+    ends at the first page with fewer than 100 rules. If GitHub ever
+    returned a short page that is not the last, the rules after it would
+    not be read, and a second `workflows` rule or a weak queue rule there
+    would be missed. GitHub documents no such page; nothing here verifies
+    it.
+  - **Three more things the read does not show** (independent review of
+    `4c7da64f0`). A merge queue set in classic branch protection: this
+    read lists rulesets only, and if such a queue exists beside the
+    ruleset's queue rule, which of the two governs a merge is not known
+    and the classic one's settings are not checked; the precondition for
+    activation is that there is no merge queue in classic branch
+    protection of `main` (below). The age of the answer: GitHub serves the
+    listing to an anonymous reader with `cache-control: public,
+    max-age=60, s-maxage=60` [read 2026-11-22], as it does the branch
+    record, so a change of the rules can be about a minute old before a
+    read shows it. The time between the end of the guard's merge-group job
+    and the merge: a dismissal in that window is not judged again, and
+    only X15 of #2287 measures the window.
   - What this read cannot see: the bypass list of the organization ruleset
     (the ruleset endpoint returns `bypass_actors` only to a caller with
     write access to the ruleset [docs: REST "Get a repository ruleset",
@@ -774,8 +880,8 @@ Neither form is recorded, and at most one may be.
     file at that path in that commit is the reviewed guard workflow; the
     lock does not read the file, does not check that the commit exists in
     the recorded repository, and compares the repository by its numeric id
-    only. The merge queue's parameters (above). The identity of the
-    queue's ruleset between two reads: its `ruleset_id` is not in the
+    only. Three of the merge queue's seven parameters (above). The identity
+    of the queue's ruleset between two reads: its `ruleset_id` is not in the
     admission record, so a queue ruleset that is replaced by another
     well-formed one of the same repository does not refuse.
   - The response shape of a `workflows` rule on this endpoint has a
@@ -795,9 +901,11 @@ Neither form is recorded, and at most one may be.
   `checks[].app_id`.
   To see what lock 3 sees:
   `curl -s https://api.github.com/repos/TheAxiomFoundation/rulespec-us/branches/main | jq '{protected, checks: .protection.required_status_checks}'`.
-- Lock 3 runs at the preflight, at the root provisioner's admission, before
-  validation, immediately before signing and before publication (every call
-  of `verify_reviewed_pr` and `revalidate_admission`).
+- In a candidate-lane run, lock 3 runs at the preflight, at the root
+  provisioner's admission, before validation, immediately before signing and
+  before publication (every call of `verify_reviewed_pr` and
+  `revalidate_admission` of that lane). A reviewed-lane run makes no guard
+  read at admission or at revalidation.
 - **Operator precondition (not checkable in code).** Lock 3 proves the
   requirement up to the signature. A repository administrator can remove a
   required check afterwards; that adversary is out of scope (§9). Do not open
@@ -805,10 +913,15 @@ Neither form is recorded, and at most one may be.
 - With the switch on, the lane also needs `V6_READER_ENABLED`: a v6 manifest
   that no verifier admits cannot be written.
 - **Known limit: the anonymous rate limit (availability only).** One signing
-  run of the candidate lane makes at least 45 anonymous reads (7 of them the
-  branch record), and one of the reviewed lane at least 38. The reviewer
-  counted 45 and 38 at `880238c7` with every list on one page; pagination
-  adds reads. GitHub allows 60 per hour per address. A
+  run of the candidate lane that goes through publication makes at least 45
+  anonymous reads (7 of them the branch record), and one of the reviewed lane
+  at least 38. The reviewer counted 45 and 38 at `880238c7` with every list
+  on one page; pagination adds reads. 45 is the count through the last
+  publication check, counted at change 5, where the hosted workflow's v5
+  evidence step stopped a v6 manifest before that check. With the evidence
+  step of change 5b (below) a hosted candidate run reaches it, and that
+  step adds one read of the branch record for each v6 manifest: at least
+  46. Neither count was measured again. GitHub allows 60 per hour per address. A
   second run in the same hour from the same address is refused. It fails
   closed. Follow-up, not built: send the reads with the workflow token when
   one is available. The record is public, so a token only raises the limit;
@@ -889,10 +1002,15 @@ committed constants it refuses every v6 manifest before it reads anything else,
 and a run with no v6 manifest takes the same path as before. For one input
 the step is stricter than before, not identical: a run whose changed
 manifests hold a valid v5 promotion and one more manifest that carries the v6
-label (at the top level or nested). The earlier step ignored the extra
-manifest and packaged the v5 evidence; this step refuses the run. The
-committed writer cannot produce such a file, so only a hand-made manifest
-reaches this; tests record both outcomes.
+label, either at the top level (for any citation) or nested in a
+legacy-replacement manifest **for another citation than the run's**. The
+earlier step ignored that extra manifest and packaged the v5 evidence; this
+step refuses the run. A legacy-replacement manifest that nests a v6 manifest
+for the **same** citation is not such a case: the earlier step counted it as a
+second manifest of the citation and refused the run (`found 2`); this step
+refuses it too, earlier and by another name (`only a top-level manifest may
+carry the v6 label`). The committed writer cannot produce such a file, so only
+a hand-made manifest reaches this; tests record these outcomes.
 
 With every lock open (tests only), the manifest must pass the reader's entry
 test, its exact v6 field sets and its attestation scope check, and the scope
@@ -1293,6 +1411,10 @@ this subsection merges without touching that table):
   every v6 manifest as a unit `{M, P, T}`, and requires each unit to map to a
   queued PR with the same three blob ids for which `evaluate` passes.
 - rulespec-us#2160 plans a group size of 1, which is recommended for the pilot.
+  In the ruleset form the writer's lock requires it, with `ALLGREEN` and a
+  build concurrency of 1: the merge-group evaluation binds the final tree to
+  one judged pull request and does not prove that a group holds only that
+  pull request (§5, "Encoder").
 - **[check docs]** How to list the PRs in a merge group, and whether an
   App-created check run on the group SHA satisfies the queue.
 - `notary-guard` is independent. On a lane with a base `consumer.json`, lineage
@@ -1384,9 +1506,8 @@ Implementation comes strictly before activation.
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode | disable the workflow |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch. Built with three locks: `V6_WRITER_ENABLED = False`, `GUARD_APP_ID = None`, and a live read that the guard check is required (§5, "Encoder") | revert |
-| 5b | axiom-encode | Record the guard App's numeric App ID in `GUARD_APP_ID`, after checklist step 1. The other half, the hosted workflow's evidence step reading `candidate_rulespec_ref` behind the writer's locks, is present and switched off (§5, "Evidence step") | set it back to `None` |
-| 5c | axiom-encode | **Writer lock for the ruleset form (built, locked).** A second accepted form of locks 2 and 3: `GUARD_WORKFLOW = None`, and a live read that an organization ruleset requires the guard workflow at a recorded commit on `main`, with a merge queue rule of the repository's own ruleset (§5, "Encoder"; the queue rule cannot be an organization rule, and the lock proves only that it was present at each of its reads). Exactly one of `GUARD_APP_ID` and `GUARD_WORKFLOW` may be recorded; with neither, as committed, the lane refuses before any read. Needed only if the maintainers accept the ruleset mechanism. The listing it is tested against is SYNTHETIC. [experiment X14]: must be replaced by the recorded live response before activation. | revert; the locks stay shut |
-| 5d | axiom-encode | **Multi-unit form of the v6 lane (built, switched off).** With `MULTI_UNIT_V6_ENABLED` on, one candidate pull request may carry up to `MAX_V6_UNITS` (10) new units, each with its own signed v6 manifest, under one content-bound approval; admission accepts one unit of such a candidate. A batch pass has its own reason code, which the enforcing runner does not accept until a reviewed change of the runner (§5, "Multi-unit candidates") | set the switch back to `False` |
+| 5b | axiom-encode | Record the guard App's numeric App ID in `GUARD_APP_ID`, after checklist step 1, which is on hold: nobody may store the guard App key until the mechanism of `docs/merge-guard-key-protection.md` is chosen, implemented and independently reviewed (#2257). Until then no App ID exists to record. The other half, the hosted workflow's evidence step reading `candidate_rulespec_ref` behind the writer's locks, is present and switched off (§5, "Evidence step") | set it back to `None` |
+| 5c | axiom-encode | **Writer lock for the ruleset form (built, locked).** A second accepted form of locks 2 and 3: `GUARD_WORKFLOW = None`, and a live read that an organization ruleset requires the guard workflow at a recorded commit on `main`, with a merge queue rule of the repository's own ruleset that merges every entry alone and only on its own passing checks (`ALLGREEN`, group size 1, build concurrency 1; §5, "Encoder"; the queue rule cannot be an organization rule, and the lock proves only that it was present, with those settings, at each of its reads). Exactly one of `GUARD_APP_ID` and `GUARD_WORKFLOW` may be recorded; with neither, as committed, `require_guard_enforced` refuses before any read of its own. Needed only if the maintainers accept the ruleset mechanism. The listing it is tested against is SYNTHETIC. [experiment X14]: must be replaced by the recorded live response before activation. | revert; the locks stay shut |
 | 6 | axiom-encode | **Activation**: turn the switch on; update `docs/reviewed-pr-promotion.md` | flip the switch back; the required check stays |
 
 ### Activation checklist
@@ -1395,10 +1516,22 @@ Steps marked **M** need repository or organisation settings. Only a maintainer
 can do them. Maintainers must accept the proposed promotion order before
 activation.
 
-1. **M** Create the guard App, install it on `rulespec-us`, and store its key in
-   an axiom-encode environment restricted to branch `main`.
+1. **M** **On hold. Do not carry out this step as written.**
+   `docs/merge-guard-key-protection.md` (its second paragraph) suspends it:
+   nobody may store the guard App key or set `MERGE_GUARD_RUNNER_ENABLED`,
+   shadow mode included, until Max chooses a mechanism and complement,
+   maintainers implement them, and a fresh independent review verifies the
+   whole key-exposure set (§6 of that document), which covers every workflow
+   that can reach the key. Until then follow #2257, not this step; #2237
+   replaces it. The superseded instruction, kept only so that references to
+   "step 1" stay readable: create the guard App, install it on `rulespec-us`,
+   and store its key in an axiom-encode environment restricted to branch
+   `main`. A branch restriction alone does not protect the key.
 2. Merge changes 1-4, including 2b. Publish the check in shadow mode: visible,
-   not required.
+   not required. **The shadow check is on hold with step 1:** it needs the
+   guard App's key, and `docs/merge-guard-key-protection.md` forbids storing
+   the key or setting `MERGE_GUARD_RUNNER_ENABLED`, shadow mode included,
+   until its conditions are met (#2257).
    Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
 3. Run cases 15-18 live on a throwaway PR and confirm every verdict.
 4. **M** Add the guard's check with the guard App's `app_id` to the required
@@ -1420,8 +1553,50 @@ Steps 4 and 7 are separate reviewed changes, and step 4 comes first. That
 preserves proposed constraint D2d.
 
 If the maintainers accept the ruleset mechanism instead of the guard App
-(change 5c), steps 1, 4 and 7 change as that proposal describes, and step 7
-gains these conditions before change 6 merges:
+(change 5c), the checklist above does not apply as written. The ruleset
+mechanism and its activation checklist are in **#2287**
+(`docs/merge-guard-key-protection.md` and the activation checklist of this
+document as that pull request rewrites them, with the experiment runbook
+`docs/merge-guard-ruleset-experiment.md` that it adds). They are not on
+`main`: the recommendation of `docs/merge-guard-key-protection.md` on `main`
+(its section 4) is the App-based mechanism (b), not the ruleset. Follow the
+checklist of #2287 once it has merged; until then nothing here can be
+activated in the ruleset form.
+
+The conditions below are what this lock adds to that checklist before
+change 6 merges. X14 alone is not enough: it records only the shape of the
+listing. The lock's safety also rests on three behaviours of GitHub that the
+lock cannot read, and #2287 has an experiment for each. Each of them must
+have the result `pass`, recorded as #2287 prescribes, before change 6
+merges:
+
+- **The pin (X1 of #2287; X5 for the merge group).** A required workflow
+  pinned to a commit SHA runs exactly the file of that commit, also after
+  the source branch moves, for a pull request and for a `merge_group` run.
+  If it fails, the recorded SHA set of `GUARD_WORKFLOW` is evidence of
+  nothing, and the lock must stay shut. X19 (a pin move with an open green
+  pull request) is recorded with it.
+- **A missing run blocks (X8 of #2287, parts (a) and (b)).** A head that
+  gets no run of the required workflow (a push by a job token, `[skip
+  ci]`) cannot merge. If it fails, a head with no guard run can merge while
+  this lock shows the rule as present.
+- **A dismissal and the queue (X15 of #2287, parts (a), (b) and (c)).** A
+  pull request whose approval is dismissed before or in the queue does not
+  merge, and the queue merges only after the guard's merge-group job has
+  ended. The queue of that experiment has the settings this lock requires
+  (X5: minimum and maximum group size 1, build concurrency 1). If it
+  fails, the merge-time judgment that this lock relies on does not exist.
+- **The queue's settings.** A `rulespec-us` administrator sets the merge
+  queue to: only merge non-failing pull requests (`ALLGREEN`), minimum and
+  maximum group size 1, build concurrency 1. The lock refuses any other
+  value at every read (§5, "Encoder"); the status-check timeout and the
+  merge method are #2287's to state.
+- **No classic merge queue.** A `rulespec-us` administrator confirms that
+  the classic branch protection of `main` has no merge queue. The lock
+  cannot see one, and which queue governs when both exist is not known;
+  the question belongs in the owner experiment of #2287 as one more
+  recorded observation. Until it is answered there, a classic queue beside
+  the ruleset's queue is a reason not to activate.
 
 - Record the live response of
   `GET /repos/TheAxiomFoundation/rulespec-us/rules/branches/main` with the
@@ -1484,8 +1659,10 @@ need approval credentials that agents cannot hold, for example a hardware-backed
 signed approval (option c in §3) or a separate approver account.
 
 **Residual risk the owners would accept on activation (proposed; they have
-not accepted it): an enrolled owner who is also a repository administrator.** Lock 3 of §5 is read again, never cached,
-at five points of a signing run: the preflight (start and end), the root
+not accepted it): an enrolled owner who is also a repository administrator.** Lock 3 of §5 is read again by the encoder, which keeps no local copy
+between reads (GitHub serves the anonymous branch record with
+`cache-control: public, max-age=60, s-maxage=60`, so an answer can be up to
+about a minute old), at five points of a signing run: the preflight (start and end), the root
 provisioner (start and end), before validation, immediately before signing,
 and before publication. After publication only the GitHub setting protects
 the merge. Today the approval before signing is enforced by encoder code,

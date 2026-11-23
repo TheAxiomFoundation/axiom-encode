@@ -7,15 +7,18 @@ Exactly one of ``GUARD_APP_ID`` and ``GUARD_WORKFLOW`` may be recorded. Both
 are ``None`` on encoder main; on-state behaviour is reached in tests only, by
 patching the constants.
 
-The listing with the ``workflows`` rule is SYNTHETIC. [experiment X14]: it
-must be replaced by the recorded live response before activation.
+The listing with the ``workflows`` rule is SYNTHETIC.
+[experiment X14]: must be replaced by the recorded live response before
+activation.
 """
 
 from __future__ import annotations
 
+import ast
 import copy
 import itertools
 import json
+import re
 import urllib.error
 from pathlib import Path
 
@@ -131,11 +134,47 @@ def test_the_workflows_listing_is_marked_synthetic_everywhere():
     for path in (
         "src/axiom_encode/reviewed_pr_admission.py",
         "docs/content-bound-merge-guard.md",
-        "tests/test_guard_ruleset_lock.py",
     ):
         text = flat(path)
         assert "SYNTHETIC" in text, path
         assert X14 in text, path
+    # This file: the disclosure must stand in the MODULE DOCSTRING. A scan of
+    # the file's own text would find the two strings in this test and in the
+    # constant ``X14`` above, also with the docstring removed.
+    for problem in _disclosure_problems(Path(__file__).read_text("utf-8")):
+        raise AssertionError(problem)
+
+
+def _disclosure_problems(source: str) -> list[str]:
+    """What is missing from the module docstring of a test module's source."""
+
+    docstring = ast.get_docstring(ast.parse(source)) or ""
+    text = " ".join(docstring.split())
+    return [
+        f"the module docstring does not say {needed!r}"
+        for needed in ("SYNTHETIC", X14)
+        if needed not in text
+    ]
+
+
+def test_the_disclosure_check_reads_the_module_docstring_and_nothing_else():
+    """Review of ``e2d12f5c2``: the earlier check scanned this file's whole
+    text, which names both strings outside the docstring too."""
+
+    source = Path(__file__).read_text("utf-8")
+    assert _disclosure_problems(source) == []
+    tree = ast.parse(source)
+    first = tree.body[0]
+    assert isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+    lines = source.splitlines(keepends=True)
+    without = "".join(lines[: first.lineno - 1] + lines[first.end_lineno :])
+    # The strings are still in the text, and the check is not fooled.
+    assert "SYNTHETIC" in without and X14 in " ".join(without.split())
+    assert len(_disclosure_problems(without)) == 2
+    # A docstring that names only one of the two is one problem.
+    assert len(_disclosure_problems('"""SYNTHETIC only."""\n' + without)) == 1
+    # A string that is not the docstring does not count.
+    assert len(_disclosure_problems("import os\n" + source)) == 2
 
 
 def test_the_synthetic_listing_uses_only_fields_of_the_rest_schema():
@@ -155,7 +194,20 @@ def test_the_synthetic_listing_uses_only_fields_of_the_rest_schema():
     recorded = RECORDED["reads"][1]["response"][0]
     assert set(queue) == set(recorded)
     assert queue["type"] == recorded["type"] == "merge_queue"
-    assert queue["parameters"] == recorded["parameters"]
+    # ... and with the two size parameters set to what the lock requires. The
+    # recorded queue of axiom-encode builds and merges up to 5 entries.
+    assert set(queue["parameters"]) == set(recorded["parameters"])
+    assert set(queue["parameters"]) == admission._MERGE_QUEUE_PARAMETER_FIELDS
+    assert queue["parameters"] == recorded["parameters"] | {
+        "max_entries_to_build": 1,
+        "max_entries_to_merge": 1,
+    }
+    assert recorded["parameters"]["max_entries_to_build"] == 5
+    assert recorded["parameters"]["max_entries_to_merge"] == 5
+    assert (
+        "`max_entries_to_build` and `max_entries_to_merge` changed"
+        in (SYNTHETIC["note"])
+    )
 
 
 # --- lock 2: exactly one form is recorded ---------------------------------------
@@ -448,10 +500,6 @@ def _entry(listing_):
     return listing_[0]["parameters"]["workflows"][0]
 
 
-def _null_ref(rules):
-    _entry(rules)["ref"] = None
-
-
 def _not_enforced_on_create(rules):
     rules[0]["parameters"]["do_not_enforce_on_create"] = False
 
@@ -483,23 +531,41 @@ def _queue_parameters(**changes):
     return change
 
 
+def _queue_without_parameter(name):
+    def change(rules):
+        del rules[1]["parameters"][name]
+
+    return change
+
+
+def _second_queue(position, **parameters):
+    """One more queue rule of the same repository, with other parameters."""
+
+    def change(rules):
+        queue = copy.deepcopy(rules[1]) | {"ruleset_id": 99}
+        queue["parameters"].update(parameters)
+        rules.insert(position, queue)
+
+    return change
+
+
 @pytest.mark.parametrize(
     "change",
     [
-        _null_ref,
         _not_enforced_on_create,
         _queue_first,
         _two_queues,
         _other_rules,
-        # Decision (review round 1, P2-1): the queue's parameters are not
-        # checked. None of them lets a merge pass the merge-group check
-        # without a judged tree; see ``_require_guard_workflow_ruleset``.
-        _queue_parameters(grouping_strategy="HEADGREEN"),
+        # The queue parameters that the lock does not require (review of
+        # ``e2d12f5c2``; see ``_require_guard_workflow_ruleset``).
         _queue_parameters(merge_method="SQUASH"),
-        _queue_parameters(max_entries_to_merge=100, min_entries_to_merge=2),
+        _queue_parameters(merge_method="REBASE"),
         _queue_parameters(check_response_timeout_minutes=1),
-        _queue_parameters(future_parameter=1),
-        _queue_with(parameters={}),
+        _queue_parameters(check_response_timeout_minutes=360),
+        _queue_parameters(min_entries_to_merge_wait_minutes=0),
+        _queue_without_parameter("merge_method"),
+        _queue_without_parameter("check_response_timeout_minutes"),
+        _queue_without_parameter("min_entries_to_merge_wait_minutes"),
         _queue_with(ruleset_id=1),
     ],
 )
@@ -612,7 +678,24 @@ TWO = "exactly one active rule that requires workflows; the branch rules show 2"
 SOURCE = "not from a ruleset of the organization TheAxiomFoundation$"
 SHAPE = "required workflows rule has an unknown shape"
 IDENTITY = r"not the recorded merge guard workflow \(repository id or path differs\)"
-REF_FOLLOWING = "follows a ref; only a pinned commit SHA is accepted"
+REF_FOLLOWING = (
+    "the required workflow entry has a ref; only a pinned commit SHA with no ref "
+    "is accepted$"
+)
+QUEUE_PARAMETER = "a merge queue rule of main has an unknown parameter$"
+
+
+def _unjudged(name, wanted):
+    return (
+        "a merge queue rule of main can merge a pull request without its own "
+        f"passing merge-group check: {name} must be {wanted}$"
+    )
+
+
+STRATEGY = _unjudged("grouping_strategy", '"ALLGREEN"')
+BUILD = _unjudged("max_entries_to_build", 1)
+MIN_MERGE = _unjudged("min_entries_to_merge", 1)
+MAX_MERGE = _unjudged("max_entries_to_merge", 1)
 NOT_PINNED = "is not pinned to a commit SHA$"
 NOT_RECORDED = r"pinned to a commit that is not recorded \(GUARD_WORKFLOW\)"
 QUEUE = "main does not require a merge queue"
@@ -755,11 +838,26 @@ REFUSALS = {
     "ref-only": (_entry_without("sha", ref="refs/heads/main"), REF_FOLLOWING),
     "ref-next-to-a-recorded-sha": (_entry_with(ref="refs/heads/main"), REF_FOLLOWING),
     "ref-that-is-a-recorded-sha": (_entry_without("sha", ref=SHA_A), REF_FOLLOWING),
+    "ref-that-is-a-recorded-sha-next-to-it": (_entry_with(ref=SHA_A), REF_FOLLOWING),
     "empty-ref": (_entry_with(ref=""), REF_FOLLOWING),
     "false-ref": (_entry_with(ref=False), REF_FOLLOWING),
+    # Review of ``e2d12f5c2``, blocking 2: the PRESENCE of ``ref`` refuses.
+    # ``"ref": null`` next to the recorded SHA was accepted before; the
+    # schema's ``ref`` is an optional string that is not nullable.
+    "null-ref-next-to-a-recorded-sha": (_entry_with(ref=None), REF_FOLLOWING),
+    "null-ref-only": (_entry_without("sha", ref=None), REF_FOLLOWING),
+    "zero-ref": (_entry_with(ref=0), REF_FOLLOWING),
+    "true-ref": (_entry_with(ref=True), REF_FOLLOWING),
+    "list-ref": (_entry_with(ref=[]), REF_FOLLOWING),
+    "list-ref-with-a-name": (_entry_with(ref=["refs/heads/main"]), REF_FOLLOWING),
+    "dict-ref": (_entry_with(ref={}), REF_FOLLOWING),
+    "dict-ref-with-a-sha": (_entry_with(ref={"sha": SHA_A}), REF_FOLLOWING),
+    "space-ref": (_entry_with(ref=" "), REF_FOLLOWING),
+    "default-branch-ref": (_entry_with(ref="main"), REF_FOLLOWING),
+    "tag-ref": (_entry_with(ref="refs/tags/v1"), REF_FOLLOWING),
     "no-sha": (_entry_without("sha"), NOT_PINNED),
     "null-sha": (_entry_with(sha=None), NOT_PINNED),
-    "null-sha-and-null-ref": (_entry_with(sha=None, ref=None), NOT_PINNED),
+    "null-sha-and-null-ref": (_entry_with(sha=None, ref=None), REF_FOLLOWING),
     "short-sha": (_entry_with(sha=SHA_A[:39]), NOT_PINNED),
     "abbreviated-sha": (_entry_with(sha=SHA_A[:7]), NOT_PINNED),
     "long-sha": (_entry_with(sha=SHA_A + "a"), NOT_PINNED),
@@ -895,6 +993,105 @@ REFUSALS = {
     "queue-float-ruleset-id": (_queue_with(ruleset_id=4343.0), QUEUE_SOURCE),
     "queue-zero-ruleset-id": (_queue_with(ruleset_id=0), QUEUE_SOURCE),
     "queue-negative-ruleset-id": (_queue_with(ruleset_id=-4343), QUEUE_SOURCE),
+    # Review of ``e2d12f5c2``, blocking 1: the queue must make every entry
+    # merge alone and only on its own passing merge-group checks.
+    "queue-headgreen": (_queue_parameters(grouping_strategy="HEADGREEN"), STRATEGY),
+    "queue-strategy-case": (_queue_parameters(grouping_strategy="allgreen"), STRATEGY),
+    "queue-strategy-with-space": (
+        _queue_parameters(grouping_strategy="ALLGREEN "),
+        STRATEGY,
+    ),
+    "queue-strategy-null": (_queue_parameters(grouping_strategy=None), STRATEGY),
+    "queue-strategy-list": (
+        _queue_parameters(grouping_strategy=["ALLGREEN"]),
+        STRATEGY,
+    ),
+    "queue-strategy-true": (_queue_parameters(grouping_strategy=True), STRATEGY),
+    "queue-strategy-unknown": (
+        _queue_parameters(grouping_strategy="ANYGREEN"),
+        STRATEGY,
+    ),
+    "queue-without-strategy": (_queue_without_parameter("grouping_strategy"), STRATEGY),
+    "queue-empty-parameters": (_queue_with(parameters={}), STRATEGY),
+    "queue-merges-two": (_queue_parameters(max_entries_to_merge=2), MAX_MERGE),
+    "queue-merges-three": (_queue_parameters(max_entries_to_merge=3), MAX_MERGE),
+    "queue-merges-a-hundred": (
+        _queue_parameters(max_entries_to_merge=100, min_entries_to_merge=1),
+        MAX_MERGE,
+    ),
+    "queue-merges-zero": (_queue_parameters(max_entries_to_merge=0), MAX_MERGE),
+    "queue-merges-true": (_queue_parameters(max_entries_to_merge=True), MAX_MERGE),
+    "queue-merges-one-as-float": (
+        _queue_parameters(max_entries_to_merge=1.0),
+        MAX_MERGE,
+    ),
+    "queue-merges-one-as-string": (
+        _queue_parameters(max_entries_to_merge="1"),
+        MAX_MERGE,
+    ),
+    "queue-merges-null": (_queue_parameters(max_entries_to_merge=None), MAX_MERGE),
+    "queue-merges-list": (_queue_parameters(max_entries_to_merge=[1]), MAX_MERGE),
+    "queue-without-max-merge": (
+        _queue_without_parameter("max_entries_to_merge"),
+        MAX_MERGE,
+    ),
+    "queue-minimum-two": (_queue_parameters(min_entries_to_merge=2), MIN_MERGE),
+    "queue-minimum-zero": (_queue_parameters(min_entries_to_merge=0), MIN_MERGE),
+    "queue-minimum-true": (_queue_parameters(min_entries_to_merge=True), MIN_MERGE),
+    "queue-minimum-null": (_queue_parameters(min_entries_to_merge=None), MIN_MERGE),
+    "queue-without-minimum": (
+        _queue_without_parameter("min_entries_to_merge"),
+        MIN_MERGE,
+    ),
+    "queue-builds-two": (_queue_parameters(max_entries_to_build=2), BUILD),
+    "queue-builds-five-as-recorded": (_queue_parameters(max_entries_to_build=5), BUILD),
+    "queue-builds-zero": (_queue_parameters(max_entries_to_build=0), BUILD),
+    "queue-builds-true": (_queue_parameters(max_entries_to_build=True), BUILD),
+    "queue-builds-one-as-string": (_queue_parameters(max_entries_to_build="1"), BUILD),
+    "queue-builds-null": (_queue_parameters(max_entries_to_build=None), BUILD),
+    "queue-without-build": (_queue_without_parameter("max_entries_to_build"), BUILD),
+    "queue-headgreen-of-three": (
+        _queue_parameters(grouping_strategy="HEADGREEN", max_entries_to_merge=3),
+        STRATEGY,
+    ),
+    "queue-recorded-parameters-of-axiom-encode": (
+        _queue_with(parameters=dict(RECORDED_QUEUE["parameters"])),
+        BUILD,
+    ),
+    "queue-unknown-parameter": (_queue_parameters(future_parameter=1), QUEUE_PARAMETER),
+    "queue-unknown-null-parameter": (
+        _queue_parameters(future_parameter=None),
+        QUEUE_PARAMETER,
+    ),
+    "queue-parameter-name-case": (
+        _queue_parameters(Grouping_Strategy="HEADGREEN"),
+        QUEUE_PARAMETER,
+    ),
+    "queue-group-size-under-another-name": (
+        _queue_parameters(max_group_size=5),
+        QUEUE_PARAMETER,
+    ),
+    # A second queue rule that could merge unjudged entries, in any position.
+    "a-second-queue-headgreen-listed-last": (
+        _second_queue(2, grouping_strategy="HEADGREEN"),
+        STRATEGY,
+    ),
+    "a-second-queue-headgreen-listed-first": (
+        _second_queue(1, grouping_strategy="HEADGREEN"),
+        STRATEGY,
+    ),
+    "a-second-queue-of-two-listed-last": (
+        _second_queue(2, max_entries_to_merge=2),
+        MAX_MERGE,
+    ),
+    "a-second-queue-of-two-listed-before-the-workflows-rule": (
+        _second_queue(0, max_entries_to_merge=2),
+        MAX_MERGE,
+    ),
+    "a-second-queue-with-an-unknown-parameter": (
+        _second_queue(2, bypass=True),
+        QUEUE_PARAMETER,
+    ),
     # Every merge queue rule of the listing is held to this, in any position.
     "a-second-queue-of-type-alone-listed-last": (
         _append({"type": "merge_queue"}),
@@ -925,6 +1122,267 @@ def test_every_other_listing_refuses_and_names_what_is_wrong(ruleset_on, world, 
     assert fetch.calls == [RULES]
     with pytest.raises(AdmissionError, match=message):
         admission.verify_reviewed_pr(SELECTOR, fetch=Recorder(world))
+
+
+# --- hostile listings (review of ``e2d12f5c2``) -----------------------------------
+
+_MISSING = object()
+REF_VALUES = {
+    "null": None,
+    "empty": "",
+    "space": " ",
+    "zero": 0,
+    "false": False,
+    "true": True,
+    "list": [],
+    "list-with-sha": [SHA_A],
+    "dict": {},
+    "dict-with-sha": {"sha": SHA_A},
+    "branch": "main",
+    "full-ref": "refs/heads/main",
+    "recorded-sha": SHA_A,
+    "float": 1.5,
+}
+
+
+def _hostile_listings():
+    """Name -> (pages, expected refusal or None for "any refusal")."""
+
+    cases = {}
+
+    def one_page(name, rules, message=None):
+        cases[name] = ({RULES: rules}, message)
+
+    # ``ref`` present, in every form, with and without the recorded SHA.
+    for label, value in REF_VALUES.items():
+        rules = listing()
+        _entry(rules)["ref"] = value
+        one_page(f"ref-{label}-next-to-the-recorded-sha", rules, REF_FOLLOWING)
+        rules = listing()
+        del _entry(rules)["sha"]
+        _entry(rules)["ref"] = value
+        one_page(f"ref-{label}-without-a-sha", rules, REF_FOLLOWING)
+    # Unknown keys beside a good pin.
+    for key in ("ref_name", "branch", "sha256", "REF", "ref ", "commit", "tag"):
+        rules = listing()
+        _entry(rules)[key] = "main"
+        one_page(f"entry-key-{key!r}", rules, "entry has an unknown field")
+    # Duplicated workflow entries, identical and not.
+    for label, second in {
+        "identical": GOOD_ENTRY,
+        "null-ref": GOOD_ENTRY | {"ref": None},
+        "other-recorded-sha": GOOD_ENTRY | {"sha": SHA_B},
+        "unrecorded-sha": GOOD_ENTRY | {"sha": "c3" * 20},
+        "other-repository": GOOD_ENTRY | {"repository_id": 1},
+    }.items():
+        for order in ("first", "second"):
+            rules = listing()
+            entries = [dict(GOOD_ENTRY), dict(second)]
+            rules[0]["parameters"]["workflows"] = (
+                entries if order == "second" else entries[::-1]
+            )
+            one_page(f"duplicate-entry-{label}-{order}", rules, "it names 2$")
+    # Two rules of type workflows.
+    for label, changes in {
+        "identical": {},
+        "null-ref-entry": {"parameters": {"workflows": [GOOD_ENTRY | {"ref": None}]}},
+        "repository-ruleset": {
+            "ruleset_source_type": "Repository",
+            "ruleset_source": "TheAxiomFoundation/rulespec-us",
+        },
+        "other-ruleset-id": {"ruleset_id": 1},
+        "empty-parameters": {"parameters": {}},
+    }.items():
+        for position in (0, 1, 2):
+            rules = listing()
+            rules.insert(position, copy.deepcopy(rules[0]) | changes)
+            one_page(f"two-workflows-rules-{label}-at-{position}", rules, TWO)
+    # Repository id types.
+    for label, value in {
+        "string": str(REPOSITORY_ID),
+        "float": float(REPOSITORY_ID),
+        "true": True,
+        "false": False,
+        "null": None,
+        "list": [REPOSITORY_ID],
+        "dict": {"id": REPOSITORY_ID},
+        "negative": -REPOSITORY_ID,
+        "zero": 0,
+        "off-by-one": REPOSITORY_ID + 1,
+        "missing": _MISSING,
+    }.items():
+        rules = listing()
+        if value is _MISSING:
+            del _entry(rules)["repository_id"]
+        else:
+            _entry(rules)["repository_id"] = value
+        one_page(f"repository-id-{label}", rules, IDENTITY)
+    # ``do_not_enforce_on_create``.
+    for label, value in {
+        "true": True,
+        "null": None,
+        "zero": 0,
+        "one": 1,
+        "string-false": "false",
+        "empty-string": "",
+        "list": [],
+        "dict": {},
+    }.items():
+        rules = listing()
+        rules[0]["parameters"]["do_not_enforce_on_create"] = value
+        one_page(f"not-enforced-on-create-{label}", rules, ON_CREATE)
+    # Pagination: the hostile part is on the second page.
+    filler = [dict(FILLER) for _ in range(98)]
+
+    def two_pages(name, second_page, message):
+        cases[name] = ({RULES: filler + listing(), RULES_2: second_page}, message)
+
+    good = listing()
+    two_pages("page-2-second-workflows-rule", [good[0]], TWO)
+    two_pages(
+        "page-2-second-workflows-rule-with-a-null-ref",
+        [copy.deepcopy(good[0]) | {"parameters": {"workflows": [{"ref": None}]}}],
+        TWO,
+    )
+    for label, parameters, message in (
+        ("headgreen", {"grouping_strategy": "HEADGREEN"}, STRATEGY),
+        ("of-two", {"max_entries_to_merge": 2}, MAX_MERGE),
+        ("building-two", {"max_entries_to_build": 2}, BUILD),
+        ("unknown-parameter", {"future": 1}, QUEUE_PARAMETER),
+    ):
+        queue = copy.deepcopy(good[1]) | {"ruleset_id": 77}
+        queue["parameters"].update(parameters)
+        two_pages(f"page-2-second-queue-{label}", [queue], message)
+    two_pages("page-2-queue-of-type-alone", [{"type": "merge_queue"}], QUEUE_SHAPE)
+    two_pages("page-2-rule-without-type", [{"ruleset_id": 1}], "has no type")
+    # The pinned rule itself on page 2, with a hostile entry.
+    for label, value in (("null", None), ("empty", ""), ("branch", "main")):
+        rules = listing()
+        _entry(rules)["ref"] = value
+        cases[f"page-2-pinned-rule-with-a-{label}-ref"] = (
+            {
+                RULES: [dict(FILLER) for _ in range(99)] + [rules[1]],
+                RULES_2: [rules[0]],
+            },
+            REF_FOLLOWING,
+        )
+    return cases
+
+
+HOSTILE = _hostile_listings()
+
+
+def test_the_hostile_corpus_is_large_and_its_control_passes(ruleset_on, world):
+    assert len(HOSTILE) == 90
+    assert sum(name.startswith("ref-") for name in HOSTILE) == 2 * len(REF_VALUES)
+    assert sum(name.startswith("page-2-") for name in HOSTILE) >= 10
+    # The control: the same reader accepts the unchanged listing, on one page
+    # and across two.
+    assert enforced(world.__getitem__) == ACCEPTED
+    rules = listing()
+    world[RULES] = [dict(FILLER) for _ in range(99)] + [rules[1]]
+    world[RULES_2] = [rules[0]]
+    assert enforced(world.__getitem__) == ACCEPTED
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE))
+def test_no_hostile_listing_is_accepted(ruleset_on, world, name):
+    pages, message = HOSTILE[name]
+    world.update(copy.deepcopy(pages))
+    fetch = Recorder(world)
+    with pytest.raises(AdmissionError, match=message):
+        enforced(fetch)
+    assert fetch.calls == sorted(pages)
+    # Admission and revalidation refuse it too.
+    with pytest.raises(AdmissionError, match=message):
+        admission.verify_reviewed_pr(SELECTOR, fetch=Recorder(world))
+
+
+QUEUE_GRID = {
+    "grouping_strategy": (
+        _MISSING,
+        "ALLGREEN",
+        "HEADGREEN",
+        "allgreen",
+        "",
+        None,
+        True,
+        1,
+        ["ALLGREEN"],
+    ),
+    "max_entries_to_merge": (_MISSING, 1, 0, 2, 3, 100, True, 1.0, "1", None, [1]),
+    "min_entries_to_merge": (_MISSING, 1, 0, 2, True, 1.0, "1", None),
+    "max_entries_to_build": (_MISSING, 1, 0, 2, 5, True, 1.0, "1", None),
+}
+
+
+def _exactly(value, wanted):
+    return value is not _MISSING and type(value) is type(wanted) and value == wanted
+
+
+def test_the_lock_accepts_exactly_one_queue_configuration(ruleset_on, world):
+    """Every combination of the four required parameters, 7128 queues.
+
+    The lock accepts a queue only when it merges every entry alone
+    (``max_entries_to_merge`` and ``min_entries_to_merge`` exactly 1), on its
+    own passing checks (``ALLGREEN``), with a build concurrency of 1. So no
+    accepted queue is one in which GitHub's documented rules merge a pull
+    request whose own merge-group check did not pass: that needs
+    ``HEADGREEN`` and a group of two or more.
+    """
+
+    names = list(QUEUE_GRID)
+    accepted = []
+    total = 0
+    for values in itertools.product(*QUEUE_GRID.values()):
+        total += 1
+        rules = listing()
+        for name, value in zip(names, values):
+            if value is _MISSING:
+                del rules[1]["parameters"][name]
+            else:
+                rules[1]["parameters"][name] = value
+        world[RULES] = rules
+        try:
+            result = enforced(world.__getitem__)
+        except AdmissionError as refusal:
+            assert "a merge queue rule of main can merge a pull request" in str(refusal)
+            continue
+        assert result == ACCEPTED
+        accepted.append(dict(zip(names, values)))
+    assert total == 9 * 11 * 8 * 9 == 7128
+    assert accepted == [dict(admission._MERGE_QUEUE_REQUIRED)]
+    (only,) = accepted
+    assert all(
+        _exactly(only[name], wanted) for name, wanted in admission._MERGE_QUEUE_REQUIRED
+    )
+    assert only["grouping_strategy"] == "ALLGREEN" and only["max_entries_to_merge"] == 1
+
+
+def test_a_second_queue_rule_is_held_to_the_same_configuration(ruleset_on, world):
+    # 2 strategies x 3 sizes for each of two queue rules, in both orders: only
+    # the pair in which BOTH are the required configuration is accepted.
+    options = [
+        {"grouping_strategy": strategy, "max_entries_to_merge": size}
+        for strategy in ("ALLGREEN", "HEADGREEN")
+        for size in (1, 2, 3)
+    ]
+    accepted = 0
+    for first, second in itertools.product(options, repeat=2):
+        rules = listing()
+        rules[1]["parameters"].update(first)
+        other = copy.deepcopy(listing()[1]) | {"ruleset_id": 9}
+        other["parameters"].update(second)
+        rules.append(other)
+        world[RULES] = rules
+        good = first == second == options[0]
+        if good:
+            assert enforced(world.__getitem__) == ACCEPTED
+            accepted += 1
+        else:
+            with pytest.raises(AdmissionError, match="can merge a pull request"):
+                enforced(world.__getitem__)
+    assert accepted == 1
 
 
 def test_a_true_repository_id_is_not_the_recorded_id_one(monkeypatch, world):
@@ -982,6 +1440,14 @@ def test_the_recorded_live_queue_rule_is_well_formed_for_its_own_repository(
         "ruleset_source": SELECTOR.repository
     }
     assert world[RULES][1]["ruleset_id"] == 26573200
+    # Its rule shape and source are accepted; its parameters are not: the
+    # queue of axiom-encode builds and merges up to 5 entries.
+    with pytest.raises(AdmissionError, match=BUILD):
+        enforced(world.__getitem__)
+    world[RULES][1]["parameters"] |= {
+        "max_entries_to_build": 1,
+        "max_entries_to_merge": 1,
+    }
     assert enforced(world.__getitem__) == ACCEPTED
 
 
@@ -1012,6 +1478,126 @@ def test_the_limits_of_the_queue_half_are_stated_where_the_lock_is_described():
         design
     )
     assert "This confirmation happens once" in design
+
+
+def test_the_queue_safety_argument_is_the_final_tree_binding_and_no_more():
+    """Review of ``e2d12f5c2``, blocking 1: the text, where the lock is
+    described. The earlier text said that a group of two or more pull requests
+    always fails at the guard and that no queue parameter matters."""
+
+    def flat(path):
+        text = (REPOSITORY_ROOT / path).read_text("utf-8").replace("#", " ")
+        return " ".join(text.replace(">", " ").split())
+
+    source = flat("src/axiom_encode/reviewed_pr_admission.py")
+    design = flat("docs/content-bound-merge-guard.md")
+    for text in (source, design):
+        # The withdrawn claims are gone.
+        assert "parameters are NOT checked" not in text
+        assert "parameters are not checked" not in text
+        assert "has another tree or another base and fails at the guard" not in text
+        assert "has another tree or another base and fails" not in text
+        assert "no value lets a merge pass" not in text
+        assert "no parameter value lets a merge pass" not in text
+        # What the evaluation proves, and what it does not.
+        assert "does not prove that the group holds only that pull request" in (
+            text.replace("It does not", "does not")
+        )
+        assert "has read only the second pull request" in text
+        assert "519603227" in text
+        assert "979124f10" not in text
+        assert "experiment X5" in text
+        # What safety requires, and that the lock refuses the rest.
+        assert "own fresh passing judgment at merge time" in text
+        for name, wanted in admission._MERGE_QUEUE_REQUIRED:
+            assert name in text, name
+    assert "FINAL TREE" in source and "**final tree**" in design
+    assert (
+        "EVERY queue entry that merges must have its own fresh passing judgment "
+        "at merge time"
+    ) in source
+    assert (
+        "**every queue entry that merges must have its own fresh passing "
+        "judgment at merge time**"
+    ) in design
+    assert "A model run, not evidence about GitHub" in design
+
+
+def test_the_ruleset_activation_conditions_cite_2287_and_its_experiments():
+    """Review of ``e2d12f5c2``, blocking 1, second part."""
+
+    text = (REPOSITORY_ROOT / "docs/content-bound-merge-guard.md").read_text("utf-8")
+    start = text.index("If the maintainers accept the ruleset mechanism instead")
+    end = text.index("What fixes the order.", start)
+    section = " ".join(text[start:end].split())
+    assert "are in **#2287**" in section
+    assert "`docs/merge-guard-ruleset-experiment.md`" in section
+    # The document on main recommends the App mechanism; the section says so
+    # and does not send the reader there for the ruleset steps.
+    assert "is the App-based mechanism (b), not the ruleset" in section
+    assert "as that proposal describes" not in section
+    assert "X14 alone is not enough" in section
+    for needed in (
+        "**The pin (X1 of #2287; X5 for the merge group).**",
+        "**A missing run blocks (X8 of #2287, parts (a) and (b)).**",
+        "**A dismissal and the queue (X15 of #2287, parts (a), (b) and (c)).**",
+        "must have the result `pass`",
+        "only merge non-failing pull requests (`ALLGREEN`), minimum and maximum "
+        "group size 1, build concurrency 1",
+    ):
+        assert needed in section, needed
+    assert X14 in section
+
+
+def test_the_ref_rule_is_stated_as_presence_where_the_lock_is_described():
+    """Review of ``e2d12f5c2``, blocking 2: the text follows the code."""
+
+    def flat(path):
+        text = (REPOSITORY_ROOT / path).read_text("utf-8").replace("#", " ")
+        return " ".join(text.split())
+
+    source = flat("src/axiom_encode/reviewed_pr_admission.py")
+    design = flat("docs/content-bound-merge-guard.md")
+    assert "An entry with a ``ref`` that is not null refuses" not in source
+    assert "An entry that HAS a ``ref`` key refuses, whatever its value" in source
+    assert (
+        "no `ref` key (a `ref` key refuses whatever its value, `null` included"
+    ) in design
+    for text in (source, design):
+        assert "optional string that is not nullable" in text
+    code = Path(admission.__file__).read_text()
+    assert code.count('if "ref" in entry:') == 1
+    assert 'entry.get("ref")' not in code
+
+
+def test_the_zero_read_claim_names_require_guard_enforced(world):
+    """Review of ``e2d12f5c2``, non-blocking: with neither form recorded the
+    lock function reads nothing; admission reads the signing run first."""
+
+    fragment = (
+        REPOSITORY_ROOT / "changelog.d/2172-guard-ruleset-lock.added.md"
+    ).read_text()
+    assert "the lane refuses before any read" not in fragment
+    assert (
+        "`require_guard_enforced` refuses before any read of its own (admission "
+        "reads the signing run first and makes no guard read)"
+    ) in fragment
+    design = " ".join(
+        (REPOSITORY_ROOT / "docs/content-bound-merge-guard.md").read_text().split()
+    )
+    assert "the lane refuses before any read" not in design
+    assert (
+        "A reviewed-lane run makes no guard read at admission or at revalidation"
+        in (design)
+    )
+    source = " ".join(Path(admission.__file__).read_text().replace("#", " ").split())
+    assert "the lane refuses before any read" not in source
+    # The behaviour the sentences describe, with the committed constants and
+    # lock 1 open.
+    fetch = Recorder(world)
+    with pytest.raises(AdmissionError):
+        enforced(fetch)
+    assert fetch.calls == []
 
 
 def test_the_app_forms_branch_record_never_satisfies_the_ruleset_form(
@@ -1320,8 +1906,12 @@ def test_a_replaced_queue_ruleset_of_the_same_repository_is_not_seen(admitted, w
     """A stated limit, pinned: the record does not name the queue's ruleset.
     Another well-formed queue rule of the same repository passes revalidation."""
     world[RULES][1]["ruleset_id"] += 1
-    world[RULES][1]["parameters"] = {"grouping_strategy": "HEADGREEN"}
+    world[RULES][1]["parameters"]["merge_method"] = "SQUASH"
     assert admission.revalidate_admission(admitted, fetch=Recorder(world)) == admitted
+    # ... but not one that can merge a pull request without its own check.
+    world[RULES][1]["parameters"]["grouping_strategy"] = "HEADGREEN"
+    with pytest.raises(AdmissionError, match=STRATEGY):
+        admission.revalidate_admission(admitted, fetch=Recorder(world))
 
 
 @pytest.mark.parametrize("change", LIVE_CHANGES)
@@ -1510,3 +2100,253 @@ def test_the_lock_state_table_has_exactly_the_expected_admitting_rows():
     # App form: 4 states of the unread rules listing. Ruleset form: 3 states
     # of the unread branch record.
     assert len(admitting) == 4 + 3
+
+
+# --- repeated JSON keys in the response text (independent review of 4c7da64f0) ----
+
+GOOD_RAW = json.dumps(SYNTHETIC["response"], indent=1)
+DUPLICATE = "GitHub response repeats a JSON object key$"
+
+
+def _raw(old: str, new: str) -> str:
+    assert GOOD_RAW.count(old) == 1, old
+    return GOOD_RAW.replace(old, new)
+
+
+RAW_DUPLICATES = {
+    # The reviewer's two inputs: ``json.loads`` keeps the last value.
+    "group-size-five-then-one": _raw(
+        '"max_entries_to_merge": 1',
+        '"max_entries_to_merge": 5, "max_entries_to_merge": 1',
+    ),
+    "queue-type-then-deletion": None,  # built below: a second, weak queue rule
+    "group-size-one-then-five": _raw(
+        '"max_entries_to_merge": 1',
+        '"max_entries_to_merge": 1, "max_entries_to_merge": 5',
+    ),
+    "strategy-headgreen-then-allgreen": _raw(
+        '"grouping_strategy": "ALLGREEN"',
+        '"grouping_strategy": "HEADGREEN", "grouping_strategy": "ALLGREEN"',
+    ),
+    "same-value-twice": _raw(
+        '"grouping_strategy": "ALLGREEN"',
+        '"grouping_strategy": "ALLGREEN", "grouping_strategy": "ALLGREEN"',
+    ),
+    # Nested: the workflow entry, three levels down.
+    "ref-then-absent-by-a-second-sha": _raw(
+        f'"sha": "{SHA_A}"', f'"sha": "{"c3" * 20}", "sha": "{SHA_A}"'
+    ),
+    "repository-id-twice": _raw(
+        f'"repository_id": {REPOSITORY_ID}',
+        f'"repository_id": 1, "repository_id": {REPOSITORY_ID}',
+    ),
+    "workflows-list-twice": _raw(
+        '"workflows": [', '"workflows": [{"path": "x"}], "workflows": ['
+    ),
+    "parameters-twice-in-the-workflows-rule": _raw(
+        '"parameters": {\n   "workflows"',
+        '"parameters": {"do_not_enforce_on_create": true}, "parameters": {\n   "workflows"',
+    ),
+    "source-type-repository-then-organization": _raw(
+        '"ruleset_source_type": "Organization"',
+        '"ruleset_source_type": "Repository", "ruleset_source_type": "Organization"',
+    ),
+    "ruleset-id-twice": _raw(
+        '"ruleset_id": 4242', '"ruleset_id": 1, "ruleset_id": 4242'
+    ),
+    # The same key spelled with an escape is the same key.
+    "escaped-spelling-of-the-same-key": _raw(
+        '"max_entries_to_merge": 1',
+        '"max_entries_to_merge": 5, "max_entries_to_\\u006derge": 1',
+    ),
+    # A repeated key inside a value that the lock otherwise ignores.
+    "duplicate-in-an-unrelated-rule": GOOD_RAW[: GOOD_RAW.rindex("]")]
+    + ', {"type": "deletion", "x": 1, "x": 2}]',
+}
+_WEAK = copy.deepcopy(SYNTHETIC["response"][1])
+_WEAK["parameters"] |= {"grouping_strategy": "HEADGREEN", "max_entries_to_merge": 5}
+RAW_DUPLICATES["queue-type-then-deletion"] = (
+    GOOD_RAW[: GOOD_RAW.rindex("]")]
+    + ", "
+    + json.dumps(_WEAK).replace(
+        '"type": "merge_queue"', '"type": "merge_queue", "type": "deletion"'
+    )
+    + "]"
+)
+
+
+def _serve(monkeypatch, raw: str):
+    requests = []
+
+    class Opener:
+        def open(self, request, timeout):
+            requests.append(request.full_url)
+            return _Response(200, raw.encode())
+
+    monkeypatch.setattr(
+        admission.urllib.request, "build_opener", lambda *handlers: Opener()
+    )
+    return requests
+
+
+@pytest.mark.parametrize("name", sorted(RAW_DUPLICATES))
+def test_a_repeated_key_in_the_listing_text_refuses(ruleset_on, monkeypatch, name):
+    raw = RAW_DUPLICATES[name]
+    # The text is JSON, and the lenient parser would have read it.
+    lenient = json.loads(raw)
+    assert isinstance(lenient, list)
+    requests = _serve(monkeypatch, raw)
+    with pytest.raises(AdmissionError, match=DUPLICATE):
+        enforced(admission.github_json)
+    assert requests == ["https://api.github.com" + RULES]
+
+
+def test_without_the_refusal_the_reviewers_two_texts_would_be_accepted(
+    ruleset_on, monkeypatch
+):
+    """What the refusal is for: read with ``json.loads`` alone, the last value
+    wins, and both texts satisfy the lock."""
+
+    for name in ("group-size-five-then-one", "queue-type-then-deletion"):
+        parsed = json.loads(RAW_DUPLICATES[name])
+        assert enforced({RULES: parsed}.__getitem__) == ACCEPTED, name
+    # The control: the same text without the repetition is accepted by the
+    # production reader, so the refusals above come from the repeated key.
+    requests = _serve(monkeypatch, GOOD_RAW)
+    assert enforced(admission.github_json) == ACCEPTED
+    assert len(requests) == 1
+
+
+def test_the_unique_key_reader_replaces_only_the_shared_production_reader(
+    ruleset_on, monkeypatch
+):
+    assert admission._SHARED_GITHUB_READER is admission.github_json
+    # A reader that is merely NAMED ``github_json`` (a stand-in set on the
+    # module) is an injected reader: it is called, not replaced.
+    calls = []
+
+    def stand_in(path):
+        calls.append(path)
+        return listing()
+
+    monkeypatch.setattr(admission, "github_json", stand_in)
+    assert enforced(admission.github_json) == ACCEPTED
+    assert calls == [RULES]
+
+
+def test_the_shared_reader_of_the_active_lane_is_unchanged(monkeypatch):
+    """The reviewed lane's reader still parses as before (last value wins):
+    this change gives the active lane no new refusal."""
+
+    _serve(monkeypatch, '{"a": 1, "a": 2, "b": {"c": 1, "c": 3}}')
+    path = "/repos/TheAxiomFoundation/rulespec-us/pulls/1"
+    assert admission.github_json(path) == {"a": 2, "b": {"c": 3}}
+    with pytest.raises(AdmissionError, match=DUPLICATE):
+        admission._github_json_unique_keys(path)
+    _serve(monkeypatch, '{"a": 1, "b": [{"c": 1}, {"c": 1}]}')
+    assert admission._github_json_unique_keys(path) == {
+        "a": 1,
+        "b": [{"c": 1}, {"c": 1}],
+    }
+
+
+def test_the_limits_added_by_the_independent_review_are_stated():
+    def flat(path):
+        text = (REPOSITORY_ROOT / path).read_text("utf-8").replace("#", " ")
+        return " ".join(text.split())
+
+    source = flat("src/axiom_encode/reviewed_pr_admission.py")
+    design = flat("docs/content-bound-merge-guard.md")
+    for text in (source, design):
+        assert "no merge queue in classic branch protection of" in text
+        assert "which of the two governs a merge is not known" in text
+        assert "max-age=60, s-maxage=60" in text
+        assert "ends at the first page with fewer than 100 rules" in text
+        assert "between the end of the guard's merge-group job and the merge" in text
+        assert "keeps the last value" in text
+
+
+def test_the_queue_sentences_are_pinned_word_for_word():
+    """Independent review of ``4c7da64f0``: five rewordings survived the
+    looser pins (the withdrawn claim reworded, another build concurrency, the
+    section 6 sentence removed, the changelog without the settings, "may
+    merge" for the missing-run experiment)."""
+
+    def flat(path):
+        text = (REPOSITORY_ROOT / path).read_text("utf-8").replace("#", " ")
+        return " ".join(text.split())
+
+    design = flat("docs/content-bound-merge-guard.md")
+    source = flat("src/axiom_encode/reviewed_pr_admission.py")
+    changelog = flat("changelog.d/2172-guard-ruleset-lock.added.md")
+    # The withdrawn claim, in any wording: no sentence says that such a group
+    # always fails.
+    for text in (design, source):
+        lowered = text.lower()
+        for phrase in ("always fails", "always fail at", "always fail there"):
+            assert lowered.count(phrase) == lowered.count("not** " + phrase) + (
+                lowered.count("not " + phrase)
+            ), phrase
+        assert "never passes a group of two" not in lowered
+    assert (
+        "A group of two pull requests therefore does **not** always fail at the guard."
+    ) in design
+    assert "So a group of two pull requests does NOT always fail there." in source
+    # The four required values, as the code has them.
+    assert dict(admission._MERGE_QUEUE_REQUIRED) == {
+        "grouping_strategy": "ALLGREEN",
+        "max_entries_to_build": 1,
+        "min_entries_to_merge": 1,
+        "max_entries_to_merge": 1,
+    }
+    assert (
+        'requires four of them, present and exact: `grouping_strategy: "ALLGREEN"`, '
+        "`max_entries_to_merge: 1`, `min_entries_to_merge: 1` and "
+        "`max_entries_to_build: 1`."
+    ) in design
+    assert (
+        '``grouping_strategy`` ``"ALLGREEN"``, ``max_entries_to_merge`` ``1``, '
+        "``min_entries_to_merge`` ``1`` and ``max_entries_to_build`` ``1``."
+    ) in source
+    for text in (design, source):
+        assert not re.search(r"max_entries_to_(?:build|merge)`*:? `*[02-9]", text)
+    # Section 6.
+    assert (
+        "In the ruleset form the writer's lock requires it, with `ALLGREEN` and a "
+        "build concurrency of 1: the merge-group evaluation binds the final tree "
+        "to one judged pull request and does not prove that a group holds only "
+        'that pull request (§5, "Encoder").'
+    ) in design
+    # The changelog names the settings.
+    assert (
+        "with a merge queue rule of that repository's own ruleset that merges "
+        "every entry alone and only on its own passing checks (`ALLGREEN`, group "
+        "size 1, build concurrency 1)."
+    ) in changelog
+    # The three experiments, with what must hold.
+    assert (
+        "**A missing run blocks (X8 of 2287, parts (a) and (b)).** A head that "
+        "gets no run of the required workflow (a push by a job token, `[skip "
+        "ci]`) cannot merge."
+    ) in design
+    assert (
+        "pinned to a commit SHA runs exactly the file of that commit, also after "
+        "the source branch moves, for a pull request and for a `merge_group` run."
+    ) in design
+    assert (
+        "A pull request whose approval is dismissed before or in the queue does "
+        "not merge, and the queue merges only after the guard's merge-group job "
+        "has ended."
+    ) in design
+    assert (
+        "**No classic merge queue.** A `rulespec-us` administrator confirms that "
+        "the classic branch protection of `main` has no merge queue."
+    ) in design
+    # The model is called what it is.
+    assert ("This is a consistency check of the argument above and no more.") in design
+    assert "16 distinct calls of the evaluator" in design
+    assert "does not model the time between a judgment and the merge" in design
+    # An entry, not every pull request.
+    for text in (design, source):
+        assert "every pull request that merges must" not in text.lower()
+        assert "An entry, not every pull request" in text

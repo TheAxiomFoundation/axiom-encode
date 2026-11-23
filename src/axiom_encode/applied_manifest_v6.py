@@ -60,6 +60,10 @@ from axiom_encode import reviewed_pr_admission as _admission
 V6_READER_ENABLED: Final[bool] = False
 
 MANIFEST_SCHEMA_V6: Final = "axiom-encode/applied-rulespec/v6"
+# The only label the v6 writer relabels: the v5 promotion payload. A literal,
+# so the writer does not depend on its caller for its input contract; a test
+# holds it equal to the label the promotion command writes.
+PROMOTION_INPUT_SCHEMA: Final = "axiom-encode/applied-rulespec/v5"
 PROMOTION_TOOL: Final = "axiom-encode promote-reviewed-candidate"
 CANDIDATE_REF_FIELD: Final = "candidate_rulespec_ref"
 ATTESTATION_SCOPE_FIELD: Final = "attestation_scope"
@@ -267,11 +271,18 @@ def as_v6_candidate_payload(
     scope check (``attestation_scope_issues``) before it is returned, so the
     writer cannot emit a scope that this reader refuses. Call it before the
     waiver fields are added and before signing.
+
+    The input must carry the exact v5 label ``PROMOTION_INPUT_SCHEMA``: a
+    payload with a missing, null, non-string or other label is refused, so the
+    v6 label never replaces anything but the v5 promotion label.
     """
 
     require_candidate_writer()
+    label = payload.get("schema_version")
     if (
-        is_v6_labelled(payload)
+        type(label) is not str
+        or label != PROMOTION_INPUT_SCHEMA
+        or is_v6_labelled(payload)
         or payload.get("tool") != PROMOTION_TOOL
         or "backend" in payload
         or "signature" in payload
