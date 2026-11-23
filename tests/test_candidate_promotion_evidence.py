@@ -359,15 +359,62 @@ def _reader_admits(payload) -> bool:
 
 @pytest.mark.parametrize("name", sorted(CONTRACT_MUTATIONS))
 def test_evidence_and_reader_agree_both_ways(on, name):
-    """Two-way pin: the step admits exactly what the reader admits.
+    """Two-way pin, for three checks of the reader and no more: the step
+    admits exactly what the reader's v6 entry test, its exact top-level field
+    sets and its attestation scope check admit (``_reader_admits``).
 
     Each mutation keeps this run's bindings, so any difference between the two
     decisions would be a definition the step does not share with the reader.
+    The whole reader checks more; see
+    ``test_the_parity_covers_three_reader_checks_and_not_the_whole_reader``.
     """
 
     payload = written_v6(REF)
     CONTRACT_MUTATIONS[name](payload)
     assert (outcome(payload)[0] == "ok") is _reader_admits(payload), name
+
+
+def _whole_reader_issues(payload) -> list[str]:
+    return cli._applied_manifest_exact_schema_issues(
+        payload, manifest_label="m", admit_v6=True
+    )
+
+
+def test_the_parity_covers_three_reader_checks_and_not_the_whole_reader(on):
+    """The limit of the parity, recorded (review of ``2df89a5ae``, P3).
+
+    A signed manifest whose first ``applied_files`` entry has no ``sha256``
+    passes the step's function and the three shared checks, and the whole
+    reader refuses it. The hosted workflow relies on the earlier
+    ``guard-generated`` step for that check, not on this function.
+    """
+
+    payload = written_v6(REF)
+    del payload["applied_files"][0]["sha256"]
+    sign(payload)
+    assert _reader_admits(payload) is True
+    assert outcome(payload) == ("ok", REF)
+    issues = _whole_reader_issues(payload)
+    assert any(
+        "applied_files[0] does not match the exact reviewed candidate promotion "
+        "file schema" in issue
+        for issue in issues
+    ), issues
+    # The module says so itself; the claim is not "what the reader admits".
+    text = " ".join((evidence.__doc__ or "").split())
+    assert "This function is NOT the whole reader" in text
+    assert "exactly what the reader admits" not in text
+    # The step that the workflow relies on for the rest of the reader runs
+    # before the evidence step. (What ``guard-generated`` checks is the
+    # reader's own matter and has its own tests.)
+    names = _names()
+    earlier = names.index("Verify generated provenance")
+    assert earlier < names.index(STEP)
+    assert "axiom-encode guard-generated \\\n" in _steps()[earlier]["run"]
+
+
+def _names():
+    return [step.get("name") for step in _steps()]
 
 
 def test_the_pin_corpus_has_both_decisions(on):
@@ -1012,6 +1059,54 @@ def test_off_an_extra_v6_labelled_manifest_refuses_a_valid_v5_promotion(
     assert before["files"]["context-manifest.json"] == packaged
 
 
+@pytest.mark.parametrize("nested", ["v6 manifest", "v6 label and citation only"])
+def test_off_a_nested_v6_sibling_for_the_same_citation_was_refused_before_too(
+    tmp_path, nested
+):
+    """Review of ``2df89a5ae``, P3: the limit of "stricter than before".
+
+    A valid v5 promotion plus a legacy-replacement manifest that nests a v6
+    manifest for the SAME citation. The step before this change did not
+    ignore it: it counted a second manifest of the citation and refused the
+    run (``found 2``). This step refuses it too, by the nested-label rule. So
+    the "was ignored, is now refused" statement holds only for a nested v6
+    manifest of another citation (test above) and for a top-level one.
+    """
+
+    repo, ref = make_run(tmp_path)
+    write_manifest(repo, sign(v5_promotion(ref)))
+    if nested == "v6 manifest":
+        inner = written_v6(ref)
+    else:
+        inner = {"schema_version": v6.MANIFEST_SCHEMA_V6, "citation": CITATION}
+    assert inner["citation"] == CITATION
+    write_manifest(repo, _legacy_wrapper(inner), EXTRA_MANIFEST)
+    script = _package_script()
+    after = run_step(tmp_path, ref, script=script, artifact="after")
+    assert after["returncode"] != 0
+    assert f"v6 manifest nested in {EXTRA_MANIFEST} {NESTED_TEXT}" in after["stderr"]
+    assert after["files"] == {} and after["reads"] == []
+    before = run_step(
+        tmp_path, ref, script=_step_before_this_change(script), artifact="before"
+    )
+    assert before["returncode"] != 0
+    assert (
+        f"expected exactly one changed signed apply manifest for {CITATION}; found 2"
+        in before["stderr"]
+    ), before["stderr"]
+    assert before["files"] == {}
+    # The design says which sibling was ignored before, and which was not.
+    design = " ".join((ROOT / "docs/content-bound-merge-guard.md").read_text().split())
+    assert (
+        "nested in a legacy-replacement manifest **for another citation than the "
+        "run's**"
+    ) in design
+    assert (
+        "for the **same** citation is not such a case: the earlier step counted it "
+        "as a second manifest of the citation and refused the run (`found 2`)"
+    ) in design
+
+
 def test_the_reverted_step_is_the_step_without_its_v6_names():
     script = _package_script()
     before = _step_before_this_change(script)
@@ -1250,6 +1345,93 @@ def test_no_other_job_or_key_of_the_workflow_file_knows_v6():
     assert [line for line in _v6_lines(text) if line not in described] == _v6_lines(
         script
     )
+
+
+# Field names and values that only a v6 manifest carries, taken from the
+# reader. No part of the workflow file may spell one: the evidence step reaches
+# them through the reader's constants, and no other job, step, ``env``, ``with``
+# or expression has a reason to read them.
+RAW_V6_NAMES = (
+    v6.CANDIDATE_REF_FIELD,
+    v6.ATTESTATION_SCOPE_FIELD,
+    v6.ATTESTATION_SCOPE_SCHEMA,
+    v6.ATTESTATION_VALIDATION,
+    v6.ATTESTATION_ORIGIN,
+    v6.MERGE_REQUIREMENT,
+    v6.MANIFEST_SCHEMA_V6,
+    evidence.EVIDENCE_SCHEMA,
+    "owner_review",
+    "merge_requirement",
+    "author_id",
+    # The scope's object keys, as a subscript or a ``.get`` would spell them.
+    *(
+        quote + name + quote
+        for name in ("candidate", "origin", "validation", "dispatcher")
+        for quote in ('"', "'")
+    ),
+)
+
+
+def _raw_v6_reads(text: str) -> list[str]:
+    """Every line of a workflow text that spells a raw v6 field name or value."""
+
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if any(name in line for name in RAW_V6_NAMES)
+    ]
+
+
+def test_no_part_of_the_workflow_file_spells_a_raw_v6_field_name():
+    """Review of ``2df89a5ae``, P3: the whole file, by raw field name.
+
+    The other scope pins look for the label ``v6`` and for the reader's module
+    and constant names. A step that read the literal ``candidate_rulespec_ref``
+    carries none of those, and they did not see it.
+    """
+
+    assert {
+        v6.CANDIDATE_REF_FIELD,
+        v6.ATTESTATION_SCOPE_FIELD,
+    } == {"candidate_rulespec_ref", "attestation_scope"}
+    assert {"owner_review", "merge_requirement"} <= v6.ATTESTATION_SCOPE_FIELDS
+    assert "author_id" in v6.ATTESTATION_CANDIDATE_FIELDS
+    assert _raw_v6_reads(WORKFLOW.read_text()) == []
+
+
+def _with_a_step_in_dispatch_record(run: str) -> str:
+    """The committed workflow text with one more step in ``dispatch_record``."""
+
+    text = WORKFLOW.read_text()
+    anchor = "      - name: Write dispatch record\n"
+    assert text.count(anchor) == 1
+    step = "      - name: Read the manifest\n        run: |\n          " + run + "\n\n"
+    changed = text.replace(anchor, step + anchor)
+    workflow = yaml.safe_load(changed)
+    names = [s.get("name") for s in workflow["jobs"]["dispatch_record"]["steps"]]
+    assert "Read the manifest" in names
+    return changed
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        "jq -r .candidate_rulespec_ref manifest.json",
+        "jq -r '.attestation_scope.candidate.pull_request' manifest.json",
+        'python3 -c \'import json; print(json.load(open("m"))["candidate"])\'',
+        "python3 -c \"import json; print(json.load(open('m'))['dispatcher'])\"",
+        "jq -r .owner_review scope.json",
+        "jq -r .merge_requirement scope.json",
+        "jq -r .author_id candidate.json",
+        "grep -q local-candidate manifest.json",
+        "grep -q encoder-main-complete-source manifest.json",
+        "grep -q axiom-encode/attestation-scope/v1 manifest.json",
+        "grep -q axiom-encode/content-bound-merge-guard/v1 manifest.json",
+        "grep -q axiom-encode/candidate-promotion-evidence/v1 evidence.json",
+    ],
+)
+def test_a_raw_v6_field_read_in_another_job_is_seen(run):
+    assert _raw_v6_reads(_with_a_step_in_dispatch_record(run)) != []
 
 
 def test_after_the_evidence_step_nothing_reads_the_manifest_label_or_ref():

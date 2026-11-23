@@ -680,9 +680,11 @@ requires the guard check from the recorded guard App.
   anonymous reads (7 of them the branch record), and one of the reviewed lane
   at least 38. The reviewer counted 45 and 38 at `880238c7` with every list
   on one page; pagination adds reads. 45 is the count through the last
-  publication check: at this change the hosted workflow's v5 evidence step
-  stops a v6 manifest before that check, so a hosted candidate run ends
-  earlier and makes fewer reads. GitHub allows 60 per hour per address. A
+  publication check, counted at change 5, where the hosted workflow's v5
+  evidence step stopped a v6 manifest before that check. With the evidence
+  step of change 5b (below) a hosted candidate run reaches it, and that
+  step adds one read of the branch record for each v6 manifest: at least
+  46. Neither count was measured again. GitHub allows 60 per hour per address. A
   second run in the same hour from the same address is refused. It fails
   closed. Follow-up, not built: send the reads with the workflow token when
   one is available. The record is public, so a token only raises the limit;
@@ -763,10 +765,15 @@ committed constants it refuses every v6 manifest before it reads anything else,
 and a run with no v6 manifest takes the same path as before. For one input
 the step is stricter than before, not identical: a run whose changed
 manifests hold a valid v5 promotion and one more manifest that carries the v6
-label (at the top level or nested). The earlier step ignored the extra
-manifest and packaged the v5 evidence; this step refuses the run. The
-committed writer cannot produce such a file, so only a hand-made manifest
-reaches this; tests record both outcomes.
+label, either at the top level (for any citation) or nested in a
+legacy-replacement manifest **for another citation than the run's**. The
+earlier step ignored that extra manifest and packaged the v5 evidence; this
+step refuses the run. A legacy-replacement manifest that nests a v6 manifest
+for the **same** citation is not such a case: the earlier step counted it as a
+second manifest of the citation and refused the run (`found 2`); this step
+refuses it too, earlier and by another name (`only a top-level manifest may
+carry the v6 label`). The committed writer cannot produce such a file, so only
+a hand-made manifest reaches this; tests record these outcomes.
 
 With every lock open (tests only), the manifest must pass the reader's entry
 test, its exact v6 field sets and its attestation scope check, and the scope
