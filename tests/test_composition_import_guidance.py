@@ -4,7 +4,9 @@ Validation compiles a file that does not declare ``module.kind: composition``
 on the atomic surface of the rules engine. That surface refuses an import
 target whose ``module`` mapping has a ``kind`` key. A file that declares
 ``module.kind: composition`` compiles on the composed surface, which accepts a
-composition as an import target. No test here runs the engine.
+composition as an import target. The prompt allows such an import only when
+the file being replaced already is a composition: a fact on disk, not a
+property of the model's own output. No test here runs the engine.
 
 The first tests pin the complete bullet in both prompt copies
 (``prompts/encoder.py`` and ``harness/evals.py``). The rendered-prompt tests
@@ -19,7 +21,7 @@ prompt carries them, so adding either again is a deliberate change.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -28,23 +30,21 @@ from axiom_encode.harness import evals
 from axiom_encode.prompts.encoder import _NAMING_PROTOCOL, ENCODER_PROMPT
 
 COMPOSITION_IMPORT = (
-    "- In a file that does not declare `module.kind: composition`, never "
-    "import from a module that declares `module.kind: composition`. "
-    "Validation compiles such a file on the atomic surface of the rules "
-    "engine, where no imported module may declare `module.kind`, so the file "
-    "fails to compile. In such a file, treat the exports of that module as "
-    "not available for import; no other import rule changes."
+    "- Unless the file you are replacing already declares "
+    "`module.kind: composition`, never import from a module that declares it. "
+    "Validation compiles a file without that declaration on the atomic "
+    "surface of the rules engine, where no imported module may declare "
+    "`module.kind`, so the file fails to compile. Treat the exports of such a "
+    "module as not available for import; no other import rule changes."
 )
-BULLET_START = "- In a file that does not declare `module.kind: composition`"
+BULLET_START = "- Unless the file you are replacing already declares"
 BEFORE = "- Never introduce an import cycle."
 AFTER = "- Never create a derived rule whose formula references that same rule's name."
 
 MANDATORY = "Mandatory cited RuleSpec imports detected from source text:"
 UNAVAILABLE = "Unavailable cited RuleSpec context detected:"
-COMPOSITION_REASON = (
-    "`module.kind: composition`, which a file that does not declare "
-    "`module.kind: composition` cannot import"
-)
+COMPOSITION_REASON = "`module.kind: composition`, which this target cannot import"
+MODULE_ID_REASON = "a `module.id` declaration, which no file can import"
 OTHER_KIND_REASON = (
     "a `module.kind` value other than `composition`, which no file can import"
 )
@@ -123,16 +123,17 @@ def test_a_sentence_appended_to_either_rendered_bullet_fails(tmp_path, appended)
             _assert_complete_bullet(mutated)
 
 
-def test_the_rendered_bullet_binds_only_a_file_that_is_not_a_composition(tmp_path):
+def test_the_rendered_bullet_opens_with_a_fact_the_model_does_not_control(tmp_path):
     # Read from the prompts, not from the expected constant.
     for prompt in (ENCODER_PROMPT, _eval_prompt(tmp_path)):
         _before, bullet, _after = _complete_bullet(prompt)
         prohibition, reason, consequence = bullet.split(". ")
         assert prohibition.startswith(
-            "- In a file that does not declare `module.kind: composition`, never"
+            "- Unless the file you are replacing already declares "
+            "`module.kind: composition`, never import"
         )
-        assert reason.startswith("Validation compiles such a file on the atomic")
-        assert consequence.startswith("In such a file, treat the exports")
+        assert reason.startswith("Validation compiles a file without that")
+        assert consequence.startswith("Treat the exports of such a module")
         lowered = bullet.lower()
         for word in ("boundary", "defer", "proof", "cycle", "prefix", "hash", "every"):
             assert word not in lowered, word
@@ -187,9 +188,13 @@ def _render(
     modules: tuple[_Module, ...],
     *,
     existing_target: str | None = None,
+    existing_target_rules: str = "rules: []\n",
     retry_candidate: str | None = None,
+    replacement_baseline: str | None = None,
     required_import_targets: tuple[str, ...] = (),
     policyengine_rule_hint: str | None = None,
+    source_text: str | None = None,
+    canonical_concepts: tuple[str, ...] = (),
 ) -> str:
     root = tmp_path.resolve() / "rulespec-us" / "us"
     paths = []
@@ -202,12 +207,15 @@ def _render(
     if existing_target is not None:
         target_path = root / target_relative
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_text(f"format: rulespec/v1\n{existing_target}rules: []\n")
+        target_path.write_text(
+            f"format: rulespec/v1\n{existing_target}{existing_target_rules}"
+        )
         paths.append(target_path)
     cited = sorted({module.section.split("/")[0] for module in modules} - {"151"})
-    source_text = " ".join(
-        f"A term is defined in section {section}." for section in cited
-    )
+    if source_text is None:
+        source_text = " ".join(
+            f"A term is defined in section {section}." for section in cited
+        )
     workspace = evals.prepare_eval_workspace(
         citation="26 USC 151",
         runner=evals.parse_runner_spec("codex:gpt-5.4"),
@@ -223,11 +231,25 @@ def _render(
         candidate = evals.ValidationRetryCandidate(
             rulespec=f"format: rulespec/v1\n{retry_candidate}rules: []\n"
         )
+    if replacement_baseline is not None:
+        candidate = evals.ValidationRetryCandidate(
+            rulespec=f"format: rulespec/v1\n{replacement_baseline}rules: []\n",
+            context_role="replacement_baseline",
+        )
+    # A resolved canonical concept is a copied repository module with its own
+    # context kind (`_materialize_resolved_canonical_concept`).
+    context_files = [
+        replace(item, kind="canonical_concept", label=f"concept {item.import_path}")
+        if item.import_path
+        in {f"us:statutes/26/{section}" for section in canonical_concepts}
+        else item
+        for item in workspace.context_files
+    ]
     return evals._build_eval_prompt(
         "26 USC 151",
         "repo-augmented",
         workspace,
-        workspace.context_files,
+        context_files,
         target_file_name="151.yaml",
         target_ref_prefix=TARGET,
         include_tests=True,
@@ -312,6 +334,7 @@ class _Case:
     blocked: tuple[tuple[str, str], ...] = ()
     existing_target: str | None = None
     retry_candidate: str | None = None
+    replacement_baseline: str | None = None
 
 
 NESTED_REASON_2 = "an import of `us:statutes/26/2`, which is not an import target"
@@ -371,13 +394,13 @@ CASES = {
         blocked=(("63", OTHER_KIND_REASON),),
         existing_target=COMPOSITION,
     ),
-    "11_composed_retry_candidate_with_nested_composition_imports": _Case(
+    "11_replacement_baseline_composition_with_nested_composition_imports": _Case(
         (
             _Module("152", COMPOSITION, imports=("us:statutes/26/2#surviving_spouse",)),
             _Module("2", COMPOSITION, "surviving_spouse"),
         ),
         importable=("152", "2"),
-        retry_candidate=COMPOSITION,
+        replacement_baseline=COMPOSITION,
     ),
     "12_atomic_existing_target_and_atomic_retry_candidate": _Case(
         (_Module("152", COMPOSITION), _Module("2", ATOMIC, "surviving_spouse")),
@@ -385,6 +408,21 @@ CASES = {
         blocked=(("152", COMPOSITION_REASON),),
         existing_target=SUMMARY_ONLY,
         retry_candidate=ATOMIC,
+    ),
+    "13_rejected_composition_candidate_for_a_new_target": _Case(
+        (_Module("152", COMPOSITION), _Module("2", ATOMIC, "surviving_spouse")),
+        importable=("2",),
+        blocked=(("152", COMPOSITION_REASON),),
+        retry_candidate=COMPOSITION,
+    ),
+    "14_rejected_composition_candidate_for_an_atomic_existing_target": _Case(
+        (
+            _Module("152", COMPOSITION, imports=("us:statutes/26/2#surviving_spouse",)),
+            _Module("2", COMPOSITION, "surviving_spouse"),
+        ),
+        blocked=(("152", COMPOSITION_REASON), ("2", COMPOSITION_REASON)),
+        existing_target=ATOMIC,
+        retry_candidate=COMPOSITION,
     ),
 }
 
@@ -400,6 +438,7 @@ def test_no_rendered_prompt_requires_and_forbids_one_import(tmp_path, name):
         case.modules,
         existing_target=case.existing_target,
         retry_candidate=case.retry_candidate,
+        replacement_baseline=case.replacement_baseline,
     )
 
     for section in case.importable:
@@ -488,6 +527,13 @@ def test_a_required_atomic_import_stays_required(tmp_path):
         (NULL_KIND, OTHER_KIND_REASON, OTHER_KIND_REASON),
         ("module:\n  kind: [composition]\n", OTHER_KIND_REASON, OTHER_KIND_REASON),
         ("module:\n  kind: Composition\n", OTHER_KIND_REASON, OTHER_KIND_REASON),
+        ("module:\n  id: us.example\n", MODULE_ID_REASON, MODULE_ID_REASON),
+        (
+            "module:\n  kind: composition\n  id: us.example\n",
+            MODULE_ID_REASON,
+            MODULE_ID_REASON,
+        ),
+        ("module:\n  kind: program\n  id: x\n", OTHER_KIND_REASON, OTHER_KIND_REASON),
         (NOT_A_MAPPING, NOT_A_MAPPING_REASON, NOT_A_MAPPING_REASON),
         ("module: [kind, composition]\n", NOT_A_MAPPING_REASON, NOT_A_MAPPING_REASON),
     ],
@@ -530,6 +576,188 @@ def test_a_file_that_is_not_readable_rulespec_has_no_exports_to_offer(
     )
     assert evals._context_file_exports(str(path)) == []
     assert evals._context_file_exports(str(tmp_path / "absent.yaml")) == []
+
+
+def test_a_rejected_composition_candidate_does_not_switch_the_filter_off(tmp_path):
+    # The probe of the review of b5764cc65: the rejected candidate is model
+    # output, so its `module.kind` must not make a composition importable.
+    module = _Module("63", COMPOSITION, "taxable_income")
+
+    without = _render(tmp_path / "a", (module,), source_text="See section 63.")
+    with_candidate = _render(
+        tmp_path / "b",
+        (module,),
+        source_text="See section 63.",
+        retry_candidate=COMPOSITION,
+    )
+
+    for prompt in (without, with_candidate):
+        assert MANDATORY not in prompt
+        _assert_not_importable(prompt, module, COMPOSITION_REASON)
+    with pytest.raises(ValueError, match="required import `us:statutes/26/63` has"):
+        _render(
+            tmp_path / "c",
+            (module,),
+            source_text="See section 63.",
+            retry_candidate=COMPOSITION,
+            required_import_targets=(module.target,),
+        )
+
+
+def test_a_new_composition_target_cannot_require_a_composition_import(tmp_path):
+    # Fail closed: with no file on disk to replace, the target counts as atomic.
+    module = _Module("152", COMPOSITION)
+
+    with pytest.raises(ValueError, match="required import `us:statutes/26/152` has"):
+        _render(tmp_path, (module,), required_import_targets=(module.target,))
+
+
+def test_a_composition_child_is_not_an_included_child_of_an_excluded_branch(tmp_path):
+    modules = (
+        _Module("152", ATOMIC, "qualifying_amount"),
+        _Module("152/a", COMPOSITION, "amount_a"),
+        _Module("152/b", ATOMIC, "amount_b"),
+        _Module("152/c", ATOMIC, "amount_c"),
+    )
+
+    prompt = _render(
+        tmp_path,
+        modules,
+        source_text=(
+            "The amount determined under section 152(a) and section 152(c), "
+            "other than section 152(b), is allowed."
+        ),
+    )
+
+    excluded = _section(prompt, "Excluded cited child branch guidance:")
+    assert "`us:statutes/26/152/c#amount_c`" in excluded
+    assert "us:statutes/26/152/a" not in excluded
+    assert "us:statutes/26/152/a#" not in prompt
+
+
+def test_a_composition_child_exception_is_not_a_required_exception_import(tmp_path):
+    modules = (
+        _Module("151/a", COMPOSITION, "first_exception"),
+        _Module("151/b", ATOMIC, "second_exception"),
+    )
+
+    prompt = _render(
+        tmp_path,
+        modules,
+        source_text="The term shall not include the following:",
+    )
+
+    exceptions = _section(prompt, "Parent exception-list child fragments detected:")
+    assert "`us:statutes/26/151/b#second_exception`" in exceptions
+    assert "us:statutes/26/151/a" not in exceptions
+    assert "us:statutes/26/151/a#" not in prompt
+
+
+EXISTING_TARGET_WITH_SECTION_63_INPUT = (
+    "rules:\n"
+    "  - name: exemption_amount\n"
+    "    kind: derived\n"
+    "    entity: TaxUnit\n"
+    "    dtype: Money\n"
+    "    period: Year\n"
+    "    versions:\n"
+    "      - effective_from: '2026-01-01'\n"
+    "        formula: taxable_income_under_section_63 + filer_count\n"
+)
+SECTION_63_INPUT = "`us:statutes/26/151#input.taxable_income_under_section_63`"
+
+
+@pytest.mark.parametrize("module", [COMPOSITION, ATOMIC])
+def test_an_input_that_restates_a_copied_module_is_invalid_in_both_variants(
+    tmp_path, module
+):
+    copied = _Module("63", module, "taxable_income")
+
+    prompt = _render(
+        tmp_path,
+        (copied,),
+        existing_target=ATOMIC,
+        existing_target_rules=EXISTING_TARGET_WITH_SECTION_63_INPUT,
+    )
+
+    invalid = _section(prompt, "Invalid copied local input names:")
+    valid = _section(prompt, "Existing target local factual inputs:")
+    assert f"- {SECTION_63_INPUT}: encoded cross-reference placeholder" in invalid
+    assert SECTION_63_INPUT not in valid
+    assert "`us:statutes/26/151#input.filer_count`" in valid
+    if module == COMPOSITION:
+        # The Unavailable section forbids the `_under_section_63` suffix, so
+        # no section may present the input as valid or ask for an import.
+        assert "`us:statutes/26/63` is not an import target" in invalid
+        assert "unless the generated file imports" not in invalid
+        assert "`_under_section_63`" in _section(prompt, UNAVAILABLE)
+        _assert_not_importable(prompt, copied, COMPOSITION_REASON)
+    else:
+        assert "a context file for `us:statutes/26/63` is available" in invalid
+
+
+def test_a_composition_module_is_not_a_resolved_canonical_concept_import(tmp_path):
+    composition = _Module("152", COMPOSITION)
+    atomic = _Module("2", ATOMIC, "surviving_spouse")
+
+    prompt = _render(tmp_path, (composition, atomic), canonical_concepts=("152", "2"))
+
+    resolved = _section(prompt, "Resolved canonical concept files from this corpus")
+    assert "- concept us:statutes/26/2\n" in resolved
+    assert "us:statutes/26/152" not in resolved
+    assert "import or re-export that exact canonical concept" in resolved
+
+
+def test_only_composition_concepts_give_no_canonical_import_instruction(tmp_path):
+    composition = _Module("152", COMPOSITION)
+
+    prompt = _render(tmp_path, (composition,), canonical_concepts=("152",))
+
+    assert "Resolved canonical concept files from this corpus" not in prompt
+    assert "import or re-export that exact canonical concept" not in prompt
+
+
+def test_the_blocker_pass_reads_each_copied_file_once(tmp_path, monkeypatch):
+    # A chain: module 0 is a composition and module n imports module n - 1,
+    # listed in the order that needs the most passes.
+    count = 40
+    items = []
+    for index in range(count):
+        path = tmp_path / f"{index}.yaml"
+        imports = (f"us:statutes/26/{index - 1}#x",) if index else ()
+        path.write_text(
+            _Module(
+                str(index), COMPOSITION if index == 0 else ATOMIC, "x", imports
+            ).text()
+        )
+        items.append(
+            evals.EvalContextFile(
+                source_path=str(path),
+                workspace_path=f"context/statutes/26/{index}.yaml",
+                import_path=f"us:statutes/26/{index}",
+                kind="implementation_precedent",
+            )
+        )
+    reads: list[str] = []
+    read = evals._read_context_rulespec_payload
+
+    def counting_read(source_path: str) -> object:
+        reads.append(source_path)
+        return read(source_path)
+
+    monkeypatch.setattr(evals, "_read_context_rulespec_payload", counting_read)
+
+    blockers = evals._context_import_blockers(
+        list(reversed(items)), composed_target=False
+    )
+
+    assert sorted(reads) == sorted(item.source_path for item in items)
+    assert set(blockers) == {item.source_path for item in items}
+    assert blockers[items[0].source_path] == COMPOSITION_REASON
+    assert blockers[items[5].source_path] == (
+        "an import of `us:statutes/26/4`, which is not an import target"
+    )
+    assert evals._context_import_blockers(items[1:], composed_target=False) == {}
 
 
 def test_neither_prompt_tells_which_text_a_list_condition_excerpt_quotes(tmp_path):
