@@ -1,0 +1,1 @@
+Public unsigned local T1170 diagnostic pair retained byte-for-byte from the reviewed 124-request source-integrated diagnostic. Not a hosted, signed, or published encoding; original policies and expectations are unchanged.
