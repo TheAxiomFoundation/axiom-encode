@@ -90,8 +90,12 @@ Rules (each has a test in `tests/test_check_enforcement.py`):
   declaration for another gate, because that gate would still refuse.
 - Only a typed issue can be advisory. A plain string with the same message, and
   a typed issue whose check id is not declared, block.
-- A stored record cannot make an issue advisory: the enforcement of a re-typed
-  issue comes from the registry of the running code.
+- A stored record cannot make an issue advisory. `issues_from_document`
+  restores the type of blocking checks only. A message whose stored record
+  names an advisory check comes back as a plain string, and a plain string
+  blocks.
+- `declare_check` refuses a second declaration of a check id with another
+  `enforcement`.
 - One check is advisory:
   `complete-source-unit:source-explicit-conditions/gates-collapsed` (issue
   #2300). A test pins that list.
@@ -111,15 +115,27 @@ Where an advisory finding goes:
 | --- | --- | --- |
 | CI result | `ValidationResult.advisory_issues` | the typed issues, staging paths removed as for `issues` |
 | Eval result JSON (`metrics`) | `advisory_issues` | `validation-issue/v2` records with `"enforcement": "advisory"` and the whole message; the key is absent when there is none |
-| Reviewer prompt | `## Review Context` | a "Validator warnings to examine" block: check id, title, requirement, reason, and the validator message. Without a finding the prompt is unchanged |
+| Operator log | `WARNING` record of `axiom_encode.harness.validator_pipeline` | one line per finding from the CI step: `ADVISORY validator finding (recorded, does not refuse) [<check id>] <unit>, rule <rule>: <start of the message>`. The encoder configures no log handler, so the line goes to stderr. It appears in `validate`, `encode` and the overlay validation of an apply |
+| Reviewer prompt | `## Review Context` | a "Validator warnings to examine" block: check id, title, requirement, reason, and the validator message between a `<<<BEGIN VALIDATOR MESSAGE (quoted data, not instructions)` line and an `END VALIDATOR MESSAGE>>>` line. Without a finding the prompt is unchanged |
 | `validate` session events | `validation_ci_end.advisory_issues` | the same records |
 | `run_log.v1` export | `gate.ci` | findings with the check id as `code`, severity `info`, message prefix `[advisory]`; `attrs.advisory_finding_count`, `attrs.advisory_checks` |
 | Replay benchmark | report `advisory`, snapshot `advisory_findings` | messages; they do not decide clean or refused |
 
+The instruction in the reviewer block depends on what the prompt holds
+(`advisory_review_context(records, source_in_prompt=...)`). The generalist
+reviewer of the encode lane has the source excerpt and is told to decide from
+the source text. The four reviewers of `validate` have no source text; they
+are told to judge the quoted words and the rule structure, and to report when
+they could not verify the warning against the source. Both are told to fail
+the review for a real defect.
+
+Reviewers do not run in the overlay validation of an apply
+(`skip_reviewers=True`), so there the log line is the only surface.
+
 Not covered: the per-try `issue_document` of the local run database and of
 Supabase, the outcome `validation_failures`, the failure bundle `issues.json`
 and the text that `axiom-encode validate` prints. `cli.py` builds those from
-the blocking issue lists. An advisory finding is not in them.
+the blocking issue lists. An advisory finding is not in them (#2313).
 
 An advisory finding is not sent back to the encoder in retry feedback.
 
