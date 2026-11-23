@@ -30,8 +30,13 @@ _GROUNDING = functools.partial(
 )
 
 
-def _interval(text: str) -> tuple[float | None, bool, float | None, bool] | None:
-    interval = sc._formula_interval_from_text(
+def _interval(
+    text: str, reader=None
+) -> tuple[float | None, bool, float | None, bool] | None:
+    """The interval the pair check reads for one condition."""
+
+    reader = reader or sc._exception_condition_interval
+    interval = reader(
         sc.authoritative_numeric_recall_text(text),
         extract_numeric_occurrences=_GROUNDING,
     )
@@ -222,6 +227,28 @@ def test_interval_is_read_for_a_postfix_or_fewer_than_wording(text, expected):
     assert _interval(text) == expected
 
 
+@pytest.mark.parametrize(("text", "expected"), READ)
+def test_only_the_pair_check_reads_the_new_wordings(text, expected):
+    # The shared parser is not changed, so the boundary check, the formula
+    # branches and every other reader keep their reading.
+    assert _interval(text, sc._formula_interval_from_text) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("at least 4 members", _floor(4)),
+        ("more than 4 members", _floor(4, inclusive=False)),
+        ("no more than 4 members", _ceiling(4)),
+        ("less than 4 members", _ceiling(4, inclusive=False)),
+        ("between 2 and 4 members", (2, True, 4, True)),
+    ],
+)
+def test_pair_check_keeps_the_reading_of_the_shared_parser(text, expected):
+    assert _interval(text) == expected
+    assert _interval(text, sc._formula_interval_from_text) == expected
+
+
 UNREAD = [
     # "One or more" means "any".
     pytest.param("one or more of the following", id="one-or-more"),
@@ -248,10 +275,12 @@ def test_interval_stays_unread(text):
 
 def test_or_more_before_a_second_comparison_keeps_the_reading_of_main():
     # Unchanged: only the prefix comparison is read.
-    assert _interval("$500 or more than $1,000") == _floor(1000, inclusive=False)
-    assert _interval("3 or more but less than 6 members") == _ceiling(
-        6, inclusive=False
-    )
+    for text, expected in (
+        ("$500 or more than $1,000", _floor(1000, inclusive=False)),
+        ("3 or more but less than 6 members", _ceiling(6, inclusive=False)),
+    ):
+        assert _interval(text) == expected
+        assert _interval(text, sc._formula_interval_from_text) == expected
 
 
 POSTFIX_WORDS = [
@@ -288,15 +317,19 @@ def test_each_postfix_wording_that_states_a_limit_has_an_interval(words, is_floo
 
 # --- 2. The wording table at the two checks ---------------------------------
 
+# The wording, the comparison, the adjacent count on the other side, and
+# whether the boundary check reads the wording. The boundary check is not
+# changed here: for the last five wordings a relative clause creates no
+# boundary obligation, as before.
 WORDINGS = [
-    pytest.param("at least {n}", ">=", -1, id="at-least"),
-    pytest.param("more than {n}", ">", 1, id="more-than"),
-    pytest.param("no more than {n}", "<=", 1, id="no-more-than"),
-    pytest.param("{n} or more", ">=", -1, id="or-more"),
-    pytest.param("{n} or fewer", "<=", 1, id="or-fewer"),
-    pytest.param("fewer than {n}", "<", -1, id="fewer-than"),
-    pytest.param("no fewer than {n}", ">=", -1, id="no-fewer-than"),
-    pytest.param("{n} or greater", ">=", -1, id="or-greater"),
+    pytest.param("at least {n}", ">=", -1, True, id="at-least"),
+    pytest.param("more than {n}", ">", 1, True, id="more-than"),
+    pytest.param("no more than {n}", "<=", 1, True, id="no-more-than"),
+    pytest.param("{n} or more", ">=", -1, False, id="or-more"),
+    pytest.param("{n} or fewer", "<=", 1, False, id="or-fewer"),
+    pytest.param("fewer than {n}", "<", -1, False, id="fewer-than"),
+    pytest.param("no fewer than {n}", ">=", -1, False, id="no-fewer-than"),
+    pytest.param("{n} or greater", ">=", -1, False, id="or-greater"),
 ]
 NUMBER_FORMS = [pytest.param("4", id="digit"), pytest.param("four", id="word")]
 RELATIVE = "A lending unit with {wording} members may take a group loan."
@@ -306,9 +339,9 @@ CONDITIONAL = (
 
 
 @pytest.mark.parametrize("number", NUMBER_FORMS)
-@pytest.mark.parametrize(("wording", "operator", "adjacent"), WORDINGS)
+@pytest.mark.parametrize(("wording", "operator", "adjacent", "boundary"), WORDINGS)
 def test_count_input_with_cases_at_and_next_to_the_number_passes(
-    wording, operator, adjacent, number
+    wording, operator, adjacent, boundary, number
 ):
     values = tuple(sorted((4, 4 + adjacent)))
     for shape in (RELATIVE, CONDITIONAL):
@@ -317,36 +350,39 @@ def test_count_input_with_cases_at_and_next_to_the_number_passes(
 
 
 @pytest.mark.parametrize("number", NUMBER_FORMS)
-@pytest.mark.parametrize(("wording", "operator", "adjacent"), WORDINGS)
-def test_boolean_restatement_is_refused_for_every_wording(
-    wording, operator, adjacent, number
+@pytest.mark.parametrize(("wording", "operator", "adjacent", "boundary"), WORDINGS)
+def test_boolean_restatement_is_refused_by_the_pair_check_for_every_wording(
+    wording, operator, adjacent, boundary, number
 ):
     phrase = wording.format(n=number)
-    assert _boolean_checks(RELATIVE.format(wording=phrase)) == {"boundary"}
     assert _boolean_checks(CONDITIONAL.format(wording=phrase)) == {"pair"}
+    relative = _boolean_checks(RELATIVE.format(wording=phrase))
+    assert relative == ({"boundary"} if boundary else set())
 
 
 @pytest.mark.parametrize("number", NUMBER_FORMS)
-@pytest.mark.parametrize(("wording", "operator", "adjacent"), WORDINGS)
-def test_other_strictness_is_refused_for_every_wording(
-    wording, operator, adjacent, number
+@pytest.mark.parametrize(("wording", "operator", "adjacent", "boundary"), WORDINGS)
+def test_other_strictness_is_refused_by_the_pair_check_for_every_wording(
+    wording, operator, adjacent, boundary, number
 ):
     # `>` for "N or more", `<` for "N or fewer": the case at N and the case
     # next to it give the same output, so nothing shows the boundary.
     values = tuple(sorted((4, 4 + adjacent)))
     phrase = wording.format(n=number)
     wrong = _OTHER_STRICTNESS[operator]
-    assert _count_checks(RELATIVE.format(wording=phrase), wrong, values) == {"boundary"}
     assert _count_checks(CONDITIONAL.format(wording=phrase), wrong, values) == {"pair"}
+    relative = _count_checks(RELATIVE.format(wording=phrase), wrong, values)
+    assert relative == ({"boundary"} if boundary else set())
 
 
 @pytest.mark.parametrize("number", NUMBER_FORMS)
-@pytest.mark.parametrize(("wording", "operator", "adjacent"), WORDINGS)
-def test_relative_clause_without_a_case_at_the_number_is_refused(
-    wording, operator, adjacent, number
+@pytest.mark.parametrize(("wording", "operator", "adjacent", "boundary"), WORDINGS)
+def test_boundary_check_is_unchanged_for_a_relative_clause(
+    wording, operator, adjacent, boundary, number
 ):
     source = RELATIVE.format(wording=wording.format(n=number))
-    assert _count_checks(source, operator, (1, 9)) == {"boundary"}
+    expected = {"boundary"} if boundary else set()
+    assert _count_checks(source, operator, (1, 9)) == expected
 
 
 # --- 3. A numeric pair is linked by the number, not by the input name -------
