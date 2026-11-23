@@ -22470,6 +22470,8 @@ class _StructuralClauseReading:
     # For an item with one "or": the source words that only its left side and
     # only its right side hold. The item's inputs must name both sides.
     alternative_sides: tuple[tuple[frozenset[str], frozenset[str]] | None, ...] = ()
+    # The source words of each item. The inputs of an item must name them all.
+    alternative_words: tuple[frozenset[str], ...] = ()
 
 
 def _structural_excerpt_pattern(excerpt: str) -> re.Pattern[str] | None:
@@ -22580,17 +22582,11 @@ def _structural_clause_reading(
             # A chapeau that is not a plain affirmative, or text after the
             # list that may continue its condition: nothing is relaxed.
             return None
-        if text_end > boundary:
-            if not source_list.tail_starts_sentence(source_text):
-                return None
-            if all(start >= boundary for start, _end in spans):
-                return _StructuralClauseReading(bounded(boundary, clause.end))
-            if any(end > boundary for _start, end in spans):
-                return None
         if source_list.items_with_children:
             return None
         alternatives = []
         sides: list[tuple[frozenset[str], frozenset[str]] | None] = []
+        words: list[frozenset[str]] = []
         for item in source_list.items:
             body = _list_structure.item_body(source_text, item)
             if not _list_structure.item_is_plain(body):
@@ -22601,6 +22597,13 @@ def _structural_clause_reading(
             if gates is None:
                 return None
             alternatives.append(gates)
+            words.append(
+                _source_gate_semantic_tokens(
+                    _list_structure.item_words(body),
+                    care_source_text=care_source_text,
+                )
+                - _SOURCE_GATE_SUBJECT_PRONOUNS
+            )
             halves = _list_structure.item_or_sides(body)
             if halves is None:
                 if re.search(r"\bor\b", body, flags=re.IGNORECASE) is not None:
@@ -22619,6 +22622,7 @@ def _structural_clause_reading(
             bounded(clause.start, min(clause.end, boundary)),
             alternatives=tuple(alternatives),
             alternative_sides=tuple(sides),
+            alternative_words=tuple(words),
             chapeau_gates=(
                 _source_conjunctive_fact_gates(
                     stem, care_source_text=care_source_text, minimum_gates=1
@@ -22733,6 +22737,21 @@ def _alternative_list_defect(
         ]
         for item in item_candidates
     ]
+    for words, item in zip(reading.alternative_words, item_candidates):
+        named_words = frozenset().union(
+            *(
+                terminal_evidence[name].entities | terminal_evidence[name].predicates
+                for gate in item
+                for name in gate
+                if name in terminal_evidence
+            )
+        )
+        if all(item) and not words <= named_words:
+            # Every fact of the item has an input, yet a source word of the
+            # item is in no input name: it may be a qualifier that the
+            # encoding left out. Nothing is relaxed. (A fact without any
+            # input is a missing alternative: that is refused below.)
+            return None
     item_names = frozenset(
         name for item in item_candidates for gate in item or () for name in gate
     )
@@ -22801,6 +22820,14 @@ def _alternative_list_defect(
             reading.alternative_sides[index - 1]
             if index <= len(reading.alternative_sides)
             else None
+        )
+        named = frozenset().union(
+            *(
+                terminal_evidence[name].entities | terminal_evidence[name].predicates
+                for option in item_options
+                for name in option
+                if name in terminal_evidence
+            )
         )
         if halves is not None:
             named = frozenset().union(

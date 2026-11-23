@@ -87,6 +87,8 @@ _REVERSING_WORD = re.compile(
     r"fail\w*|den(?:y|ied|ies|ial)|refus\w*|prohibit\w*|exclud\w*|ineligib\w*|"
     r"invalid\w*|disallow\w*|disqualif\w*|barred|void\w*|ceas\w*|los[et]s?|"
     r"terminat\w*|suspend\w*|revok\w*|cancel\w*|reject\w*|non\w*|longer|"
+    r"rarely|hardly|seldom|scarcely|barely|withh[eo]ld\w*|forfeit\w*|laps\w*|"
+    r"withdr[ae]w\w*|expir\w*|"
     r"instead|rather|other\s+than)\b|n['’]t\b)",
     re.IGNORECASE,
 )
@@ -98,34 +100,17 @@ _QUALIFYING_WORD = re.compile(
     r"each|every|all|any)\b",
     re.IGNORECASE,
 )
+# A glossary mark "(g)" or a cross-reference "(See ...)" at the end of an
+# item. Any other parenthetical stays in the item and is read with it.
+_TRAILING_REFERENCE = re.compile(r"(?:\s*\((?:[a-z]|See [^()]*)\))+\s*\.?\s*\Z")
 # A second condition or quantifier before the cue of a cue-form chapeau.
 _STEM_CUE = re.compile(
     r"\b(?:if|when|whenever|where|while|until|unless|whether|even|provided|"
     r"providing|each|every|both|either|neither|asks?|decides?)\b",
     re.IGNORECASE,
 )
-# A paragraph after the list that may add to the list's condition.
-_ADDING_WORD = re.compile(
-    r"\b(?:also|too|addition|additionally|well|further|furthermore|likewise|"
-    r"moreover|must|shall|required?|requires|needs?|needed|only|unless|provided|"
-    r"except\w*|if|when|whenever|following|above|listed|these|those|such)\b",
-    re.IGNORECASE,
-)
 # A cue-form chapeau states an affirmative main clause before its cue.
 _AFFIRMATIVE_VERB = re.compile(r"\b(?:must|may|is|are|can|shall|will)\b", re.IGNORECASE)
-# The first words of a paragraph after a list that continue the list's
-# condition or add to it. Such a paragraph, or one that is a chapeau itself,
-# means the clause is not only the list.
-_CONTINUATION_START = re.compile(
-    r"(?:provided|providing|unless|except|and|but|or|nor|also|only|in\s+addition|"
-    r"additionally|further|furthermore|moreover|however|otherwise|either|both|"
-    r"plus|as\s+well|this|these|those|such|if|then|all|each|any|none|neither)\b",
-    re.IGNORECASE,
-)
-# The flat reader ends a proposition after sentence punctuation only before
-# one of these starts. The end of the last item of an alternatives list is
-# given the same rule, nothing wider.
-_SENTENCE_START = re.compile(r"\s+(?:[A-Z(]|\d+\s*[.)]|\d+\s+(?:After|For)\b)")
 
 
 @dataclass(frozen=True)
@@ -145,8 +130,6 @@ class SourceList:
     items: tuple[SourceBlock, ...]
     # End of the last marked item, with its unmarked children when it has any.
     end: int
-    # False when unmarked text after the last item may still belong to it.
-    end_is_certain: bool
     # Marked items that are themselves followed by unmarked children.
     items_with_children: frozenset[int]
     reading: str  # "alternatives", "conjunctive" or "unrecognised"
@@ -154,17 +137,10 @@ class SourceList:
     cue_form: bool
     # A rule that quotes an item is read against the whole list.
     binds_items: bool
-    # The chapeau is affirmative and the text after the list is a plain new
-    # paragraph (or the end): the list can be verified as alternatives.
+    # The chapeau is a plain affirmative and the list ends the unit text: the
+    # list can be verified as alternatives. Text after the list could add to
+    # its condition, and no closed form tells that it does not.
     verifiable: bool = False
-
-    def tail_starts_sentence(self, text: str) -> bool:
-        """Say whether the text after the list starts a new proposition."""
-
-        return (
-            self.end_is_certain and _SENTENCE_START.match(text, self.end) is not None
-            # The flat reader's lookahead, anchored at the end of the list.
-        )
 
 
 def _blocks(text: str) -> tuple[SourceBlock, ...] | None:
@@ -212,22 +188,6 @@ def _ends_with_colon(text: str, block: SourceBlock) -> bool:
     return text[block.start : block.end].rstrip().endswith(":")
 
 
-def _items_end_alike(text: str, items: list[SourceBlock]) -> bool:
-    """Say whether the items' endings show where the last item ends.
-
-    Items with unmarked children aside, either every item ends with a full
-    stop, or every item ends with a letter,
-    a digit or a closing parenthesis (a list printed without end punctuation).
-    A mixed list, or an item that ends with a comma, a semicolon or a colon,
-    may continue after its last marker, so its end is not certain.
-    """
-
-    endings = [text[item.start : item.end].rstrip()[-1] for item in items]
-    return all(ending == "." for ending in endings) or all(
-        ending.isalnum() or ending == ")" for ending in endings
-    )
-
-
 def chapeau_is_affirmative(chapeau_text: str, *, cue_form: bool) -> bool:
     """Say whether a chapeau of alternatives states a plain affirmative."""
 
@@ -252,7 +212,7 @@ def item_is_plain(body: str) -> bool:
     """
 
     words = re.sub(r"\A(?:when|if)\s+", "", body.strip(), flags=re.IGNORECASE)
-    words = re.sub(r"(?:\s*\([^()]*\))+\s*\.?\s*\Z", "", words).rstrip(" .")
+    words = _TRAILING_REFERENCE.sub("", words).rstrip(" .")
     return (
         re.fullmatch(
             r"[A-Za-z0-9$][A-Za-z0-9$ '’-]*(?:, and [A-Za-z0-9$ '’-]+)?", words
@@ -266,11 +226,18 @@ def item_is_plain(body: str) -> bool:
     )
 
 
+def item_words(body: str) -> str:
+    """Return an item without a leading cue and trailing references."""
+
+    words = re.sub(r"\A(?:when|if)\s+", "", body.strip(), flags=re.IGNORECASE)
+    return _TRAILING_REFERENCE.sub("", words).rstrip(" .")
+
+
 def item_or_sides(body: str) -> tuple[str, str] | None:
     """Return the two sides of the one "or" of a plain item, if it has one."""
 
     words = re.sub(r"\A(?:when|if)\s+", "", body.strip(), flags=re.IGNORECASE)
-    words = re.sub(r"(?:\s*\([^()]*\))+\s*\.?\s*\Z", "", words).rstrip(" .")
+    words = _TRAILING_REFERENCE.sub("", words).rstrip(" .")
     parts = re.split(r"\bor\b", words, flags=re.IGNORECASE)
     if len(parts) != 2:
         return None
@@ -366,7 +333,6 @@ def parse_source_lists(text: str) -> tuple[SourceList, ...]:
                 readable = False
         if len(items) > _ITEM_LIMIT:
             readable = False
-        last = len(items) - 1
         reading, cue_form, binds_items = _chapeau_reading(
             text[chapeau.start : chapeau.end]
         )
@@ -374,37 +340,17 @@ def parse_source_lists(text: str) -> tuple[SourceList, ...]:
             # The items cannot be told apart from nested ones: flat reading,
             # and no rule is bound to a list whose members are not known.
             reading, cue_form, binds_items = "unrecognised", False, False
-        following = blocks[cursor] if cursor < len(blocks) else None
-        following_text = (
-            text[following.start : following.end] if following is not None else ""
-        )
-        end_is_clean = following is None or (
-            following.kind == "paragraph"
-            and re.match(r"[A-Z]", following_text) is not None
-            and following_text.rstrip().endswith(".")
-            and _CONTINUATION_START.match(following_text) is None
-            and _ADDING_WORD.search(following_text) is None
-        )
         lists.append(
             SourceList(
                 chapeau=chapeau,
                 items=tuple(items),
                 end=end,
-                end_is_certain=last not in with_children
-                and _items_end_alike(
-                    text,
-                    [
-                        item
-                        for position, item in enumerate(items)
-                        if position not in with_children
-                    ],
-                ),
                 items_with_children=frozenset(with_children),
                 reading=reading,
                 cue_form=cue_form,
                 binds_items=binds_items,
                 verifiable=reading == "alternatives"
-                and end_is_clean
+                and not text[end:].strip()
                 and chapeau_is_affirmative(
                     text[chapeau.start : chapeau.end], cue_form=cue_form
                 ),

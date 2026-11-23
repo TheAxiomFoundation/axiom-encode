@@ -185,12 +185,12 @@ def test_the_tree_reads_chapeau_items_notes_and_unmarked_children():
     ]
     assert only.items_with_children == frozenset({0})
     assert text[only.end :].strip() == "A later paragraph."
-    assert (only.reading, only.cue_form, only.end_is_certain) == (
+    # Text follows the list, so it is alternatives but not verifiable.
+    assert (only.reading, only.cue_form, only.verifiable) == (
         "alternatives",
         True,
-        True,
+        False,
     )
-    assert only.tail_starts_sentence(text)
 
 
 @pytest.mark.parametrize(
@@ -334,13 +334,6 @@ def test_a_marked_item_at_the_start_is_not_a_list_head():
 
 def test_the_flat_reader_still_needs_two_facts():
     assert sc._source_conjunctive_fact_gates("Granted if the holder owns a car.") == ()
-
-
-def test_a_list_ends_uncertainly_after_an_item_with_unmarked_children():
-    text = ANY_CHAPEAU + "\n\n● New vehicle\n\n● Lost card, with:\n\nA report.\n\nNext."
-    (only,) = structure.parse_source_lists(text)
-    assert not only.end_is_certain
-    assert not only.tail_starts_sentence(text)
 
 
 # --- (b) a list of alternatives is verified on the value of the formula ------------
@@ -564,15 +557,19 @@ def test_a_chapeau_with_a_second_condition_keeps_the_flat_reading(formula, monke
 TAIL = "The office keeps a copy of each permit."
 
 
-def test_a_clause_ends_with_its_list_when_a_new_sentence_starts(monkeypatch):
+def test_text_after_the_list_keeps_the_flat_reading(monkeypatch):
+    """No closed form tells that a later paragraph adds nothing to the list."""
+
     source = ANY + "\n\n" + TAIL
+    (only,) = structure.parse_source_lists(source)
+    assert only.reading == "alternatives" and not only.verifiable
     rules = [
         ("renewal", FAITHFUL, [ANY_CHAPEAU]),
         ("copy_kept", "office_keeps_copy", [TAIL]),
     ]
     assert _both([*ANY_INPUTS, "office_keeps_copy"], rules, source, monkeypatch) == (
         1,
-        0,
+        1,
     )
 
 
@@ -599,27 +596,6 @@ def test_an_excerpt_across_the_end_of_the_list_keeps_the_flat_reading(monkeypatc
         ANY_INPUTS, [("renewal", FAITHFUL, [ANY_CHAPEAU, excerpt])], source, monkeypatch
     )
     assert (off, on) == (1, 1)
-
-
-@pytest.mark.parametrize(
-    "items",
-    [
-        # Mixed endings, or an ending that can continue: the end of the list
-        # is not certain, so the clause is read flat.
-        ("New vehicle.", "Replacement permit", "When the fee amount is disputed"),
-        ("New vehicle;", "Replacement permit;", "When the fee amount is disputed;"),
-        ("New vehicle,", "Replacement permit,", "When the fee amount is disputed,"),
-        ("New vehicle", "Replacement permit", "When the fee amount is disputed:"),
-    ],
-)
-def test_a_list_with_unlike_item_endings_keeps_the_flat_reading(items, monkeypatch):
-    source = _list(ANY_CHAPEAU, items) + "\n\n" + TAIL
-    (only,) = structure.parse_source_lists(source)
-    assert not only.tail_starts_sentence(source)
-    content = _candidate([A, B, D], [("renewal", f"{A} or {B} or {D}", [ANY_CHAPEAU])])
-    assert _findings(content, source, on=True, monkeypatch=monkeypatch) == _findings(
-        content, source, on=False, monkeypatch=monkeypatch
-    )
 
 
 def test_a_cue_before_the_chapeau_keeps_the_flat_reading():
@@ -1238,7 +1214,7 @@ def test_an_item_that_is_not_one_plain_alternative_keeps_the_flat_reading(
     [
         "New vehicle",
         "When a change of employer is reported",
-        "If the fee amount is disputed (see Fees)",
+        "If the fee amount is disputed (See Fees for more information)",
         "They live in a campus residence, and their rent is zero",
         "When the fee amount is questionable(g)",
         "A change in the expense or address is received",
@@ -1472,3 +1448,46 @@ def test_a_joint_item_with_a_part_that_is_no_counted_fact_keeps_the_flat_reading
     items = ("New vehicle, and the holder lives in the district", *SHORT_ITEMS[1:])
     rules = [("renewal", f"{first} or {OR_REST}", [ANY_CHAPEAU])]
     _same([*inputs, *SHORT_INPUTS[1:]], rules, _list(ANY_CHAPEAU, items), monkeypatch)
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        "The holder owns a vehicle (unless it is leased)",
+        "The holder owns a vehicle (for residents)",
+    ],
+)
+def test_a_parenthetical_that_is_no_reference_stays_in_the_item(item):
+    assert not structure.item_is_plain(item)
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        "The holder owns a vehicle subject to a paid deposit",
+        "The holder owns a vehicle at a garage in the district",
+        "The holder owns a vehicle twice in one year",
+    ],
+)
+@pytest.mark.parametrize(
+    "formula",
+    [SHORT_OR, f"(holder_owns_vehicle and deposit_is_paid) or {SHORT_OR[23:]}"],
+)
+def test_an_item_word_that_no_input_names_keeps_the_flat_reading(
+    item, formula, monkeypatch
+):
+    """A word outside every input name can be a qualifier that was dropped."""
+
+    source = _list(ANY_CHAPEAU, (item, *SHORT_ITEMS[1:]))
+    inputs = [*SHORT_INPUTS, "deposit_is_paid"]
+    assert (
+        _same(inputs, [("renewal", formula, [ANY_CHAPEAU])], source, monkeypatch) == 1
+    )
+
+
+def test_inputs_that_name_every_item_word_are_verified(monkeypatch):
+    item = "The holder owns a vehicle at a garage in the district"
+    source = _list(ANY_CHAPEAU, (item, *SHORT_ITEMS[1:]))
+    first = "holder_owns_vehicle_at_garage_in_district"
+    rules = [("renewal", f"{first} or {SHORT_OR[23:]}", [ANY_CHAPEAU])]
+    assert _both([first, *SHORT_INPUTS[1:]], rules, source, monkeypatch) == (1, 0)
