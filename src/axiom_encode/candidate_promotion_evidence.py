@@ -25,10 +25,17 @@ There is no switch of its own, and no environment variable, CLI flag or
 dispatch input. A manifest without the v6 label never reaches this module, so
 the v5 path of the step is the same as before.
 
-After the locks, the manifest must be exactly what the reader admits, checked
-with the reader's definitions: its entry test (``v6_admissible``), its exact
-field sets (``cli._REVIEWED_CANDIDATE_V6_MANIFEST_VARIANTS``) and its
-attestation scope check. The scope must then name this run: the target
+After the locks, the manifest must pass three checks of the reader, made with
+the reader's own definitions: its v6 entry test (``v6_admissible``), its exact
+top-level field sets (``cli._REVIEWED_CANDIDATE_V6_MANIFEST_VARIANTS``) and its
+attestation scope check. The parity with the reader covers these three and
+nothing else. This function is NOT the whole reader: it does not check the
+signature, the schema of an ``applied_files`` entry, ``axiom_encode_git``,
+``generated_at`` or any other nested value. A manifest that passes here can
+still be refused by the reader (for example one whose ``applied_files[0]`` has
+no ``sha256``). In the hosted workflow an earlier step ("Verify generated
+provenance", which runs ``axiom-encode guard-generated``) reads the manifest
+with the reader. The scope must then name this run: the target
 citation, the requested RuleSpec ref (``candidate_rulespec_ref``), the RuleSpec
 repository of the run and the pull request of the dispatch. Every failure
 raises ``ValueError``; nothing is read as "absent".
