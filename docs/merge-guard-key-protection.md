@@ -29,8 +29,7 @@ App, environment, secret or ruleset, and satisfies no activation condition.
   lane live at the pinned commit before the switch (R9; checklist step 10),
   an organization owner's read of the organization's "Runners" setting
   (R12 (c); checklist step 11), and a read of the stored secrets and the
-  installed Apps: no stored secret outside an environment with required
-  reviewers is a credential of an enrolled identity, an administrator, an
+  installed Apps: no stored secret is a credential of an enrolled identity, an administrator, an
   organization owner or an App that can write checks or contents (R14,
   R12 (f); §5 step 11). On 2026-11-18 that last precondition did not hold.
 - **What Max should know before he answers.** (1) The merge queue is a
@@ -1119,15 +1118,17 @@ the candidate SHA (checklist step 5).
     the repository secrets, of the organization secrets that the
     repository can use, and of the environment secrets, for `rulespec-us`
     and for axiom-encode:
-    `gh api repos/TheAxiomFoundation/<repo>/actions/secrets --jq '[.secrets[].name]'`,
-    `gh api repos/TheAxiomFoundation/<repo>/actions/organization-secrets --jq '[.secrets[].name]'`,
-    `gh api repos/TheAxiomFoundation/<repo>/environments --jq '[.environments[] | {name, rules: [.protection_rules[].type]}]'`,
-    and for each environment
-    `gh api repos/TheAxiomFoundation/<repo>/environments/<name>/secrets --jq '[.secrets[].name]'`.
+    the three reads of names **and dates** and the read of the
+    environments that the design's checklist step 11 gives (each secret
+    with its `updated_at`, paginated, with `listed` equal to
+    `total_count`; a read that is not whole is not a record).
     An organization owner lists all organization secrets, with `admin:org`:
     `gh api orgs/TheAxiomFoundation/actions/secrets --jq '[.secrets[] | {name, visibility}]'`,
     and the installed Apps:
-    `gh api orgs/TheAxiomFoundation/installations --jq '.installations[] | {app_slug, repository_selection, permissions}'`.
+    with the two reads of the design's checklist step 11: each App with
+    its permissions, its `updated_at` and its effective list of target
+    repositories (`repository_selection` alone does not show a change of
+    membership).
     **None of the secrets may be a credential of an enrolled identity, of
     an administrator of `rulespec-us`, of an organization owner, or of an
     App that can write checks or contents on `rulespec-us`. An environment

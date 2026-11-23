@@ -2243,10 +2243,20 @@ rollback.
 8. **M** (a `rulespec-us` administrator) Turn on the merge queue for
    `rulespec-us` `main`, with the settings that rulespec-us#2160 lists:
    only merge non-failing pull requests, group size 1, build concurrency 1,
-   a status check timeout above 4 hours, merge method squash. The guard
+   a status check timeout above 4 hours, merge method squash. **Four
+   settings of the `merge_queue` rule are required, not optional, and are
+   read back:** `grouping_strategy: "ALLGREEN"`, `max_entries_to_merge: 1`,
+   `min_entries_to_merge: 1`, `max_entries_to_build: 1`. They are what
+   makes one merge group one judged pull request: the evaluator binds the
+   group's content and cannot prove its membership (§6), and the writer's
+   lock of draft #2289 refuses any other values [author-reported, draft
+   #2289]. Read them, as an administrator:
+   `gh api repos/TheAxiomFoundation/rulespec-us/rules/branches/main --jq '.[] | select(.type == "merge_queue") | .parameters | {grouping_strategy, max_entries_to_merge, min_entries_to_merge, max_entries_to_build}'`
+   must print exactly those four values; any other value, or a missing
+   field, stops the activation. The guard
    also needs build concurrency 1 (§6). The guard's merge-group job waits
    for the group's `validate / validate` run, for at most 5 hours, and
-   evaluates after it. Its longest run is 319.5 minutes (§4, "Job timeout").
+   evaluates after it, then reads the group's check once more. Its longest run is 321 minutes (§4, "Job timeout").
    The queue's status-check timeout has a maximum of 360 minutes [docs D7:
    `check_response_timeout_minutes`, "maximum: 360"]; set it to 360.
    - **The queue is a repository setting.** "Require merge queue" is not
@@ -2446,10 +2456,10 @@ rollback.
     (step 8's check, repeated now); **an organization owner has verified,
     at this moment, that the organization's "Runners" setting allows no
     repository-level self-hosted runner for `rulespec-us`** (the owner's
-    check below); **no stored secret outside an environment with required
-    reviewers is a credential of an enrolled identity, an administrator, an
-    organization owner or an App that can write checks or contents, and an
-    owner has read the installed Apps** (the check "Stored credentials and
+    check below); **no stored secret is a credential of an enrolled identity, an administrator, an
+    organization owner or an App that can write checks or contents (an
+    environment is an exception only by name and with verified controls), and an
+    owner has read the installed Apps with their target repositories** (the check "Stored credentials and
     installed Apps" below); Actions are enabled in `rulespec-us`; and Max has decided question 0 of §10 **and its lane is on at the
     pinned SHA** (step 10).
     **WARNING:** without the lane of question 0, an `Active` ruleset blocks
@@ -2859,7 +2869,7 @@ fallback.
 | Adversary | Defended? | How |
 |---|---|---|
 | Write collaborator on a RuleSpec repository, not enrolled | Yes for a v6 unit; through CI for a v5 lane; blocked otherwise. All three only while no stored credential gives the collaborator another identity (next row) | Cannot dispatch, cannot give a counting approval, and cannot publish as the guard App from a RuleSpec workflow. A v6 unit refuses every extra file. A v5 lane needs this PR's own green run. Any other guarded change has no lane |
-| Write collaborator who reads a credential that is stored where a workflow of a branch can read it | **No**, when the credential belongs to an enrolled identity, an administrator, an organization owner, or an App that can write checks or contents | The collaborator pushes a branch with a workflow that reads a repository secret, or an organization secret that the repository can use; no merge and no review is needed [docs D23 for a repository secret: any user with write access to a repository can read every secret that is configured in it; the organization secret and "no merge is needed" are inferred]. The collaborator then acts as the credential's owner: every control of this design that rests on that identity is void for that collaborator [inferred from the documented secret semantics; not tested]. GitHub cannot restrict a repository secret to one workflow file [inferred: no page read offers it]; an environment with required reviewers can hold a secret back [docs D24]. **This exposure exists today and does not depend on the guard**: `rulespec-us` has the repository secret `BULK_ENCODE_TOKEN`, which its `bulk/README.md` describes as a token with the scopes `repo` and `workflow`; no workflow on `main` of `rulespec-us` uses it [live read 2026-11-18; code: `rulespec-us` at `ddad6d63`]. Not read: its owner, its real scopes and whether it is still valid. It also touches today's promotion lane: whoever holds an enrolled owner's token can approve. Hard precondition of checklist steps 11 and 13; `docs/merge-guard-key-protection.md` §4.4, R14, and §5, step E |
+| Write collaborator who reads a credential that is stored where a workflow of a branch can read it | **No**, when the credential belongs to an enrolled identity, an administrator, an organization owner, or an App that can write checks or contents | The collaborator pushes a branch with a workflow that reads a repository secret, or an organization secret that the repository can use; no merge and no review is needed [docs D23 for a repository secret: any user with write access to a repository can read every secret that is configured in it; the organization secret and "no merge is needed" are inferred]. The collaborator then acts as the credential's owner: every control of this design that rests on that identity is void for that collaborator [inferred from the documented secret semantics; not tested]. GitHub cannot restrict a repository secret to one workflow file [inferred: no page read offers it]; an environment with required reviewers can hold a secret back [docs D24], unless an administrator bypasses or edits its rules (checklist step 11). **This exposure exists today and does not depend on the guard**: `rulespec-us` has the repository secret `BULK_ENCODE_TOKEN`, which its `bulk/README.md` describes as a token with the scopes `repo` and `workflow`; no workflow on `main` of `rulespec-us` uses it [live read 2026-11-18; code: `rulespec-us` at `ddad6d63`]. Not read: its owner, its real scopes and whether it is still valid. It also touches today's promotion lane: whoever holds an enrolled owner's token can approve. Hard precondition of checklist steps 11 and 13; `docs/merge-guard-key-protection.md` §4.4, R14, and §5, step E |
 | Write collaborator on axiom-encode, not enrolled | Ruleset path: yes, by the SHA pin, if step X1 of the experiment passes. App path: not yet; checklist step 1 must close this before anyone stores the key | Ruleset path: a change that lands on axiom-encode `main` does not reach the guard until someone with ruleset rights moves the pin [docs D3; experiment X1]; no key exists to take. The collaborator can still disable the workflow in axiom-encode, whose effect on the RuleSpec repository is [experiment X17]. App path: can land, without a code-owner review, a change to code the runner job executes (`src/axiom_encode/entrypoint.py`, `src/axiom_encode/__init__.py`, a module the CLI imports, `pyproject.toml`, `uv.lock` or a dependency), or a new workflow whose job selects `merge-guard`. Once someone stores the key, that code can take the private key as well as the token. With the key it can mint tokens for any App installation within that installation's granted repositories and permissions while the key stays valid, independent of one requested token's scope, lifetime or revocation. That permits misleading shadow output and, once the check is required, a forged required check. Checklist step 1 covers all selecting jobs in existing, new, replaced or modified workflows, dynamic selectors, the ability to land them, every pre-token step and persistence, builds, installation, dependencies, interpreter/startup hooks and the full console-script/import closure |
 | PR that edits workflow files, pins, ledgers or `.axiom/` configuration | Yes, by refusal | No lane claims it: `fail`. This also blocks legitimate changes (§10, question 0) |
 | PR that relabels or hides its manifest, or uses a root the encoder does not name | Yes | The guard stands aside only on the five-file allowlist or on the v5 lane, which needs this PR's green CI (step 3) |

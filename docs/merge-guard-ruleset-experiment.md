@@ -728,7 +728,11 @@ Class: blocking for "a `merge_group` run starts" and for the marker `A`; adjusti
 - **Procedure.** In the target, create a repository ruleset for `main`:
   "Require merge queue" (merge method squash, build concurrency 1, minimum
   and maximum group size 1) and "Require status checks to pass" with
-  `lab-slow`. Approve a pull request, wait until both checks are green, and
+  `lab-slow`. Read the stored rule and record it: its parameters must be
+  the four that production requires (design §8, step 8),
+  `grouping_strategy: "ALLGREEN"`, `max_entries_to_merge: 1`,
+  `min_entries_to_merge: 1` and `max_entries_to_build: 1`
+  (`gh api repos/TheAxiomFoundation/guard-lab-target/rules/branches/main --jq '.[] | select(.type == "merge_queue") | .parameters'`). Approve a pull request, wait until both checks are green, and
   add it to the queue.
 - **Pass.** A `lab-guard` run starts with `github.event_name=merge_group`.
   It prints `marker=A`: the source has commit B since X1 and the ruleset
