@@ -1381,7 +1381,24 @@ queue or ruleset uses it; only the enforcing runner calls it, for a
   the judged pull request did not carry. To keep one group equal to one
   judged pull request, the queue must have a maximum group size of 1
   (rulespec-us#2160 plans it); activation requires reading that setting
-  back, and a larger size is a reason not to activate. A test records the
+  back, and a larger size is a reason not to activate. The same holds for
+  a group whose final tree is the head of its last member (a second pull
+  request that already contains the first): the evaluator reads and judges
+  that one pull request only, and the first is merged with the group
+  whatever its own checks said. With the queue's `HEADGREEN` grouping a
+  group can include an earlier entry whose required check failed
+  [reported by the review of the writer's lock, #2289; the GitHub page was
+  not read by the author of this text]. So the requirement is four
+  settings of the `merge_queue` rule, the ones the writer's lock (#2289)
+  refuses to work without: `grouping_strategy: "ALLGREEN"`,
+  `max_entries_to_merge: 1`, `min_entries_to_merge: 1` and
+  `max_entries_to_build: 1`. **The evaluator does not enforce them and
+  cannot prove a group to be a single pull request**: the commits between
+  the base and the group head depend on the merge method (one squash
+  commit, the rebased commits, or the head's commits and a merge commit),
+  so a count of them refuses honest groups or admits dishonest ones. The
+  queue settings, read back before activation, and the lock carry this
+  requirement. A test records the
   limit (`test_a_group_with_an_earlier_queued_merge_as_parent_and_one_tree_passes`).
 - **The head must be up to date.** `evaluate` requires `H` to be strictly
   ahead of the live `main` tip. After another pull request merges, a queued
