@@ -1192,8 +1192,14 @@ waits stops at the listing of the required check, so the run is smaller
   of 430 requests passes. A run that needs exactly 450 passes. A run that
   needs 451 fails with the error of every capped run ("the run reached its
   request cap"), and no request is sent past the cap. With the cap at its
-  earlier value the 430 run fails; with the cap removed the 451 run passes.
-  Both mutants are in the mutation log of the change.
+  earlier value the 430 run fails
+  (`test_the_merge_group_run_of_a_ten_unit_evaluation_fits_under_the_cap`);
+  with the cap removed the 451 run passes
+  (`test_the_run_that_needs_the_whole_cap_passes_and_one_request_more_fails`).
+  The pull-request path cannot reach 450 with these fixtures (its largest
+  run is 348), so its tests set the cap around the need of one run: the run
+  passes at its exact need of 240 and fails one below, each poll uses the
+  budget, and the second evaluation has no budget of its own.
 - *What the arithmetic does not bound* [code]. `20 + 10u` and the 29 above
   count one page for each list and one check. The evaluator reads up to 10
   pages of the file list, of the commit list and of the review list (the
@@ -1201,7 +1207,8 @@ waits stops at the listing of the required check, so the run is smaller
   on the pull request head costs 2 reads: its workflow run, in each of the
   two passes. One listing holds up to 100 checks. A batch of 10 units is 30
   files, so a further page needs more than 100 commits or reviews. The 20
-  spare requests cover 10 such reads at the binding run. A run that needs
+  spare requests cover 20 such reads at the binding run: 10 further checks
+  at 2 reads each. A run that needs
   more reaches the cap and fails closed; a re-run costs the same, so that
   pull request needs fewer commits or checks, or a higher cap in a reviewed
   change.

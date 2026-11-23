@@ -368,6 +368,114 @@ def test_a_cap_reached_inside_the_evaluation_is_a_failed_read(above):
     assert report["requests"] == len(world.calls) == runner.MAX_ENFORCE_REQUESTS
 
 
+# --- the cap on the pull-request path (review round 1, P2-1) --------------------
+#
+# The literal boundary 449/450/451 cannot be reached on the pull-request path
+# with these fixtures: one listing holds at most 100 checks, so the largest
+# evaluation is 29 + 2 x 99 = 227 reads and the largest run is
+# 20 + 101 + 227 = 348 (driven below). So the tests of this path set the cap
+# (``monkeypatch``) around the need of one run. That run is the 10-unit one:
+# a first evaluation of 19 reads that stops at the pending check, 101 polls
+# of one read, and a second, whole evaluation of 120 reads: 240 requests.
+# What they isolate is that ONE budget covers the first evaluation, every
+# poll and the second evaluation of a pull-request run.
+
+PR_FIRST, PR_POLLS, PR_SECOND = 19, 101, 120
+PR_NEED = PR_FIRST + PR_POLLS + PR_SECOND
+
+
+def pull_request_run_under(monkeypatch, cap):
+    monkeypatch.setattr(runner, "MAX_ENFORCE_REQUESTS", cap)
+    world = pending_for_a_full_wait(sized(batch_evaluation(10)))
+    report, code = judge(world, time=Time())
+    # Nothing is sent past the cap, whatever the outcome.
+    assert report["requests"] == len(world.calls) <= cap
+    return report, code
+
+
+def test_the_largest_pull_request_run_of_these_fixtures_is_below_the_cap():
+    world = sized(29 + 2 * 99)
+    assert len(world.api[HEAD_CHECKS]["check_runs"]) == 100  # one full listing
+    world = pending_for_a_full_wait(world)
+    report, code = judge(world, time=Time())
+    assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
+    assert report["requests"] == 20 + 101 + 227 == 348 < runner.MAX_ENFORCE_REQUESTS
+
+
+def test_a_pull_request_run_passes_at_its_exact_need_and_fails_one_below(
+    monkeypatch,
+):
+    assert PR_NEED == 240
+    report, code = pull_request_run_under(monkeypatch, PR_NEED)
+    assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
+    assert "error" not in report
+    assert (report["requests"], report["evaluations"]) == (PR_NEED, 2)
+    assert report["ci_polls"] == PR_POLLS
+
+    # One request less: the last read of the second evaluation is refused.
+    report, code = pull_request_run_under(monkeypatch, PR_NEED - 1)
+    assert code == 1
+    assert report["requests"] == PR_NEED - 1
+    assert report["verdict"]["verdict"] == "fail"
+    assert report["verdict"]["evidence"][guard.EVIDENCE_INCOMPLETE_READ] is True
+    assert report["error"] == "an evaluation could not read GitHub"
+
+
+@pytest.mark.parametrize(
+    "cap",
+    [
+        PR_FIRST + PR_POLLS,  # the first read of the second evaluation
+        PR_FIRST + PR_POLLS + 1,
+        PR_SECOND,  # the need of the second evaluation alone
+        PR_SECOND + 1,
+        PR_SECOND + PR_POLLS,  # the second evaluation and the polls alone
+        200,
+        PR_NEED - PR_FIRST,  # everything but the first evaluation
+        PR_NEED - 2,
+    ],
+)
+def test_the_second_evaluation_of_a_pull_request_run_has_no_budget_of_its_own(
+    monkeypatch, cap
+):
+    # A cap between what the run used before its second evaluation (120) and
+    # its whole need (240). The second evaluation alone needs 120, so it
+    # would fit a budget that started again; it must not.
+    assert PR_FIRST + PR_POLLS <= cap < PR_NEED and cap >= PR_SECOND
+    report, code = pull_request_run_under(monkeypatch, cap)
+    assert code == 1
+    assert report["requests"] == cap
+    assert (report["evaluations"], report["ci_polls"]) == (2, PR_POLLS)
+    assert report["verdict"]["verdict"] == "fail"
+    assert report["verdict"]["evidence"][guard.EVIDENCE_INCOMPLETE_READ] is True
+    assert report["error"] == "an evaluation could not read GitHub"
+
+
+@pytest.mark.parametrize("polls_sent", [0, 1, 50, 100])
+def test_each_poll_of_a_pull_request_wait_uses_the_budget(monkeypatch, polls_sent):
+    # The cap is reached inside the wait: the first evaluation and exactly
+    # ``polls_sent`` polls are sent, the next poll is refused. The wait ends
+    # with the cap's own error, and no second evaluation is made.
+    cap = PR_FIRST + polls_sent
+    report, code = pull_request_run_under(monkeypatch, cap)
+    assert code == 1
+    assert report["requests"] == cap
+    assert report["evaluations"] == 1
+    assert reason_of(report) == ("fail", guard.R_CI)
+    assert report["error"] == (
+        "waiting for the required check failed: the run reached its request cap"
+    )
+
+
+def test_a_cap_inside_the_first_evaluation_of_a_pull_request_run_fails_it(
+    monkeypatch,
+):
+    report, code = pull_request_run_under(monkeypatch, PR_FIRST - 1)
+    assert code == 1
+    assert (report["requests"], report["evaluations"]) == (PR_FIRST - 1, 1)
+    assert report["verdict"]["evidence"][guard.EVIDENCE_INCOMPLETE_READ] is True
+    assert report["error"] == "an evaluation could not read GitHub"
+
+
 def test_the_cap_admits_no_batch_by_itself():
     # The second lock stays: the success set holds no batch reason, and this
     # branch's evaluator refuses a second v6 unit.
