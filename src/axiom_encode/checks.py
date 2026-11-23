@@ -801,8 +801,11 @@ def advisory_review_context(records: Sequence[Mapping[str, Any]]) -> str:
         "candidate, and no other deterministic check stands in for them).",
         "Each warning below comes from a deterministic check that reads the "
         "source wording mechanically. A warning is not proof of a defect and "
-        "it is not proof of none. For each warning, read the quoted source "
-        "words and the named rule, and decide from the source text whether "
+        "it is not proof of none. Its text was written as a repair "
+        "instruction for the encoder; read it as a report of what the check "
+        "counted, not as a required change. For each warning, read the "
+        "quoted source words and the named rule, and decide from the source "
+        "text whether "
         "the RuleSpec does what the check requires. If the RuleSpec merges, "
         "drops or weakens something the source states, report it as a "
         "blocking issue and fail the review. If the RuleSpec is faithful to "
