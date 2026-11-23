@@ -176,29 +176,53 @@ MERGE_GROUP_RUN_EVENT: Final = "merge_group"
 # (https://docs.github.com/en/webhooks/webhook-events-and-payloads); a
 # pull_request or merge_group payload is far smaller. A larger file fails.
 MAX_EVENT_BYTES: Final = 4 * 1024 * 1024
-# Hard cap of GitHub requests in one enforce run. The arithmetic below counts
-# an evaluation as 30 requests: that is the largest evaluation of the
-# fixtures (29, ``tests/test_merge_guard_runner.py``, "request volume"), which
-# hold one unit each. It is a measurement, not a bound of the evaluator: an
-# earlier-lane train reads about three more blobs for each further unit, so a
-# large train costs more, and with a full wait a train above about 37 units
-# reaches this cap (design, section 4). The cap then fails the run closed;
-# it never yields a verdict. Pull request: two evaluations and every poll of one full wait are
+# Hard cap of GitHub requests in one enforce run. It bounds a runaway run
+# only: past it every read fails, so a verdict is ``fail`` and a wait is an
+# error. No value of it yields a pass.
+#
+# A run of one unit. The fixtures measure an evaluation of at most 29 reads
+# (``tests/test_merge_guard_runner.py``, "request volume"), counted as 30.
+# Pull request: two evaluations and every poll of one full wait are
 # 2 * 30 + 101 * 1 = 161 requests. Merge group: every poll at its highest
 # cost, the one evaluation and the second read of the group's check are
-# 3 * 101 + 30 + 3 = 336 requests (see above). For a merge group whose pull
-# request is an earlier-lane train of ``u`` units the evaluation is about
-# 15 + 3u reads, so the cap admits about 77 units when each poll costs one
-# read and about 9 when every poll costs three (a foreign check with the
-# required name on the group head); past that the run fails closed.
-# Both worst cases are driven by tests. Past the cap every read fails, so a
-# verdict is ``fail`` and a wait is an error. A full wait takes five hours,
-# so in any one hour a run makes at most 20 polls. An hour can hold both
-# evaluations of a pull-request run (a short wait): 20 + 2 * 30 = 80
-# requests. For a merge group: 60 + 30 + 3 = 93. GitHub documents the job token's limit as 1,000 requests per hour
-# per repository
+# 3 * 101 + 30 + 3 = 336 requests (see above). The fixture is not the
+# costliest single unit: an approval on an earlier commit adds 3 reads and a
+# candidate base behind ``main`` adds 1, which gives 29 for a pull request
+# and 33 for its merge group, 3 * 101 + 33 + 3 = 339 for the run
+# (``tests/test_merge_guard_request_budget.py``).
+#
+# The cap is sized for a later batch of 10 v6 units (#2301). The batch
+# evaluator is not in this file's stack; draft #2309 measures its costliest
+# evaluation as 20 + 10u reads for u units, and a merge group adds 4. The
+# binding run is the merge group whose every poll costs three reads:
+# 3 * 101 + (24 + 10 * 10) + 3 = 430. The pull-request run of that batch is
+# 2 * (20 + 10 * 10) + 101 = 341. The cap of 450 leaves 20 requests over the
+# binding run, for a further page of a list or a further check with the
+# required name on the head (2 reads each). The cap alone admits no batch:
+# the evaluator's unit limit and ``SUCCESS_VERDICTS`` are separate reviewed
+# changes.
+#
+# An earlier-lane train reads about three more blobs for each further unit:
+# its evaluation is about 11 + 3u reads, 15 + 3u for its merge group. With a
+# full wait the cap admits a pull-request run of about 54 units
+# (2 * (11 + 3u) + 101), a merge group of about 110 when each poll costs one
+# read, and of about 43 when every poll costs three (a foreign check with the
+# required name on the group head); past that the run fails closed (design,
+# section 4). The worst cases are driven by tests.
+#
+# A full wait takes five hours, so in any one hour a run makes at most 20
+# polls. An hour can hold both evaluations of a pull-request run (a short
+# wait): 20 + 2 * 30 = 80 requests for one unit, 20 + 2 * 120 = 260 for a
+# batch of 10. For a merge group: 60 + 30 + 3 = 93, and 60 + 124 + 3 = 187.
+# GitHub documents the job token's limit as 1,000 requests per hour per
+# repository
 # (https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
-MAX_ENFORCE_REQUESTS: Final = 350
+# The cap is for one run, not for one hour: two runs that both reach it in
+# one hour use 900 of that limit and three exceed it (at the earlier cap of
+# 350: 700, and three exceed it too). A read that the limit refuses is a
+# failed read, and the run fails closed (design, section 4, "Request budget
+# for a batch").
+MAX_ENFORCE_REQUESTS: Final = 450
 
 _API: Final = "https://api.github.com"
 _REPOSITORY = re.compile(r"rulespec-[a-z]{2}(-[a-z0-9]+)*")

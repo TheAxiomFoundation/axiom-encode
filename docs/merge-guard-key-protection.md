@@ -650,9 +650,11 @@ exist today (§5 "Now") and for the second fallback:
   a job token of `rulespec-us` is not verified [docs D18; design §4, "What
   the wait costs"]. These figures count one evaluation as 30 requests,
   which is the largest fixture figure for one unit. A v5 train of `u` units
-  costs about `11 + 3u` requests for each evaluation, and the cap of 350
-  requests for a run admits about 37 units; a larger train fails closed
-  (design §4, "Request volume").
+  costs about `11 + 3u` requests for each evaluation, and the cap of 450
+  requests for a run admits about 54 units; a larger train fails closed
+  (design §4, "Request volume"). The cap is sized for a later batch of 10
+  v6 units, whose costliest hour is 260 requests: three such runs fit the
+  limit and a fourth does not (design §4, "Request budget for a batch").
 - **R4b. The inert path is the one assumption that fails open.** In
   axiom-encode itself the runner ends with success without an evaluation.
   It takes that path only when `GITHUB_REPOSITORY` and the event payload

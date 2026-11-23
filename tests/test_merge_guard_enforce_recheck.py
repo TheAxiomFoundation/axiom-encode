@@ -679,18 +679,21 @@ def test_the_request_cap_still_covers_every_documented_worst_case():
     cap = runner.MAX_ENFORCE_REQUESTS
     polls = runner.MAX_MERGE_GROUP_POLLS
     recheck = runner.GROUP_CI_RECHECK_READS
-    assert (cap, polls, runner.MAX_CI_POLLS, recheck) == (350, 101, 101, 3)
+    assert (cap, polls, runner.MAX_CI_POLLS, recheck) == (450, 101, 101, 3)
     # Pull request: two evaluations and a full wait. Unchanged by the second
     # read, which belongs to the merge-group run only.
     assert 2 * 30 + 101 == 161 <= cap
-    assert 2 * (11 + 3 * 37) + 101 == 345 <= cap < 2 * (11 + 3 * 38) + 101
+    assert 2 * (11 + 3 * 54) + 101 == 447 <= cap < 2 * (11 + 3 * 55) + 101
     # Merge group, every poll at three reads.
     assert 3 * polls + 30 + recheck == 336 <= cap
-    assert 3 * polls + (15 + 3 * 9) + recheck == 348 <= cap
-    assert 3 * polls + (15 + 3 * 10) + recheck == 351 > cap
+    assert 3 * polls + (15 + 3 * 43) + recheck == 450 <= cap
+    assert 3 * polls + (15 + 3 * 44) + recheck == 453 > cap
+    # At the earlier cap of 350 that row admitted 9 units.
+    assert 3 * polls + (15 + 3 * 9) + recheck == 348 <= 350
+    assert 3 * polls + (15 + 3 * 10) + recheck == 351 > 350
     # Merge group, one listed check: 100 polls of one read, the last of two.
-    assert 100 + 2 + (15 + 3 * 77) + 2 == 350 <= cap
-    assert 100 + 2 + (15 + 3 * 78) + 2 > cap
+    assert 100 + 2 + (15 + 3 * 110) + 2 == 449 <= cap
+    assert 100 + 2 + (15 + 3 * 111) + 2 > cap
 
 
 # --- the design says what the code does (doc pins) ----------------------------
@@ -751,9 +754,9 @@ DESIGN_REQUIRED = {
         "60 + 30 + 3 = 93",
         "the limit is reached at N = 12",
         "19,260 s, 321 minutes",
-        "3 x 101 + (15 + 3u) + 3 <= 350 admits about 9",
-        "100 + 2 + (15 + 3u) + 2 <= 350 admits about 77",
-        "2 x (11 + 3u) + 101 <= 350",
+        "3 x 101 + (15 + 3u) + 3 <= 450 admits about 43",
+        "100 + 2 + (15 + 3u) + 2 <= 450 admits about 110",
+        "2 x (11 + 3u) + 101 <= 450",
     ],
 }
 
