@@ -272,7 +272,14 @@ def item_or_sides(body: str) -> tuple[str, str] | None:
     words = re.sub(r"\A(?:when|if)\s+", "", body.strip(), flags=re.IGNORECASE)
     words = re.sub(r"(?:\s*\([^()]*\))+\s*\.?\s*\Z", "", words).rstrip(" .")
     parts = re.split(r"\bor\b", words, flags=re.IGNORECASE)
-    return (parts[0], parts[1]) if len(parts) == 2 else None
+    if len(parts) != 2:
+        return None
+    # "or" joins two parallel phrases: the right side, and as many words at
+    # the end of the left side. Words before them (a shared subject) belong
+    # to both cases.
+    right = parts[1].split()
+    left = parts[0].split()[-len(right) :] if right else []
+    return (" ".join(left), " ".join(right)) if left and right else None
 
 
 def _chapeau_reading(chapeau_text: str) -> tuple[str, bool, bool]:
@@ -280,7 +287,8 @@ def _chapeau_reading(chapeau_text: str) -> tuple[str, bool, bool]:
 
     collapsed = " ".join(chapeau_text.split())
     if len(re.findall(r"\bfollowing\b", collapsed, re.IGNORECASE)) != 1:
-        return "unrecognised", False, False
+        bare_if = re.search(r"\bif\s*:\s*\Z", collapsed, re.IGNORECASE) is not None
+        return "unrecognised", False, bare_if and "following" not in collapsed.lower()
     binds = _CONDITION_LIST_CHAPEAU.search(collapsed) is not None
     if _ANY_CUE_CHAPEAU.search(collapsed) is not None:
         return "alternatives", True, True

@@ -39,6 +39,8 @@ def _candidate(inputs, rules, dtype="Judgment"):
         "module": {"source_verification": {"corpus_citation_path": CITATION}},
         "inputs": [
             {"name": name, "entity": "Household", "dtype": "Boolean", "period": "Month"}
+            if isinstance(name, str)
+            else name
             for name in inputs
         ],
         "rules": [
@@ -316,7 +318,7 @@ def test_a_plain_paragraph_ends_the_list_and_a_wrapped_line_does_not():
     text = (
         ANY_CHAPEAU
         + "\n\n● New vehicle\nwrapped words of the item\n\n● Lost card"
-        + "\n\nNext comes a plain paragraph.\n\n● Not an item of the list"
+        + "\n\nNext comes a plain paragraph."
     )
     (only,) = structure.parse_source_lists(text)
     assert [text[item.start : item.end] for item in only.items] == [
@@ -357,14 +359,14 @@ WRONG_ENCODINGS = {
     "dropped alternative": (f"{A} or {B} or {C}", ANY_INPUTS),
     "negated alternative": (f"{A} or {B} or {C} or not {D}", ANY_INPUTS),
     "negated rule": (f"not ({A} or {B} or {C} or {D})", ANY_INPUTS),
-    "constant true": ("True", ANY_INPUTS),
-    "constant false": ("False", ANY_INPUTS),
+    "constant true": ("true", ANY_INPUTS),
+    "constant false": ("false", ANY_INPUTS),
     "alternative named in a dead arm": (
-        f"{A} or {B} or {C} or ({D} and False)",
+        f"{A} or {B} or {C} or ({D} and false)",
         ANY_INPUTS,
     ),
     "alternative named next to a constant": (
-        f"{A} or {B} or {C} or ({D} or True)",
+        f"{A} or {B} or {C} or ({D} or true)",
         ANY_INPUTS,
     ),
     "alternative named in a contradiction": (
@@ -433,7 +435,7 @@ def test_the_wrong_encodings_that_the_flat_reading_accepts(monkeypatch):
 
 def test_a_wrong_dependency_does_not_stand_for_an_alternative(monkeypatch):
     rules = [
-        ("fee_dispute", "False", ["When the fee amount is disputed"]),
+        ("fee_dispute", "false", ["When the fee amount is disputed"]),
         ("renewal", f"{A} or {B} or {C} or fee_dispute", [ANY_CHAPEAU]),
     ]
     assert _both(ANY_INPUTS, rules, ANY, monkeypatch)[1] == 1
@@ -537,47 +539,38 @@ FACT_INPUTS = [
 
 
 @pytest.mark.parametrize(
-    ("formula", "expected"),
+    "formula",
     [
-        (
-            "holder_enrolled_in_commuter_program and "
-            "(holder_lives_outside_district or holder_works_night_shift)",
-            0,
-        ),
-        ("holder_lives_outside_district or holder_works_night_shift", 1),
-        (
-            "holder_enrolled_in_commuter_program or holder_lives_outside_district "
-            "or holder_works_night_shift",
-            1,
-        ),
-        (
-            "holder_enrolled_in_commuter_program and holder_lives_outside_district "
-            "and holder_works_night_shift",
-            1,
-        ),
-        ("holder_enrolled_in_commuter_program", 1),
+        "holder_enrolled_in_commuter_program and "
+        "(holder_lives_outside_district or holder_works_night_shift)",
+        "holder_lives_outside_district or holder_works_night_shift",
+        "holder_enrolled_in_commuter_program or holder_lives_outside_district "
+        "or holder_works_night_shift",
+        "holder_enrolled_in_commuter_program",
     ],
 )
-def test_a_fact_of_the_chapeau_stays_a_simultaneous_fact(
-    formula, expected, monkeypatch
-):
+def test_a_chapeau_with_a_second_condition_keeps_the_flat_reading(formula, monkeypatch):
     chapeau = CHAPEAU_FACT.split("\n")[0]
-    rules = [("waiver", formula, [chapeau])]
-    assert _both(FACT_INPUTS, rules, CHAPEAU_FACT, monkeypatch)[1] == expected
+    (only,) = structure.parse_source_lists(CHAPEAU_FACT)
+    assert only.reading == "alternatives" and not only.verifiable
+    content = _candidate(FACT_INPUTS, [("waiver", formula, [chapeau])])
+    assert _findings(
+        content, CHAPEAU_FACT, on=True, monkeypatch=monkeypatch
+    ) == _findings(content, CHAPEAU_FACT, on=False, monkeypatch=monkeypatch)
 
 
 # --- clause bounds on the tree -----------------------------------------------------
 
-TAIL = "A signed form from the employer is needed to keep the permit."
+TAIL = "The office keeps a copy of each permit."
 
 
 def test_a_clause_ends_with_its_list_when_a_new_sentence_starts(monkeypatch):
     source = ANY + "\n\n" + TAIL
     rules = [
         ("renewal", FAITHFUL, [ANY_CHAPEAU]),
-        ("form_needed", "holder_keeps_permit", [TAIL]),
+        ("copy_kept", "office_keeps_copy", [TAIL]),
     ]
-    assert _both([*ANY_INPUTS, "holder_keeps_permit"], rules, source, monkeypatch) == (
+    assert _both([*ANY_INPUTS, "office_keeps_copy"], rules, source, monkeypatch) == (
         1,
         0,
     )
@@ -601,7 +594,7 @@ def test_a_tail_that_starts_no_new_sentence_keeps_the_flat_reading(tail, monkeyp
 
 def test_an_excerpt_across_the_end_of_the_list_keeps_the_flat_reading(monkeypatch):
     source = ANY + "\n\n" + TAIL
-    excerpt = "When the fee amount is disputed A signed form from the employer"
+    excerpt = "When the fee amount is disputed The office keeps a copy"
     off, on = _both(
         ANY_INPUTS, [("renewal", FAITHFUL, [ANY_CHAPEAU, excerpt])], source, monkeypatch
     )
@@ -702,25 +695,32 @@ def test_a_proof_outside_the_note_keeps_the_flat_reading(excerpt, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("formula", "inputs"),
+    ("formula", "inputs", "expected"),
     [
-        ("fee_has_no_due_date_shown", ["fee_has_no_due_date_shown"]),
-        ("True", ["fee_has_no_due_date_shown"]),
-        ("not fee_has_no_due_date_shown", ["fee_has_no_due_date_shown"]),
-        ("fee_is_due", ["fee_is_due"]),
+        ("fee_has_no_due_date_shown", ["fee_has_no_due_date_shown"], 0),
+        (
+            "fee_has_no_due_date_shown and fee_is_late",
+            ["fee_has_no_due_date_shown", "fee_is_late"],
+            0,
+        ),
+        ("true", ["fee_has_no_due_date_shown"], 1),
+        ("not fee_has_no_due_date_shown", ["fee_has_no_due_date_shown"], 1),
+        ("holder_is_senior", ["holder_is_senior"], 1),
+        (
+            "fee_has_no_due_date_shown or holder_is_senior",
+            ["fee_has_no_due_date_shown", "holder_is_senior"],
+            1,
+        ),
     ],
 )
-def test_a_note_in_a_list_is_read_as_the_same_note_standing_alone(
-    formula, inputs, monkeypatch
+def test_the_one_fact_of_a_cut_note_is_still_demanded(
+    formula, inputs, expected, monkeypatch
 ):
-    """The cut removes the run-on only: nothing else about the note changes."""
+    """The cut removes the run-on; the note's own fact needs a positive input."""
 
     in_list = "Any of the following parking fees are not refundable" + NOTE_TAIL
-    alone = "NOTE " + NOTE_QUOTE
-    content = _candidate(inputs, [("due", formula, [NOTE_QUOTE])])
-    assert _findings(content, in_list, on=True, monkeypatch=monkeypatch) == _findings(
-        content, alone, on=False, monkeypatch=monkeypatch
-    )
+    rules = [("due", formula, [NOTE_QUOTE])]
+    assert _both(inputs, rules, in_list, monkeypatch)[1] == expected
 
 
 PROOF_CHAPEAU = "Any of the following can be used to prove residence:"
@@ -739,23 +739,24 @@ PROOF_INPUTS = [
 
 
 @pytest.mark.parametrize(
-    ("formula", "expected"),
+    "formula",
     [
-        (" or ".join(PROOF_INPUTS), 0),
-        (" or ".join(PROOF_INPUTS[:3]), 1),
-        (" and ".join(PROOF_INPUTS), 1),
-        (f"not ({' or '.join(PROOF_INPUTS)})", 1),
-        ("True", 1),
+        " or ".join(PROOF_INPUTS),
+        " or ".join(PROOF_INPUTS[:3]),
+        " and ".join(PROOF_INPUTS),
+        "true",
     ],
 )
-def test_a_rule_that_quotes_the_chapeau_is_verified_not_cut(
-    formula, expected, monkeypatch
-):
-    """A cue inside an item does not cut the list for the list's own rule."""
+def test_a_rule_that_quotes_the_chapeau_is_never_cut(formula, monkeypatch):
+    """Items with their own conditions are not plain alternatives: flat."""
 
     source = _list(PROOF_CHAPEAU, PROOF_ITEMS)
-    rules = [("proved", formula, [PROOF_CHAPEAU, *PROOF_ITEMS])]
-    assert _both(PROOF_INPUTS, rules, source, monkeypatch)[1] == expected
+    content = _candidate(
+        PROOF_INPUTS, [("proved", formula, [PROOF_CHAPEAU, *PROOF_ITEMS])]
+    )
+    assert _findings(content, source, on=True, monkeypatch=monkeypatch) == _findings(
+        content, source, on=False, monkeypatch=monkeypatch
+    )
 
 
 @pytest.mark.parametrize(
@@ -813,27 +814,37 @@ COUNT_CHAPEAU = (
 )
 BINDING_CHAPEAUS = [
     ALL_CHAPEAU,
-    COUNT_CHAPEAU,
     "A parking permit is granted when each of the following is true:",
     "A parking permit is granted only if all of the following conditions are met:",
     "A parking permit is granted when the holder satisfies all of the following:",
-    "A parking permit is granted if it meets two or more of the following criteria:",
+    "A parking permit is granted when all the following apply:",
+    "A parking permit is granted if both of the following apply:",
+    "A parking permit is granted if every one of the following applies:",
+    "A parking permit is granted provided that all of the following apply:",
+    "A parking permit is granted if all three of the following apply:",
+    "A parking permit is granted if the following conditions are met:",
+    "A parking permit is granted when the following requirements are met:",
+    "A parking permit is granted if:",
 ]
 # The items of these lists are not put under the chapeau's cue by a closed
-# form: a consequence list, a cue far from the quantifier, or no quantifier.
+# form: a consequence list, a count, a cue far from the quantifier, a
+# negation, or no cue at all.
 NON_BINDING_CHAPEAUS = [
     PLAIN_CHAPEAU,
+    COUNT_CHAPEAU,
+    "A parking permit is granted if it meets two or more of the following criteria:",
     "When the holder moves, in the first month, all of the following apply:",
     "If the holder moves and the fee is unpaid then all of the following apply:",
     "A parking permit is granted if not all of the following apply:",
     "A parking permit is granted if the holder who owns a second large vehicle "
     "meets all of the following:",
     "A parking permit is granted if the holder fails all of the following:",
+    "A parking permit is granted unless all of the following apply:",
+    "The holder must provide all of the following:",
+    "All of the following must be met:",
     "A parking permit is granted if all of the following fail:",
     "A parking permit is granted if the holder meets the following:",
     "A parking permit is granted if all of the following apply to nobody:",
-    "A parking permit is granted unless all of the following apply:",
-    "The holder must provide all of the following:",
 ]
 
 
@@ -857,7 +868,7 @@ def test_an_unreadable_list_binds_no_item_proof():
     assert (only.reading, only.binds_items) == ("unrecognised", False)
 
 
-@pytest.mark.parametrize("chapeau", [ALL_CHAPEAU, COUNT_CHAPEAU])
+@pytest.mark.parametrize("chapeau", BINDING_CHAPEAUS)
 def test_a_dropped_conjunct_is_refused_when_only_items_are_quoted(chapeau, monkeypatch):
     source = _list(chapeau, ALL_ITEMS)
     rules = [("granted", " and ".join(ALL_INPUTS[:2]), list(ALL_ITEMS[:2]))]
@@ -882,13 +893,40 @@ def test_one_rule_for_each_item_passes_when_a_rule_combines_them(monkeypatch):
     assert _both(ALL_INPUTS, rules, source, monkeypatch) == (0, 0)
 
 
-def test_one_rule_for_each_item_is_refused_when_no_rule_combines_them(monkeypatch):
+@pytest.mark.parametrize("count", [1, 2, 3])
+def test_one_rule_for_each_item_without_a_combining_rule_is_not_bound(
+    count, monkeypatch
+):
+    """Such rules say nothing about the whole list: main's result stays."""
+
     source = _list(ALL_CHAPEAU, ALL_ITEMS)
+    rules = [
+        (f"rule_{index}", ALL_INPUTS[index], [ALL_ITEMS[index]])
+        for index in range(count)
+    ]
+    assert _both(ALL_INPUTS, rules, source, monkeypatch) == (0, 0)
+
+
+def test_a_combining_rule_that_drops_an_item_rule_is_refused(monkeypatch):
+    source = _list(ALL_CHAPEAU, ALL_ITEMS) + "\n\nThe clerk then issues the permit."
     rules = [
         ("owns", ALL_INPUTS[0], [ALL_ITEMS[0]]),
         ("lives", ALL_INPUTS[1], [ALL_ITEMS[1]]),
+        ("paid", ALL_INPUTS[2], [ALL_ITEMS[2]]),
+        ("granted", "owns and lives", ["The clerk then issues the permit."]),
     ]
     assert _both(ALL_INPUTS, rules, source, monkeypatch) == (0, 1)
+
+
+def test_a_count_list_is_not_bound(monkeypatch):
+    source = _list(COUNT_CHAPEAU, ALL_ITEMS)
+    a, b, c = ALL_INPUTS
+    rules = [
+        ("pair_one", f"{a} and {b}", list(ALL_ITEMS[:2])),
+        ("pair_two", f"{a} and {c}", [ALL_ITEMS[0], ALL_ITEMS[2]]),
+        ("pair_three", f"{b} and {c}", list(ALL_ITEMS[1:])),
+    ]
+    assert _both(ALL_INPUTS, rules, source, monkeypatch) == (0, 0)
 
 
 @pytest.mark.parametrize(
@@ -929,9 +967,9 @@ CONJUNCTIVE_FORMULAS = {
         ALL_INPUTS,
     ),
     "or for and": (" or ".join(ALL_INPUTS), ALL_INPUTS),
-    "constant": ("True", ALL_INPUTS),
+    "constant": ("true", ALL_INPUTS),
     "constant folded": (
-        "holder_owns_vehicle and holder_lives_in_district and (holder_has_paid_fee or True)",
+        "holder_owns_vehicle and holder_lives_in_district and (holder_has_paid_fee or true)",
         ALL_INPUTS,
     ),
 }
@@ -1041,3 +1079,365 @@ def test_an_excerpt_that_stands_at_two_places_binds_nothing(monkeypatch):
 def test_every_pair_of_wrong_alternative_encodings_is_distinct():
     formulas = [formula for formula, _inputs in WRONG_ENCODINGS.values()]
     assert all(left != right for left, right in itertools.combinations(formulas, 2))
+
+
+# --- review round 1: forms that must keep the flat reading ---------------------------
+
+SHORT_ITEMS = (
+    "The holder owns a vehicle",
+    "When a change of employer is reported",
+    "When the fee amount is disputed",
+)
+SHORT_INPUTS = [
+    "holder_owns_vehicle",
+    "change_of_employer_reported",
+    "fee_amount_disputed",
+]
+SHORT_OR = " or ".join(SHORT_INPUTS)
+
+
+def _same(inputs, rules, source, monkeypatch, dtype="Judgment"):
+    """Assert that the switch changes no finding; return the count."""
+
+    content = _candidate(inputs, rules, dtype)
+    off = _findings(content, source, on=False, monkeypatch=monkeypatch)
+    assert _findings(content, source, on=True, monkeypatch=monkeypatch) == off
+    return len(off)
+
+
+def test_the_short_list_is_verified(monkeypatch):
+    source = _list(ANY_CHAPEAU, SHORT_ITEMS)
+    rules = [("renewal", SHORT_OR, [ANY_CHAPEAU])]
+    assert _both(SHORT_INPUTS, rules, source, monkeypatch) == (1, 0)
+
+
+@pytest.mark.parametrize(
+    "middle",
+    [
+        "Page 12 of 30",
+        "(continued)",
+        "Parking Manual, Section 4",
+        "Revised 01/2026",
+        "12",
+        "Renewal of permits:",
+        "The list continues on the next page.",
+    ],
+)
+@pytest.mark.parametrize("keep", [1, 2])
+@pytest.mark.parametrize("formula", ["first", SHORT_OR])
+def test_an_interrupted_list_is_not_read_at_all(middle, keep, formula, monkeypatch):
+    source = (
+        ANY_CHAPEAU
+        + "".join(f"\n\n● {item}" for item in SHORT_ITEMS[:keep])
+        + f"\n\n{middle}"
+        + "".join(f"\n\n● {item}" for item in SHORT_ITEMS[keep:])
+    )
+    assert not any(found.verifiable for found in structure.parse_source_lists(source))
+    formula = " or ".join(SHORT_INPUTS[:keep]) if formula == "first" else formula
+    _same(SHORT_INPUTS, [("renewal", formula, [ANY_CHAPEAU])], source, monkeypatch)
+
+
+def test_a_marked_item_outside_every_list_declines_the_whole_unit():
+    source = _list(ANY_CHAPEAU, SHORT_ITEMS) + "\n\nA plain line.\n\n● A stray item"
+    assert structure.parse_source_lists(source) == ()
+
+
+@pytest.mark.parametrize(
+    "formula",
+    [
+        f"({A} or {B} or {C} or {D}) and not ({A} and {B})",
+        f"({A} or {B} or {C} or {D}) and not ({A} and {B} and {C} and {D})",
+        f"{A} != {B} or {C} or {D}",
+    ],
+)
+def test_a_formula_that_is_not_a_plain_or_is_refused(formula, monkeypatch):
+    """An alternative must grant the rule whatever the others are."""
+
+    rules = [("renewal", formula, [ANY_CHAPEAU])]
+    assert _both(ANY_INPUTS, rules, ANY, monkeypatch)[1] == 1
+
+
+def test_an_equivalent_spelling_of_the_or_passes(monkeypatch):
+    formula = f"({A} and not {B} and not {C} and not {D}) or {B} or {C} or {D}"
+    rules = [("renewal", formula, [ANY_CHAPEAU])]
+    assert _both(ANY_INPUTS, rules, ANY, monkeypatch)[1] == 0
+
+
+REVERSED_CHAPEAUS = [
+    "A parking permit is valid except when any of the following occur:",
+    "A parking permit is valid, but not if any of the following occur:",
+    "A parking permit is not valid when any of the following occur:",
+    "Do not renew a parking permit if any of the following occur:",
+    "A parking permit is never renewed when any of the following occur:",
+    "No parking permit is renewed when any of the following occur:",
+    "A parking permit cannot be renewed if any of the following occur:",
+    "A parking permit is denied when any of the following occur:",
+    "A parking permit is invalid when any of the following occur:",
+    "A parking permit is renewed without a fee when any of the following occur:",
+    "A parking permit is renewed even if any of the following occur:",
+    "A parking permit is renewed when each and if any of the following apply:",
+    "A parking permit is renewed when the clerk asks if any of the following occur:",
+    "Unless the holder objects, a permit is renewed when any of the following occur:",
+    "A parking permit stops being valid when any of the following occur:",
+    "A parking permit isn't renewed when any of the following occur:",
+    "Renew a parking permit when any of the following occur:",
+    "Any of the following can not be used to prove residence:",
+]
+
+
+@pytest.mark.parametrize("chapeau", REVERSED_CHAPEAUS)
+@pytest.mark.parametrize(
+    "formula", [SHORT_OR, f"not ({SHORT_OR})", "holder_owns_vehicle"]
+)
+def test_a_chapeau_that_is_not_a_plain_affirmative_keeps_the_flat_reading(
+    chapeau, formula, monkeypatch
+):
+    source = _list(chapeau, SHORT_ITEMS)
+    assert not any(found.verifiable for found in structure.parse_source_lists(source))
+    _same(SHORT_INPUTS, [("valid", formula, [chapeau])], source, monkeypatch)
+
+
+QUALIFIED_ITEMS = [
+    "The holder does not own a vehicle",
+    "The holder owns no vehicle",
+    "The holder owns a vehicle, provided that the fee is paid",
+    "The holder both owns a vehicle and pays the fee",
+    "The holder owns a vehicle as well as a garage",
+    "The holder owns a vehicle but only when the fee is paid",
+    "The holder owns a vehicle if the fee is paid",
+    "The holder owns a vehicle that is registered in the district",
+    "The holder who lives in the district owns a vehicle",
+    "The holder reports a loss with a police report",
+    "The holder owns more than one vehicle",
+    "The holder owns a vehicle or leases a vehicle or rents a vehicle",
+    "The holder owns a vehicle and",
+    "the holder owns a vehicle",
+    "The holder owns a vehicle; the fee is paid",
+    "The holder owns a vehicle: a car",
+    "The holder owns a vehicle unless the fee is unpaid",
+    "The holder owns a vehicle, the fee is paid",
+]
+
+
+@pytest.mark.parametrize("item", QUALIFIED_ITEMS)
+@pytest.mark.parametrize(
+    "formula",
+    [SHORT_OR, f"(holder_owns_vehicle and fee_is_paid) or {SHORT_OR[20:]}"],
+)
+def test_an_item_that_is_not_one_plain_alternative_keeps_the_flat_reading(
+    item, formula, monkeypatch
+):
+    assert not structure.item_is_plain(item)
+    source = _list(ANY_CHAPEAU, (item, *SHORT_ITEMS[1:]))
+    inputs = [*SHORT_INPUTS, "fee_is_paid"]
+    _same(inputs, [("renewal", formula, [ANY_CHAPEAU])], source, monkeypatch)
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        "New vehicle",
+        "When a change of employer is reported",
+        "If the fee amount is disputed (see Fees)",
+        "They live in a campus residence, and their rent is zero",
+        "When the fee amount is questionable(g)",
+        "A change in the expense or address is received",
+    ],
+)
+def test_a_plain_item_is_accepted(item):
+    assert structure.item_is_plain(item)
+
+
+ADDING_TAILS = [
+    "Provided that the holder lives in the district.",
+    "Unless the holder has moved away.",
+    "In addition, the holder must live in the district.",
+    "The holder must also live in the district.",
+    "The holder also lives in the district.",
+    "And the holder lives in the district.",
+    "and the holder lives in the district.",
+    "Only holders who live in the district qualify.",
+    "A proof of address is required.",
+    "A proof of address is needed to renew.",
+    "This applies if the holder lives in the district.",
+    "The above applies to residents.",
+    "In addition, all of the following must apply:\n\n● The holder is an adult\n\n● The holder is insured",
+    "Renewal conditions:",
+    "The holder lives in the district",
+]
+
+
+@pytest.mark.parametrize("tail", ADDING_TAILS)
+@pytest.mark.parametrize("period", ["", "."])
+@pytest.mark.parametrize(
+    "formula", [SHORT_OR, f"({SHORT_OR}) and holder_lives_in_district"]
+)
+def test_a_paragraph_that_may_add_to_the_list_keeps_the_flat_reading(
+    tail, period, formula, monkeypatch
+):
+    source = _list(ANY_CHAPEAU, [item + period for item in SHORT_ITEMS]) + "\n\n" + tail
+    assert not any(found.verifiable for found in structure.parse_source_lists(source))
+    inputs = [*SHORT_INPUTS, "holder_lives_in_district"]
+    _same(inputs, [("renewal", formula, [ANY_CHAPEAU])], source, monkeypatch)
+
+
+OR_ITEM = ("The holder owns a vehicle or leases a garage", *SHORT_ITEMS[1:])
+OR_REST = SHORT_OR[len("holder_owns_vehicle or ") :]
+
+
+@pytest.mark.parametrize(
+    ("first", "inputs", "expected"),
+    [
+        (
+            "holder_owns_vehicle or holder_leases_garage",
+            ["holder_owns_vehicle", "holder_leases_garage"],
+            0,
+        ),
+        (
+            "holder_owns_vehicle_or_leases_garage",
+            ["holder_owns_vehicle_or_leases_garage"],
+            0,
+        ),
+        ("holder_owns_vehicle", ["holder_owns_vehicle"], 1),
+        ("holder_leases_garage", ["holder_leases_garage"], 1),
+    ],
+)
+def test_an_item_with_one_or_needs_inputs_that_name_both_cases(
+    first, inputs, expected, monkeypatch
+):
+    source = _list(ANY_CHAPEAU, OR_ITEM)
+    rules = [("renewal", f"{first} or {OR_REST}", [ANY_CHAPEAU])]
+    assert (
+        _both([*inputs, *SHORT_INPUTS[1:]], rules, source, monkeypatch)[1] == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("formula", "expected"),
+    [
+        ("false", 1),
+        (f"({SHORT_OR}) and false", 1),
+        ("not true", 1),
+        ("true", 1),
+        (f"({SHORT_OR}) or true", 1),
+        (f"({SHORT_OR}) and true", 0),
+        (f"{SHORT_OR} or false", 0),
+    ],
+)
+def test_rulespec_boolean_literals_are_read_as_constants(
+    formula, expected, monkeypatch
+):
+    source = _list(ANY_CHAPEAU, SHORT_ITEMS)
+    rules = [("renewal", formula, [ANY_CHAPEAU])]
+    assert _both(SHORT_INPUTS, rules, source, monkeypatch)[1] == expected
+
+
+def _with_later_version(later):
+    document = yaml.safe_load(
+        _candidate(
+            SHORT_INPUTS,
+            [
+                (
+                    "renewal",
+                    f"{SHORT_INPUTS[0]} or {SHORT_INPUTS[1]} or dispute",
+                    [ANY_CHAPEAU],
+                ),
+                ("dispute", SHORT_INPUTS[2], []),
+            ],
+        )
+    )
+    document["rules"][1]["versions"].append(
+        {"effective_from": "2027-01-01", "formula": later}
+    )
+    return yaml.safe_dump(document, sort_keys=False)
+
+
+@pytest.mark.parametrize(
+    ("later", "expected"),
+    [(SHORT_INPUTS[2], 0), ("false", 1), (SHORT_INPUTS[0], 1), ("true", 1)],
+)
+def test_an_alternative_must_hold_in_every_version_of_a_dependency(
+    later, expected, monkeypatch
+):
+    source = _list(ANY_CHAPEAU, SHORT_ITEMS)
+    content = _with_later_version(later)
+    assert len(_findings(content, source, on=True, monkeypatch=monkeypatch)) == expected
+
+
+@pytest.mark.parametrize("dtype", ["Integer", "Money", "String"])
+def test_an_input_that_is_not_boolean_keeps_the_flat_reading(dtype, monkeypatch):
+    source = _list(ANY_CHAPEAU, SHORT_ITEMS)
+    odd = {
+        "name": SHORT_INPUTS[2],
+        "entity": "Household",
+        "dtype": dtype,
+        "period": "Month",
+    }
+    rules = [("renewal", SHORT_OR, [ANY_CHAPEAU])]
+    assert _same([*SHORT_INPUTS[:2], odd], rules, source, monkeypatch) == 1
+
+
+TWO_FACT_ITEM = (
+    "The holder owns a vehicle, and the holder lives in the district",
+    *SHORT_ITEMS[1:],
+)
+
+
+@pytest.mark.parametrize(
+    ("first", "inputs", "expected"),
+    [
+        (
+            "(holder_owns_vehicle and holder_lives_in_district)",
+            ["holder_owns_vehicle", "holder_lives_in_district"],
+            0,
+        ),
+        (
+            "holder_owns_vehicle_and_lives_in_district",
+            ["holder_owns_vehicle_and_lives_in_district"],
+            1,
+        ),
+        ("holder_owns_vehicle", ["holder_owns_vehicle", "holder_lives_in_district"], 1),
+    ],
+)
+def test_one_input_does_not_stand_for_two_facts_of_an_item(
+    first, inputs, expected, monkeypatch
+):
+    source = _list(ANY_CHAPEAU, TWO_FACT_ITEM)
+    rules = [("renewal", f"{first} or {OR_REST}", [ANY_CHAPEAU])]
+    assert (
+        _both([*inputs, *SHORT_INPUTS[1:]], rules, source, monkeypatch)[1] == expected
+    )
+
+
+def test_an_alternative_whose_inputs_contain_another_is_refused(monkeypatch):
+    items = (
+        "The holder owns a vehicle",
+        "The holder owns a vehicle, and the holder lives in the district",
+        "When the fee amount is disputed",
+    )
+    inputs = ["holder_owns_vehicle", "holder_lives_in_district", "fee_amount_disputed"]
+    formula = (
+        "holder_owns_vehicle or (holder_owns_vehicle and holder_lives_in_district) "
+        "or fee_amount_disputed"
+    )
+    rules = [("renewal", formula, [ANY_CHAPEAU])]
+    assert _both(inputs, rules, _list(ANY_CHAPEAU, items), monkeypatch)[1] == 1
+
+
+@pytest.mark.parametrize(
+    "decoy",
+    [
+        ("never", "false", "Judgment"),
+        ("label", "holder_owns_vehicle", "Judgment"),
+    ],
+)
+def test_a_decoy_rule_that_quotes_a_cue_form_chapeau_is_itself_verified(
+    decoy, monkeypatch
+):
+    source = _list(ANY_CHAPEAU, SHORT_ITEMS)
+    name, formula, _dtype = decoy
+    rules = [
+        ("renewal", " or ".join(SHORT_INPUTS[:2]), list(SHORT_ITEMS[:2])),
+        (name, formula, [ANY_CHAPEAU]),
+    ]
+    assert _both(SHORT_INPUTS, rules, source, monkeypatch)[1] == 1

@@ -22587,6 +22587,8 @@ def _structural_clause_reading(
             alternatives.append(gates)
             halves = _list_structure.item_or_sides(body)
             if halves is None:
+                if re.search(r"\bor\b", body, flags=re.IGNORECASE) is not None:
+                    return None
                 sides.append(None)
                 continue
             left, right = (
