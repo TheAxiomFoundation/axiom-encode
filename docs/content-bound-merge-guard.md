@@ -527,7 +527,10 @@ None of this exists. It is the proposal for changes 3 and later (§8).
   RuleSpec PR cannot change it.
 - **Runner**: a new workflow in axiom-encode that refuses to run unless
   `github.ref == refs/heads/main`, with an environment restricted to branch
-  `main` that holds the guard App's private key.
+  `main` that holds the guard App's private key. **On hold:** nobody may
+  store that key, for a shadow run either, until the mechanism of
+  `docs/merge-guard-key-protection.md` is chosen, implemented and
+  independently reviewed (checklist step 1 of §8; #2257).
 - **Publisher binding**: a dedicated GitHub App installed on `rulespec-*` with
   `checks: write`, `pull_requests: read`, `contents: read`, `actions: read`.
   Branch protection requires the guard's check with that App's `app_id`.
@@ -1106,7 +1109,10 @@ activation.
    and store its key in an axiom-encode environment restricted to branch
    `main`. A branch restriction alone does not protect the key.
 2. Merge changes 1-4, including 2b. Publish the check in shadow mode: visible,
-   not required.
+   not required. **The shadow check is on hold with step 1:** it needs the
+   guard App's key, and `docs/merge-guard-key-protection.md` forbids storing
+   the key or setting `MERGE_GUARD_RUNNER_ENABLED`, shadow mode included,
+   until its conditions are met (#2257).
    Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
 3. Run cases 15-18 live on a throwaway PR and confirm every verdict.
 4. **M** Add the guard's check with the guard App's `app_id` to the required

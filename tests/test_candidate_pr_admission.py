@@ -1257,6 +1257,53 @@ def test_the_switch_rule_is_stated_at_the_writer_switch():
     assert "OPERATOR PRECONDITION" in flat
 
 
+STEP_1 = (
+    "**M** **On hold. Do not carry out this step as written.** "
+    "`docs/merge-guard-key-protection.md` (its second paragraph) suspends it: "
+    "nobody may store the guard App key or set `MERGE_GUARD_RUNNER_ENABLED`, "
+    "shadow mode included, until Max chooses a mechanism and complement, "
+    "maintainers implement them, and a fresh independent review verifies the "
+    "whole key-exposure set (§6 of that document), which covers every workflow "
+    "that can reach the key. Until then follow #2257, not this step; #2237 "
+    "replaces it. The superseded instruction, kept only so that references to "
+    '"step 1" stay readable: create the guard App, install it on `rulespec-us`, '
+    "and store its key in an axiom-encode environment restricted to branch "
+    "`main`. A branch restriction alone does not protect the key."
+)
+
+
+def test_every_place_that_presupposes_the_app_key_carries_the_hold():
+    # Independent review of ``3e7e031c1``: checklist step 2 (the shadow check)
+    # and the "Runner" item of section 4 need the key too.
+    text = _design_lines()
+    step = _checklist_step(text, 2)
+    assert (
+        "**The shadow check is on hold with step 1:** it needs the guard App's "
+        "key, and `docs/merge-guard-key-protection.md` forbids storing the key or "
+        "setting `MERGE_GUARD_RUNNER_ENABLED`, shadow mode included, until its "
+        "conditions are met (#2257)."
+    ) in step
+    runner = " ".join(text.split("- **Runner**:", 1)[1].split("\n- **", 1)[0].split())
+    assert "holds the guard App's private key. **On hold:** nobody may store" in runner
+    assert (
+        "**On hold:** nobody may store that key, for a shadow run either, until "
+        "the mechanism of `docs/merge-guard-key-protection.md` is chosen, "
+        "implemented and independently reviewed (checklist step 1 of §8; #2257)."
+    ) in runner
+
+
+def test_the_branch_record_is_not_called_never_cached():
+    # GitHub serves it with max-age=60. The encoder keeps no copy; that is all.
+    design = " ".join(_design_lines().split())
+    source = " ".join(Path(admission.__file__).read_text().replace("#", " ").split())
+    for text in (design, source):
+        assert "never cached" not in text
+        assert "never cache" not in text
+        assert "keeps no local copy between reads" in text
+        assert "max-age=60, s-maxage=60" in text
+        assert "up to about a minute old" in text
+
+
 def _design_lines():
     return (REPOSITORY_ROOT / "docs/content-bound-merge-guard.md").read_text("utf-8")
 
@@ -1286,6 +1333,9 @@ def test_checklist_step_1_carries_the_key_hold_and_its_reference():
     ):
         assert needed in step, needed
     assert step.index("On hold") < step.index("store its key in")
+    # The whole step, word for word: a sentence added after the hold (for
+    # example one that makes it optional) must fail here.
+    assert step == STEP_1
     # The hold the step cites exists in the cited document.
     proposal = " ".join(
         (REPOSITORY_ROOT / "docs/merge-guard-key-protection.md").read_text().split()
