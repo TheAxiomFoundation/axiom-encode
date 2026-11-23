@@ -549,10 +549,7 @@ def replay_case(case: ReplayCase, *, use_context: bool = True) -> dict[str, Any]
     # blocking list.
     issues, advisory = partition_by_enforcement(analysis.issues)
     result.update(
-        issues=[str(issue) for issue in issues],
-        advisory=[str(issue) for issue in advisory],
-        rules=rule_counts(issues),
-        error=None,
+        issues=issues, advisory=advisory, rules=rule_counts(issues), error=None
     )
     return result
 

@@ -902,7 +902,8 @@ def test_replay_reports_the_finding_as_advisory_and_the_case_as_clean():
     assert result["issues"] == [] and result["rules"] == {}
     (advisory,) = result["advisory"]
     assert advisory.startswith(GATES_CATEGORY)
-    assert type(advisory) is str
+    # The replay keeps the typed issue, as it does for blocking findings.
+    assert advisory.check == GATES and issue_is_advisory(advisory)
 
 
 def test_replay_keeps_a_case_refused_by_its_other_findings():
