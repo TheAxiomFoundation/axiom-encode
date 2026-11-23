@@ -107,9 +107,10 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # have not accepted it). Lock 3 is read again by the encoder, which keeps no
 # local copy between reads, at five points (GitHub serves the anonymous
 # branch record with ``cache-control: public, max-age=60, s-maxage=60``, so
-# an answer can be up to about a minute old): preflight (start and end), root provisioner (start
-# and end), before validation, immediately before signing, before
-# publication. AFTER publication only the GitHub setting protects the merge.
+# an answer can be up to about a minute old): preflight (start and end),
+# root provisioner (start and end), before validation, immediately before
+# signing, before publication. AFTER publication only the GitHub setting
+# protects the merge.
 # Today the approval before signing is enforced by this module, independent
 # of repository settings. After activation an enrolled owner who is also a
 # repository administrator can sign their own candidate, then remove the
