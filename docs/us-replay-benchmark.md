@@ -134,6 +134,20 @@ companion preserves the public JSON
 origin, JSON pointer and hashes. Offline replay retains findings that require
 live execution evidence.
 
+### Advisory findings
+
+A finding of a check declared `enforcement="advisory"`
+(`docs/validator-checks.md`) does not refuse a candidate in the CI validator.
+The replay follows that: a row's `issues` are its blocking findings and decide
+clean or refused; `advisory` lists the advisory ones. The snapshot pins them
+under `advisory_findings` (the key is absent when a fixture has none), and a
+changed advisory finding is snapshot drift. A fixture that is clean only
+because its findings are advisory is not a guarded clean fixture.
+
+Thirteen fixtures carry a `gates-collapsed` finding, now advisory. Twelve stay
+refused by other findings. Fixture `36596173514` had no other finding and
+replays clean with one advisory finding.
+
 ### Arizona and date evidence diagnostics
 
 The six Arizona utility fixtures (`local-az-utility-block-*`) retain the

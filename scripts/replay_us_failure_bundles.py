@@ -49,6 +49,12 @@ every path inside the bundle it came from.
 Only ``analyze_complete_source_unit`` runs. Compilation, companion-test
 execution, oracles, proof-excerpt checks, reviewers and signing are out of
 scope; see ``docs/us-replay-benchmark.md``.
+
+A finding of a check declared ``enforcement="advisory"`` (see
+``axiom_encode.checks``) does not refuse a candidate in the CI validator, so
+the replay keeps it apart: a row's ``issues`` are its blocking findings and
+decide clean or refused, and ``advisory`` lists the advisory ones. The snapshot
+pins both.
 """
 
 from __future__ import annotations
@@ -459,6 +465,7 @@ def replay_case(case: ReplayCase, *, use_context: bool = True) -> dict[str, Any]
     deferral providers and same-act aliases from the source metadata.
     """
 
+    from axiom_encode.checks import partition_by_enforcement
     from axiom_encode.harness.source_completeness import (
         analyze_complete_source_unit,
         collect_artifact_numeric_bindings,
@@ -531,10 +538,19 @@ def replay_case(case: ReplayCase, *, use_context: bool = True) -> dict[str, Any]
             ),
         )
     except Exception as exc:  # report, never hide
-        result.update(issues=[], rules={}, error=f"{type(exc).__name__}: {exc}"[:500])
+        result.update(
+            issues=[],
+            advisory=[],
+            rules={},
+            error=f"{type(exc).__name__}: {exc}"[:500],
+        )
         return result
-    issues = list(analysis.issues)
-    result.update(issues=issues, rules=rule_counts(issues), error=None)
+    # As in the CI validator: only what is positively advisory leaves the
+    # blocking list.
+    issues, advisory = partition_by_enforcement(analysis.issues)
+    result.update(
+        issues=issues, advisory=advisory, rules=rule_counts(issues), error=None
+    )
     return result
 
 
@@ -1118,6 +1134,12 @@ def build_report(
         "clean": sum(1 for r in results if not r["issues"] and not r["error"]),
         "errors": sum(1 for r in results if r["error"]) + len(errors),
         "issues": sum(len(r["issues"]) for r in results),
+        "advisory": sum(len(r.get("advisory") or ()) for r in results),
+        "clean_with_advisory": sum(
+            1
+            for r in results
+            if not r["issues"] and not r["error"] and r.get("advisory")
+        ),
         "imports_resolved": sum(r["imports_resolved"] for r in results),
         "imports_unresolved": sum(len(r["imports_unresolved"]) for r in results),
         "deferral_providers_unresolved": sum(
@@ -1153,6 +1175,11 @@ def format_summary(report: Mapping[str, Any]) -> str:
         f"{summary['imports_unresolved']}; deferral providers unresolved "
         f"{summary['deferral_providers_unresolved']}",
     ]
+    if summary.get("advisory"):
+        lines.append(
+            f"advisory findings (not refusing): {summary['advisory']}; clean "
+            f"modules that carry one: {summary.get('clean_with_advisory', 0)}"
+        )
     for name, part in [
         *((split, summary.get("splits", {}).get(split)) for split in SPLITS),
         ("controls", summary.get("controls")),
@@ -1390,7 +1417,9 @@ def snapshot_from_report(
 ) -> dict[str, Any]:
     """The committed snapshot: every fixture's exact findings.
 
-    A replay error or a load error is never pinned; it fails the gate.
+    A replay error or a load error is never pinned; it fails the gate. A
+    fixture with advisory findings pins them under ``advisory_findings``; the
+    key (and the ``advisory`` total) is absent when there is none.
     """
 
     if report["context"] != CONTEXT_WORKSPACE:
@@ -1402,6 +1431,7 @@ def snapshot_from_report(
         )
     if any(r.get("split", VISIBLE) != VISIBLE for r in report["cases"]):
         raise ValueError("the committed snapshot pins visible fixtures only")
+    advisory_total = sum(len(r.get("advisory") or ()) for r in report["cases"])
     return {
         "schema": SNAPSHOT_SCHEMA,
         "context": report["context"],
@@ -1410,6 +1440,7 @@ def snapshot_from_report(
             "clean": report["summary"]["clean"],
             "issues": report["summary"]["issues"],
             "rules": report["summary"]["rules"],
+            **({"advisory": advisory_total} if advisory_total else {}),
         },
         "allowed_regressions": dict(sorted((allowed_regressions or {}).items())),
         "cases": {
@@ -1420,6 +1451,11 @@ def snapshot_from_report(
                 "rules": result["rules"],
                 "error": None,
                 "findings": sorted(result["issues"]),
+                **(
+                    {"advisory_findings": sorted(result["advisory"])}
+                    if result.get("advisory")
+                    else {}
+                ),
             }
             for result in sorted(report["cases"], key=lambda r: r["id"])
         },
@@ -1463,14 +1499,26 @@ def snapshot_drift(
         if result["error"]:
             lines.append(f"{case_id}: replay error {result['error']!r}")
             continue
-        old = collections.Counter(pinned[case_id].get("findings", []))
-        new = collections.Counter(result["issues"])
-        for sign, items in (("-", old - new), ("+", new - old)):
-            elements = sorted(items.elements())
-            for finding in elements[:limit]:
-                lines.append(f"{case_id} {sign} {finding}")
-            if len(elements) > limit:
-                lines.append(f"{case_id} {sign} ... {len(elements) - limit} more")
+        for label, old, new in (
+            (
+                "",
+                collections.Counter(pinned[case_id].get("findings", [])),
+                collections.Counter(result["issues"]),
+            ),
+            (
+                " advisory",
+                collections.Counter(pinned[case_id].get("advisory_findings", [])),
+                collections.Counter(result.get("advisory") or ()),
+            ),
+        ):
+            for sign, items in (("-", old - new), ("+", new - old)):
+                elements = sorted(items.elements())
+                for finding in elements[:limit]:
+                    lines.append(f"{case_id}{label} {sign} {finding}")
+                if len(elements) > limit:
+                    lines.append(
+                        f"{case_id}{label} {sign} ... {len(elements) - limit} more"
+                    )
         if bool(pinned[case_id].get("control")) != bool(result.get("control")):
             lines.append(f"{case_id}: control flag changed")
     return lines
@@ -1482,7 +1530,10 @@ def _guard_failures(
     """Guarded fixtures that this change refuses or removes, by case id.
 
     A guarded fixture is one that the base snapshot pins with no finding and
-    no error, or a control that the base snapshot does not pin.
+    no error, or a control that the base snapshot does not pin. A fixture
+    that is clean only because its findings are advisory is not guarded: the
+    replay did not accept it without a warning, so a later change may refuse
+    it again (the snapshot rewrite still shows that change).
     """
 
     base_cases = (
@@ -1492,7 +1543,10 @@ def _guard_failures(
     guarded = {
         case_id
         for case_id, row in base_cases.items()
-        if not row.get("issues") and not row.get("findings") and not row.get("error")
+        if not row.get("issues")
+        and not row.get("findings")
+        and not row.get("advisory_findings")
+        and not row.get("error")
     }
     guarded |= {
         case_id
