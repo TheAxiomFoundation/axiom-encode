@@ -1,0 +1,30 @@
+{
+ "note": "Recorded anonymous reads of the branch-rules endpoint. rulespec-us had no active rule on main. axiom-encode had one: its merge queue, from a repository ruleset. The second response is the only recorded shape of a rule on this endpoint that the ruleset form of the writer's guard lock has (change 5c).",
+ "recorded": "2026-11-17",
+ "reads": [
+  {
+   "request": "GET /repos/TheAxiomFoundation/rulespec-us/rules/branches/main?per_page=100&page=1 (anonymous)",
+   "response": []
+  },
+  {
+   "request": "GET /repos/TheAxiomFoundation/axiom-encode/rules/branches/main?per_page=100&page=1 (anonymous)",
+   "response": [
+    {
+     "type": "merge_queue",
+     "parameters": {
+      "merge_method": "MERGE",
+      "max_entries_to_build": 5,
+      "min_entries_to_merge": 1,
+      "max_entries_to_merge": 5,
+      "min_entries_to_merge_wait_minutes": 5,
+      "grouping_strategy": "ALLGREEN",
+      "check_response_timeout_minutes": 60
+     },
+     "ruleset_source_type": "Repository",
+     "ruleset_source": "TheAxiomFoundation/axiom-encode",
+     "ruleset_id": 26573200
+    }
+   ]
+  }
+ ]
+}

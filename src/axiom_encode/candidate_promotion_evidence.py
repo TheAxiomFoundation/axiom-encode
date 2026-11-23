@@ -17,7 +17,9 @@ it reads anything else:
    (``applied_manifest_v6.V6_READER_ENABLED``).
 2. ``reviewed_pr_admission.require_guard_enforced``: lock 2 (``GUARD_APP_ID``)
    and lock 3, the live read that ``main`` of the RuleSpec repository requires
-   the guard's check from that App.
+   the guard's check from that App. Since change 5c that function accepts a
+   second form (``GUARD_WORKFLOW`` and an organization ruleset); this module
+   uses whichever one form is recorded, and neither is.
 
 There is no switch of its own, and no environment variable, CLI flag or
 dispatch input. A manifest without the v6 label never reaches this module, so
