@@ -129,6 +129,14 @@ are told to judge the quoted words and the rule structure, and to report when
 they could not verify the warning against the source. Both are told to fail
 the review for a real defect.
 
+Text that comes from a candidate, a source or a stored record goes through
+`checks.neutral_text` before it is shown in the reviewer block or in the log
+line: one line, no control or format characters, no run of two or more angle
+brackets, no marker words, and a length cap. So for any input the message
+cannot hold a marker line, and no field can add a line to the log. The log
+line names the unit of the run first; it uses the citation of the issue only
+when the caller names no unit.
+
 Reviewers do not run in the overlay validation of an apply
 (`skip_reviewers=True`), so there the log line is the only surface.
 
