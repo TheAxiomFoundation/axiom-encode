@@ -1733,11 +1733,26 @@ queue was verified):
 >      revert of (iii) makes validation refuse what such a run signs, but
 >      only while the pin stays reverted, and after point 3 nothing
 >      technical keeps it reverted ("After point 3" below).
->    - (iii) **No signed v6 manifest can land.** Only then, and immediately
->      before point 3: revert the reader pin of step 9 in `rulespec-us`, so
->      that validation refuses every v6 manifest again; or make sure that
->      no open pull request of `rulespec-us` holds a signed v6 manifest
->      (close each one).
+>    - (iii) **No signed v6 manifest can land: the reader is off.** Only
+>      then, and immediately before point 3: revert the reader pin of
+>      step 9 in `rulespec-us`, so that validation refuses every v6
+>      manifest again in the verifier mode that `rulespec-us` uses (the
+>      pinned encoder, or the producer floor). **This is required whenever
+>      a signed v6 manifest is outstanding or its disposition is unknown.**
+>      Closing pull requests is not a substitute (review of head
+>      `dd8bf4fa2`): a closed pull request leaves the signed bytes on its
+>      branch, any account with write access can open them again, and the
+>      enabled reader admits a valid signature with `owner_review: none`
+>      [code: `tests/test_applied_manifest_v6.py`]. The pin revert may be
+>      left out only with a complete inventory: every run of
+>      `targeted-signed-reencode.yml` since step 13 is listed (the command
+>      of (i) without its `--jq` filter, reaching back to the merge of
+>      change 6), and for each run its manifest is on `main` or was never
+>      pushed to `rulespec-us` (no branch and no pull request, open or
+>      closed, holds it:
+>      `gh pr list --repo TheAxiomFoundation/rulespec-us --state all --search "<run id>" --json number,state,headRefName`
+>      and a search of the branches). One run that cannot be accounted
+>      for makes the disposition unknown, and then the pin is reverted.
 > 3. Only then weaken the ruleset or the queue.
 >
 > **Between the check of point 2 and the change of point 3 GitHub offers
@@ -1805,9 +1820,9 @@ queue was verified):
 > already holds a signed v6 manifest: with the guard not required, any
 > account with write access merges it. Closing a pull request does not
 > remove its signed bytes: the switch rule names signed v6 bytes "from a
-> closed pull request", and a branch can hold them too. So the second form
-> of (iii) is enough only when every signed v6 manifest that exists has
-> landed or was never pushed. In every other case revert the reader pin.
+> closed pull request", and a branch can hold them too. So (iii) reverts
+> the reader pin in every case except the one its inventory proves: every
+> signed v6 manifest that exists has landed or was never pushed.
 > That has a cost once a v6 manifest is on `main`: validation of `main`
 > then refuses it, and no pull request of `rulespec-us` gets a green
 > `validate / validate` until the pin moves forward again (closed, and
@@ -1887,10 +1902,25 @@ rollback.
      creates the `Evaluate` ruleset of step 6. Only a session with an
      organization owner's rights can do that [docs D4, D6], and the token
      that agent sessions use on the maintainer's machine has no `admin:org`
-     scope [live read 2026-11-17]. So the ruleset, read in step 6's check,
-     is the evidence that an owner accepted the mechanism. The same holds
-     for the pin move of step 10 (question 0) and for the switch to `Active`
-     of step 11. **This checklist cannot verify who was at the keyboard**:
+     scope [live read 2026-11-17]. **The ruleset, read back, is not the
+     evidence of an owner's decision** (review of head `dd8bf4fa2`). The
+     readback shows configuration and no actor, and owners are not the
+     only ones who can write it: a holder of a custom role with "Manage
+     organization ref update rules and rulesets" can create and edit an
+     organization ruleset (`docs/merge-guard-key-protection.md`, P19).
+     So acceptance has two records, both copied into §11 by a maintainer:
+     (1) **the decision**, recorded independently of the ruleset: Max
+     states it himself, outside any agent session, to the second
+     maintainer, who records the date, the channel and the wording; (2)
+     **actor evidence for each privileged change** (the creation of
+     step 6, the pin move of step 10 and the switch to `Active` of
+     step 11): the entry of the organization audit log, or of the
+     ruleset's own history page, for that change, with its actor, its
+     time and, where the log shows it, whether a token made it
+     [not read in the documentation by the author: the owner takes the
+     event's name from the log itself]. A change whose actor is not an
+     organization owner, or was made with a token that an agent session
+     can hold, is not an owner's act for this checklist. **This checklist cannot verify who was at the keyboard**:
      a session that holds an owner's token with `admin:org` can perform
      each of these acts (§9, the organization-owner row and "Agent sessions
      can act under both enrolled identities").
@@ -2463,21 +2493,39 @@ rollback.
       - An administrator of each repository, for `rulespec-us` and for
         axiom-encode (the maintainer's token on this machine can run these
         four GETs, so an agent session may):
-        `gh api repos/TheAxiomFoundation/<repo>/actions/secrets --jq '[.secrets[].name]'`,
-        `gh api repos/TheAxiomFoundation/<repo>/actions/organization-secrets --jq '[.secrets[].name]'`,
-        `gh api repos/TheAxiomFoundation/<repo>/environments --jq '[.environments[] | {name, rules: [.protection_rules[].type]}]'`
+        `gh api --paginate repos/TheAxiomFoundation/<repo>/actions/secrets --jq '.total_count as $n | [.secrets[] | {name, updated_at}] | {listed: length, total_count: $n, secrets: .}'`,
+        `gh api --paginate repos/TheAxiomFoundation/<repo>/actions/organization-secrets --jq '.total_count as $n | [.secrets[] | {name, updated_at}] | {listed: length, total_count: $n, secrets: .}'`,
+        `gh api repos/TheAxiomFoundation/<repo>/environments --jq '[.environments[] | {name, can_admins_bypass, rules: [.protection_rules[].type]}]'`
         and, for each environment,
-        `gh api repos/TheAxiomFoundation/<repo>/environments/<name>/secrets --jq '[.secrets[].name]'`.
+        `gh api --paginate repos/TheAxiomFoundation/<repo>/environments/<name>/secrets --jq '.total_count as $n | [.secrets[] | {name, updated_at}] | {listed: length, total_count: $n, secrets: .}'`.
+        The record holds each name **with its `updated_at`**: a secret
+        that is replaced under the same name keeps the name and changes
+        the date (review of head `dd8bf4fa2`: a projection of names alone
+        printed the same list for two different dates). A read is whole
+        only when one page was printed and `listed` equals `total_count`;
+        otherwise it is incomplete, and an incomplete read is not a
+        record: an owner or administrator verifies the list in the
+        settings pages.
       - An organization owner, with `admin:org`:
         `gh api orgs/TheAxiomFoundation/actions/secrets --jq '[.secrets[] | {name, visibility}]'`.
         The maintainer's token gets HTTP 403 there
         [live read 2026-11-18].
       - An organization owner:
-        `gh api orgs/TheAxiomFoundation/installations --jq '.installations[] | {app_slug, repository_selection, permissions}'`
+        `gh api --paginate orgs/TheAxiomFoundation/installations --jq '.total_count as $n | [.installations[] | {id, app_slug, repository_selection, updated_at, permissions}] | {listed: length, total_count: $n, installations: .}'`
         [docs: REST "List app installations for an organization", which
-        states that the caller must be an organization owner].
-      - **Must hold.** No secret outside an environment with required
-        reviewers is a credential of an enrolled identity, of an
+        states that the caller must be an organization owner], and, for
+        each installation whose `repository_selection` is `selected`, the
+        repositories it is granted:
+        `gh api --paginate user/installations/<installation id>/repositories --jq '.total_count as $n | [.repositories[].full_name] | {listed: length, total_count: $n, repositories: .}'`
+        [not run by the author; the REST page "List repositories
+        accessible to the user access token" was not read for this
+        change, so the owner confirms the list on the installation's
+        settings page when the call is refused]. `selected` alone does
+        not show a change of membership: the record holds, for each App,
+        its permissions, its `updated_at` and the **effective list of
+        target repositories** (`all`, or the names). An incomplete or
+        refused read is not a record: the owner verifies it by hand.
+      - **Must hold.** No stored secret is a credential of an enrolled identity, of an
         administrator of `rulespec-us`, of an organization owner, or of an
         App that can write checks or contents on `rulespec-us`. A name does
         not show whose credential a secret is: for each secret a maintainer
@@ -2491,9 +2539,22 @@ rollback.
         restricts the installation of Apps by repository administrators,
         which the same text names. So the read of the installed Apps is
         repeated at each health check.
-      - **The exception is required reviewers only.** A secret in an
+      - **An environment is no general exception** (review of head
+        `dd8bf4fa2`). The presence of `required_reviewers` is not enough:
+        administrators can bypass environment protection rules unless the
+        environment disallows it, and a repository administrator can edit
+        an environment's reviewers and rules
+        (`docs/merge-guard-key-protection.md`, P2). The projection of rule
+        types above does not show either. Such a credential may stay in
+        an environment only when Max accepts it by name as a residual and
+        the effective controls are read and recorded in §11: the read
+        `gh api repos/TheAxiomFoundation/<repo>/environments/<name> --jq '{name, can_admins_bypass, deployment_branch_policy, rules: [.protection_rules[] | {type, prevent_self_review, reviewers: [.reviewers[]? | {type, login: (.reviewer.login // .reviewer.slug)}]}]}'`
+        shows `can_admins_bypass: false`, required reviewers with
+        `prevent_self_review: true` who are named people outside the
+        actors of §9 (no agent session holds their token), and the
+        deployment branch policy lists `main` only. A secret in an
         environment that has a branch policy and no required reviewers
-        does not have it. The environments `apply-signing` and
+        has no such controls at all. The environments `apply-signing` and
         `encoder-version-bump` of axiom-encode are of that kind
         [live read 2026-11-18]. Their secrets are judged like repository
         secrets, and until a maintainer states whose credential each is,
@@ -2681,8 +2742,8 @@ nothing.
 | The default branch is still `main` | `gh api repos/TheAxiomFoundation/rulespec-us --jq .default_branch` | `main` [live read 2026-11-17: `main`] |
 | No repository-level self-hosted runner exists | `gh api repos/TheAxiomFoundation/rulespec-us/actions/runners --jq .total_count` | `0`. The call needs administrator access to the repository; with the maintainer's token it printed `0` [live read 2026-11-17]. Organization-level runners need an owner's read |
 | The merge-queue ruleset of `rulespec-us` has no bypass actor | the two commands of step 8: the `ruleset_id` of the `merge_queue` rule, then `gh api repos/TheAxiomFoundation/rulespec-us/rulesets/<id> --jq .bypass_actors` | `[]`. GitHub returns the field only to a caller with write access to the ruleset [docs D7]; the maintainer's token has it, an anonymous read does not, and `null` is not a pass |
-| The stored secrets are the recorded ones | `gh api repos/TheAxiomFoundation/rulespec-us/actions/secrets --jq '[.secrets[].name]'`, and the three other reads of names of step 11, for `rulespec-us` and for axiom-encode | exactly the list of names that §11 records. The first run of this check before step 11 makes that record, with the maintainer's statement of step 11; each later run is compared with it. A new name, or a changed `updated_at` of a recorded one, goes to a maintainer. The read shows names and dates; it does not show whose credential a secret is. On 2026-11-18 `rulespec-us` printed three names, `BULK_ENCODE_TOKEN` among them [live read 2026-11-18] |
-| The installed Apps are the recorded ones | `gh api orgs/TheAxiomFoundation/installations --jq '[.installations[] \| {app_slug, repository_selection, checks: .permissions.checks, statuses: .permissions.statuses}]'` | exactly the list that §11 records (the first run before step 11 makes the record). The call needs the account of an organization owner [docs: REST "List app installations for an organization"]; with the maintainer's token it returned four Apps on 2026-11-18 [live read 2026-11-18]. An App that is new, or that has `rulespec-us` again after its removal, goes to a maintainer |
+| The stored secrets are the recorded ones | `gh api --paginate repos/TheAxiomFoundation/rulespec-us/actions/secrets --jq '.total_count as $n \| [.secrets[] \| {name, updated_at}] \| {listed: length, total_count: $n, secrets: .}'`, and the three other reads of step 11, for `rulespec-us` and for axiom-encode | exactly the names **and the `updated_at` of each** that §11 records, with `listed` equal to `total_count` on one page (anything else is an incomplete read: report it; an owner or administrator verifies by hand). The first run of this check before step 11 makes that record, with the maintainer's statement of step 11; each later run is compared with it. A new name, or a changed `updated_at` of a recorded one, goes to a maintainer. The read shows names and dates; it does not show whose credential a secret is. On 2026-11-18 `rulespec-us` printed three names, `BULK_ENCODE_TOKEN` among them [live read 2026-11-18] |
+| The installed Apps are the recorded ones | `gh api --paginate orgs/TheAxiomFoundation/installations --jq '.total_count as $n \| [.installations[] \| {id, app_slug, repository_selection, updated_at, permissions}] \| {listed: length, total_count: $n, installations: .}'`, then for each `selected` installation the read of its repositories of step 11 | exactly what §11 records for each App: permissions, `updated_at` and the effective list of target repositories (the first run before step 11 makes the record). A projection without the target repositories prints the same line before and after an App gains `rulespec-us` while its selection stays `selected`. An incomplete or refused read is reported and an owner verifies by hand. The call needs the account of an organization owner [docs: REST "List app installations for an organization"]; with the maintainer's token it returned four Apps on 2026-11-18 [live read 2026-11-18]. An App that is new, or that has `rulespec-us` again after its removal, goes to a maintainer |
 | Actions are enabled in `rulespec-us` | `gh api repos/TheAxiomFoundation/rulespec-us/actions/permissions --jq .enabled` | `true` [live read 2026-11-18: `true`]. It shows the state at the read, not an interval [experiment X8 (c)] |
 | The switches | the `git grep` of step 2 | the values that the current step expects |
 

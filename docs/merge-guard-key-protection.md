@@ -955,9 +955,13 @@ E. Remove the stored token `BULK_ENCODE_TOKEN` of `rulespec-us` (R14).
    **Open** [live read 2026-11-18]. A maintainer finds the account that
    owns the token, revokes it in that account's token settings, and
    deletes the repository secret. Deleting the secret alone does not
-   revoke a token that someone has already read. If the token must stay, a
-   maintainer documents why, and moves it into an environment with
-   required reviewers. This exposure exists today and is independent of
+   revoke a token that someone has already read. **The existing token is
+   revoked in every case, also when a workflow still needs one**: moving
+   the same credential elsewhere leaves every copy that was already read
+   valid. If a token is still needed, a maintainer documents why, issues
+   a new one with the least scope and stores that one under the rule of
+   "Create the ruleset", step 11 (no credential of a privileged identity
+   outside an accepted, verified environment). This exposure exists today and is independent of
    the guard: every write collaborator of `rulespec-us` can read the
    secret through a workflow of a branch [docs D23; inferred]. Not read:
    its owner, its real scopes and its validity. Verify:
@@ -1126,15 +1130,29 @@ the candidate SHA (checklist step 5).
     `gh api orgs/TheAxiomFoundation/installations --jq '.installations[] | {app_slug, repository_selection, permissions}'`.
     **None of the secrets may be a credential of an enrolled identity, of
     an administrator of `rulespec-us`, of an organization owner, or of an
-    App that can write checks or contents on `rulespec-us`, except inside
-    an environment with required reviewers.** A name does not show the
+    App that can write checks or contents on `rulespec-us`. An environment
+    is no general exception** (review of head `dd8bf4fa2`): the presence
+    of `required_reviewers` proves little, because administrators can
+    bypass environment protection rules unless the environment disallows
+    it (P2), and a repository administrator can change an environment's
+    reviewers and rules. Such a credential may stay in an environment only
+    when Max accepts it by name as a residual AND these effective controls
+    are read and recorded:
+    `gh api repos/TheAxiomFoundation/<repo>/environments/<name> --jq '{name, can_admins_bypass, deployment_branch_policy, rules: [.protection_rules[] | {type, prevent_self_review, reviewers: [.reviewers[]? | {type, login: (.reviewer.login // .reviewer.slug)}]}]}'`
+    must show `can_admins_bypass: false`, a `required_reviewers` rule with
+    `prevent_self_review: true` whose reviewers are named people outside
+    the actors of the threat model (no agent session holds their token),
+    and a deployment branch policy; and
+    `gh api repos/TheAxiomFoundation/<repo>/environments/<name>/deployment-branch-policies --jq '[.branch_policies[].name]'`
+    must print `["main"]`. Against a repository administrator even that is
+    a residual (the administrator can edit the environment), which is why
+    the acceptance is by name. A name does not show the
     owner of a credential: a maintainer states it for each secret, and the
     names with that statement go into the design's §11. Each installed App
     that can write checks on `rulespec-us` is removed from it, or Max
     accepts it by name as a residual (R5). A removal alone does not last
     against a repository administrator (R12 (f)): it needs the owner's
-    restriction of installations too. **The exception is required
-    reviewers only**: `apply-signing` and `encoder-version-bump` of
+    restriction of installations too. `apply-signing` and `encoder-version-bump` of
     axiom-encode hold secrets with a branch policy and no required
     reviewers [live read 2026-11-18], so their secrets are judged like
     repository secrets, and the precondition is not met for them until a
@@ -1175,9 +1193,17 @@ a ruleset off for a time, and keeps a ruleset history of 180 days
 > `--limit` if it does not. A signing run that was dispatched before the writer-off
 > commit still has the writer on, and a re-run of it executes that commit
 > for 30 days [docs D9]: no enrolled owner may re-run or approve one. Then
-> revert the reader pin of `rulespec-us`; or, as the weaker form, make sure
-> immediately before the next act that no open pull request of
-> `rulespec-us` holds a signed v6 manifest. Only then set the ruleset to
+> **revert the reader pin of `rulespec-us`, so that the reader is off in
+> the verifier mode that its validation uses. This step is required
+> whenever a signed v6 manifest is outstanding or its disposition is
+> unknown**: on an open pull request, on a closed one, or on any branch. A
+> closed pull request does not remove the signed bytes from its branch,
+> and the enabled reader admits a valid signature with `owner_review:
+> none` [code: `tests/test_applied_manifest_v6.py`]. The pin revert may be
+> left out only when the inventory of the design's rollback order, point 2
+> (iii), accounts for every signing run since checklist step 13 and shows
+> that none of its manifests exists outside `main`; an inventory with one
+> unknown entry is "unknown". Only then set the ruleset to
 > `evaluate` or `disabled`, move its pin back, or turn the merge queue off
 > (R13). GitHub offers no transaction between the check and the ruleset
 > change. Before checklist step 13 the rollback is free.
@@ -1226,8 +1252,41 @@ the guard reads neither switch nor `GUARD_WORKFLOW`
    two commits changes `reviewed_pr_admission.py`, a bundle file, so each
    sets a new `BUNDLE_SHA256`; neither moves the pin by itself. Before
    change 6 no constant names the pin, and this step is skipped.
-6. Move the pin: edit the ruleset, or `PUT` the full body of step 3 above
-   with the new `sha`. Verify as in step 4 above.
+6. Move the pin by **updating the stored ruleset**. **Never send the
+   creation body of "Create the ruleset", step 3, for a pin move**: that
+   body sets `"enforcement": "evaluate"`, so sent again with a new `sha`
+   after checklist step 11 it switches enforcement off, while signed v6
+   candidates stay eligible for validation (review of head `dd8bf4fa2`:
+   the body of step 3 with only the SHA changed still says `evaluate`).
+   The verification of step 4 above is for the creation only; it expects
+   `evaluate` and is wrong here. In the web form: open the existing
+   ruleset, change only the commit of the workflow entry, save. Or, as an
+   organization owner, read, change one value, write, compare:
+
+   ```sh
+   gh api orgs/TheAxiomFoundation/rulesets/<id> > before.json
+   jq --arg sha "<new 40-hex commit SHA>" '{name, target, enforcement, bypass_actors, conditions, rules} | .rules[0].parameters.workflows[0].sha = $sha' before.json > move.json
+   jq -e '(.rules | length) == 1 and (.rules[0].parameters.workflows | length) == 1 and .rules[0].type == "workflows"' before.json
+   gh api -X PUT orgs/TheAxiomFoundation/rulesets/<id> --input move.json > after.json
+   jq -S '{name, target, enforcement, bypass_actors, conditions, rules} | .rules[0].parameters.workflows[0].sha = "PIN"' before.json > before.cmp
+   jq -S '{name, target, enforcement, bypass_actors, conditions, rules} | .rules[0].parameters.workflows[0].sha = "PIN"' after.json > after.cmp
+   diff before.cmp after.cmp && jq -r '[.enforcement, .rules[0].parameters.workflows[0].sha] | @tsv' after.json
+   ```
+
+   The third command must print `true` (one rule, one workflow entry; if
+   not, stop and edit by hand). `diff` must print nothing: the enforcement,
+   the targeting (`conditions`, `target`), the bypass list and the rest of
+   the rule are what they were. The last line must show the enforcement
+   that the ruleset had before the move, **`active` from checklist step 11
+   on**, and the new SHA. If it shows `evaluate` or `disabled` after
+   step 11, the gate is off: switch it back to `Active` at once ("Switch to
+   `Active`" above) and treat the interval as a weakening of the ruleset
+   (R13). Then read the active rule as a non-owner sees it: the first two
+   rows of the health check (design §8) must still list `workflows` and
+   show the new SHA. The jq filters are exercised on a stored-ruleset
+   fixture by a test [code: `tests/test_merge_guard_runner.py`]; that the
+   API accepts the body that the filter builds from its own `GET` response
+   is [experiment X19].
 7. Open pull requests keep the result of their last run. A new run starts on
    the next push, update or reopen (P16) [inferred]. Whether an older result
    still satisfies the rule after the pin moved, and which file a

@@ -593,7 +593,15 @@ is red.
   `kind: status`.
 - **Pass.** In (a), (b), (d) and (e) the imitation is green, the ruleset's
   `lab-guard` run is red, and the pull request stays blocked. In (c) the
-  entry leaves the queue and the pull request does not merge.
+  entry leaves the queue and the pull request does not merge, **and the
+  record shows all three of these on the same group commit SHA**: the
+  imitation's `merge_group` job completed with `success` (its
+  `details_url` names a run of `imitation.yml`); the ordinary check
+  `lab-slow` completed with `success`; and the pinned `lab-guard` run of
+  the ruleset (marker `A`) failed for the dismissed approval. An entry
+  that left the queue while the imitation never ran, or because `lab-slow`
+  or anything else failed, is **not a pass and not a fail: the part did
+  not test the question; run it again**.
 - **Record.** For each part: every check run and status on the head (or the
   group commit) with its `name`, `app` and `details_url`
   (`gh api repos/TheAxiomFoundation/guard-lab-target/commits/<sha>/check-runs --jq '.check_runs[] | {name, app: .app.slug, conclusion, details_url}'`
@@ -791,12 +799,25 @@ the window that remains.
 
 Class: adjusting, run again.
 
+- **Targeting form.** Run this step with the form that production uses:
+  the `repository_name` condition by name, as in the body of §1.3 and in
+  the production body (`docs/merge-guard-key-protection.md`, "Create the
+  ruleset", step 3). Read the stored ruleset first
+  (`gh api orgs/TheAxiomFoundation/rulesets/<id> --jq .conditions`) and
+  record it. A pass with a `repository_id` condition says nothing about
+  the name-based configuration and does not count.
 - **Procedure.** Rename `guard-lab-target` to `guard-lab-target-2`. Open a
   pull request.
-- **Pass.** The rule still applies.
-- **Record.** Whether the run starts and blocks.
+- **Pass.** The rule still applies: the run starts and the pull request is
+  blocked.
+- **Record.** The stored `conditions`; whether the rename was accepted;
+  whether the run starts and blocks.
 - **If it fails.** A rename removes the gate. Set `"protected": true` in
-  `repository_name` [docs D3] and run the step again.
+  `repository_name` [docs D3] and run the step again. With
+  `"protected": true`, **a refused rename is valid evidence**, together
+  with proof that the guard still applies: after the refusal, a new pull
+  request in `guard-lab-target` starts the `lab-guard` run and is blocked.
+  A refused rename without that second observation is not a pass.
 - Rename the repository back to `guard-lab-target` at the end of this
   step; the later steps use that name.
 - Not covered: a transfer of the repository to another owner. No step
@@ -832,13 +853,22 @@ Class: informational; it can change the pin procedure.
 
 - **Procedure.** The source has commit B (from X1). Approve a pull request
   **PR-G**; its run from pin A is green. As the owner, move the ruleset's
-  pin to commit B (`PUT` the full body with the new `sha`). Do not push to
+  pin to commit B by updating the stored ruleset, exactly as the pin
+  procedure does (`docs/merge-guard-key-protection.md`, "Per guard
+  release", step 6): read the ruleset, change only the `sha`, `PUT` the
+  result, compare. Do not send the creation body of §1.3 again: it sets
+  `"enforcement": "evaluate"` and would switch the lab's `Active` ruleset
+  off. Read the ruleset back: the enforcement must still be `active`, and
+  the conditions and the bypass list must be unchanged. Do not push to
   PR-G. Then: (i) read the merge box of PR-G; (ii) add PR-G to the queue
   and read the marker that its `merge_group` run prints; (iii) push to
   another pull request and read its marker.
 - **Pass.** Record only. Expected [inferred]: (i) PR-G stays mergeable with
   the old result; (ii) the group run prints `marker=B`; (iii) `marker=B`.
-- **Record.** The three observations.
+- **Record.** The three observations; the output of the comparison of the
+  pin procedure (`diff` prints nothing; the last line shows `active` and
+  commit B); whether the `PUT` accepted the body built from the `GET`
+  response.
 - **What the result changes.** If (ii) prints `marker=A`, a pin move does
   not reach a pull request that is already green, in the queue either. A
   pin move that removes an enrolled identity or closes a defect then needs
