@@ -1372,13 +1372,51 @@ RAW_V6_NAMES = (
 )
 
 
+# Forms that spell a scope key without quotes, or build one. Each is absent
+# from the committed workflow.
+#   - a dotted read, as jq or an attribute access writes it (``.candidate``,
+#     ``.x.candidate.pull_request``, ``.dispatcher``, ``.base_sha``);
+#   - jq's recursive descent piped into anything (``.. | .pull_request?``);
+#   - a fragment from which the two v6 field names can be put together.
+RAW_V6_PATTERNS = (
+    re.compile(
+        r"\.(?:candidate|dispatcher|base_sha|pull_request|origin|validation"
+        r"|author_id|owner_review|merge_requirement|attestation_scope"
+        r"|candidate_rulespec_ref)\b"
+    ),
+    re.compile(r"\.\.\s*\|"),
+    re.compile(r"""["'](?:candidate_|_rulespec_ref|attestation_|_scope)["']"""),
+)
+# ``.head_sha`` is also a field of a workflow run, which the workflow reads in
+# these places and nowhere else.
+HEAD_SHA_READS = [
+    "and .head_sha == $head_sha",
+    "repair_encoder_commit=\"$(jq -er '.head_sha' \\",
+    "repair_encoder_commit=\"$(jq -er '.head_sha' \\",
+]
+
+
 def _raw_v6_reads(text: str) -> list[str]:
-    """Every line of a workflow text that spells a raw v6 field name or value."""
+    """Every line of a workflow text that spells a raw v6 field name or value.
+
+    A SPELLING check, not an analysis of what a step reads. It sees the
+    literal names and values of ``RAW_V6_NAMES`` and the forms of
+    ``RAW_V6_PATTERNS``. Known blind spots, by design: a key put together at
+    run time from parts that are not listed (``"candi" + "date"``, a ``printf``
+    format, a variable or an expression); a read that names no key (``.[]``,
+    ``to_entries``, ``paths``, a loop over all values); a read made by a
+    script, an action or a tool that the workflow calls and that is not in
+    this file; and the bare words ``head_sha``, ``base_sha``, ``dispatcher``,
+    ``pull_request``, ``candidate`` and ``repository``, which the workflow
+    uses for other things. What stops a v6 manifest from being evidence in
+    another step is the reader and the locks, not this pin.
+    """
 
     return [
         line.strip()
         for line in text.splitlines()
         if any(name in line for name in RAW_V6_NAMES)
+        or any(pattern.search(line) for pattern in RAW_V6_PATTERNS)
     ]
 
 
@@ -1396,7 +1434,14 @@ def test_no_part_of_the_workflow_file_spells_a_raw_v6_field_name():
     } == {"candidate_rulespec_ref", "attestation_scope"}
     assert {"owner_review", "merge_requirement"} <= v6.ATTESTATION_SCOPE_FIELDS
     assert "author_id" in v6.ATTESTATION_CANDIDATE_FIELDS
-    assert _raw_v6_reads(WORKFLOW.read_text()) == []
+    text = WORKFLOW.read_text()
+    assert _raw_v6_reads(text) == []
+    assert [
+        line.strip() for line in text.splitlines() if ".head_sha" in line
+    ] == HEAD_SHA_READS
+    # The limit is said where the check is defined.
+    assert "A SPELLING check" in _raw_v6_reads.__doc__
+    assert "Known blind spots" in _raw_v6_reads.__doc__
 
 
 def _with_a_step_in_dispatch_record(run: str) -> str:
@@ -1428,10 +1473,58 @@ def _with_a_step_in_dispatch_record(run: str) -> str:
         "grep -q axiom-encode/attestation-scope/v1 manifest.json",
         "grep -q axiom-encode/content-bound-merge-guard/v1 manifest.json",
         "grep -q axiom-encode/candidate-promotion-evidence/v1 evidence.json",
+        # Independent review of ``fef3cb85f``: unquoted and indirect forms.
+        "jq '.. | .pull_request?' manifest.json",
+        "jq '..|.author_id?' manifest.json",
+        'python3 -c \'k = "candidate_" + "rulespec_ref"; print(k)\'',
+        "python3 -c \"k = 'attestation_' + 'scope'; print(k)\"",
+        "jq -r .x.candidate.pull_request manifest.json",
+        "jq -r .dispatcher scope.json",
+        "jq -r .base_sha candidate.json",
+        "jq -r '.scope.origin' manifest.json",
+        "jq -r '.scope.validation' manifest.json",
     ],
 )
 def test_a_raw_v6_field_read_in_another_job_is_seen(run):
     assert _raw_v6_reads(_with_a_step_in_dispatch_record(run)) != []
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        'python3 -c \'k = "candi" + "date"; print(k)\'',
+        "jq -r '.[] | .[]?' manifest.json",
+        "jq -r 'to_entries[] | .value' manifest.json",
+        "python3 axiom-encode/scripts/some_reader.py manifest.json",
+    ],
+)
+def test_the_known_blind_spots_of_the_spelling_check_are_recorded(run):
+    """These reads are NOT seen. The test records the limit; it is not a
+    guard. If one of them becomes visible, move it to the test above."""
+
+    assert _raw_v6_reads(_with_a_step_in_dispatch_record(run)) == []
+
+
+def test_the_read_count_and_the_parity_limit_are_stated_exactly():
+    """Independent review of ``fef3cb85f``: these sentences had no pin."""
+
+    design = " ".join((ROOT / "docs/content-bound-merge-guard.md").read_text().split())
+    source = " ".join(
+        Path(admission.__file__).read_text("utf-8").replace("#", " ").split()
+    )
+    assert "one read of the branch record for each v6 manifest: at least 46." in design
+    assert "(at least 46 in a candidate run;" in design
+    assert "branch record per v6 manifest: at least 46." in source
+    for text in (design, source):
+        assert "at least 45 " in text
+        assert "at least 45." not in text
+    module = " ".join((evidence.__doc__ or "").split())
+    assert (
+        "The parity with the reader covers these three and nothing else. This "
+        "function is NOT the whole reader: it does not check the signature, the "
+        "schema of an ``applied_files`` entry, ``axiom_encode_git``, "
+        "``generated_at`` or any other nested value."
+    ) in module
 
 
 def test_after_the_evidence_step_nothing_reads_the_manifest_label_or_ref():
