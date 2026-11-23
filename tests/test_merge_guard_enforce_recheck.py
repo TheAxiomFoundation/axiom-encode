@@ -731,6 +731,11 @@ DESIGN_REQUIRED = {
         "**Group size 1 is a required queue setting, not something the evaluator proves.**",
         "It does not establish the group's **membership**",
         "a larger size is a reason not to activate",
+        "the evaluator reads and judges that one pull request only",
+        '`grouping_strategy: "ALLGREEN"`, `max_entries_to_merge: 1`, '
+        "`min_entries_to_merge: 1` and `max_entries_to_build: 1`",
+        "**The evaluator does not enforce them and cannot prove a group to be a "
+        "single pull request**",
         "membership is not verified, the queue's group size of 1 is a required setting",
     ],
     "request budget": [
@@ -1030,3 +1035,16 @@ def test_a_group_check_whose_identity_cannot_be_compared_is_never_evaluated(chan
     assert code == 1 and report["verdict"] is None and report["evaluations"] == 0
     assert "not the merge group run" in report["error"]
     assert report["group_ci_rechecks"] == 0
+
+
+def test_a_group_whose_tree_is_the_head_of_its_last_member_judges_that_member_only():
+    # This test records a limit; it is not a guard (coordination note of
+    # 2026-11-22, reproduced on the writer stack). Pull request 42 already
+    # contains an earlier queued pull request 41. The group for 42 has the
+    # tree of 42's head on the judged base: it passes, and no read names 41.
+    world = queued()
+    report, code = judge_group(world)
+    assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
+    assert not any("/pulls/41" in path for path in world.calls)
+    doc = " ".join(guard.evaluate_merge_group.__doc__.split())
+    assert "not its membership" in doc
