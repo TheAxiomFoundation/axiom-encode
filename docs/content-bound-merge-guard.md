@@ -1117,11 +1117,12 @@ completed run, the second with a run in progress) cost three. The run now
 refuses a listing of more than two checks with the required name on the
 group head (`MAX_GROUP_CHECK_RUNS`; an error of the run, no evaluation), so
 three reads are the most one poll can cost, and a test drives that case for
-every poll of a full wait. `MAX_ENFORCE_REQUESTS` is 350 (it was 250, which
-the three-read case exceeded, failing closed): past it every read fails and
-the result is a failed job. The second read of the group's check (review of
-head `979124f10`) adds at most 3 requests to a merge-group run; 336 stays
-under the cap, so the cap is unchanged. In any one hour a waiting run of
+every poll of a full wait. `MAX_ENFORCE_REQUESTS` is 450 (it was 350, and 250
+before that, which the three-read case exceeded, failing closed): past it
+every read fails and the result is a failed job. The second read of the
+group's check (review of head `979124f10`) adds at most 3 requests to a
+merge-group run; 336 stays under the cap. The value 450 is sized for a
+later batch of 10 units ("Request budget for a batch" below). In any one hour a waiting run of
 either event makes 20 polls: at most 80 requests for a pull request in an
 hour that holds both of its evaluations (above), and at most
 60 + 30 + 3 = 93 for a merge group in the hour that holds its evaluation. GitHub documents the job
@@ -1138,18 +1139,148 @@ read 2026-11-17). Consequences that no load test has measured:
 - A real pull request with more than 100 files, commits or reviews needs
   further page reads; the fixtures have one page of each.
 - A v5 lane of `u` units costs about `11 + 3u` requests per evaluation. With
-  two whole evaluations and a full wait of 101 polls the cap of 350 admits
-  about 37 units (2 x (11 + 3u) + 101 <= 350; the second read of the group's
+  two whole evaluations and a full wait of 101 polls the cap of 450 admits
+  about 54 units (2 x (11 + 3u) + 101 <= 450; the second read of the group's
   check does not enter this bound, it belongs to the merge-group run). A
   merge-group run of such a train costs the polls, one evaluation of about
   `15 + 3u` (the pull request's `11 + 3u` and four reads for the group) and
-  the second read: with one listed check, 100 + 2 + (15 + 3u) + 2 <= 350
-  admits about 77 units; when every poll costs three reads (a second check
+  the second read: with one listed check, 100 + 2 + (15 + 3u) + 2 <= 450
+  admits about 110 units; when every poll costs three reads (a second check
   with the required name on the group head),
-  3 x 101 + (15 + 3u) + 3 <= 350 admits about 9 (it was about 10 before the
-  second read). A larger train fails closed.
+  3 x 101 + (15 + 3u) + 3 <= 450 admits about 43 (about 9 when the cap
+  was 350). A larger train fails closed.
   Raise the cap in a reviewed change (which changes the bundle digest)
-  before a bulk landing.
+  before a larger bulk landing.
+
+**Request budget for a batch (cap 450).** The cap of one run was raised from
+350 to 450 so that the run of a later batch of 10 v6 units fits (#2301). The
+batch evaluator is not on this branch. Draft #2309 measures its costliest
+evaluation as `20 + 10u` reads for `u` units [author-reported there; for
+this change its request-count tests were run again from its commit
+`75ec26e93`, and they pass for 1, 2, 3, 5 and 10 units]. A merge group adds
+4 reads to an evaluation [code: `_evaluate_merge_group`]. The runs of the
+enforcing runner [code: `_enforce_pull_request`, `_enforce_merge_group`]:
+
+| Units | Evaluation | Pull request: two evaluations, 101 polls | Merge group, three reads at every poll | Merge group, one listed check |
+|---|---|---|---|---|
+| 1 | 30 | 2 x 30 + 101 = 161 | 3 x 101 + 34 + 3 = 340 | 100 + 2 + 34 + 2 = 138 |
+| 2 | 40 | 2 x 40 + 101 = 181 | 3 x 101 + 44 + 3 = 350 | 100 + 2 + 44 + 2 = 148 |
+| 10 | 120 | 2 x 120 + 101 = 341 | 3 x 101 + 124 + 3 = **430** | 100 + 2 + 124 + 2 = 228 |
+
+The binding run is the merge group whose every poll costs three reads. At
+350 that row covered 2 units and no more. The cap of 450 leaves 20 requests
+over the binding run of 10 units; the row reaches the cap at 12 units. The
+pull-request column is an upper bound: the first evaluation of a run that
+waits stops at the listing of the required check, so the run is smaller
+(240 for the 10-unit run that the tests drive).
+
+- *What this branch costs, measured* [code:
+  `tests/test_merge_guard_request_budget.py`]. On this branch one v6 unit
+  costs at most 29 reads for a pull request and 33 for its merge group, with
+  one page for each list and one check with the required name. The fixture
+  figures above (25 and 29) are for a unit that is approved on its head and
+  whose candidate base is the `main` tip: an approval on an earlier commit
+  costs 3 more reads, an older candidate base 1 more. So the costliest
+  merge-group run of one unit is 3 x 101 + 33 + 3 = 339, which is 3 above
+  the 336 that the table above counts with 30 for an evaluation. The cap
+  covered that run before this change and covers it now. #2309 adds one
+  read for each unit (the tree of its candidate base), hence its 30.
+- *How the run of 10 units is driven here.* With the real runner and the
+  real evaluator of this branch, and no stand-in: a single unit whose
+  evaluation costs 120 reads (124 in its merge group) because 46 further
+  green checks with the required name are on its head. The merge-group run
+  of 430 requests passes. A run that needs exactly 450 passes. A run that
+  needs 451 fails with the error of every capped run ("the run reached its
+  request cap"), and no request is sent past the cap. With the cap at its
+  earlier value the 430 run fails
+  (`test_the_merge_group_run_of_a_ten_unit_evaluation_fits_under_the_cap`);
+  with the cap removed the 451 run passes
+  (`test_the_run_that_needs_the_whole_cap_passes_and_one_request_more_fails`).
+  The pull-request path cannot reach 450 with these fixtures (its largest
+  run is 348), so its tests set the cap around the need of one run: the run
+  passes at its exact need of 240 and fails one below, each poll uses the
+  budget, and the second evaluation has no budget of its own.
+- *What the arithmetic does not bound* [code]. `20 + 10u` and the 29 above
+  count one page for each list and one check. The evaluator reads up to 10
+  pages of the file list, of the commit list and of the review list (the
+  review list in both passes), and each further check with the required name
+  on the pull request head costs 2 reads: its workflow run, in each of the
+  two passes. One listing holds up to 100 checks. A batch of 10 units is 30
+  files, so a further page needs more than 100 commits or reviews. The 20
+  spare requests cover 20 such reads at the binding run: 10 further checks
+  at 2 reads each. A run that needs
+  more reaches the cap and fails closed; a re-run costs the same, so that
+  pull request needs fewer commits or checks, or a higher cap in a reviewed
+  change.
+- *The cap admits no batch by itself.* The evaluator of this branch refuses
+  a second v6 unit (`multiple_v6_manifests`) and `SUCCESS_VERDICTS` holds no
+  batch reason [code]. The unit limit of #2309 (`MAX_V6_UNITS`, 2 there) and
+  its success reason are separate reviewed changes, and its switch stays
+  off. The cap only bounds a runaway run: no value of it gives a pass.
+
+What bounds the cap from above:
+
+- *The rate limit of the job token.* "1,000 requests per hour per
+  repository" [docs, the link above, read again 2026-11-23; the page does
+  not say in words that the runs of one repository share the limit, "per
+  repository" is read that way here]. A run spreads its polls, 20 an hour.
+  The costliest hour of a pull-request run of 10 units holds 20 polls and
+  both evaluations: 20 + 2 x 120 = 260 requests, against 80 for one unit.
+  For its merge group the hour is 60 + 124 + 3 = 187, against 93. So
+  three such runs fit one hour (780) and a fourth does not (1,040), where 12
+  runs of single units fit. **This is a real exhaustion risk** once batches
+  of 10 exist: every push to a batch head and every re-run after an approval
+  starts such a run, and the limit is also used by the runs of single units
+  and by every other workflow of the repository that uses the job token,
+  which is not measured.
+- *The cap is for one run, not for one hour.* Only a runaway run reaches it
+  inside one hour. Then two runs that both reach the cap in one hour use 900
+  of the 1,000, and three exceed it. At 350 the figures were 700 and 1,050:
+  the limit absorbed two runaway runs before this change and absorbs two
+  now.
+- *At the limit.* GitHub answers 403 or 429 [docs, same page]. A read that
+  the limit refuses is a failed read: the run fails closed. No path gives a
+  pass ("At the limit the job fails closed" above). The cost is
+  availability: the failed guard jobs must be re-run in a later hour, and
+  the other workflows of the repository that use the job token lose their
+  API calls for the rest of that hour too [inferred].
+- *Mitigation, before the unit limit is raised to 10.* (1) Read the
+  `x-ratelimit-limit` header of a request made with a job token of
+  `rulespec-us` **[check live]**: at 15,000 ("The higher limit" above) 57
+  such runs fit one hour and the risk is gone. (2) Until that is known,
+  an operating rule: at most three guard runs of batch pull requests in any
+  one hour. Batches land one after the other anyway (one merge group at a
+  time with a group size of 1), so the rule binds pushes and re-runs. (3)
+  Prefer the layout that #2309 calls the parallel order (one candidate
+  commit, one encoder commit, approved on the head): `20 + 5u`, 70 reads
+  for 10 units and 160 in the costliest hour, so six runs fit. (4) A
+  follow-up of the runner, not in this change: on a response that says the
+  limit is reached, wait for the reset inside the bounds of the existing
+  wait instead of failing.
+- *Secondary limits* [docs, same page]: "No more than 100 concurrent
+  requests are allowed" and "No more than 900 points per minute are allowed
+  for REST API endpoints". The runner makes one request at a time [code],
+  so one run cannot reach the first. The points of a read were not looked
+  up again; at one point for a read, the 124 reads of the largest
+  evaluation are far below the second.
+- *The job timeout.* `timeout-minutes` is 345, 20,700 seconds, and a hosted
+  job ends at 360 minutes ("Job timeout" above). The wait, its last poll
+  interval and its last poll take up to 18,210 seconds of a pull-request
+  run. That leaves 2,490 seconds for the 240 requests of two evaluations of
+  10 units and for the set-up steps: a mean of about 10 seconds for each
+  request. For the merge group it leaves 2,340 seconds for 124 requests,
+  about 19 seconds each. With every request at the socket timeout of 30
+  seconds the pull-request run would take 25,410 seconds, 423.5 minutes,
+  which no timeout of a hosted job covers. So a batch run is covered only
+  while GitHub answers in normal time; a slower run is cancelled, which is
+  not a success (closed) [inferred; no latency of the API was measured].
+  The timeout is unchanged.
+
+Not in this change: the unit limit and the success reason of #2309; the
+texts of #2309, which state the cap as 350 and are to be corrected when the
+stacks are integrated (the bundle digest must be recomputed then once more,
+because #2309 edits two modules of the bundle); the live read of the limit;
+the wait on a rate-limit response.
 
 **Limits of the trigger set.**
 

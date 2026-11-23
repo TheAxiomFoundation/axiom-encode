@@ -2841,7 +2841,7 @@ def test_the_documents_state_the_waits_and_limits_of_the_runner_as_built():
     key = _flat(KEY_PROTECTION_DOC)
     assert "for at most 18,000 seconds, five hours (`CI_WAIT_SECONDS`)" in design
     assert "**Job timeout.** `timeout-minutes` is 345." in design
-    assert "`MAX_ENFORCE_REQUESTS` is 350" in design
+    assert "`MAX_ENFORCE_REQUESTS` is 450" in design
     assert (
         "it waits for that check, at most 5 hours, with a poll every 180 seconds"
         in (key)
@@ -4152,7 +4152,8 @@ def test_request_volume_per_evaluation_is_measured_and_bounded(monkeypatch):
     assert runner.MAX_MERGE_GROUP_POLLS == 101 and runner.MAX_CI_POLLS == 101
     assert (runner.CI_POLL_READS, runner.MERGE_GROUP_POLL_READS) == (1, 3)
     assert runner.MERGE_GROUP_POLL_READS == 1 + runner.MAX_GROUP_CHECK_RUNS
-    assert runner.MAX_ENFORCE_REQUESTS == 350
+    # Sized for a later batch of 10 units: tests/test_merge_guard_request_budget.py.
+    assert runner.MAX_ENFORCE_REQUESTS == 450
     # The polls of one run in any one hour: 20 for either event. One hour
     # can hold BOTH evaluations of a pull-request run (a short wait: the
     # review of head 979124f10 measured 61 reads in 3,420 simulated seconds),
