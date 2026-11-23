@@ -262,6 +262,8 @@ UNREAD = [
     pytest.param("the unit must have four or more members", id="modal"),
     pytest.param("the unit does not have four or more members", id="negation"),
     pytest.param("no unit with four or more members", id="no"),
+    # More than three words between the number and its comparison.
+    pytest.param("4 members of the lending unit or more", id="too-far"),
     # Not a comparison.
     pytest.param("4 or 5 members", id="alternative-numbers"),
     pytest.param("more or less 4 members", id="more-or-less"),
@@ -484,6 +486,10 @@ def test_number_link_needs_a_one_sided_limit():
         "between 2 and 4 members."
     )
     assert "pair" in _count_checks(source, "<=", (4, 5), name="headcount")
+    # The pair 1/2 sits on the floor and crosses it; the ceiling is not shown.
+    assert "pair" in _count_checks(
+        source, ">=", (1, 2), name="headcount", number=2, threshold=2
+    )
 
 
 TWO_LIMITS_SAME_NUMBER = (
@@ -572,14 +578,21 @@ def test_count_pair_on_the_boundary_of_a_negated_comparison_passes(name):
     assert _negated_checks("<=", (1, 2), name=name) == set()
 
 
-def test_negated_comparison_still_refuses_another_boundary():
+@pytest.mark.parametrize(
+    # The second name shares words with the condition and passes the name
+    # test; the first is linked by the number alone.
+    "name",
+    ["unpaid_rent_month_count", "consecutive_months_rent_unpaid"],
+)
+def test_negated_comparison_still_refuses_another_boundary(name):
     # `>= 1` puts the boundary between 0 and 1: wrong under both readings.
-    assert _negated_checks(">=", (0, 1)) == {"pair"}
-    assert _negated_checks("<", (0, 1)) == {"pair"}
+    assert _negated_checks(">=", (0, 1), name=name) == {"pair"}
+    assert _negated_checks("<", (0, 1), name=name) == {"pair"}
     # No case on the stated number.
-    assert _negated_checks(">", (0, 5)) == {"pair"}
+    assert _negated_checks(">", (0, 5), name=name) == {"pair"}
+    assert _negated_checks("<=", (0, 5), name=name) == {"pair"}
     # `> 2` with cases at 2 and 3: the pair misses the stated number.
-    assert _negated_checks(">", (2, 3), number=2) == {"pair"}
+    assert _negated_checks(">", (2, 3), name=name, number=2) == {"pair"}
 
 
 @pytest.mark.parametrize(
