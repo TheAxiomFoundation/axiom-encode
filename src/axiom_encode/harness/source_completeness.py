@@ -35974,6 +35974,7 @@ def _formula_bound_from_comparison(
         "cannot equal or be greater than",
         "cannot be at least",
         "cannot be greater than or equal to",
+        "fewer than",
         "less than",
         "not equal or exceed",
         "not equal or be greater than",
@@ -36082,6 +36083,7 @@ def _formula_bound_from_comparison(
         "equal or exceed",
         "equal or be greater than",
         "greater than or equal to",
+        "no fewer than",
         "no less than",
         "no lower than",
         "not be below",
@@ -36090,6 +36092,7 @@ def _formula_bound_from_comparison(
         "not be under",
         "not below",
         "not fall below",
+        "not fewer than",
         "not less than",
         "not lower than",
         "not under",
@@ -36358,6 +36361,71 @@ def _mask_quoted_integer_delimiters(text: str) -> str:
     return _mask_numeric_spans(text, spans)
 
 
+# A limit whose comparison follows its number: "two or more meals", "4 members
+# or fewer", "age 60 or older", "21 years of age and under". These are the
+# postfix wordings by which `_STATED_NUMERIC_LIMIT` calls a clause a numeric
+# limit. The pair check owes a case pair for such a clause, and only a clause
+# with an interval can be paid with a numeric pair.
+_POSTFIX_LIMIT_COMPARISON = re.compile(
+    r"[ \t]*(?:%[ \t]*)?(?:\)[ \t]*)?(?:[A-Za-z]+[ \t]+){0,3}?"
+    r"(?:or[ \t]+(?:(?P<lower>more|greater|higher)|(?P<upper>less|fewer|lower))"
+    r"|(?:or|and)[ \t]+"
+    r"(?:(?P<lower_side>older|over|above)|(?P<upper_side>younger|under|below)))\b",
+    flags=re.IGNORECASE,
+)
+# The words in front of the number that make the prefix parser decline a
+# comparison: a modal or a negation whose scope the parser does not read.
+_POSTFIX_LIMIT_UNREAD_PREFIX = re.compile(
+    r"\b(?:allowed|anticipated|appears?|apt|authorized|barred|bound|can|cannot|"
+    r"capable|compelled|could|designed|directed|disallowed|estimated|"
+    r"expected|forbidden|forecast|free|liable|likely|mandated|may|might|"
+    r"must|need|never|no|not|obliged|ordered|permitted|possibly|precluded|"
+    r"prevented|presumed|prone|prohibited|projected|rarely|required|seems?|"
+    r"shall|should|supposed|tends?|typically|unauthorized|unlikely|will|"
+    r"would)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _formula_postfix_limit_interval(
+    text: str,
+    occurrences: Sequence[NumericOccurrenceLike],
+) -> _NumericInterval | None:
+    """Read "N or more" and "N or fewer" as an inclusive one-sided interval.
+
+    The caller found no comparison in front of a number. The text must hold
+    exactly one number that is directly followed, after at most three unit
+    words, by a listed comparison; two such numbers, or a modal or negation
+    in front of the number, leave the clause unread as before.
+    """
+
+    found: list[tuple[NumericOccurrenceLike, bool]] = []
+    for occurrence in occurrences:
+        match = _POSTFIX_LIMIT_COMPARISON.match(text, occurrence.end)
+        if match is None:
+            continue
+        if re.match(r"one[ \t]+or[ \t]+more\b", text[occurrence.start :], re.I):
+            # "One or more" means "any"; `_STATED_NUMERIC_LIMIT` agrees.
+            continue
+        found.append(
+            (occurrence, bool(match.group("lower") or match.group("lower_side")))
+        )
+    if len(found) != 1:
+        return None
+    occurrence, is_lower = found[0]
+    clause_start = max(
+        text.rfind(".", 0, occurrence.start),
+        text.rfind(";", 0, occurrence.start),
+        text.rfind(":", 0, occurrence.start),
+        text.rfind("\n", 0, occurrence.start),
+    )
+    if _POSTFIX_LIMIT_UNREAD_PREFIX.search(text[clause_start + 1 : occurrence.start]):
+        return None
+    if is_lower:
+        return _NumericInterval(occurrence, True, None, False)
+    return _NumericInterval(None, False, occurrence, True)
+
+
 def _formula_interval_from_text(
     text: str,
     *,
@@ -36391,7 +36459,8 @@ def _formula_interval_from_text(
             r"not\s+(?:greater|higher|larger|more)\s+than|not\s+(?:in\s+excess\s+of|over)|"
             r"in\s+excess\s+of|"
             r"at\s+or\s+(?:below|under)|"
-            r"no\s+less\s+than|not\s+less\s+than|less\s+than|below|"
+            r"no\s+(?:less|fewer)\s+than|not\s+(?:less|fewer)\s+than|"
+            r"(?:less|fewer)\s+than|below|"
             r"bis|up\s+to|höchstens|nicht\s+mehr\s+als|at\s+most|"
             r"greater\s+than\s+or\s+equal\s+to|equal\s+to\s+or\s+greater\s+than|"
             r"at\s+or\s+(?:above|over)|über|more\s+than|greater\s+than|"
@@ -36517,7 +36586,7 @@ def _formula_interval_from_text(
             occurrences = candidate_occurrences
             break
     if keyword is None:
-        return None
+        return _formula_postfix_limit_interval(comparison_text, numeric_occurrences)
     range_text = text[keyword.start() :]
     if re.match(
         r"ab\s+(?:dem\s+)?(?:veranlagungszeitraum|tax\s+year|calendar\s+year)\b",
@@ -36584,7 +36653,7 @@ def _formula_interval_from_text(
             return _NumericInterval(second, inclusive, None, False)
         return _NumericInterval(None, False, second, inclusive)
     if re.match(
-        r"(?:unter|under|less\s+than(?!\s+or\s+equal\s+to)|below|"
+        r"(?:unter|under|(?:less|fewer)\s+than(?!\s+or\s+equal\s+to)|below|"
         r"(?:von\s+)?weniger\s+als)\b",
         lowered_range,
     ):
@@ -36624,8 +36693,8 @@ def _formula_interval_from_text(
             upper_directly_conjoined=upper_directly_conjoined,
         )
     if re.match(
-        r"(?:von|ab|from|at\s+least|no\s+less\s+than|"
-        r"not\s+less\s+than|greater\s+than\s+or\s+equal\s+to|"
+        r"(?:von|ab|from|at\s+least|no\s+(?:less|fewer)\s+than|"
+        r"not\s+(?:less|fewer)\s+than|greater\s+than\s+or\s+equal\s+to|"
         r"equal\s+to\s+or\s+greater\s+than|at\s+or\s+(?:above|over)|"
         r"mindestens)\b",
         lowered_range,
@@ -44483,7 +44552,9 @@ def _source_boundary_obligations(
                 r"mehr\s+als|weniger\s+als|from|to|"
                 r"through|less\s+than|more\s+than|at\s+least|up\s+to|"
                 r"at\s+most|above|below|höchstens|mindestens|"
-                r"nicht\s+mehr\s+als)\b",
+                r"nicht\s+mehr\s+als|fewer\s+than|"
+                r"or\s+(?:more|less|fewer|greater|higher|lower)|"
+                r"(?:or|and)\s+(?:older|younger|over|under))\b",
                 range_fragment,
                 flags=re.IGNORECASE,
             ):
