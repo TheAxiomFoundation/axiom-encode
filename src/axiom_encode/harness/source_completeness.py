@@ -22454,6 +22454,13 @@ CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
         "axiom_encode/harness/source_completeness.py:"
         "_opaque_same_source_condition_input_issues"
     ),
+    # Advisory (issue #2300): the finding is recorded and shown to the
+    # reviewer, and it does not refuse a candidate by itself. The check reads
+    # clause wording and cannot tell a faithful list of alternatives from a
+    # collapsed conjunction; every text rule that tried to tell them apart
+    # opened an escape. Inside the analysis the finding keeps its effects (a
+    # unit with one gets no worksheet certification).
+    enforcement="advisory",
 )
 
 

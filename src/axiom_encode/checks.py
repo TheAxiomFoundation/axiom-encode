@@ -36,6 +36,17 @@ for an untyped one. v2 adds ``check``, ``cause``, ``subject``, ``expected``,
 ``found``, ``evidence`` and ``fingerprint`` (all ``None`` for an untyped
 issue).
 
+Enforcement
+-----------
+A check is ``blocking`` unless its declaration says ``enforcement="advisory"``.
+A finding of an advisory check is still computed and recorded with the same
+detail, and it is shown to the reviewer as a warning to examine, but it does
+not refuse a candidate by itself. Only the CI gate applies this
+(:func:`partition_by_enforcement`); everything that is not positively known to
+be advisory blocks: an untyped message, an unknown check id and a value other
+than ``"advisory"``. A registry entry or an issue record names the field only
+when it is ``advisory``, so a record without it is blocking.
+
 Registry shape (``axiom-encode/check-registry/v1``)
 ---------------------------------------------------
 ``axiom-encode checks --json`` prints every declared check with the encoder
@@ -58,6 +69,13 @@ REGISTRY_SCHEMA_VERSION = "axiom-encode/check-registry/v1"
 Cause = Literal["encoder_output", "validator", "source_corpus", "infra"]
 CAUSES: tuple[str, ...] = ("encoder_output", "validator", "source_corpus", "infra")
 Severity = Literal["critical", "important", "minor", "info"]
+Enforcement = Literal["blocking", "advisory"]
+BLOCKING: Enforcement = "blocking"
+ADVISORY: Enforcement = "advisory"
+ENFORCEMENTS: tuple[str, ...] = (BLOCKING, ADVISORY)
+#: The one gate that applies advisory enforcement. A check of another gate
+#: cannot be declared advisory, because that gate would still refuse on it.
+ADVISORY_GATE = "ci"
 
 #: Modules that declare checks. ``load_checks`` imports them so the registry is
 #: complete wherever it is read; a test fails when a module that calls
@@ -79,6 +97,12 @@ MAX_RECORDED_ISSUES = 200
 MAX_RECORDED_MESSAGE_CHARS = 2000
 MAX_RECORDED_FIELD_CHARS = 400
 MAX_RECORDED_ISSUES_JSON_BYTES = 128 * 1024
+#: An advisory finding is recorded with its whole message, as a blocking
+#: finding is in a result's issue list; this bound only stops a runaway one.
+MAX_ADVISORY_MESSAGE_CHARS = 20_000
+#: Bounds for the advisory findings shown to a reviewer.
+MAX_REVIEW_ADVISORY_ISSUES = 10
+MAX_REVIEW_ADVISORY_MESSAGE_CHARS = 6000
 
 _CHECK_ID_RE = re.compile(r"^[a-z][a-z0-9-]*(?::[a-z0-9-]+)*(?:/[a-z0-9-]+)?$")
 _CATEGORY_RE = re.compile(r"^\[([A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)?)\]")
@@ -92,7 +116,9 @@ class Check:
     matters, ``fix`` what to change (it is shown to the model in retry
     feedback and to a person on the ops pages), and ``cause`` where a failure
     usually comes from. ``site`` names the code that emits it
-    (``<module path>:<function>``).
+    (``<module path>:<function>``). ``enforcement`` says what a finding does:
+    ``blocking`` (the default) refuses the candidate, ``advisory`` records the
+    finding and shows it to the reviewer without refusing.
     """
 
     id: str
@@ -104,6 +130,7 @@ class Check:
     gate: str
     site: str
     severity: Severity = "important"
+    enforcement: Enforcement = BLOCKING
 
     @property
     def category(self) -> str:
@@ -111,7 +138,11 @@ class Check:
         return self.id.partition("/")[0]
 
     def to_dict(self) -> dict[str, Any]:
-        return {**asdict(self), "category": self.category}
+        """The published definition; ``enforcement`` appears only when advisory."""
+        data = {**asdict(self), "category": self.category}
+        if self.enforcement == BLOCKING:
+            del data["enforcement"]
+        return data
 
 
 _REGISTRY: dict[str, Check] = {}
@@ -128,6 +159,7 @@ def declare_check(
     gate: str,
     site: str,
     severity: Severity = "important",
+    enforcement: Enforcement = BLOCKING,
 ) -> Check:
     """Declare a check once, at import time of the module that runs it."""
     check = Check(
@@ -140,6 +172,7 @@ def declare_check(
         gate=gate,
         site=site,
         severity=severity,
+        enforcement=enforcement,
     )
     problems = check_definition_problems(check)
     if problems:
@@ -163,6 +196,13 @@ def check_definition_problems(check: Check) -> list[str]:
         problems.append(f"`cause` must be one of {', '.join(CAUSES)}")
     if check.severity not in ("critical", "important", "minor", "info"):
         problems.append("`severity` is not a run-log severity")
+    if not isinstance(check.enforcement, str) or check.enforcement not in ENFORCEMENTS:
+        problems.append(f"`enforcement` must be one of {', '.join(ENFORCEMENTS)}")
+    elif check.enforcement == ADVISORY and check.gate != ADVISORY_GATE:
+        problems.append(
+            f"`enforcement` can be `{ADVISORY}` only for a check of the "
+            f"`{ADVISORY_GATE}` gate"
+        )
     if ":" not in check.site:
         problems.append("`site` must be `<module path>:<function>`")
     return problems
@@ -180,6 +220,40 @@ def load_checks() -> dict[str, Check]:
 
 def get_check(check_id: str) -> Check | None:
     return _REGISTRY.get(check_id)
+
+
+def issue_is_advisory(issue: Any) -> bool:
+    """True only for a typed issue whose declared check is ``advisory``.
+
+    Everything else blocks: a plain string, a typed issue whose check id is
+    not declared, and a declared check whose ``enforcement`` is any value
+    other than exactly ``"advisory"``.
+    """
+    if not isinstance(issue, ValidationIssue):
+        return False
+    check = get_check(issue.check)
+    if check is None:
+        return False
+    enforcement = check.enforcement
+    return isinstance(enforcement, str) and enforcement == ADVISORY
+
+
+def partition_by_enforcement(issues: Iterable[Any]) -> tuple[list[Any], list[Any]]:
+    """Split issues into ``(blocking, advisory)``, each in its original order."""
+    blocking: list[Any] = []
+    advisory: list[Any] = []
+    for issue in issues:
+        (advisory if issue_is_advisory(issue) else blocking).append(issue)
+    return blocking, advisory
+
+
+def advisory_check_ids() -> tuple[str, ...]:
+    """Ids of every declared check whose findings do not refuse a candidate."""
+    return tuple(
+        check_id
+        for check_id, check in load_checks().items()
+        if check.enforcement == ADVISORY
+    )
 
 
 def registry_document(
@@ -478,6 +552,9 @@ def issue_record(
         )
         if check is not None and record["category"] is None:
             record["category"] = check.category
+        if issue_is_advisory(issue):
+            # Named only when advisory: a record without the key is blocking.
+            record["enforcement"] = ADVISORY
     else:
         from axiom_encode.harness.evals import classify_validation_issue
 
@@ -678,3 +755,74 @@ def issue_fix_feedback(
                 parts.append(f"found {issue.found}")
             lines.append("; ".join(parts))
     return lines
+
+
+def advisory_issue_records(
+    issues: Iterable[Any], *, gate: str | None = ADVISORY_GATE
+) -> list[dict[str, Any]]:
+    """``validation-issue/v2`` records of the advisory issues in ``issues``.
+
+    Each record carries ``"enforcement": "advisory"`` and the whole message.
+    An issue that is not advisory is left out: it belongs in the blocking
+    issue list, never here.
+    """
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for issue in issues:
+        if not issue_is_advisory(issue) or str(issue) in seen:
+            continue
+        seen.add(str(issue))
+        if len(records) >= MAX_RECORDED_ISSUES:
+            break
+        records.append(
+            issue_record(issue, gate=gate, message_limit=MAX_ADVISORY_MESSAGE_CHARS)
+        )
+    return records
+
+
+def advisory_review_context(records: Sequence[Mapping[str, Any]]) -> str:
+    """Reviewer-prompt text for advisory finding records; empty when none.
+
+    The text names each check with its requirement and reason, then the
+    validator's own message. It tells the reviewer to decide from the source,
+    and to fail the review when the finding is a real defect.
+    """
+    shown: list[Mapping[str, Any]] = [
+        record
+        for record in records
+        if isinstance(record, Mapping)
+        and record.get("enforcement") == ADVISORY
+        and isinstance(record.get("message"), str)
+    ]
+    if not shown:
+        return ""
+    lines = [
+        "Validator warnings to examine (advisory: they did not refuse this "
+        "candidate, and no other deterministic check stands in for them).",
+        "Each warning below comes from a deterministic check that reads the "
+        "source wording mechanically. A warning is not proof of a defect and "
+        "it is not proof of none. For each warning, read the quoted source "
+        "words and the named rule, and decide from the source text whether "
+        "the RuleSpec does what the check requires. If the RuleSpec merges, "
+        "drops or weakens something the source states, report it as a "
+        "blocking issue and fail the review. If the RuleSpec is faithful to "
+        "the source, say so in one non-blocking note that names the warning.",
+    ]
+    for record in shown[:MAX_REVIEW_ADVISORY_ISSUES]:
+        check_id = str(record.get("check") or "")
+        check = get_check(check_id)
+        if check is not None:
+            lines.append(
+                f"- [{check_id}] {check.title}. Requires: {check.requires} "
+                f"Why: {check.why}"
+            )
+        else:
+            lines.append(f"- [{check_id}]")
+        message = record["message"]
+        if len(message) > MAX_REVIEW_ADVISORY_MESSAGE_CHARS:
+            message = message[: MAX_REVIEW_ADVISORY_MESSAGE_CHARS - 1] + "…"
+        lines.append(f"  Warning: {message}")
+    omitted = len(shown) - MAX_REVIEW_ADVISORY_ISSUES
+    if omitted > 0:
+        lines.append(f"- ... {omitted} more advisory warning(s) not shown.")
+    return "\n".join(lines)

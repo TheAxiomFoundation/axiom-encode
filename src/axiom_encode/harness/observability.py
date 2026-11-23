@@ -297,6 +297,9 @@ def emit_eval_result(result: Any, trace_payload: Mapping[str, Any] | None) -> No
             "axiom_encode.retry_count": getattr(result, "retry_count", 0),
             "axiom_encode.compile_pass": getattr(metrics, "compile_pass", None),
             "axiom_encode.ci_pass": getattr(metrics, "ci_pass", None),
+            "axiom_encode.advisory_issue_count": len(
+                getattr(metrics, "advisory_issues", None) or []
+            ),
             "axiom_encode.grounded_numeric_count": getattr(
                 metrics, "grounded_numeric_count", None
             ),

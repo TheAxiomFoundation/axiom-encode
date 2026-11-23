@@ -90,6 +90,34 @@ def _issue_finding(issue: Any, *, code: str, severity: Severity) -> Finding:
     return Finding(code=code, severity=severity, message=issue)
 
 
+def _advisory_findings(metrics: Any) -> list[Finding]:
+    """Advisory CI findings of the metrics, labeled and at ``info`` severity.
+
+    They do not decide the gate status. The message starts with
+    ``[advisory]`` so a reader of the findings list can tell them from the
+    blocking ones without the stage attributes.
+    """
+    findings: list[Finding] = []
+    for record in getattr(metrics, "advisory_issues", None) or []:
+        if not (
+            isinstance(record, dict)
+            and record.get("enforcement") == "advisory"
+            and isinstance(record.get("check"), str)
+            and isinstance(record.get("message"), str)
+        ):
+            continue
+        findings.append(
+            Finding(
+                code=record["check"],
+                severity=Severity.info,
+                message=f"[advisory] {record['message']}",
+                locator=record.get("locator"),
+                evidence=record.get("evidence"),
+            )
+        )
+    return findings
+
+
 def _severity_for(kind: str) -> Severity:
     return {
         "critical": Severity.critical,
@@ -155,15 +183,29 @@ def _gate_events_from_metrics(metrics: Any) -> list[dict[str, Any]]:
 
     ci_pass = getattr(metrics, "ci_pass", None)
     if ci_pass is not None:
+        advisory_findings = _advisory_findings(metrics)
         events.append(
             {
                 "stage": "gate.ci",
                 "status": StageStatus.passed if ci_pass else StageStatus.failed,
                 "reason_code": None if ci_pass else "ci_failure",
+                **(
+                    {
+                        "attrs": {
+                            "advisory_finding_count": len(advisory_findings),
+                            "advisory_checks": sorted(
+                                {finding.code for finding in advisory_findings}
+                            ),
+                        }
+                    }
+                    if advisory_findings
+                    else {}
+                ),
                 "findings": [
                     _issue_finding(m, code="ci_failure", severity=Severity.critical)
                     for m in (getattr(metrics, "ci_issues", None) or [])
-                ],
+                ]
+                + advisory_findings,
             }
         )
 
