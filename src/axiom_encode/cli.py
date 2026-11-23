@@ -885,8 +885,12 @@ del _model_contract
 # applied-rulespec/v6 (#2172): the promotion contract with the reviewed ref
 # renamed and the attestation scope added. Read only by the top-level verified
 # loader and the immutable-base claim reader, and only while
-# the reader switch of the v6 reader module is on (it is off). No writer
-# emits it. A manifest without the v6 label takes none of these paths.
+# the reader switch of the v6 reader module is on (it is off). The one writer
+# is ``as_v6_candidate_payload`` of that module, called from
+# ``cmd_promote_reviewed_candidate``. It is locked: by the writer switch and
+# the guard App ID of the admission module (off and unset), by the live read
+# that the guard check is required, and by the reader switch. A manifest
+# without the v6 label takes none of these paths.
 _REVIEWED_CANDIDATE_V6_MANIFEST_VARIANTS = _manifest_v6.v6_field_variants(
     _APPLIED_MANIFEST_SCHEMA_VARIANTS["reviewed candidate promotion"],
     v5_ref_field="reviewed_rulespec_ref",
@@ -10373,13 +10377,20 @@ def cmd_promote_reviewed_candidate(args):
         None,
     )
     live_admission = None
+    # The unreviewed-candidate lane (#2172) is switched off on encoder main:
+    # ``is_candidate_admission`` is False for every admission until then.
+    candidate_lane = False
     if os.environ.get(_TRUSTED_RUNTIME_ENV) == "1":
         runtime = _load_trusted_runtime_attestation()
         live_admission = json.loads(Path(runtime["path"]).read_text()).get(
             "reviewed_pr_admission"
         )
     if live_admission is not None:
-        from .reviewed_pr_admission import revalidate_admission, selector_from_payload
+        from .reviewed_pr_admission import (
+            is_candidate_admission,
+            revalidate_admission,
+            selector_from_payload,
+        )
 
         selector = selector_from_payload(live_admission.get("selector"))
         if (
@@ -10394,6 +10405,11 @@ def cmd_promote_reviewed_candidate(args):
                 "run-scoped reviewed PR admission does not match this operation"
             )
         revalidate_admission(live_admission)
+        candidate_lane = is_candidate_admission(live_admission)
+        if candidate_lane:
+            # Refuse before validation when a v6 manifest could not be
+            # written or read.
+            _manifest_v6.require_candidate_writer()
         record = live_admission["record"]
         issue = _reviewed_rulespec_record_issue(
             record, country=country, rulespec_ref=reviewed_ref
@@ -10652,6 +10668,19 @@ def cmd_promote_reviewed_candidate(args):
                 "source_attestation": source_attestation,
                 "validation_execution": validation_execution,
             }
+            if candidate_lane:
+                # The candidate carried no owner approval into signing. The
+                # manifest says so: v6, ``owner_review: none``, and the merge
+                # guard as the merge requirement.
+                payload = _manifest_v6.as_v6_candidate_payload(
+                    payload,
+                    v5_ref_field="reviewed_rulespec_ref",
+                    repository=selector.repository,
+                    pull_request=selector.pr,
+                    base_sha=live_admission["record"]["base_sha"],
+                    author_id=live_admission["candidate"]["author_id"],
+                    dispatcher=live_admission["dispatcher"],
+                )
             validated_policy = validation_execution.get("policy_pre_apply")
             validated_waiver_set_sha256 = (
                 validated_policy.get("validation_waiver_set_sha256")

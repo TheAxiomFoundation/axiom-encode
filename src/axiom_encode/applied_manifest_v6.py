@@ -2,19 +2,22 @@
 
 This is change 2 of ``docs/content-bound-merge-guard.md`` section 8: the
 verifier side of proposed constraint D1 (agent-proposed answer 1 in
-``docs/reviewed-pr-promotion-order-proposal.md``: "the signing service may sign
+``docs/reviewed-pr-promotion-order-proposal.md``: "The signing service may sign
 validated, unreviewed candidate bytes when a versioned signed manifest
-explicitly records that scope; verifiers must distinguish validation from
-owner approval"). Tracking issue: #2172.
+explicitly records that scope. Verifiers must distinguish validation from
+owner approval."). Tracking issue: #2172.
 
 Nothing here is active:
 
 - ``V6_READER_ENABLED`` is ``False``. While it is ``False`` every verifier
   refuses a manifest labelled v6. The nested and historical readers now check
   this label too.
-- No writer emits v6, so no signed v6 manifest exists. The switch is a second,
-  independent lock, and only a reviewed change to this file on encoder main
-  can turn it.
+- The one writer in this checkout, ``as_v6_candidate_payload``, is switched
+  off by its own constant (``reviewed_pr_admission.V6_WRITER_ENABLED``) and by
+  two further locks there, so the code of this checkout writes no v6
+  manifest. That is a statement about this writer only, not an inventory of
+  manifests signed elsewhere. The reader switch is an independent lock, and
+  only a reviewed change to this file on encoder main can turn it.
 
 Boundary (do not widen without a maintainer decision): this contract concerns
 one lane only, a PR that adds generated RuleSpec through
@@ -37,6 +40,8 @@ import re
 from collections.abc import Mapping
 from typing import Final
 
+from axiom_encode import reviewed_pr_admission as _admission
+
 # The switch rule (the same words are in the design, section 8, row 2b and
 # activation checklist step 2):
 #   The reader may be switched on while no v6 writer exists: nothing new can
@@ -45,12 +50,20 @@ from typing import Final
 #   the guard check not required, an enrolled dispatcher lands their own
 #   unreviewed candidate with no approval, and any account with write access
 #   re-lands signed v6 bytes from a closed pull request.
+# How to read "no v6 writer exists" since change 5: the writer exists and is
+# locked (``as_v6_candidate_payload``). For this rule a locked writer counts
+# as no writer; the rule's sentences are kept as written because a test pins
+# them to the design.
 # Turning this on is a policy change on encoder main, not a runtime option:
 # there is deliberately no environment variable, CLI flag or repository
 # setting.
 V6_READER_ENABLED: Final[bool] = False
 
 MANIFEST_SCHEMA_V6: Final = "axiom-encode/applied-rulespec/v6"
+# The only label the v6 writer relabels: the v5 promotion payload. A literal,
+# so the writer does not depend on its caller for its input contract; a test
+# holds it equal to the label the promotion command writes.
+PROMOTION_INPUT_SCHEMA: Final = "axiom-encode/applied-rulespec/v5"
 PROMOTION_TOOL: Final = "axiom-encode promote-reviewed-candidate"
 CANDIDATE_REF_FIELD: Final = "candidate_rulespec_ref"
 ATTESTATION_SCOPE_FIELD: Final = "attestation_scope"
@@ -219,6 +232,91 @@ def contract_issues(
     return field_issues + attestation_scope_issues(
         payload, manifest_label=manifest_label
     )
+
+
+def require_candidate_writer() -> None:
+    """Refuse unless a v6 manifest may be written and could then be read.
+
+    The writer has its own switch, ``reviewed_pr_admission.V6_WRITER_ENABLED``
+    (off). It also needs the reader on: a v6 manifest that no verifier admits
+    cannot pass its own post-install verification or ``validate / validate``.
+    Both are read at call time and compared with ``is True``.
+    """
+
+    if _admission.V6_WRITER_ENABLED is not True:
+        raise ValueError("the applied-rulespec/v6 writer is switched off")
+    if V6_READER_ENABLED is not True:
+        raise ValueError(
+            "an applied-rulespec/v6 manifest cannot be written while the v6 "
+            "reader is switched off"
+        )
+
+
+def as_v6_candidate_payload(
+    payload: Mapping[str, object],
+    *,
+    v5_ref_field: str,
+    repository: object,
+    pull_request: object,
+    base_sha: object,
+    author_id: object,
+    dispatcher: object,
+) -> dict[str, object]:
+    """The one writer of the v6 shape: relabel an unsigned v5 promotion payload.
+
+    The result is the v5 promotion payload with ``v5_ref_field`` renamed to
+    ``candidate_rulespec_ref`` and the attestation scope added. The scope is
+    written with literal keys and the reader's constants; it is not built
+    from the reader's field sets. The result must then pass the reader's own
+    scope check (``attestation_scope_issues``) before it is returned, so the
+    writer cannot emit a scope that this reader refuses. Call it before the
+    waiver fields are added and before signing.
+
+    The input must carry the exact v5 label ``PROMOTION_INPUT_SCHEMA``: a
+    payload with a missing, null, non-string or other label is refused, so the
+    v6 label never replaces anything but the v5 promotion label.
+    """
+
+    require_candidate_writer()
+    label = payload.get("schema_version")
+    if (
+        type(label) is not str
+        or label != PROMOTION_INPUT_SCHEMA
+        or is_v6_labelled(payload)
+        or payload.get("tool") != PROMOTION_TOOL
+        or "backend" in payload
+        or "signature" in payload
+        or v5_ref_field not in payload
+        or CANDIDATE_REF_FIELD in payload
+        or ATTESTATION_SCOPE_FIELD in payload
+    ):
+        raise ValueError("only an unsigned promotion payload can be written as v6")
+    if not isinstance(dispatcher, Mapping):
+        raise ValueError("candidate manifest dispatcher is invalid")
+    ref = payload[v5_ref_field]
+    scope: dict[str, object] = {
+        "schema": ATTESTATION_SCOPE_SCHEMA,
+        "validation": ATTESTATION_VALIDATION,
+        "owner_review": ATTESTATION_OWNER_REVIEW,
+        "origin": ATTESTATION_ORIGIN,
+        "candidate": {
+            "repository": repository,
+            "pull_request": pull_request,
+            "head_sha": ref,
+            "base_sha": base_sha,
+            "author_id": author_id,
+        },
+        "dispatcher": {name: dispatcher.get(name) for name in ("id", "login")},
+        "merge_requirement": MERGE_REQUIREMENT,
+    }
+    result = {name: value for name, value in payload.items() if name != v5_ref_field}
+    result["schema_version"] = MANIFEST_SCHEMA_V6
+    result[CANDIDATE_REF_FIELD] = ref
+    result[ATTESTATION_SCOPE_FIELD] = scope
+    issues = attestation_scope_issues(result, manifest_label="candidate manifest")
+    if issues:
+        raise ValueError("; ".join(issues))
+    return result
 
 
 def owner_review_state(payload: Mapping[str, object]) -> str:
