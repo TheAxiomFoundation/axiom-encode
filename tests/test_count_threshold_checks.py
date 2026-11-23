@@ -441,6 +441,15 @@ def test_number_link_needs_a_dtype_that_fits_the_number():
     )
 
 
+def test_number_link_needs_a_one_sided_limit():
+    # "Between 2 and 4" has two bounds; a pair on one of them is not linked.
+    source = (
+        "A lending unit is eligible for a group loan when the lending unit has "
+        "between 2 and 4 members."
+    )
+    assert "pair" in _count_checks(source, "<=", (4, 5), name="headcount")
+
+
 TWO_LIMITS_SAME_NUMBER = (
     "A lending unit is eligible for a group loan when the lending unit has at "
     "least 4 members.\n\n"
