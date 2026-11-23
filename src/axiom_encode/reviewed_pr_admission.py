@@ -226,22 +226,31 @@ _MERGE_QUEUE_REQUIRED: Final = (
 # (``content_merge_guard._evaluate``). It is a constant on encoder main: no
 # environment variable, CLI flag, dispatch input or setting turns it. While
 # it is not exactly ``True`` both halves behave as before it existed: the
-# same reads, results and errors. It opens nothing by itself: the admission
-# half also needs every lock of the v6 writer above, and a multi-unit pass of
-# the guard carries its own reason code, which the enforcing runner does not
-# accept until a reviewed change adds it to the runner's success set.
+# same reads, results and errors.
+#
+# The two halves are locked differently. The admission half opens with this
+# switch and the locks of the v6 writer above: it then signs one unit while
+# the candidate holds sibling pairs that nobody judged yet. The guard half
+# covers that: with the switch on, a unit whose validated commit held any
+# change that the final head does not land never passes
+# (``v6_candidate_holds_unjudged_change``), and a pass of two or more units
+# carries its own reason code, which the enforcing runner does not accept
+# until a reviewed change adds it to the runner's success set.
+# ROLLBACK ORDER: that rule exists only while the switch is on. Before the
+# switch is set back to ``False``, close or sign again every open candidate
+# that was signed while it was on.
 MULTI_UNIT_V6_ENABLED: Final[bool] = False
 # The most units of one batch candidate. Bounded by the request budget of the
 # enforcing guard run (design, "Multi-unit candidates", "Request budget"). One
-# evaluation of ``u`` units costs at most ``20 + 9u`` GitHub requests with one
+# evaluation of ``u`` units costs at most ``20 + 10u`` GitHub requests with one
 # page per list. The run stops at 350 requests. Its two bounds:
-#   pull request, two evaluations and 101 polls: 2 x (20 + 9u) + 101 <= 350
-#     gives u <= 11;
+#   pull request, two evaluations and 101 polls: 2 x (20 + 10u) + 101 <= 350
+#     gives u <= 10;
 #   merge group, 101 polls of three reads, the evaluation with four more
 #     reads, and the second read of the group's check:
-#     3 x 101 + (24 + 9u) + 3 <= 350 gives u <= 2.
+#     3 x 101 + (24 + 10u) + 3 <= 350 gives u <= 2 (exactly 350).
 # 2 is the size that both bounds cover. A larger batch needs a higher cap in
-# the runner first (10 units: 3 x 101 + 114 + 3 = 420), in a reviewed change
+# the runner first (10 units: 3 x 101 + 124 + 3 = 430), in a reviewed change
 # of the runner and of this constant.
 MAX_V6_UNITS: Final[int] = 2
 # Where a v6 manifest sits, and the roots a RuleSpec module lives under. This
@@ -1034,12 +1043,6 @@ def _revalidate_candidate_admission(
     ):
         raise AdmissionError("live candidate differs from provisioned admission")
     return payload
-
-
-def multi_unit_v6_enabled() -> bool:
-    """Whether a v6 candidate may carry more than one unit (the one switch)."""
-
-    return MULTI_UNIT_V6_ENABLED is True
 
 
 def _batch_unit_member(path: str) -> tuple[str, str] | None:

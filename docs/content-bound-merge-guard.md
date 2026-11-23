@@ -1046,8 +1046,9 @@ or `tests/test_content_merge_guard_multi_unit_on.py`):
    companion, by path and sha256. All or nothing: one bad unit refuses the
    whole candidate.
 3. Every rule of the single-unit evaluation applies to each unit, by the
-   same code. A batch of one is a single unit: same verdict, reason, detail,
-   evidence and reads.
+   same code. A candidate of one unit is judged as a single unit: same
+   verdict, reason, detail and evidence, with one addition while the switch
+   is on (the candidate rule below).
 4. The approval and identity rules are unchanged and apply to the whole pull
    request. One approval covers the batch.
 5. Signing stays one run for one unit. The workflow file is not changed.
@@ -1076,32 +1077,56 @@ after the other, and each entry needs its own fresh judgment. Several units
 can then land together only inside one pull request. A batch pull request is
 one queue entry: one merge-group run judges all of its units.
 
-The switch opens nothing by itself. Three more things must be true before a
-batch can land [code]:
+The switch is not the only lock, and the two halves are locked differently
+[code]:
 
-- every lock of the v6 writer is open ("Encoder" above): the admission half
-  reads the switch only inside the candidate lane;
-- the v6 reader is on ("Reader" above);
-- the enforcing runner accepts the batch verdict. A pass of two or more
-  units has its own reason code, `content_bound_approval_multi_unit`, not
-  `content_bound_approval`. The runner of draft #2286 ends its job with
-  success only for a verdict and reason of its `SUCCESS_VERDICTS` set
-  [read in `merge_guard_runner.py` of `claude/merge-guard-recommendation`
-  at `14e608a71`], so a batch verdict ends that job with failure until a
-  reviewed change adds the reason there. That change is not in this one
-  ("Follow-ups" below).
+- **The admission half** opens with the switch and the locks of the v6
+  writer ("Encoder" above): it reads the switch only inside the candidate
+  lane. With those open, a run signs one unit while the candidate holds
+  sibling pairs that nobody has judged yet. The runner's lock below does not
+  cover this half. What covers it is the candidate rule of the evaluation
+  (below): a unit that was validated beside a file that the final head does
+  not land never passes while the switch is on.
+- **The guard half** needs the v6 reader ("Reader" above) and the enforcing
+  runner. A pass of two or more units has its own reason code,
+  `content_bound_approval_multi_unit`, not `content_bound_approval`. The
+  runner of draft #2286 ends its job with success only for a verdict and
+  reason of its `SUCCESS_VERDICTS` set [read in `merge_guard_runner.py` of
+  `claude/merge-guard-recommendation` at `14e608a71`], so a batch verdict
+  ends that job with failure until a reviewed change adds the reason there.
+  That change is not in this one ("Follow-ups" below). A candidate of one
+  unit passes with `content_bound_approval`, which the runner accepts, and
+  with the switch on it passes only when it also meets the candidate rule.
+- **Rollback order.** The candidate rule exists only while the switch is on.
+  A manifest that was signed beside a sibling under the switch, on a head
+  that later holds that one unit only, would pass an evaluation with the
+  switch off. So before the switch is set back to `False`, close every open
+  candidate that was signed while it was on, or sign it again. Nothing
+  checks this; it is a step for the person who turns the switch off.
 
 **With the switch off, nothing changes.** A pull request with two or more
 v6 manifests gets `fail`, `multiple_v6_manifests`, as before. The evaluator's
-v6 steps were restructured to loop over units, so the proof is a differential
-test, not an unchanged diff: `tests/test_content_merge_guard_multi_unit_on.py`
-runs every test of `tests/test_content_merge_guard.py` again with the switch
-on, and evaluates each of their `evaluate` calls a second time with the
-switch off over the recorded responses. Both evaluations must return the same
-verdict dict and make the same reads in the same order (more than 600
-evaluations; the one pull request of that suite with two v6 manifests is the
-one designed difference). `verify_reviewed_pr` is compared the same way for single-unit
-candidates [code: `test_a_single_unit_candidate_is_judged_the_same_with_the_switch_on`].
+v6 steps were restructured to loop over units, so the proof is by tests, not
+by an unchanged diff:
+
+- `tests/test_content_merge_guard.py` is not edited and passes.
+- Switch off against the base. The independent review of `cc09b513a` ran a
+  generator of random evaluations on the base branch and on this branch and
+  compared verdict dicts and read sequences; rerun for this head with five
+  seeds: 3,040 evaluations, no difference [author-reported: the generator is
+  the reviewer's and is not in the repository].
+- Switch on against switch off. `tests/test_content_merge_guard_multi_unit_on.py`
+  runs every test of `tests/test_content_merge_guard.py` again with the
+  switch on, and evaluates each of their `evaluate` calls a second time with
+  the switch off over the recorded responses. Both evaluations must return
+  the same verdict dict, and the same reads in the same order apart from
+  the one read that the candidate rule adds (the tree of a candidate's
+  base). More than 600 evaluations; the designed differences are the one
+  pull request of that suite with two v6 manifests and one test whose
+  fixture lacks that tree.
+- `verify_reviewed_pr` is compared for single-unit candidates, result or
+  error text and reads [code:
+  `test_a_single_unit_candidate_is_judged_the_same_with_the_switch_on`].
 
 **The intended change: review granularity.** Today one approval covers one
 unit. With the switch on, one approval covers every unit of the batch: the
@@ -1166,11 +1191,30 @@ count of v6 manifests. Then, for `k >= 2` changed v6 manifests:
   before its first signing run, and every run validated its unit beside the
   sibling bytes that land. A unit that is added after a sibling was signed
   refuses the batch; the remedy is to sign that sibling again, or a new
-  batch. Removing a whole unit later is allowed: the candidate commit may
-  hold more than the head. For one unit the rule is the candidate rule.
-  This rule is stricter than parity with the single-unit lane needs (there
-  the context of a unit, `main`, may also move between signing and landing);
-  it is an open question for the maintainer (question 2 below).
+  batch. Each unit is judged against its own candidate commit. For one unit
+  the rule is the candidate rule above.
+- **Candidate rule of the multi-unit form (new; with the switch on, for one
+  unit and for many).** The commit that a run validated may differ from the
+  `main` commit it was cut from (`candidate.base_sha`) only by files that
+  this head lands: paths of the units of this candidate, added, with the
+  blobs of the head. Anything else refuses, `v6_candidate_holds_unjudged_change`:
+  the pair of a sibling that was removed later, a helper module, other bytes
+  of a module of `main`, a workflow, a pin, the derived index, a manifest of
+  a sibling that was signed again later. The evaluator reads the tree of the
+  candidate's base for this (no read when the base is `B`). The statement
+  this rule makes true while the switch is on: **no unit passes after it was
+  validated beside bytes that are not part of the final, judged batch or of
+  the `main` commit it was cut from.** Removing a whole unit after a sibling
+  was signed therefore refuses the rest: the remedy is a new candidate
+  without that unit and new signing runs. Admission cannot make the same
+  statement about signing, because it cannot know which siblings will land;
+  it signs only beside complete sibling units, and the guard refuses the
+  signature when a sibling does not land. With the switch off the rule is
+  not applied: admission then signs beside no other file but the optional
+  derived index, and the evaluation is the earlier one.
+  Both rules are stricter than parity with the single-unit lane needs (there
+  the context of a unit, `main`, may move between signing and landing);
+  keeping them is question 2 below.
 - Each unit: its signing run and dispatcher, with the rules of step 6. The
   encoder's `main` tip is read once for each pass over the runs, so every
   unit is judged against the same tip.
@@ -1190,6 +1234,7 @@ drives it:
 | `v6_units_share_a_signing_run` | two manifests name one `run_id` |
 | `v6_unit_cross_bound` | a manifest's `applied_files` name a file of another unit |
 | `v6_batch_not_frozen_at_candidate` | a unit's candidate commit lacks a module of the batch, or holds other bytes of it |
+| `v6_candidate_holds_unjudged_change` | a unit's candidate commit differs from its base by something that the head does not land. Also for a candidate of one unit while the switch is on |
 
 Reasons that keep their meaning for a batch: `scope_not_new_module` (a path
 of any unit exists on `main`), `guarded_leaf_not_regular` (a symlink,
@@ -1264,8 +1309,10 @@ Two orders are possible, and neither is tested against the hosted workflow
   `main` tip [code: `verify_reviewed_pr`], so a landing on `main` in between
   costs a branch update by someone who is not the approver.
 
-A unit whose run fails is removed from the candidate (its two files, in a new
-commit); the units that are already signed stay valid. One anonymous-read
+A unit whose run fails cannot be removed from a candidate whose other units
+are already signed: they were validated beside it (candidate rule). The
+remedy is a new candidate without that unit and new signing runs for the
+rest, so build a batch from units that are known to pass. One anonymous-read
 limit applies as before: a signing run of the candidate lane makes at least
 45 anonymous reads against 60 per hour and address ("Encoder" above); the
 sibling files add no read below 100 changed files. Whether `k` hosted runs
@@ -1283,21 +1330,21 @@ per-unit actions below (also #1885).
 
 | Evaluation of `u` v6 units, `pass` | Requests |
 |---|---|
-| Worst case: each unit with its own candidate commit and candidate base, each run on its own encoder commit behind the tip, the approval on a commit that is not the head | `20 + 9u` (29, 38, 47, 65, 110 for 1, 2, 3, 5, 10 units) |
-| Parallel order, one encoder commit, approved on its head | `20 + 5u` (30, 35, 45, 70 for 2, 3, 5, 10 units) |
+| Worst case: each unit with its own candidate commit and candidate base, each run on its own encoder commit behind the tip, the approval on a commit that is not the head | `20 + 10u` (30, 40, 50, 70, 120 for 1, 2, 3, 5, 10 units) |
+| Parallel order, one encoder commit, the base is the `main` tip, approved on its head | `20 + 5u` (30, 35, 45, 70 for 2, 3, 5, 10 units) |
 
 The fixed 20: the pull request, the `main` tip, the comparison, two trees,
 the file list, the commits, the reviews, three reads for an approval on an
 earlier commit, two for CI, the encoder `main` tip, then the re-read: the
 pull request, the `main` tip, the reviews, two for CI, the encoder tip. Each
-unit adds at most 9: three blobs (manifest, primary, companion), its
-candidate tree, the ancestry of its candidate base, and its run and that
-run's ancestry in each of the two passes. Each unit adds at least 5: the
-three blobs and the two reads of its run. A v6 unit therefore costs more
-than a v5 unit, which costs 3 [author-reported, draft #2286: `11 + 3u`]:
-the guard reads no run and no candidate for a v5 unit. A single unit on the
-terms of the fixture that the guard stack measures costs 25, which is this
-formula without the three approval reads and the base ancestry.
+unit adds at most 10: three blobs (manifest, primary, companion), its
+candidate tree, the ancestry and the tree of its candidate base, and its run
+and that run's ancestry in each of the two passes. Each unit adds at least
+5: the three blobs and the two reads of its run. A v6 unit therefore costs
+more than a v5 unit, which costs 3 [author-reported, draft #2286:
+`11 + 3u`]: the guard reads no run and no candidate for a v5 unit. With the
+switch off a single unit costs what it cost before: 25 on the terms of the
+fixture that the guard stack measures.
 
 The enforcing run of draft #2286 stops at 350 requests
 (`MAX_ENFORCE_REQUESTS`). It polls at most 101 times, reads at most 3 times
@@ -1310,28 +1357,40 @@ head and again as a queue entry:
 
 | Run | Arithmetic | Largest `u` |
 |---|---|---|
-| Pull request: two whole evaluations and a full wait | `2 x (20 + 9u) + 101 <= 350` | 11 (339); 12 gives 357 |
-| Merge group with three reads at every one of 101 polls (a second check with the required name on the group head for the whole wait) | `3 x 101 + (24 + 9u) + 3 <= 350` | **2** (348); 3 gives 357 |
-| Merge group with one listed check | `100 + 2 + (24 + 9u) + 2 <= 350` | 24 (344); 2 units give 146, 10 give 218 |
+| Pull request: two whole evaluations and a full wait | `2 x (20 + 10u) + 101 <= 350` | 10 (341); 11 gives 361 |
+| Merge group with three reads at every one of 101 polls (a second check with the required name on the group head for the whole wait) | `3 x 101 + (24 + 10u) + 3 <= 350` | **2** (350); 3 gives 360 |
+| Merge group with one listed check | `100 + 2 + (24 + 10u) + 2 <= 350` | 22 (348); 2 units give 148, 10 give 228 |
 
 `MAX_V6_UNITS` is 2: the merge-group run with three reads at every poll is
-the binding bound, and 2 is the largest size that every row covers. With
+the binding bound, and 2 is the largest size that every row covers. In
+that row two units use the whole cap: the run has no request to spare, and
+a second page of any list then ends it with failure (closed). With
 the best layout (`20 + 5u`) that row covers 4 units
 (`3 x 101 + (24 + 5 x 4) + 3 = 350`), but the guard cannot require that
 layout, so the limit follows the worst case. For comparison, the same row
 bounds a v5 train at about 9 units [author-reported, draft #2286].
 
 A batch of 10 units, the lower size that #2301 asks for, needs
-`3 x 101 + (24 + 90) + 3 = 420` requests in that row and
-`2 x (20 + 90) + 101 = 321` in the pull-request run. So it needs
-`MAX_ENFORCE_REQUESTS` of at least 420 (more for further pages), in a
-reviewed change of the runner, which changes the guard bundle digest, and
-then a reviewed change of `MAX_V6_UNITS`. Neither is in this change. A
-batch of 20 needs `3 x 101 + (24 + 180) + 3 = 510`. A pull request with more
+`3 x 101 + (24 + 100) + 3 = 430` requests in that row and
+`2 x (20 + 100) + 101 = 341` in the pull-request run. So it needs
+`MAX_ENFORCE_REQUESTS` of at least 430 (450 leaves 20 for further pages), in
+a reviewed change of the runner, which changes the guard bundle digest, and
+then a reviewed change of `MAX_V6_UNITS`. Neither is in this change. The
+cap only bounds a runaway run: reaching it ends the job with failure, and no
+value of it gives a pass. A batch of 20 needs
+`3 x 101 + (24 + 200) + 3 = 530`. A pull request with more
 than 100 changed files, commits or reviews needs further pages; 10 units are
 30 files. The runner's timeout table counts an evaluation as 30 requests of
 at most 30 seconds; a batch evaluation makes more, and a run that then
 passes the job timeout ends with failure (closed) [inferred].
+
+Rate limit. The job token has "1,000 requests per hour per repository"
+[author-reported: the design at the head of draft #2287 quotes GitHub's
+"Rate limits for the REST API", read 2026-11-17]. The costliest hour of a
+pull-request job holds 20 polls and both evaluations: `20 + 2 x 120 = 260`
+requests for 10 units, against `20 + 2 x 30 = 80` today. So 3 such jobs fit
+one hour and a fourth reaches the limit; a refused request is a failed read
+and the job fails closed [inferred].
 
 **What a person still does for one batch, and the throughput.** The steps
 are those of the single-unit lane. The durations are those that the design
@@ -1357,7 +1416,7 @@ is one queue entry.
 |---|---|---|---|
 | 1 (today's v6 lane) | 1 | 3 to 4 | — |
 | 2 (`MAX_V6_UNITS` as committed) | 2 | at most 6 to 8 | the switch and the runner's success set |
-| 10 | 10 | at most 30 to 40 | also a request cap of at least 420 in the runner and a new `MAX_V6_UNITS` |
+| 10 | 10 | at most 30 to 40 | also a request cap of at least 430 in the runner and a new `MAX_V6_UNITS` |
 
 - A landing is still serial and still takes about 5.4 to 7.8 hours, so
   there are still about 3 to 4 landings a day, infrastructure pull requests
@@ -1370,16 +1429,25 @@ is one queue entry.
   to 4 approvals of 10 units each by the other owner. The one-run form and
   #1885 are what remove them.
 - One bad unit costs the batch: a unit that fails CI on the head, or that
-  the approver refuses, must be removed (a new head, a new CI run of about
-  3 to 4 hours) or the whole batch waits. Build a batch from units that are
-  already clean and reviewed locally.
+  the approver refuses, cannot be removed without new signing runs for the
+  others (candidate rule). Build a batch from units that are already clean
+  and reviewed locally.
 
 **Follow-ups, not in this change.** Each is needed before the switch can be
 turned on usefully; none is a setting.
 
 1. Guard stack (#2286): add `(pass, content_bound_approval_multi_unit)` to
-   `SUCCESS_VERDICTS` of `merge_guard_runner.py`; raise the request cap
-   before `MAX_V6_UNITS` is raised (table above); add the batch rows to that
+   `SUCCESS_VERDICTS` of `merge_guard_runner.py`. Add the new reasons to
+   `_DECIDED_REASONS` of the same file: `content_bound_approval_multi_unit`
+   under `pass`, and under `fail` the eight refusals `too_many_v6_units`,
+   `v6_unit_incomplete`, `v6_batch_extra_path`, `v6_units_share_a_path`,
+   `v6_units_share_a_signing_run`, `v6_unit_cross_bound`,
+   `v6_batch_not_frozen_at_candidate` and
+   `v6_candidate_holds_unjudged_change`; each is a decision, none is an
+   incomplete read. Until then that stack's test
+   `test_every_reason_of_the_evaluator_is_decided_or_incomplete_never_both`
+   fails on the merged tree. Raise the request cap to at least 430
+   before `MAX_V6_UNITS` is raised to 10 (table above); add the batch rows to that
    stack's request-volume, "human steps" and "Throughput" texts, which this
    branch does not contain. The guard bundle holds `content_merge_guard.py`
    and `reviewed_pr_admission.py`, which this change edits, so
@@ -1413,14 +1481,15 @@ above. `tests/test_multi_unit_v6_admission.py`: the admission half.
 this subsection merges without touching that table):
 
 1. Which batch size? #2301 asks for 10 to 20. The committed 2 is what the
-   runner's cap of 350 covers in every case. 10 needs a cap of at least 420
-   and 20 a cap of at least 510 (and `2 x (20 + 180) + 101 = 501` in the
+   runner's cap of 350 covers in every case. 10 needs a cap of at least 430
+   and 20 a cap of at least 530 (and `2 x (20 + 200) + 101 = 541` in the
    pull-request run). The alternative is to accept a failed job and a re-run
    when a second check with the required name sits on the group head for
-   the whole wait: without that case, 11 units fit.
+   the whole wait: without that case, 10 units fit.
 2. Keep the freeze rule, or accept a unit that joins a batch after a sibling
-   was signed? Without it the guarantee per unit equals the single-unit
-   lane's, and CI on the head is the only check of the combination.
+   was signed, and a unit that is removed after one? Without the two rules
+   CI on the head is the only check of the combination, and a unit can pass
+   after it was validated beside bytes that nobody judged.
 3. Should a batch be limited to one jurisdiction or program? Nothing limits
    it: the guard reads paths, not programs.
 4. Keep the separate pass reason, and so a second reviewed change in the
@@ -1429,7 +1498,7 @@ this subsection merges without touching that table):
    Acceptable until more identities are enrolled?
 6. Build the one-run form of signing?
 
-**Not verified.**
+**Not verified; only a run on the hosted workflow can show these.**
 
 - No batch ran on the hosted workflow. In particular: whether the promotion
   run of one unit accepts a checkout that also holds the unsigned pairs of
@@ -1439,6 +1508,13 @@ this subsection merges without touching that table):
   candidate branch has moved.
 - That `validate / validate` of `rulespec-us` passes a head with `k` v6
   manifests. It needs the reader switch on and the pin of checklist step 9.
+- Whether `validate / validate` fails a head on which a module imports a
+  module that the head does not hold. The candidate rule does not rest on
+  it; before that rule a unit that was validated beside a helper that was
+  dropped later depended on this check alone.
+- Whether a signing run that is dispatched while a sibling's run is in
+  progress sees the same candidate head, and what its admission reads cost
+  against the anonymous limit when `k` runs start together.
 - The duration of a signing run, and of CI for a head with `k` new modules.
 - Whether `k` hosted runs make their anonymous reads from one address.
 - The evaluator and the admission module were tested over fakes of the

@@ -454,6 +454,30 @@ def test_changes_requested_still_blocks_a_batch(batch_on, world):  # noqa: F811
         admit(world)
 
 
+@pytest.mark.parametrize(
+    "paths",
+    [
+        sibling(8),  # an unsigned sibling pair
+        sibling(8, manifest=True),  # its manifest is not read here
+        ("zz/policies/a.yaml", "zz/policies/a.test.yaml"),  # a new jurisdiction
+        ("statutes/a.yaml", "statutes/a.test.yaml"),  # the root layout
+    ],
+)
+def test_review_cases_admission_signs_beside_complete_sibling_units(
+    batch_on,
+    world,  # noqa: F811
+    paths,
+):
+    """Independent review of cc09b513a, P2-1: with the switch on, admission
+    signs one unit beside sibling units that nobody has judged. This is the
+    design. It cannot know which siblings will land. The guard covers it:
+    ``test_review_case_a_unit_signed_beside_a_sibling_that_is_dropped`` in
+    ``tests/test_multi_unit_v6_lane.py`` (a unit that was validated beside a
+    file the head does not land never passes while the switch is on)."""
+    add(world, *paths)
+    assert admit(world)["schema"] == admission.CANDIDATE_SCHEMA
+
+
 # --- the path rule, directly --------------------------------------------------------
 
 

@@ -164,6 +164,7 @@ def batch(
     base_extra=None,
     drop=(),
     candidate_extra=None,
+    candidate_bases=None,
 ):
     """One candidate PR that carries ``units``, each signed by its own run.
 
@@ -196,6 +197,7 @@ def batch(
         signed[M(n)] = (manifests or {}).get(n) or unit_manifest(
             n,
             candidate_head=head_sha,
+            candidate_base=(candidate_bases or {}).get(n, B),
             author=author,
             dispatcher=dispatcher,
             mutate=(mutate or {}).get(n),
@@ -254,7 +256,6 @@ def switch_only(monkeypatch):
 
 def test_the_switch_is_off_and_is_one_literal_constant_with_no_runtime_override():
     assert admission.MULTI_UNIT_V6_ENABLED is False
-    assert admission.multi_unit_v6_enabled() is False
     source = Path(admission.__file__).read_text("utf-8")
     assert "os.environ" not in source and "getenv" not in source
     assert "import os" not in source and "argparse" not in source
@@ -314,14 +315,13 @@ def test_off_a_valid_batch_is_refused_as_two_v6_manifests_always_were():
 @pytest.mark.parametrize("value", [1, "true", "True", [True], None, 0, ""])
 def test_only_an_exact_true_switch_admits_a_batch(monkeypatch, value):
     monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", value)
-    assert admission.multi_unit_v6_enabled() is False
     fails(batch((1, 2)), guard.R_MULTIPLE_V6)
 
 
 def worst(units):
     """The most requests of one evaluation of ``units`` v6 units (measured
-    below, ``test_the_worst_case_evaluation_costs_20_plus_9_requests_per_unit``)."""
-    return 20 + 9 * units
+    below, ``test_the_worst_case_evaluation_costs_20_plus_10_requests_per_unit``)."""
+    return 20 + 10 * units
 
 
 # ``merge_guard_runner`` of the guard stack (#2286), which this branch does not
@@ -354,16 +354,19 @@ def test_the_committed_limit_fits_both_bounds_of_the_enforcing_run():
     limit = admission.MAX_V6_UNITS
     assert limit == 2 and type(limit) is int
     # A pull-request run: two whole evaluations and a full wait.
-    assert pull_request_run(limit) == 177 <= RUNNER_CAP
-    assert pull_request_run(11) == 339 <= RUNNER_CAP < pull_request_run(12) == 357
+    assert pull_request_run(limit) == 181 <= RUNNER_CAP
+    assert pull_request_run(10) == 341 <= RUNNER_CAP < pull_request_run(11) == 361
     # A merge-group run with three reads at every poll: the binding bound.
-    assert merge_group_run(limit) == 348 <= RUNNER_CAP
-    assert merge_group_run(limit + 1) == 357 > RUNNER_CAP
+    # It is met exactly: the run has no request to spare.
+    assert merge_group_run(limit) == 350 == RUNNER_CAP
+    assert merge_group_run(limit + 1) == 360 > RUNNER_CAP
     # A merge-group run with one listed check.
-    assert merge_group_run(limit, 1) == 146 and merge_group_run(10, 1) == 218
-    assert merge_group_run(24, 1) == 344 <= RUNNER_CAP < merge_group_run(25, 1)
+    assert merge_group_run(limit, 1) == 148 and merge_group_run(10, 1) == 228
+    assert merge_group_run(22, 1) == 348 <= RUNNER_CAP < merge_group_run(23, 1)
     # What ten units would need of the runner's cap.
-    assert merge_group_run(10) == 420 and pull_request_run(10) == 321
+    assert merge_group_run(10) == 430 and merge_group_run(20) == 530
+    # The costliest hour of a pull-request job: 20 polls and two evaluations.
+    assert 20 + 2 * worst(10) == 260 and 4 * 260 > 1000 >= 3 * 260
 
 
 def test_a_batch_of_the_committed_limit_passes_and_one_more_is_refused(switch_only):
@@ -516,11 +519,13 @@ def test_a_manifest_alone_beside_a_complete_unit_is_incomplete(on):
     fails(batch((1, 2), drop=[P(2), T(2)]), guard.R_UNIT_INCOMPLETE)
 
 
-def test_removing_a_whole_unit_leaves_a_smaller_valid_batch(on):
-    """The files of unit 3 were in the candidate commit and are gone from the
-    head: the head is a batch of two, and no manifest names unit 3."""
-    result = passes(batch(drop=[P(3), T(3), M(3)]))
-    assert len(result.evidence["units"]) == 2
+def test_removing_a_whole_unit_after_signing_refuses_the_rest(on):
+    """The files of unit 3 were in the commit that the runs of units 1 and 2
+    validated, and are gone from the head. Units 1 and 2 were validated
+    beside bytes that this head does not land: refused. The remedy is a new
+    candidate and new signing runs."""
+    result = fails(batch(drop=[P(3), T(3), M(3)]), guard.R_CANDIDATE_UNJUDGED)
+    assert result.detail.startswith(M(1) + ": ")
 
 
 @pytest.mark.parametrize("unit", [1, 2, 3])
@@ -889,17 +894,6 @@ def run_missing(world, n):
     del world.api[signing_run_path(n)]
 
 
-def outsider_dispatched(world, n):
-    """An account that is not enrolled dispatched and is named: consistent."""
-    signing_run(world, n, OUTSIDER)
-    files = dict(world.head_files)
-    files[M(n)] = unit_manifest(
-        n, candidate_head=world.candidates[n], dispatcher=OUTSIDER
-    )
-    world.tree(HEAD, files)
-    world.publish(HEAD, B, world.commits)
-
-
 def primary_blob_corrupt(world, n):
     world.api[f"{ROOT}/git/blobs/{blob_id(primary(n))}"]["size"] += 1
 
@@ -912,15 +906,8 @@ def candidate_lost_the_primary(world, n):
     world.tree(sha, files)
 
 
-def candidate_base_not_an_ancestor(world, n):
-    stray = oid(f"stray-base-{n}")
-    files = dict(world.head_files)
-    files[M(n)] = unit_manifest(
-        n, candidate_head=world.candidates[n], candidate_base=stray
-    )
-    world.tree(HEAD, files)
-    world.publish(HEAD, B, world.commits)
-    world.ancestry(stray, B, oid("older"), status="diverged")
+def stray_base(n):
+    return oid(f"stray-base-{n}")
 
 
 def run_changes_between_reads(world, n):
@@ -940,16 +927,17 @@ WORLD_RULES = {
     "run on another branch": (run_field("head_branch", "feature"), guard.R_RUN),
     "run commit not on encoder main": (run_off_main, guard.R_RUN),
     "run unreadable": (run_missing, guard.R_READ_FAILED),
-    "dispatcher not enrolled": (outsider_dispatched, guard.R_DISPATCHER_NOT_ENROLLED),
+    # Built by ``judged``: an account that is not enrolled dispatched the run
+    # of unit n and its manifest names it.
+    "dispatcher not enrolled": (None, guard.R_DISPATCHER_NOT_ENROLLED),
     "primary blob does not hash": (primary_blob_corrupt, guard.R_BLOB_UNREADABLE),
     "candidate commit has other primary bytes": (
         candidate_lost_the_primary,
         guard.R_MANIFEST_CANDIDATE,
     ),
-    "candidate base is no ancestor of main": (
-        candidate_base_not_an_ancestor,
-        guard.R_MANIFEST_CANDIDATE,
-    ),
+    # Built by ``judged``: the manifest of unit n names a base that ``main``
+    # does not descend from.
+    "candidate base is no ancestor of main": (None, guard.R_MANIFEST_CANDIDATE),
     "run changes between the two reads": (run_changes_between_reads, guard.R_CHANGED),
 }
 
@@ -960,6 +948,13 @@ def judged(units, n, rule, enabled, monkeypatch):
     if rule in PAYLOAD_RULES:
         mutate, reason = PAYLOAD_RULES[rule]
         world = batch(units, flow="serial", mutate={n: mutate})
+    elif rule == "dispatcher not enrolled":
+        reason = WORLD_RULES[rule][1]
+        world = batch(units, flow="serial", dispatchers={n: OUTSIDER})
+    elif rule == "candidate base is no ancestor of main":
+        reason = WORLD_RULES[rule][1]
+        world = batch(units, flow="serial", candidate_bases={n: stray_base(n)})
+        world.ancestry(stray_base(n), B, oid("older"), status="diverged")
     else:
         change, reason = WORLD_RULES[rule]
         world = batch(units, flow="serial")
@@ -1019,6 +1014,33 @@ def test_a_candidate_commit_with_other_bytes_of_a_sibling_is_refused(on):
     assert result.detail.startswith(M(1) + ": ")
 
 
+@pytest.mark.parametrize("late,early", [(1, 2), (1, 3), (2, 3), (2, 1), (3, 1), (3, 2)])
+@pytest.mark.parametrize("how", ["other bytes", "absent"])
+def test_the_freeze_rule_holds_for_a_unit_at_any_position(on, late, early, how):
+    """Independent review of cc09b513a, P2-2. Unit ``early`` was signed on a
+    commit where unit ``late`` had other bytes or was absent; the other units
+    were signed on a later, complete commit. The refusal names ``early``: each
+    unit is judged against its own candidate commit, not the first unit's."""
+    world = batch()
+    complete = oid("batch-complete-candidate")
+    world.tree(complete, world.trees[candidate(0)])
+    files = candidate_files(world, candidate(0))
+    if how == "absent":
+        del files[P(late)], files[T(late)]
+    else:
+        files[P(late)] = b"other bytes when the early unit was signed\n"
+    world.tree(candidate(0), files)
+    head_files = dict(world.head_files)
+    for n in world.units:
+        if n != early:
+            head_files[M(n)] = unit_manifest(n, candidate_head=complete)
+    world.tree(HEAD, head_files)
+    world.commits.insert(1, commit(complete))
+    world.publish(HEAD, B, world.commits)
+    result = fails(world, guard.R_BATCH_NOT_FROZEN)
+    assert result.detail.startswith(M(early) + ": ")
+
+
 @pytest.mark.parametrize("member", [P, T])
 @pytest.mark.parametrize("sibling", [2, 3])
 def test_the_freeze_rule_covers_primaries_and_companions_of_every_sibling(
@@ -1048,12 +1070,132 @@ def test_a_unit_added_after_the_first_signing_run_is_refused(on):
     assert result.detail.startswith(M(1) + ": ")
 
 
-def test_a_candidate_commit_may_hold_a_unit_that_was_dropped_later(on):
+# --- the candidate rule: nothing unjudged beside a validated unit -----------------
+
+HELPER = "us-az/policies/des/faa5/medical/helper.yaml"
+
+
+def test_review_case_a_unit_signed_beside_a_sibling_that_is_dropped(on):
+    """Independent review of cc09b513a, P2-1. Admission (switch on) signed
+    unit 1 while the candidate held the unsigned pair of unit 8. The pair is
+    removed; the head is the triple of unit 1 only. Before the fix the guard
+    passed it with the single-unit reason."""
     extra = {P(8): primary(8), T(8): companion(8)}
-    passes(batch((1, 2), candidate_extra=extra))
+    result = fails(batch((1,), candidate_extra=extra), guard.R_CANDIDATE_UNJUDGED)
+    assert result.detail == (
+        "the candidate commit holds a change that is not a file of a unit of this head"
+    )
+    result = fails(batch((1, 2), candidate_extra=extra), guard.R_CANDIDATE_UNJUDGED)
+    assert result.detail.startswith(M(1) + ": ")
 
 
-# --- one approval for the whole batch --------------------------------------------
+def test_review_case_a_candidate_with_a_helper_module_that_the_head_drops(on):
+    """Independent review of cc09b513a
+    (``test_freeze_candidate_holds_extra_file_removed_later``): the commit the
+    run validated held a module a unit could import; it is gone at the head."""
+    for units in ((1, 2), (1,)):
+        fails(
+            batch(units, candidate_extra={HELPER: b"helper\n"}),
+            guard.R_CANDIDATE_UNJUDGED,
+        )
+
+
+def test_off_the_single_unit_lane_does_not_apply_the_candidate_rule():
+    """With the switch off admission never signs beside another file but the
+    optional derived index, and the evaluation is the base's: this head passes
+    as it always did. The rule exists only where the switch is on."""
+    world = batch((1,), candidate_extra={HELPER: b"helper\n"})
+    expect(world, guard.PASS, guard.R_PASS)
+
+
+def candidate_files(world, sha):
+    return {path: dict(entry) for path, entry in world.trees[sha].items()}
+
+
+def held_a_workflow(files):
+    files[WORKFLOW] = b"changed for the run\n"
+
+
+def held_another_toolchain_pin(files):
+    files[".axiom/toolchain.toml"] = b"pin = 'other'\n"
+
+
+def held_other_bytes_of_a_main_module(files):
+    files["us-az/policies/existing.yaml"] = b"changed for the run\n"
+
+
+def lacked_a_main_module(files):
+    del files["us-az/policies/existing.yaml"]
+
+
+def held_the_derived_index(files):
+    files[INDEX] = b"{}\n"
+
+
+def held_a_readme_change(files):
+    files["README.md"] = b"changed\n"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        held_a_workflow,
+        held_another_toolchain_pin,
+        held_other_bytes_of_a_main_module,
+        lacked_a_main_module,
+        held_the_derived_index,
+        held_a_readme_change,
+    ],
+)
+@pytest.mark.parametrize("units,position", [((1,), 0), ((1, 2, 3), 0), ((1, 2, 3), 2)])
+def test_any_change_at_the_candidate_that_the_head_does_not_land_refuses(
+    on, change, units, position
+):
+    """For one unit and for a batch, and for a unit that is not the first:
+    each unit's own candidate commit is compared with its own base."""
+    world = batch(units, flow="serial")
+    sha = candidate(position)
+    files = candidate_files(world, sha)
+    change(files)
+    world.tree(sha, files)
+    result = fails(world, guard.R_CANDIDATE_UNJUDGED)
+    if len(units) > 1:
+        assert result.detail.startswith(M(units[position]) + ": ")
+
+
+def test_a_sibling_manifest_at_the_candidate_must_be_the_one_of_the_head(on):
+    """Serial order: the run of unit 2 validated beside a manifest of unit 1
+    that was signed again later."""
+    world = batch((1, 2), flow="serial")
+    files = candidate_files(world, candidate(1))
+    files[M(1)] = unit_manifest(
+        1,
+        candidate_head=candidate(0),
+        mutate=lambda payload: payload.update(generated_at="2026-11-01T00:00:00+00:00"),
+    )
+    world.tree(candidate(1), files)
+    result = fails(world, guard.R_CANDIDATE_UNJUDGED)
+    assert result.detail.startswith(M(2) + ": ")
+
+
+def test_the_candidate_is_compared_with_the_main_commit_it_was_cut_from(on):
+    """``main`` moved after signing: the candidate is compared with its own
+    base, so a file that only the newer ``main`` holds is not a change of the
+    candidate, and a base-only update keeps a clean batch passing."""
+    world = batch()
+    update_branch(world)
+    passes(world)
+    assert f"{ROOT}/git/trees/{B}?recursive=1" in world.calls
+
+
+def test_an_unreadable_candidate_base_tree_refuses(on):
+    world = batch()
+    update_branch(world)
+    world.api[f"{ROOT}/git/trees/{B}?recursive=1"]["truncated"] = True
+    fails(world, guard.R_DELTA_INCOMPLETE)
+
+
+# --- one approval for the whole batch# --- one approval for the whole batch --------------------------------------------
 
 
 def test_an_approval_before_the_last_manifest_does_not_cover_the_batch(on):
@@ -1263,31 +1405,25 @@ def test_any_failed_or_malformed_read_fails_the_batch_closed(on):
 
 def worst_case(count):
     """Every read the evaluation can make, with one page per list: each unit
-    with its own candidate commit and candidate base, each signing run on its
-    own encoder commit behind the tip, and the approval on a commit that is
-    not the head."""
+    with its own candidate commit and candidate base (and that base's tree),
+    each signing run on its own encoder commit behind the tip, and the
+    approval on a commit that is not the head."""
     units = range(1, count + 1)
-    world = batch(units, flow="serial")
-    files = dict(world.head_files)
-    for index, n in enumerate(units):
-        old_base = oid(f"older-main-{n}")
-        files[M(n)] = unit_manifest(
-            n, candidate_head=candidate(index), candidate_base=old_base
-        )
-        world.ancestry(old_base, B2, old_base)
+    bases = {n: oid(f"older-main-{n}") for n in units}
+    world = batch(units, flow="serial", candidate_bases=bases)
+    for n in units:
+        world.ancestry(bases[n], B2, bases[n])
+        world.tree(bases[n], BASE_FILES)
         signing_run(world, n, encoder_commit=oid(f"encoder-commit-{n}"))
-    world.tree(HEAD, files)
-    world.head_files = files
-    world.publish(HEAD, B, world.commits)
     update_branch(world)
     return world
 
 
 @pytest.mark.parametrize("count", [1, 2, 3, 5, 10])
-def test_the_worst_case_evaluation_costs_20_plus_9_requests_per_unit(on, count):
+def test_the_worst_case_evaluation_costs_20_plus_10_requests_per_unit(on, count):
     world = worst_case(count)
     assert world.evaluate().verdict == guard.PASS
-    assert len(world.calls) == 20 + 9 * count == worst(count)
+    assert len(world.calls) == 20 + 10 * count == worst(count)
 
 
 @pytest.mark.parametrize("count,expected", [(2, 30), (3, 35), (5, 45), (10, 70)])
@@ -1377,7 +1513,8 @@ def fuzz_world(rng):
     already be on ``main``; and the head may hold stray paths. The oracle
     never looks at the delta: the candidate is admissible exactly when every
     present unit is complete and new, at least one unit is present, at most
-    ``MAX_V6_UNITS`` are, and no stray path changed.
+    ``MAX_V6_UNITS`` are, no stray path changed, and the validated commit held
+    no file that the head does not land.
     """
     limit = admission.MAX_V6_UNITS
     count = rng.choice([1, 1, 2, 2, 3, 4, 5, limit, limit + 1, limit + 2])
@@ -1396,6 +1533,9 @@ def fuzz_world(rng):
     if not clean and rng.random() < 0.5:
         for path in rng.sample(STRAY_PATHS, rng.randint(1, 3)):
             strays[path] = rng.choice([b"stray\n", None])
+    candidate_stray = None
+    if not clean and rng.random() < 0.12:
+        candidate_stray = rng.choice(STRAY_PATHS + (P(90), T(90)))
     mode = None
     if not clean and rng.random() < 0.05:
         mode = (rng.choice(units), rng.choice("PTM"), rng.choice([LINK, EXECUTABLE]))
@@ -1444,6 +1584,11 @@ def fuzz_world(rng):
             if path in pairs and isinstance(value, bytes)
         },
     )
+    if candidate_stray is not None:
+        # A file that only the validated commit held (or held otherwise).
+        files = candidate_files(world, candidate(0))
+        files[candidate_stray] = b"only at the candidate\n"
+        world.tree(candidate(0), files)
     world.tree(HEAD, head_files)
     commits = [commit(candidate(0), PAVEL), commit(HEAD, PAVEL, WEB_FLOW)]
     world.publish(HEAD, B, commits)
@@ -1451,14 +1596,17 @@ def fuzz_world(rng):
     world.api[ENCODER_MAIN] = {"object": {"sha": ENCODER_TIP}}
 
     complete = [n for n in world_units if present[n] == {"P", "T", "M"}]
-    admissible = (
+    scope_valid = (
         1 <= len(world_units) <= limit
         and len(complete) == len(world_units)
         and not any(on_main[n] for n in world_units)
         and not stray_changed
         and not mode_changed
     )
-    return world, admissible, len(world_units)
+    # With the switch off the candidate rule of the multi-unit form is not
+    # applied (the base's single-unit evaluation).
+    world.admissible_with_the_switch_off = scope_valid and len(world_units) == 1
+    return world, scope_valid and candidate_stray is None, len(world_units)
 
 
 def test_fuzz_only_a_valid_set_of_new_triples_is_admitted(on):
@@ -1495,6 +1643,7 @@ def test_fuzz_only_a_valid_set_of_new_triples_is_admitted(on):
             guard.R_SCOPE_PATHS,
             guard.R_TOO_MANY_UNITS,
             guard.R_GUARDED_LEAF,
+            guard.R_CANDIDATE_UNJUDGED,
         } <= set(reasons), reasons
 
 
@@ -1503,7 +1652,8 @@ def test_fuzz_with_the_switch_off_admits_single_units_only():
     for case in range(min(FUZZ_CASES, 1500)):
         world, admissible, count = fuzz_world(rng)
         result = world.evaluate()
-        if admissible and count == 1:
+        del admissible, count
+        if world.admissible_with_the_switch_off:
             assert (result.verdict, result.reason) == (guard.PASS, guard.R_PASS), case
         else:
             assert result.verdict != guard.PASS, (case, result)
@@ -1586,6 +1736,7 @@ def test_the_multi_unit_reasons_are_distinct_reason_codes():
         "v6_units_share_a_signing_run",
         "v6_unit_cross_bound",
         "v6_batch_not_frozen_at_candidate",
+        "v6_candidate_holds_unjudged_change",
     } <= set(reasons.values())
 
 
@@ -1631,7 +1782,9 @@ def test_the_design_states_the_switch_and_the_limit_as_committed():
     assert "`reviewed_pr_admission.MULTI_UNIT_V6_ENABLED` is `False`" in section
     assert f"`MAX_V6_UNITS` is {admission.MAX_V6_UNITS} (" in section
     assert "every read compares it with `is True`" in section
-    assert "The switch opens nothing by itself." in section
+    assert "The switch is not the only lock, and the two halves are locked" in section
+    assert "The runner's lock below does not cover this half." in section
+    assert "So before the switch is set back to `False`, close every open" in section
     # The header of the design says that the form exists and is off.
     design = flat("docs/content-bound-merge-guard.md")
     assert (
@@ -1640,9 +1793,10 @@ def test_the_design_states_the_switch_and_the_limit_as_committed():
     ) in design[: design.index("## 1. What exists today")]
     source = flat("src/axiom_encode/reviewed_pr_admission.py").replace("# ", "")
     assert f"MAX_V6_UNITS: Final[int] = {admission.MAX_V6_UNITS}" in source
-    assert "2 x (20 + 9u) + 101 <= 350 gives u <= 11" in source
-    assert "3 x 101 + (24 + 9u) + 3 <= 350 gives u <= 2" in source
-    assert "(10 units: 3 x 101 + 114 + 3 = 420)" in source
+    assert "2 x (20 + 10u) + 101 <= 350 gives u <= 10" in source
+    assert "3 x 101 + (24 + 10u) + 3 <= 350 gives u <= 2 (exactly 350)" in source
+    assert f"(10 units: 3 x 101 + 124 + 3 = {merge_group_run(10)})" in source
+    assert "ROLLBACK ORDER: that rule exists only while the switch is on." in source
 
 
 def test_the_design_names_every_multi_unit_reason_with_its_value():
@@ -1656,6 +1810,7 @@ def test_the_design_names_every_multi_unit_reason_with_its_value():
         guard.R_UNITS_SHARE_RUN,
         guard.R_UNIT_CROSS_BOUND,
         guard.R_BATCH_NOT_FROZEN,
+        guard.R_CANDIDATE_UNJUDGED,
     }
     source = Path(guard.__file__).read_text("utf-8")
     block = source[
@@ -1688,53 +1843,65 @@ def test_the_design_states_the_request_budget_this_file_measures():
     section = design_section()
     limit = admission.MAX_V6_UNITS
     counts = ", ".join(str(worst(units)) for units in (1, 2, 3, 5, 10))
-    assert f"`20 + 9u` ({counts} for 1, 2, 3, 5, 10 units)" in section
+    assert f"`20 + 10u` ({counts} for 1, 2, 3, 5, 10 units)" in section
     parallel = ", ".join(str(20 + 5 * units) for units in (2, 3, 5, 10))
     assert f"`20 + 5u` ({parallel} for 2, 3, 5, 10 units)" in section
     assert (
-        f"`2 x (20 + 9u) + 101 <= 350` | 11 ({pull_request_run(11)}); 12 gives "
-        f"{pull_request_run(12)} |"
+        f"`2 x (20 + 10u) + 101 <= 350` | 10 ({pull_request_run(10)}); 11 gives "
+        f"{pull_request_run(11)} |"
     ) in section
     assert (
-        f"`3 x 101 + (24 + 9u) + 3 <= 350` | **{limit}** ({merge_group_run(limit)}); "
+        f"`3 x 101 + (24 + 10u) + 3 <= 350` | **{limit}** ({merge_group_run(limit)}); "
         f"{limit + 1} gives {merge_group_run(limit + 1)} |"
     ) in section
     assert (
-        f"`100 + 2 + (24 + 9u) + 2 <= 350` | 24 ({merge_group_run(24, 1)}); 2 units "
+        f"`100 + 2 + (24 + 10u) + 2 <= 350` | 22 ({merge_group_run(22, 1)}); 2 units "
         f"give {merge_group_run(2, 1)}, 10 give {merge_group_run(10, 1)} |"
     ) in section
     assert (
         f"`MAX_V6_UNITS` is {limit}: the merge-group run with three reads at every "
         f"poll is the binding bound, and {limit} is the largest size that every row "
-        "covers."
+        "covers. In that row two units use the whole cap: the run has no request "
+        "to spare"
     ) in section
+    assert merge_group_run(limit) == RUNNER_CAP
     # The best layout: four units fit that row exactly, five do not.
     assert "(`3 x 101 + (24 + 5 x 4) + 3 = 350`)" in section
     assert 3 * 101 + (24 + 5 * 4) + 3 == RUNNER_CAP < 3 * 101 + (24 + 5 * 5) + 3
     # What #2301's sizes need of the runner.
-    assert f"`3 x 101 + (24 + 90) + 3 = {merge_group_run(10)}`" in section
-    assert f"`2 x (20 + 90) + 101 = {pull_request_run(10)}`" in section
-    assert f"`MAX_ENFORCE_REQUESTS` of at least {merge_group_run(10)}" in section
-    assert f"`3 x 101 + (24 + 180) + 3 = {merge_group_run(20)}`" in section
-    assert f"`2 x (20 + 180) + 101 = {pull_request_run(20)}`" in section
+    assert f"`3 x 101 + (24 + 100) + 3 = {merge_group_run(10)}`" in section
+    assert f"`2 x (20 + 100) + 101 = {pull_request_run(10)}`" in section
+    assert (
+        f"`MAX_ENFORCE_REQUESTS` of at least {merge_group_run(10)} (450 leaves "
+        f"{450 - merge_group_run(10)} for further pages)"
+    ) in section
+    assert f"`3 x 101 + (24 + 200) + 3 = {merge_group_run(20)}`" in section
+    assert f"`2 x (20 + 200) + 101 = {pull_request_run(20)}`" in section
     assert "Neither is in this change." in section
+    assert "no value of it gives a pass" in section
     assert "Each unit adds at least 5" in section
+    assert "Each unit adds at most 10" in section
     assert f"three reads at every one of {RUNNER_POLLS} polls" in section
     assert "With the best layout (`20 + 5u`) that row covers 4 units" in section
-    assert (
-        f"A batch of 20 needs `3 x 101 + (24 + 180) + 3 = {merge_group_run(20)}`"
-        in (section)
-    )
     assert (
         f"The committed {limit} is what the runner's cap of {RUNNER_CAP} covers in "
         f"every case. 10 needs a cap of at least {merge_group_run(10)} and 20 a cap "
         f"of at least {merge_group_run(20)}"
     ) in section
+    assert "without that case, 10 units fit" in section
     assert (
         "At 30 to 40 units a day that is 90 to 120 actions a day by the dispatcher "
         "and the merger"
     ) in section
     assert (3 * 30, 3 * 40) == (90, 120)
+    # The rate limit of the job token.
+    assert (
+        f"`20 + 2 x {worst(10)} = {20 + 2 * worst(10)}` requests for 10 units, "
+        "against `20 + 2 x 30 = 80` today. So 3 such jobs fit one hour and a "
+        "fourth reaches the limit"
+    ) in section
+    assert '"1,000 requests per hour per repository"' in section
+    assert 3 * (20 + 2 * worst(10)) <= 1000 < 4 * (20 + 2 * worst(10))
 
 
 def test_the_design_states_why_a_batch_is_one_queue_entry():
@@ -1769,7 +1936,8 @@ def test_the_design_states_the_review_granularity_and_the_human_steps():
         "or run actor of **any** unit's signing run",
         "a batch whose units were dispatched by both has no possible approver",
         "All or nothing: one bad unit refuses the whole candidate.",
-        "A batch of one is a single unit",
+        "A candidate of one unit is judged as a single unit",
+        "One approval covers the batch.",
         "Signing stays one run for one unit. The workflow file is not changed.",
         "A one-run form (one dispatch, one `production-signing` approval, `k` "
         "manifests) is **not built**.",
@@ -1782,7 +1950,7 @@ def test_the_design_states_the_review_granularity_and_the_human_steps():
         "10 units, against 70 |",
         "| 2 (`MAX_V6_UNITS` as committed) | 2 | at most 6 to 8 | the switch and "
         "the runner's success set |",
-        "| 10 | 10 | at most 30 to 40 | also a request cap of at least 420 in the "
+        "| 10 | 10 | at most 30 to 40 | also a request cap of at least 430 in the "
         "runner and a new `MAX_V6_UNITS` |",
         "The lane without owner approval that #2301 also discusses (option B and "
         "its narrow form) is not designed or built here",
@@ -1800,8 +1968,26 @@ def test_the_design_states_the_freeze_rule_and_the_second_lock():
         "**Freeze rule (new, batch only).**",
         "must already carry the primary and the companion of **every** unit of "
         "the batch",
-        "Removing a whole unit later is allowed",
-        "it is an open question for the maintainer (question 2 below)",
+        "A unit that is added after a sibling was signed refuses the batch",
+        "Each unit is judged against its own candidate commit.",
+        "**Candidate rule of the multi-unit form (new; with the switch on, for one "
+        "unit and for many).**",
+        "may differ from the `main` commit it was cut from (`candidate.base_sha`) "
+        "only by files that this head lands",
+        "**no unit passes after it was validated beside bytes that are not part of "
+        "the final, judged batch or of the `main` commit it was cut from.**",
+        "Removing a whole unit after a sibling was signed therefore refuses the rest",
+        "With the switch off the rule is not applied",
+        "keeping them is question 2 below",
+        "A unit whose run fails cannot be removed from a candidate whose other "
+        "units are already signed",
+        "so a batch verdict ends that job with failure until a reviewed change "
+        "adds the reason there",
+        "Add the new reasons to `_DECIDED_REASONS` of the same file",
+        "each is a decision, none is an incomplete read",
+        "Raise the request cap to at least 430 before `MAX_V6_UNITS` is raised to 10",
+        "Whether `validate / validate` fails a head on which a module imports a "
+        "module that the head does not hold.",
         "A pass of two or more units has its own reason code, "
         "`content_bound_approval_multi_unit`, not `content_bound_approval`.",
         "add `(pass, content_bound_approval_multi_unit)` to `SUCCESS_VERDICTS`",
@@ -1810,6 +1996,22 @@ def test_the_design_states_the_freeze_rule_and_the_second_lock():
     ):
         assert sentence in section, sentence
     assert guard.R_PASS == "content_bound_approval"
+    # The follow-up names every new refusal of the evaluator for the runner.
+    follow_up = section[section.index("Add the new reasons to `_DECIDED_REASONS`") :]
+    follow_up = follow_up[: follow_up.index("Until then")]
+    for reason in (
+        guard.R_MULTI_UNIT_PASS,
+        guard.R_TOO_MANY_UNITS,
+        guard.R_UNIT_INCOMPLETE,
+        guard.R_BATCH_EXTRA_PATH,
+        guard.R_UNITS_SHARE_PATH,
+        guard.R_UNITS_SHARE_RUN,
+        guard.R_UNIT_CROSS_BOUND,
+        guard.R_BATCH_NOT_FROZEN,
+        guard.R_CANDIDATE_UNJUDGED,
+    ):
+        assert f"`{reason}`" in follow_up, reason
+    assert "under `fail` the eight refusals" in follow_up
     # The statement about this branch is true of this branch.
     for path in (REPOSITORY_ROOT / "src").rglob("*.py"):
         assert "BUNDLE_SHA256" not in path.read_text("utf-8"), path

@@ -238,6 +238,7 @@ R_UNITS_SHARE_PATH = "v6_units_share_a_path"
 R_UNITS_SHARE_RUN = "v6_units_share_a_signing_run"
 R_UNIT_CROSS_BOUND = "v6_unit_cross_bound"
 R_BATCH_NOT_FROZEN = "v6_batch_not_frozen_at_candidate"
+R_CANDIDATE_UNJUDGED = "v6_candidate_holds_unjudged_change"
 R_APPLIED_FILES = "applied_files_mismatch"
 R_RUN = "signing_run_not_bound"
 R_DISPATCHER_MISMATCH = "dispatcher_mismatch"
@@ -1311,10 +1312,15 @@ def _evaluate(name, number, read, evidence) -> Verdict:
     if len(schemas) != 1:
         raise _Refusal(R_MIXED_SCHEMAS, "v6 and earlier manifests in one PR")
     batch = len(parsed) != 1
+    # With the multi-unit form on, admission may sign a unit beside sibling
+    # units. Then, for one unit and for many, the commit a run validated may
+    # differ from its base only by files of the units that this head lands
+    # ("the candidate rule of the multi-unit form" below). Off: not applied.
+    multi_unit = _admission.MULTI_UNIT_V6_ENABLED is True
     if batch:
         # The multi-unit form, switched off. While the switch is not exactly
         # ``True`` a second v6 manifest is refused as before.
-        if _admission.MULTI_UNIT_V6_ENABLED is not True:
+        if not multi_unit:
             raise _Refusal(R_MULTIPLE_V6, "exactly one v6 manifest is allowed per PR")
         limit = _admission.MAX_V6_UNITS
         if type(limit) is not int or len(parsed) > limit:
@@ -1465,6 +1471,14 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             base_descends[commit] = _is_ancestor(read, root, commit, base)
         return base_descends[commit]
 
+    candidate_base_trees: dict[str, dict] = {base: base_leaves}
+
+    def candidate_base_tree(commit):
+        if commit not in candidate_base_trees:
+            with _refuse_as(R_DELTA_INCOMPLETE):
+                candidate_base_trees[commit] = entries_at(commit, "candidate base tree")
+        return candidate_base_trees[commit]
+
     # The candidate the signer validated is a commit of this PR that carries
     # the head's primary and companion, cut from an ancestor of this base.
     for unit in units:
@@ -1494,6 +1508,28 @@ def _evaluate(name, number, read, evidence) -> Verdict:
                     "the candidate commit does not carry every module of the "
                     "batch with the head content",
                 )
+            # The candidate rule of the multi-unit form. The commit the run
+            # validated differs from the ``main`` commit it was cut from only
+            # by files that this head lands: paths of the units of this
+            # candidate, added, with the blobs of the head. So no unit passes
+            # after it was validated beside a sibling that was dropped later,
+            # or beside any other change that the head does not carry and
+            # nobody judged.
+            if multi_unit:
+                validated = candidate_tree(unit.manifest.candidate_head)
+                changed = _delta(
+                    candidate_base_tree(unit.manifest.candidate_base), validated
+                )
+                if (
+                    not set(changed) <= set(every_path)
+                    or any(status != "added" for status in changed.values())
+                    or not same_blobs(validated, changed)
+                ):
+                    raise _Refusal(
+                        R_CANDIDATE_UNJUDGED,
+                        "the candidate commit holds a change that is not a file "
+                        "of a unit of this head",
+                    )
 
     # 6 (first half). The signing run and the dispatcher it authenticates.
     signing_runs: dict[str, tuple] = {}
