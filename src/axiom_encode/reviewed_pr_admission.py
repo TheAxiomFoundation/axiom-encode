@@ -232,12 +232,18 @@ _MERGE_QUEUE_REQUIRED: Final = (
 # accept until a reviewed change adds it to the runner's success set.
 MULTI_UNIT_V6_ENABLED: Final[bool] = False
 # The most units of one batch candidate. Bounded by the request budget of the
-# enforcing guard run (design, "Multi-unit candidates", "Request budget"): one
+# enforcing guard run (design, "Multi-unit candidates", "Request budget"). One
 # evaluation of ``u`` units costs at most ``20 + 9u`` GitHub requests with one
-# page per list, and a pull-request run makes two evaluations and at most 101
-# polls under a cap of 350 requests: 2 x (20 + 9u) + 101 <= 350 gives u <= 11.
-# 10 leaves 29 requests for further pages.
-MAX_V6_UNITS: Final[int] = 10
+# page per list. The run stops at 350 requests. Its two bounds:
+#   pull request, two evaluations and 101 polls: 2 x (20 + 9u) + 101 <= 350
+#     gives u <= 11;
+#   merge group, 101 polls of three reads, the evaluation with four more
+#     reads, and the second read of the group's check:
+#     3 x 101 + (24 + 9u) + 3 <= 350 gives u <= 2.
+# 2 is the size that both bounds cover. A larger batch needs a higher cap in
+# the runner first (10 units: 3 x 101 + 114 + 3 = 420), in a reviewed change
+# of the runner and of this constant.
+MAX_V6_UNITS: Final[int] = 2
 # Where a v6 manifest sits, and the roots a RuleSpec module lives under. This
 # file is loaded by path, outside the package, by the root provisioner, so it
 # imports nothing from the package: both are copies, pinned by a test to

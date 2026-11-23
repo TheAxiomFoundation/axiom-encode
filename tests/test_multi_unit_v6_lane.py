@@ -228,9 +228,24 @@ def passes(world):
     return expect(world, guard.PASS, guard.R_MULTI_UNIT_PASS)
 
 
+ROOMY_LIMIT = 10
+
+
 @pytest.fixture
 def on(monkeypatch):
-    """The multi-unit switch open. Tests only."""
+    """The multi-unit switch open, with a limit of ten units. Tests only.
+
+    The committed limit is 2 (the request budget); the rules are driven with
+    batches of up to ten so that first, middle and last positions exist. The
+    tests of the committed limit patch the switch alone.
+    """
+    monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", True)
+    monkeypatch.setattr(admission, "MAX_V6_UNITS", ROOMY_LIMIT)
+
+
+@pytest.fixture
+def switch_only(monkeypatch):
+    """The switch open with the committed limit."""
     monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", True)
 
 
@@ -303,31 +318,57 @@ def test_only_an_exact_true_switch_admits_a_batch(monkeypatch, value):
     fails(batch((1, 2)), guard.R_MULTIPLE_V6)
 
 
-def test_the_batch_limit_fits_the_request_budget_of_the_enforcing_run():
-    """The arithmetic of the design, "Request budget", from this file's counts.
+def worst(units):
+    """The most requests of one evaluation of ``units`` v6 units (measured
+    below, ``test_the_worst_case_evaluation_costs_20_plus_9_requests_per_unit``)."""
+    return 20 + 9 * units
 
-    350, 101 and 3 are ``MAX_ENFORCE_REQUESTS``, ``MAX_CI_POLLS`` (also
-    ``MAX_MERGE_GROUP_POLLS``) and ``MERGE_GROUP_POLL_READS`` of
-    ``merge_guard_runner`` on the guard stack (#2286), which this branch does
-    not contain. The merge-group evaluation adds 4 reads to ``evaluate``.
-    """
-    assert admission.MAX_V6_UNITS == 10 and type(admission.MAX_V6_UNITS) is int
-    cap, polls, group_poll_reads, group_reads = 350, 101, 3, 4
 
-    def worst(units):
-        return 20 + 9 * units
+# ``merge_guard_runner`` of the guard stack (#2286), which this branch does not
+# contain; read at ``cbb47fbb6``: ``MAX_ENFORCE_REQUESTS``, ``MAX_CI_POLLS``
+# (and ``MAX_MERGE_GROUP_POLLS``), ``MERGE_GROUP_POLL_READS`` (and
+# ``GROUP_CI_RECHECK_READS``). The merge-group evaluation adds four reads to
+# ``evaluate``.
+RUNNER_CAP, RUNNER_POLLS, GROUP_POLL_READS, GROUP_EVALUATION_READS = 350, 101, 3, 4
 
+
+def pull_request_run(units):
+    return 2 * worst(units) + RUNNER_POLLS
+
+
+def merge_group_run(units, poll_reads=GROUP_POLL_READS):
+    if poll_reads == 1:
+        # One listed check: 100 polls of one read, a last poll of two, the
+        # evaluation, and a second read of two.
+        return 100 + 2 + worst(units) + GROUP_EVALUATION_READS + 2
+    return (
+        RUNNER_POLLS * poll_reads
+        + worst(units)
+        + GROUP_EVALUATION_READS
+        + GROUP_POLL_READS
+    )
+
+
+def test_the_committed_limit_fits_both_bounds_of_the_enforcing_run():
+    """The arithmetic of the design, "Request budget"."""
     limit = admission.MAX_V6_UNITS
+    assert limit == 2 and type(limit) is int
     # A pull-request run: two whole evaluations and a full wait.
-    assert 2 * worst(limit) + polls == 321 <= cap
-    assert 2 * worst(11) + polls == 339 <= cap < 2 * worst(12) + polls == 357
-    # A merge-group run with one read per poll and the three reads of the
-    # last one, then the evaluation.
-    assert (polls - 1) + group_poll_reads + worst(limit) + group_reads == 217 <= cap
-    # Every poll at three reads (two listed checks for the whole wait): only
-    # two units fit; a larger batch then ends with a failed job (closed).
-    assert polls * group_poll_reads + worst(2) + group_reads == 345 <= cap
-    assert polls * group_poll_reads + worst(3) + group_reads == 354 > cap
+    assert pull_request_run(limit) == 177 <= RUNNER_CAP
+    assert pull_request_run(11) == 339 <= RUNNER_CAP < pull_request_run(12) == 357
+    # A merge-group run with three reads at every poll: the binding bound.
+    assert merge_group_run(limit) == 348 <= RUNNER_CAP
+    assert merge_group_run(limit + 1) == 357 > RUNNER_CAP
+    # A merge-group run with one listed check.
+    assert merge_group_run(limit, 1) == 146 and merge_group_run(10, 1) == 218
+    assert merge_group_run(24, 1) == 344 <= RUNNER_CAP < merge_group_run(25, 1)
+    # What ten units would need of the runner's cap.
+    assert merge_group_run(10) == 420 and pull_request_run(10) == 321
+
+
+def test_a_batch_of_the_committed_limit_passes_and_one_more_is_refused(switch_only):
+    passes(batch((1, 2)))
+    fails(batch((1, 2, 3)), guard.R_TOO_MANY_UNITS)
 
 
 # --- the passing batch ----------------------------------------------------------
@@ -369,7 +410,7 @@ def test_a_batch_of_two_passes_with_its_own_reason_and_per_unit_evidence(on):
 @pytest.mark.parametrize("flow", ["parallel", "serial"])
 @pytest.mark.parametrize("count", [2, 3, 5, 10])
 def test_batches_up_to_the_limit_pass_in_both_dispatch_orders(on, flow, count):
-    assert count <= admission.MAX_V6_UNITS
+    assert count <= admission.MAX_V6_UNITS == ROOMY_LIMIT
     result = passes(batch(range(1, count + 1), flow=flow))
     assert len(result.evidence["units"]) == count
 
@@ -915,6 +956,7 @@ WORLD_RULES = {
 
 def judged(units, n, rule, enabled, monkeypatch):
     monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", enabled)
+    monkeypatch.setattr(admission, "MAX_V6_UNITS", ROOMY_LIMIT)
     if rule in PAYLOAD_RULES:
         mutate, reason = PAYLOAD_RULES[rule]
         world = batch(units, flow="serial", mutate={n: mutate})
@@ -973,6 +1015,19 @@ def test_a_candidate_commit_with_other_bytes_of_a_sibling_is_refused(on):
     Unit 1 is judged first; its own pair is intact, the batch is not."""
     world = batch()
     candidate_lost_the_primary(world, 3)
+    result = fails(world, guard.R_BATCH_NOT_FROZEN)
+    assert result.detail.startswith(M(1) + ": ")
+
+
+@pytest.mark.parametrize("member", [P, T])
+@pytest.mark.parametrize("sibling", [2, 3])
+def test_the_freeze_rule_covers_primaries_and_companions_of_every_sibling(
+    on, member, sibling
+):
+    world = batch()
+    files = {path: dict(entry) for path, entry in world.trees[candidate(0)].items()}
+    files[member(sibling)] = b"other bytes at the candidate commit\n"
+    world.tree(candidate(0), files)
     result = fails(world, guard.R_BATCH_NOT_FROZEN)
     assert result.detail.startswith(M(1) + ": ")
 
@@ -1162,6 +1217,19 @@ def test_main_moving_during_the_evaluation_refuses_the_batch(on):
     fails(world, guard.R_CHANGED)
 
 
+def test_encoder_main_moving_between_the_two_passes_refuses_the_batch(on):
+    """The second pass reads the encoder tip again: a run commit that is no
+    longer on encoder ``main`` refuses, as it does for one unit."""
+    world = batch()
+    moved = oid("encoder-main-rewritten")
+    second_read(world, ENCODER_MAIN, {"object": {"sha": moved}})
+    world.api[f"{guard.ENCODER_ROOT}/compare/{ENCODER_COMMIT}...{moved}"] = {
+        "status": "diverged",
+        "merge_base_commit": {"sha": oid("older-encoder")},
+    }
+    fails(world, guard.R_CHANGED)
+
+
 def passing_reads(units=(1, 2, 3), flow="serial"):
     world = batch(units, flow=flow)
     assert world.evaluate().verdict == guard.PASS
@@ -1216,13 +1284,10 @@ def worst_case(count):
 
 
 @pytest.mark.parametrize("count", [1, 2, 3, 5, 10])
-def test_the_worst_case_evaluation_costs_20_plus_9_requests_per_unit(
-    monkeypatch, count
-):
-    monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", True)
+def test_the_worst_case_evaluation_costs_20_plus_9_requests_per_unit(on, count):
     world = worst_case(count)
     assert world.evaluate().verdict == guard.PASS
-    assert len(world.calls) == 20 + 9 * count
+    assert len(world.calls) == 20 + 9 * count == worst(count)
 
 
 @pytest.mark.parametrize("count,expected", [(2, 30), (3, 35), (5, 45), (10, 70)])
@@ -1540,3 +1605,215 @@ def test_one_function_judges_one_unit_and_many():
         "R_DISPATCHER_NOT_ENROLLED",
     ):
         assert source.count(call) == 1, call
+
+
+# --- the design and the changelog state what the code does -----------------------
+
+
+def flat(path):
+    text = (REPOSITORY_ROOT / path).read_text("utf-8")
+    return " ".join(text.replace(">", " ").split())
+
+
+def design_section():
+    design = flat("docs/content-bound-merge-guard.md")
+    start = design.index(
+        "### Multi-unit candidates (change 5d, present and switched off)"
+    )
+    end = design.index("## 6. Merge queue and `notary-guard`")
+    assert start < end
+    return design[start:end]
+
+
+def test_the_design_states_the_switch_and_the_limit_as_committed():
+    section = design_section()
+    assert admission.MULTI_UNIT_V6_ENABLED is False
+    assert "`reviewed_pr_admission.MULTI_UNIT_V6_ENABLED` is `False`" in section
+    assert f"`MAX_V6_UNITS` is {admission.MAX_V6_UNITS} (" in section
+    assert "every read compares it with `is True`" in section
+    assert "The switch opens nothing by itself." in section
+    # The header of the design says that the form exists and is off.
+    design = flat("docs/content-bound-merge-guard.md")
+    assert (
+        "A multi-unit form of the v6 lane (change 5d of §8) is present and "
+        "switched off: `MULTI_UNIT_V6_ENABLED` is `False`"
+    ) in design[: design.index("## 1. What exists today")]
+    source = flat("src/axiom_encode/reviewed_pr_admission.py").replace("# ", "")
+    assert f"MAX_V6_UNITS: Final[int] = {admission.MAX_V6_UNITS}" in source
+    assert "2 x (20 + 9u) + 101 <= 350 gives u <= 11" in source
+    assert "3 x 101 + (24 + 9u) + 3 <= 350 gives u <= 2" in source
+    assert "(10 units: 3 x 101 + 114 + 3 = 420)" in source
+
+
+def test_the_design_names_every_multi_unit_reason_with_its_value():
+    section = design_section()
+    multi_unit = {
+        guard.R_MULTI_UNIT_PASS,
+        guard.R_TOO_MANY_UNITS,
+        guard.R_UNIT_INCOMPLETE,
+        guard.R_BATCH_EXTRA_PATH,
+        guard.R_UNITS_SHARE_PATH,
+        guard.R_UNITS_SHARE_RUN,
+        guard.R_UNIT_CROSS_BOUND,
+        guard.R_BATCH_NOT_FROZEN,
+    }
+    source = Path(guard.__file__).read_text("utf-8")
+    block = source[
+        source.index("# The multi-unit form of the v6 lane") : source.index(
+            "R_APPLIED_FILES ="
+        )
+    ]
+    declared = {
+        node.value.value
+        for node in ast.walk(ast.parse(block))
+        if isinstance(node, ast.Assign)
+    }
+    assert declared == multi_unit
+    for reason in sorted(multi_unit):
+        assert f"| `{reason}` |" in section, reason
+    for reason in (
+        guard.R_SCOPE_NOT_NEW,
+        guard.R_GUARDED_LEAF,
+        guard.R_DELTA_DISAGREES,
+        guard.R_MANIFEST_PATH,
+        guard.R_MIXED_SCHEMAS,
+        guard.R_MULTIPLE_V6,
+        guard.R_MANIFEST_CANDIDATE,
+        guard.R_IS_DISPATCHER,
+    ):
+        assert f"`{reason}`" in section, reason
+
+
+def test_the_design_states_the_request_budget_this_file_measures():
+    section = design_section()
+    limit = admission.MAX_V6_UNITS
+    counts = ", ".join(str(worst(units)) for units in (1, 2, 3, 5, 10))
+    assert f"`20 + 9u` ({counts} for 1, 2, 3, 5, 10 units)" in section
+    parallel = ", ".join(str(20 + 5 * units) for units in (2, 3, 5, 10))
+    assert f"`20 + 5u` ({parallel} for 2, 3, 5, 10 units)" in section
+    assert (
+        f"`2 x (20 + 9u) + 101 <= 350` | 11 ({pull_request_run(11)}); 12 gives "
+        f"{pull_request_run(12)} |"
+    ) in section
+    assert (
+        f"`3 x 101 + (24 + 9u) + 3 <= 350` | **{limit}** ({merge_group_run(limit)}); "
+        f"{limit + 1} gives {merge_group_run(limit + 1)} |"
+    ) in section
+    assert (
+        f"`100 + 2 + (24 + 9u) + 2 <= 350` | 24 ({merge_group_run(24, 1)}); 2 units "
+        f"give {merge_group_run(2, 1)}, 10 give {merge_group_run(10, 1)} |"
+    ) in section
+    assert (
+        f"`MAX_V6_UNITS` is {limit}: the merge-group run with three reads at every "
+        f"poll is the binding bound, and {limit} is the largest size that every row "
+        "covers."
+    ) in section
+    # The best layout: four units fit that row exactly, five do not.
+    assert "(`3 x 101 + (24 + 5 x 4) + 3 = 350`)" in section
+    assert 3 * 101 + (24 + 5 * 4) + 3 == RUNNER_CAP < 3 * 101 + (24 + 5 * 5) + 3
+    # What #2301's sizes need of the runner.
+    assert f"`3 x 101 + (24 + 90) + 3 = {merge_group_run(10)}`" in section
+    assert f"`2 x (20 + 90) + 101 = {pull_request_run(10)}`" in section
+    assert f"`MAX_ENFORCE_REQUESTS` of at least {merge_group_run(10)}" in section
+    assert f"`3 x 101 + (24 + 180) + 3 = {merge_group_run(20)}`" in section
+    assert f"`2 x (20 + 180) + 101 = {pull_request_run(20)}`" in section
+    assert "Neither is in this change." in section
+    assert "Each unit adds at least 5" in section
+
+
+def test_the_design_states_why_a_batch_is_one_queue_entry():
+    section = design_section()
+    for sentence in (
+        "**Why this lane is the only way to land several units at one time.**",
+        '`grouping_strategy: "ALLGREEN"`, `max_entries_to_merge: 1`, '
+        "`min_entries_to_merge: 1` and `max_entries_to_build: 1`",
+        "cannot prove that the group holds only that pull request",
+        "each entry needs its own fresh judgment",
+        "A batch pull request is one queue entry: one merge-group run judges all "
+        "of its units.",
+        "| Add to the merge queue | 1 | 1: one queue entry |",
+    ):
+        assert sentence in section, sentence
+    assert dict(admission._MERGE_QUEUE_REQUIRED) == {
+        "grouping_strategy": "ALLGREEN",
+        "max_entries_to_build": 1,
+        "min_entries_to_merge": 1,
+        "max_entries_to_merge": 1,
+    }
+
+
+def test_the_design_states_the_review_granularity_and_the_human_steps():
+    section = design_section()
+    for sentence in (
+        "under **one** owner approval",
+        "**The intended change: review granularity.**",
+        "one approval covers every unit of the batch",
+        "every primary and every companion of the batch, not a sample",
+        "Who may approve does not change",
+        "or run actor of **any** unit's signing run",
+        "a batch whose units were dispatched by both has no possible approver",
+        "All or nothing: one bad unit refuses the whole candidate.",
+        "A batch of one is a single unit",
+        "Signing stays one run for one unit. The workflow file is not changed.",
+        "A one-run form (one dispatch, one `production-signing` approval, `k` "
+        "manifests) is **not built**.",
+        "| Approve the green candidate | 1 | **1 for the batch** (the intended "
+        "change) |",
+        "| Dispatch `targeted-signed-reencode.yml` | 1 | `k`, all by one enrolled "
+        "identity |",
+        "| Approve the `production-signing` environment | 1 | `k` |",
+        "| Actions of a person | 7 | `3k + 4`: 10 for 2 units, against 14; 34 for "
+        "10 units, against 70 |",
+        "| 2 (`MAX_V6_UNITS` as committed) | 2 | at most 6 to 8 | the switch and "
+        "the runner's success set |",
+        "| 10 | 10 | at most 30 to 40 | also a request cap of at least 420 in the "
+        "runner and a new `MAX_V6_UNITS` |",
+        "The lane without owner approval that #2301 also discusses (option B and "
+        "its narrow form) is not designed or built here",
+        "neither is tested against the hosted workflow [not verified]",
+        "No batch ran on the hosted workflow.",
+    ):
+        assert sentence in section, sentence
+    assert (3 * 2 + 4, 7 * 2, 3 * 10 + 4, 7 * 10) == (10, 14, 34, 70)
+    assert admission.MAX_V6_UNITS == 2
+
+
+def test_the_design_states_the_freeze_rule_and_the_second_lock():
+    section = design_section()
+    for sentence in (
+        "**Freeze rule (new, batch only).**",
+        "must already carry the primary and the companion of **every** unit of "
+        "the batch",
+        "Removing a whole unit later is allowed",
+        "it is an open question for the maintainer (question 2 below)",
+        "A pass of two or more units has its own reason code, "
+        "`content_bound_approval_multi_unit`, not `content_bound_approval`.",
+        "add `(pass, content_bound_approval_multi_unit)` to `SUCCESS_VERDICTS`",
+        "This branch has no `BUNDLE_SHA256` and changes none.",
+        "Two manifests that name one signing run: `fail`. One run signs one unit.",
+    ):
+        assert sentence in section, sentence
+    assert guard.R_PASS == "content_bound_approval"
+    # The statement about this branch is true of this branch.
+    for path in (REPOSITORY_ROOT / "src").rglob("*.py"):
+        assert "BUNDLE_SHA256" not in path.read_text("utf-8"), path
+    for path in (REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml"):
+        assert "BUNDLE_SHA256" not in path.read_text("utf-8"), path
+
+
+def test_the_design_states_the_fuzz_size_this_file_defaults_to():
+    section = design_section()
+    assert inspect.getsource(test_fuzz_only_a_valid_set_of_new_triples_is_admitted)
+    assert 'os.environ.get("MULTI_UNIT_FUZZ_CASES", "3000")' in Path(
+        __file__
+    ).read_text("utf-8")
+    assert "(default 3,000 cases; run with 120,000 for this change)" in section
+
+
+def test_the_changelog_names_the_switch_and_the_limit():
+    fragment = flat("changelog.d/2301-multi-unit-v6-lane.added.md")
+    assert "`MULTI_UNIT_V6_ENABLED` (off)" in fragment
+    assert f"`MAX_V6_UNITS` ({admission.MAX_V6_UNITS}, " in fragment
+    assert "With the switch off every verdict and admission result is unchanged." in (
+        fragment
+    )

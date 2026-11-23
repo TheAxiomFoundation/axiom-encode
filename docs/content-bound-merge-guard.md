@@ -1037,7 +1037,8 @@ here, and this change does not prepare it.
 `tests/test_multi_unit_v6_lane.py`, `tests/test_multi_unit_v6_admission.py`
 or `tests/test_content_merge_guard_multi_unit_on.py`):
 
-1. Off by default, behind one constant. No verdict and no admission result
+1. Off by default, behind one constant, with a size limit that the request
+   budget of the guard covers. No verdict and no admission result
    changes while it is off.
 2. The delta of the candidate is exactly a set of `k` complete units,
    `1 <= k <= MAX_V6_UNITS`. Every path is new on `main`. No other file. No
@@ -1059,8 +1060,21 @@ is a constant on encoder main: no environment variable, CLI flag, dispatch
 input or setting turns it, and every read compares it with `is True` [code].
 It is the one switch of both halves: the admission of one unit out of a
 batch candidate (`verify_reviewed_pr`) and the guard's evaluation of the
-final head (`content_merge_guard._evaluate`). `MAX_V6_UNITS` is 10 ("Request
-budget" below).
+final head (`content_merge_guard._evaluate`). `MAX_V6_UNITS` is 2 ("Request
+budget" below: the size that both bounds of the enforcing run cover today; a
+batch of 10 needs a higher request cap in the runner first).
+
+**Why this lane is the only way to land several units at one time.** The
+writer's lock requires of every `merge_queue` rule `grouping_strategy:
+"ALLGREEN"`, `max_entries_to_merge: 1`, `min_entries_to_merge: 1` and
+`max_entries_to_build: 1` ("Encoder" above) [code:
+`_MERGE_QUEUE_REQUIRED`]. The reason: the guard's merge-group evaluation
+binds the tree of a group to one judged pull request and cannot prove that
+the group holds only that pull request [author-reported, draft #2286 at
+`cbb47fbb6`]. So every queue entry is one pull request, entries land one
+after the other, and each entry needs its own fresh judgment. Several units
+can then land together only inside one pull request. A batch pull request is
+one queue entry: one merge-group run judges all of its units.
 
 The switch opens nothing by itself. Three more things must be true before a
 batch can land [code]:
@@ -1073,7 +1087,7 @@ batch can land [code]:
   `content_bound_approval`. The runner of draft #2286 ends its job with
   success only for a verdict and reason of its `SUCCESS_VERDICTS` set
   [read in `merge_guard_runner.py` of `claude/merge-guard-recommendation`
-  at `dd8bf4fa2`], so a batch verdict ends that job with failure until a
+  at `14e608a71`], so a batch verdict ends that job with failure until a
   reviewed change adds the reason there. That change is not in this one
   ("Follow-ups" below).
 
@@ -1278,41 +1292,54 @@ earlier commit, two for CI, the encoder `main` tip, then the re-read: the
 pull request, the `main` tip, the reviews, two for CI, the encoder tip. Each
 unit adds at most 9: three blobs (manifest, primary, companion), its
 candidate tree, the ancestry of its candidate base, and its run and that
-run's ancestry in each of the two passes. A single unit on the terms of the
-fixture that the guard stack measures costs 25, which is this formula
-without the three approval reads and the base ancestry.
+run's ancestry in each of the two passes. Each unit adds at least 5: the
+three blobs and the two reads of its run. A v6 unit therefore costs more
+than a v5 unit, which costs 3 [author-reported, draft #2286: `11 + 3u`]:
+the guard reads no run and no candidate for a v5 unit. A single unit on the
+terms of the fixture that the guard stack measures costs 25, which is this
+formula without the three approval reads and the base ancestry.
 
 The enforcing run of draft #2286 stops at 350 requests
-(`MAX_ENFORCE_REQUESTS`), polls at most 101 times and reads at most 3 times
-in a merge-group poll [read in `merge_guard_runner.py` of
-`claude/merge-guard-recommendation` at `dd8bf4fa2`; that file is not on this
-branch]:
+(`MAX_ENFORCE_REQUESTS`). It polls at most 101 times, reads at most 3 times
+in a merge-group poll, and reads the group's check once more after the
+evaluation, at most 3 reads [read in `merge_guard_runner.py` of
+`claude/merge-guard-recommendation` at `14e608a71`; that file is not on this
+branch]. The merge-group evaluation adds 4 reads to `evaluate`. A batch pull
+request must fit both runs, because the same pull request is judged on its
+head and again as a queue entry:
 
 | Run | Arithmetic | Largest `u` |
 |---|---|---|
 | Pull request: two whole evaluations and a full wait | `2 x (20 + 9u) + 101 <= 350` | 11 (339); 12 gives 357 |
-| Merge group, 101 polls of one read and one more read at the last: `101 + 1 + (20 + 9u) + 4` | `<= 350` | 24 (342); at 10 units it is 216 |
-| Merge group with three reads at every one of 101 polls (two check runs with the required name on the group head for the whole wait): `303 + (20 + 9u) + 4` | `<= 350` | 2 (345); 3 gives 354 |
+| Merge group with three reads at every one of 101 polls (a second check with the required name on the group head for the whole wait) | `3 x 101 + (24 + 9u) + 3 <= 350` | **2** (348); 3 gives 357 |
+| Merge group with one listed check | `100 + 2 + (24 + 9u) + 2 <= 350` | 24 (344); 2 units give 146, 10 give 218 |
 
-`MAX_V6_UNITS` is 10: the largest round size under the pull-request bound,
-with 29 requests left (`350 - 321`) for further pages. The last row is not
-covered: with three reads at every poll, a batch of three or more units
-runs out of requests and the job fails. It fails closed, a re-run is the
-remedy, and no path gives a pass. The same row bounds the v5 lane at 10
-units, not at the "about 37" of the guard stack's text, which counts the
-pull-request run only [inferred from the same constants]. Raising
-`MAX_ENFORCE_REQUESTS` to 420 would cover that row for 10 units
-(`303 + 110 + 4 = 417`); it is a change of the runner and of its bundle
-digest, and it is not in this change. A pull request with more than 100
-changed files, commits or reviews needs further pages; 10 units are 30
-files.
+`MAX_V6_UNITS` is 2: the merge-group run with three reads at every poll is
+the binding bound, and 2 is the largest size that every row covers. With
+the best layout (`20 + 5u`) that row covers 4 units
+(`3 x 101 + (24 + 5 x 4) + 3 = 350`), but the guard cannot require that
+layout, so the limit follows the worst case. For comparison, the same row
+bounds a v5 train at about 9 units [author-reported, draft #2286].
+
+A batch of 10 units, the lower size that #2301 asks for, needs
+`3 x 101 + (24 + 90) + 3 = 420` requests in that row and
+`2 x (20 + 90) + 101 = 321` in the pull-request run. So it needs
+`MAX_ENFORCE_REQUESTS` of at least 420 (more for further pages), in a
+reviewed change of the runner, which changes the guard bundle digest, and
+then a reviewed change of `MAX_V6_UNITS`. Neither is in this change. A
+batch of 20 needs `3 x 101 + (24 + 180) + 3 = 510`. A pull request with more
+than 100 changed files, commits or reviews needs further pages; 10 units are
+30 files. The runner's timeout table counts an evaluation as 30 requests of
+at most 30 seconds; a batch evaluation makes more, and a run that then
+passes the job timeout ends with failure (closed) [inferred].
 
 **What a person still does for one batch, and the throughput.** The steps
 are those of the single-unit lane. The durations are those that the design
 at the head of draft #2287 records [author-reported there: pull-request CI
 172 to 227 minutes for 38 of 40 runs, live read 2026-11-17; queue CI 2.5 to
 4 hours, rulespec-us#2160]. The duration of a signing run and the effect of
-`k` modules on the duration of CI are not measured.
+`k` modules on the duration of CI are not measured. One batch pull request
+is one queue entry.
 
 | Step | Single unit, for each unit | Batch of `k` units |
 |---|---|---|
@@ -1322,16 +1349,21 @@ at the head of draft #2287 records [author-reported there: pull-request CI
 | Merge the signed draft pull request into the candidate branch | 1 | `k`, by someone who will not approve |
 | Approve the green candidate | 1 | **1 for the batch** (the intended change) |
 | Re-run the guard job after the approval | 1 | 1 |
-| Add to the merge queue | 1 | 1 |
+| Add to the merge queue | 1 | 1: one queue entry |
 | Pull-request CI and queue CI, serial | 5.4 to 7.8 hours | 5.4 to 7.8 hours for the batch |
-| Actions of a person | 7 | `3k + 4`: 34 for 10 units, against 70 |
+| Actions of a person | 7 | `3k + 4`: 10 for 2 units, against 14; 34 for 10 units, against 70 |
+
+| Batch size | Units for each landing | Units a day at 3 to 4 landings | Needs |
+|---|---|---|---|
+| 1 (today's v6 lane) | 1 | 3 to 4 | — |
+| 2 (`MAX_V6_UNITS` as committed) | 2 | at most 6 to 8 | the switch and the runner's success set |
+| 10 | 10 | at most 30 to 40 | also a request cap of at least 420 in the runner and a new `MAX_V6_UNITS` |
 
 - A landing is still serial and still takes about 5.4 to 7.8 hours, so
   there are still about 3 to 4 landings a day, infrastructure pull requests
-  included [author-reported, draft #2287, "Throughput"]. A landing now
-  carries up to 10 units: **at most 30 to 40 units a day**, against 3 to 4,
-  if every landing is a full batch and no other pull request lands
-  [inferred].
+  included [author-reported, draft #2287, "Throughput"]. The number of
+  units a day is that count times the batch size, and only if every landing
+  is a full batch and no other pull request lands [inferred].
 - The per-unit actions do not go away: 3 for each unit (dispatch,
   environment approval, merge of the signed draft). At 30 to 40 units a day
   that is 90 to 120 actions a day by the dispatcher and the merger, and 3
@@ -1346,17 +1378,26 @@ at the head of draft #2287 records [author-reported there: pull-request CI
 turned on usefully; none is a setting.
 
 1. Guard stack (#2286): add `(pass, content_bound_approval_multi_unit)` to
-   `SUCCESS_VERDICTS` of `merge_guard_runner.py`, decide the request cap
-   (table above), and add the batch rows to that stack's request-volume,
-   "human steps" and "Throughput" texts, which this branch does not contain.
-   The guard bundle holds `content_merge_guard.py` and
-   `reviewed_pr_admission.py`, so `BUNDLE_SHA256` of the guard workflow must
-   be recomputed when the stacks are integrated, as that stack's text
-   prescribes. This branch has no `BUNDLE_SHA256` and changes none.
-2. A canary batch of two units on the hosted workflow, in each dispatch
+   `SUCCESS_VERDICTS` of `merge_guard_runner.py`; raise the request cap
+   before `MAX_V6_UNITS` is raised (table above); add the batch rows to that
+   stack's request-volume, "human steps" and "Throughput" texts, which this
+   branch does not contain. The guard bundle holds `content_merge_guard.py`
+   and `reviewed_pr_admission.py`, which this change edits, so
+   `BUNDLE_SHA256` of the guard workflow must be recomputed when the stacks
+   are integrated, as that stack's text prescribes. This branch has no
+   `BUNDLE_SHA256` and changes none.
+2. Integration with the evaluator of the guard stack. That stack rewrote the
+   readers of `content_merge_guard.py` so that a response with a missing
+   required field is an incomplete read and never a decision. The per-unit
+   loop of this change calls the shared readers (`_signing_run`, `_blob`,
+   `_is_ancestor`, `_leaf_entries`) and adds no reader of its own, so it
+   takes that rule from them once the stacks are merged; the merged
+   evaluator must be run against this change's tests then [not verified
+   here beyond a trial merge, see the pull request].
+3. A canary batch of two units on the hosted workflow, in each dispatch
    order, before a larger batch.
-3. The one-run form of signing, if the per-unit actions are the next limit.
-4. `docs/reviewed-pr-promotion.md` at activation (change 6 updates it).
+4. The one-run form of signing, if the per-unit actions are the next limit.
+5. `docs/reviewed-pr-promotion.md` at activation (change 6 updates it).
 
 **Tests.** `tests/test_multi_unit_v6_lane.py`: the switch; each refusal
 reason; every single-unit rule at the first, a middle and the last position
@@ -1371,9 +1412,12 @@ above. `tests/test_multi_unit_v6_admission.py`: the admission half.
 **Open questions for the maintainer** (numbered here, not in §10, so that
 this subsection merges without touching that table):
 
-1. Is 10 units the right size for one owner review? #2301 asks for 10 to 20.
-   More than 11 needs a higher request cap in the runner first: 20 units
-   cost `2 x (20 + 180) + 101 = 501` in the pull-request run.
+1. Which batch size? #2301 asks for 10 to 20. The committed 2 is what the
+   runner's cap of 350 covers in every case. 10 needs a cap of at least 420
+   and 20 a cap of at least 510 (and `2 x (20 + 180) + 101 = 501` in the
+   pull-request run). The alternative is to accept a failed job and a re-run
+   when a second check with the required name sits on the group head for
+   the whole wait: without that case, 11 units fit.
 2. Keep the freeze rule, or accept a unit that joins a batch after a sibling
    was signed? Without it the guarantee per unit equals the single-unit
    lane's, and CI on the head is the only check of the combination.
@@ -1383,9 +1427,7 @@ this subsection merges without touching that table):
    runner before any batch can pass?
 5. With two enrolled owners, all units of a batch need the same dispatcher.
    Acceptable until more identities are enrolled?
-6. The merge-group row with three reads at every poll: raise the cap to 420,
-   or accept a failed job and a re-run in that case?
-7. Build the one-run form of signing?
+6. Build the one-run form of signing?
 
 **Not verified.**
 

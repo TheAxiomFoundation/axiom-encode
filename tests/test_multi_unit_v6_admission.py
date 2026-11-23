@@ -90,6 +90,7 @@ def sibling(n, manifest=False):
 def batch_on(on, monkeypatch):  # noqa: F811
     """Every lock of the v6 writer open and the multi-unit switch on."""
     monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", True)
+    monkeypatch.setattr(admission, "MAX_V6_UNITS", 10)
 
 
 def admit(fake):
@@ -370,6 +371,35 @@ def test_the_batch_limit_counts_this_unit_and_its_siblings(batch_on, world):  # 
         admit(full)
 
 
+def test_the_committed_limit_admits_one_sibling_and_refuses_two(
+    on,  # noqa: F811
+    world,  # noqa: F811
+    monkeypatch,
+):
+    monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", True)
+    assert admission.MAX_V6_UNITS == 2
+    add(world, *sibling(8))
+    assert admit(world)["schema"] == admission.CANDIDATE_SCHEMA
+    add(world, *sibling(9))
+    with pytest.raises(AdmissionError, match=TOO_MANY):
+        admit(world)
+
+
+def test_the_index_beside_siblings_is_outside_the_allowed_set_too(
+    batch_on,
+    world,  # noqa: F811
+    monkeypatch,
+):
+    """Defence in depth: were the sibling rule to let the index through, the
+    allowed set of the caller still has no index beside siblings."""
+    add(world, INDEX, *sibling(8))
+    monkeypatch.setattr(
+        admission, "_batch_sibling_paths", lambda paths, selector: frozenset(sibling(8))
+    )
+    with pytest.raises(AdmissionError, match=OUT_OF_SCOPE):
+        admit(world)
+
+
 @pytest.mark.parametrize("limit", [True, "10", None, 10.0, 1, 0])
 def test_a_limit_that_is_not_a_large_enough_integer_refuses(
     batch_on,
@@ -456,6 +486,8 @@ def test_changes_requested_still_blocks_a_batch(batch_on, world):  # noqa: F811
         (guard.MANIFEST_PREFIX + "us/policies/a.test.json", None),
         (guard.MANIFEST_PREFIX + "programs/a.json", None),
         ("x/" + guard.MANIFEST_PREFIX + "us/policies/a.json", None),
+        # As long as the manifest prefix, and not it.
+        ("a" * (len(guard.MANIFEST_PREFIX) - 1) + "/us/policies/a.json", None),
         ("", None),
     ],
 )
