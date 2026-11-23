@@ -1093,12 +1093,7 @@ def verify_reviewed_pr(
     # file of another unit, the allowed set is the one of a single-unit
     # candidate.
     siblings: frozenset[str] = frozenset()
-    if (
-        candidate_lane
-        and MULTI_UNIT_V6_ENABLED is True
-        and len(set(paths)) == len(paths)
-        and expected.issubset(paths)
-    ):
+    if candidate_lane and MULTI_UNIT_V6_ENABLED is True:
         siblings = _batch_sibling_paths(paths, selector)
     allowed = expected | siblings if siblings else expected | {INDEX_PATH}
     if (
