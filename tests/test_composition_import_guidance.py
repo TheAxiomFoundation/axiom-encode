@@ -834,26 +834,61 @@ NOT_IMPORT_TARGETS_RULES = (
     "copied file that defines the symbol, cited provision, child output, or child\n"
     "scalar that a rule in this prompt tells you to import. For every rule in this\n"
     "prompt, an import from a file in this list is an import that is not available.\n"
-    "When a calculation needs something that only a file in this list provides,\n"
-    "follow the first of these that applies:\n"
-    "1. If `Unavailable cited RuleSpec context detected` lists the file, follow\n"
-    "   that section for what the source cites from it.\n"
-    "2. If another rule in this prompt says what to do when an import or a cited\n"
-    "   definition is not available, for example a source-named local boundary\n"
-    "   input, follow that rule.\n"
-    "3. Otherwise omit or defer only the affected executable surface.\n"
+    "When the only provider of something a calculation needs is a file in this\n"
+    "list, omit or defer only the affected executable surface. There are two\n"
+    "exceptions:\n"
+    "(a) `Unavailable cited RuleSpec context detected` lists the file: follow that\n"
+    "    section for what the source cites from it.\n"
+    "(b) A rule in this prompt says what to do when that exact kind of import or\n"
+    "    cited definition is not available: follow that rule. Such rules cover the\n"
+    "    local boundary input for the value of a named legal base of a rate-applied\n"
+    "    result; semantic local boundary inputs for an externally determined base,\n"
+    "    amount, rate, status, or fact in a source-stated formula; the source-named\n"
+    "    boundary input for one affected subtype, carve-out, or branch;\n"
+    "    paragraph-specific local inputs for a `subject to` lead-in that cites\n"
+    "    paragraphs; and the local override/displacement boolean for a\n"
+    "    `Subject to ...` leaf.\n"
     "In every case keep encoding the independent rules from this source."
 )
-# Rules on main for an import or a cited definition that is not available.
-# The section must not contradict them: step 2 points at them.
+# Rules on main for an import or a cited definition that is not available,
+# each with the words by which exception (b) of the section names it. The
+# section must name only rules that the same prompt carries.
 FALLBACK_RULES = (
-    "keep the result executable by exposing a local boundary input for that "
-    "base instead of deferring",
-    "If they are not available, paragraph-specific local inputs are acceptable",
-    "if no canonical import is available for the cited override, model a "
-    "local override/displacement boolean",
-    "defer only that branch or expose a source-named boundary input for that branch",
+    (
+        "the local boundary input for the value of a named legal base of a "
+        "rate-applied result;",
+        "If the only unavailable dependency for that lower-entity rate-applied "
+        "result is the value of a named legal base, keep the result executable "
+        "by exposing a local boundary input for that base instead of deferring",
+    ),
+    (
+        "semantic local boundary inputs for an externally determined base, "
+        "amount, rate, status, or fact in a source-stated formula;",
+        "that uses an externally determined official base, wage amount, "
+        "compensation amount, rate, status, or special-case fact that is not "
+        "available as copied RuleSpec context, keep the source-stated formula "
+        "executable with semantic local boundary inputs",
+    ),
+    (
+        "the source-named boundary input for one affected subtype, carve-out, "
+        "or branch;",
+        "If a missing special rule or unavailable cited definition affects only "
+        "one subtype, carve-out, or branch, defer only that branch or expose a "
+        "source-named boundary input for that branch",
+    ),
+    (
+        "paragraph-specific local inputs for a `subject to` lead-in that cites "
+        "paragraphs;",
+        "If they are not available, paragraph-specific local inputs are acceptable",
+    ),
+    (
+        "and the local override/displacement boolean for a `Subject to ...` leaf.",
+        "In those `Subject to ...` leaves, if no canonical import is available "
+        "for the cited override, model a local override/displacement boolean",
+    ),
 )
+
+
 CHILD_SCALAR_RULE = "Import the exact child export and use it"
 RATE_SOURCE = "Multiply the qualifying amount by the exemption rate."
 
@@ -1166,19 +1201,29 @@ def test_a_blocked_import_is_an_unavailable_import_for_the_fallback_rules(
     prompt = _render(tmp_path, (cited, uncited), runner_backend=backend)
 
     flat = _flat(prompt)
-    for rule in FALLBACK_RULES:
-        assert flat.count(rule) == 1, rule
-    assert len(_blocked_lines(prompt)) == 2
     rules = _flat(NOT_IMPORT_TARGETS_RULES)
-    first = rules.index("1. If `Unavailable cited RuleSpec context detected` lists")
-    second = rules.index("2. If another rule in this prompt says what to do when")
-    third = rules.index("3. Otherwise omit or defer only the affected executable")
-    assert rules.index("follow the first of these that applies:") < first < second
-    assert second < third
+    exception_b = rules[rules.index("Such rules cover ") :].split(" In every case")[0]
+    named = exception_b.removeprefix("Such rules cover ")
+    for name, rule in FALLBACK_RULES:
+        # Every rule the section names is a sentence of the same prompt.
+        assert named.count(name) == 1, name
+        assert flat.count(rule) == 1, rule
+        named = named.replace(name, "")
+    # The section names no rule beyond these.
+    assert not named.strip()
+    assert len(_blocked_lines(prompt)) == 2
+    # Deferral is the default; the two exceptions come after it.
+    default = rules.index(
+        "When the only provider of something a calculation needs is a file in "
+        "this list, omit or defer only the affected executable surface."
+    )
+    first = rules.index("(a) `Unavailable cited RuleSpec context detected` lists")
+    second = rules.index("(b) A rule in this prompt says what to do when that exact")
+    assert default < rules.index("There are two exceptions:") < first < second
     lowered = rules.lower()
     for forbidden in ("do not add a local", "stands in", "never add", "must defer"):
         assert forbidden not in lowered
-    # Step 1 names a section of this prompt, which lists only the cited file.
+    # Exception (a) names a section of this prompt; it lists only the cited file.
     unavailable = _section(prompt, UNAVAILABLE)
     assert f"copied context target `{cited.target}` has" in unavailable
     assert uncited.target not in unavailable
@@ -1323,7 +1368,8 @@ SECTION_63_A_PHRASINGS = {
     "An amount is defined in subsection (a) of section 63.": True,
     "An amount is defined in section 63(a)(1).": False,
     "An amount is defined in 26 U.S.C. 63(a).": False,
-    "An amount is defined in section 63(a) or (b).": False,
+    # A list: 63(b) has no provider (see the list tests below).
+    "An amount is defined in section 63(a) or (b).": True,
     "An amount is defined in section 63(a) of such Code.": False,
     "An amount is defined in section 63(a) of the Act.": False,
 }
@@ -1367,6 +1413,66 @@ def test_one_cited_provision_without_a_provider_keeps_the_parent_unavailable(
         f"copied context target `us:statutes/26/63` has {COMPOSITION_REASON}."
         in _section(prompt, UNAVAILABLE)
     )
+
+
+# A citation that goes on as a list or a range names provisions beyond the
+# first one. The importable file of 63(a) does not provide for them, so the
+# blocked parent stays listed, whichever fragment the source names first.
+SECTION_63_LISTS = (
+    "See section 63(a) or (b).",
+    "See section 63(a), (b), and (c).",
+    "See section 63(a) and (b) of this title.",
+    "See section 63(a) through (d).",
+    "See section 63(b) or (a).",
+    "See section 63(a) to (c).",
+    "See section 63(a)\u2013(d).",
+    "See section 63(a), or subsection (b).",
+    # In doubt, not resolved: this may or may not name a paragraph of 63.
+    "See section 63(a); paragraph (2) does not apply.",
+    "See section 63 (a)(1) and (2).",
+    # Controls: each provision is cited in full; 63(b) has no provider.
+    "See section 63(a) and section 63(b).",
+    "See sections 63(a) and 63(b).",
+)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("source", SECTION_63_LISTS)
+def test_a_list_or_range_of_fragments_keeps_the_blocked_parent_unavailable(
+    tmp_path, source, reverse
+):
+    _modules, prompt = _render_section_63(
+        tmp_path, COMPOSITION, ATOMIC, reverse=reverse, source=source
+    )
+
+    assert (
+        f"copied context target `us:statutes/26/63` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+    # Main reads `63(b) or (a)` as a citation of 63(b) only.
+    assert ("`us:statutes/26/63/a#taxable_income`" in _section(prompt, MANDATORY)) == (
+        source != "See section 63(b) or (a)."
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "See section 63(a) (relating to taxable income).",
+        "See section 63(a), and compute the amount (if any).",
+        "See section 63(a); the amount (if any) applies.",
+        "See section 63(a) or section 152.",
+        "See section 63(a), which applies as the notice says in item (2).",
+    ],
+)
+def test_words_after_a_citation_that_are_no_fragment_list_do_not_block_it(
+    tmp_path, source
+):
+    _modules, prompt = _render_section_63(
+        tmp_path, COMPOSITION, ATOMIC, reverse=False, source=source
+    )
+
+    assert UNAVAILABLE not in prompt
 
 
 def test_a_file_of_another_section_does_not_provide_for_a_blocked_file(tmp_path):
@@ -1504,12 +1610,26 @@ def test_a_resolved_blocked_parent_without_exports_is_not_listed_at_all(tmp_path
 @pytest.mark.parametrize(
     ("source", "target", "cited"),
     [
-        ("See section 63 (a)(1).", "us:statutes/26/63", [("63", ("a", "1"))] * 2),
-        ("See section 63(a).", "us:statutes/26/63/a", [("63", ("a",))] * 3),
-        ("The amount in 63(a) (2).", "us:statutes/26/63/a", [("63", ("a", "2"))]),
-        ("See sections 63, 64(b) and 65.", "us:statutes/26/64/b", [("64", ("b",))] * 2),
-        ("See section 64 of the Other Act.", "us:statutes/26/64", [("64", ())]),
+        (
+            "See section 63 (a)(1).",
+            "us:statutes/26/63",
+            [("63", ("a", "1"), False)] * 2,
+        ),
+        ("See section 63(a).", "us:statutes/26/63/a", [("63", ("a",), False)] * 3),
+        (
+            "The amount in 63(a) (2).",
+            "us:statutes/26/63/a",
+            [("63", ("a", "2"), False)],
+        ),
+        (
+            "See sections 63, 64(b) and 65.",
+            "us:statutes/26/64/b",
+            [("64", ("b",), False)] * 2,
+        ),
+        ("See section 64 of the Other Act.", "us:statutes/26/64", [("64", (), False)]),
         ("See section 631.", "us:statutes/26/63", []),
+        ("See section 63(a) or (b).", "us:statutes/26/63", [("63", ("a",), True)] * 2),
+        ("The amount in 63(a), (b).", "us:statutes/26/63/a", [("63", ("a",), True)]),
     ],
 )
 def test_each_citation_match_yields_the_provision_the_source_names(

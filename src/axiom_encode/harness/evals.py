@@ -14146,9 +14146,10 @@ def _format_blocked_context_import_guidance(
     copied file that defines a symbol, a cited provision, a child output or a
     child scalar. This section names each copied module the target cannot
     import, whatever its root and whether or not the source cites it. Such an
-    import counts as not available: the section on unavailable cited context
-    decides first, then a rule of the prompt for an import that is not
-    available, and deferral is the answer when neither applies.
+    import counts as not available. Deferral of the affected surface is the
+    default. The exceptions are rules the prompt already has: the section on
+    unavailable cited context when it lists the file, and a rule for that
+    exact kind of import or cited definition that is not available.
     """
     lines: list[str] = []
     seen: set[str] = set()
@@ -14169,14 +14170,20 @@ inline copy shows its rules: never import from it, even when it is the only
 copied file that defines the symbol, cited provision, child output, or child
 scalar that a rule in this prompt tells you to import. For every rule in this
 prompt, an import from a file in this list is an import that is not available.
-When a calculation needs something that only a file in this list provides,
-follow the first of these that applies:
-1. If `Unavailable cited RuleSpec context detected` lists the file, follow
-   that section for what the source cites from it.
-2. If another rule in this prompt says what to do when an import or a cited
-   definition is not available, for example a source-named local boundary
-   input, follow that rule.
-3. Otherwise omit or defer only the affected executable surface.
+When the only provider of something a calculation needs is a file in this
+list, omit or defer only the affected executable surface. There are two
+exceptions:
+(a) `Unavailable cited RuleSpec context detected` lists the file: follow that
+    section for what the source cites from it.
+(b) A rule in this prompt says what to do when that exact kind of import or
+    cited definition is not available: follow that rule. Such rules cover the
+    local boundary input for the value of a named legal base of a rate-applied
+    result; semantic local boundary inputs for an externally determined base,
+    amount, rate, status, or fact in a source-stated formula; the source-named
+    boundary input for one affected subtype, carve-out, or branch;
+    paragraph-specific local inputs for a `subject to` lead-in that cites
+    paragraphs; and the local override/displacement boolean for a
+    `Subject to ...` leaf.
 In every case keep encoding the independent rules from this source.
 """
 
@@ -15525,8 +15532,10 @@ def _importable_context_resolves_source_citations(
     that has an export and that the same matcher reads as cited, is nearer to
     the cited provision than the blocked file: it encodes the cited provision
     or an ancestor of it below the blocked file. A citation of the blocked
-    file itself is never resolved, and a child of the cited provision never
-    resolves it. The result does not depend on the order of the context files.
+    file itself is never resolved, a child of the cited provision never
+    resolves it, and a citation that goes on as a list or a range (`63(a) or
+    (b)`) is never resolved. The result does not depend on the order of the
+    context files.
     """
     blocked = _import_target_to_statute_citation(blocked_item.import_path)
     if blocked is None:
@@ -15545,7 +15554,13 @@ def _importable_context_resolves_source_citations(
         and _source_text_cites_statute(source_text, provider)
     }
     depth = len(blocked.fragments)
-    for _section, cited in _iter_source_statute_citation_matches(source_text, blocked):
+    for _section, cited, continues in _iter_source_statute_citation_matches(
+        source_text, blocked
+    ):
+        if continues:
+            # A list or a range names provisions that were not read; a
+            # provider for the first of them does not provide for the rest.
+            return False
         if cited[:depth] == blocked.fragments:
             # The blocked file is the cited provision or an ancestor of it.
             resolved = any(
@@ -15840,24 +15855,41 @@ def _import_target_to_statute_citation(import_path: str) -> _StatuteCitation | N
 
 
 _CITATION_FRAGMENT_TAIL = re.compile(r"(?:\s*\(\s*[A-Za-z0-9]+\s*\))*")
+# After the fragments of a citation: a separator and one more parenthesized
+# fragment, as in `63(a) or (b)`, `63(a), (b), and (c)` or `63(a) through (d)`.
+# The citation then names more provisions than the fragments read so far.
+_CITATION_LIST_CONTINUATION = re.compile(
+    r"(?:\s|[,;/&]|[-\u2010-\u2015]"
+    r"|\b(?:and|or|nor|through|thru|to|subsections?|paragraphs?|subparagraphs?"
+    r"|clauses?)\b)+"
+    r"\(\s*[A-Za-z0-9]+\s*\)",
+    flags=re.IGNORECASE,
+)
 
 
 def _iter_source_statute_citation_matches(
     source_text: str,
     citation: _StatuteCitation,
-) -> Iterator[tuple[str, tuple[str, ...]]]:
+) -> Iterator[tuple[str, tuple[str, ...], bool]]:
     """Yield the provision cited at each place where source text cites the citation.
 
     The three routes are the complete definition of "the source cites this
     copied file". Each match yields the section and the fragments that the
     source text names at that place, read to the end of its parenthesized
     fragments, so `section 63 (a)(1)` yields section 63 with fragments a and 1
-    for a copied file of section 63.
+    for a copied file of section 63. The third value says that the citation
+    goes on as a list or a range, as in `section 63(a) or (b)`: the yielded
+    fragments are then only the first of the provisions it names.
     """
 
-    def fragments_from(start: int) -> tuple[str, ...]:
-        tail = _CITATION_FRAGMENT_TAIL.match(source_text, start).group(0)
-        return tuple(re.findall(r"[A-Za-z0-9]+", tail))
+    def cited_from(
+        start: int, fragments: tuple[str, ...]
+    ) -> tuple[tuple[str, ...], bool]:
+        tail = _CITATION_FRAGMENT_TAIL.match(source_text, start)
+        return (
+            fragments + tuple(re.findall(r"[A-Za-z0-9]+", tail.group(0))),
+            _CITATION_LIST_CONTINUATION.match(source_text, tail.end()) is not None,
+        )
 
     citation_pattern = re.escape(citation.section)
     for fragment in citation.fragments:
@@ -15869,23 +15901,17 @@ def _iter_source_statute_citation_matches(
         source_text,
         flags=re.IGNORECASE,
     ):
-        yield (
-            citation.section,
-            citation.fragments + fragments_from(match.end("cited")),
-        )
+        yield citation.section, *cited_from(match.end("cited"), citation.fragments)
     if citation.fragments:
         for match in re.finditer(
             rf"\b(?P<cited>{citation_pattern})(?:\b|\s|\)|,|;|\.)",
             source_text,
             flags=re.IGNORECASE,
         ):
-            yield (
-                citation.section,
-                citation.fragments + fragments_from(match.end("cited")),
-            )
+            yield citation.section, *cited_from(match.end("cited"), citation.fragments)
     for cited_parts, _start, end in _iter_cited_usc_sections(source_text):
         if _cited_parts_cover_import(cited_parts, citation):
-            yield cited_parts.section, cited_parts.fragments + fragments_from(end)
+            yield cited_parts.section, *cited_from(end, cited_parts.fragments)
 
 
 def _source_text_cites_statute(
