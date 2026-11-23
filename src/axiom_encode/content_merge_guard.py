@@ -71,7 +71,10 @@ author and committer. The approval must cover the same promotion scope and
 primary, companion and manifest blobs as the current head, and the required
 CI must pass on that head in this PR's own ``pull_request`` run. The
 evaluator makes every read live through one injected ``fetch`` callable and
-returns ``fail`` on an error, truncation or disagreement.
+returns ``fail`` on an error, truncation or disagreement. A ``fail`` that
+comes from a read the evaluator could not make whole carries
+``EVIDENCE_INCOMPLETE_READ`` in its evidence, so a caller can tell "refused"
+from "could not see" (``INCOMPLETE_READ_REASONS``, ``_Unread``).
 """
 
 from __future__ import annotations
@@ -91,13 +94,13 @@ from axiom_encode.reviewed_pr_admission import (
     TRUSTED_SIGNING_REVIEWERS,
     AdmissionError,
     PromotionSelector,
-    _leaf_entries,
-    _object,
-    _pages,
     _pr_identity,
     _require_immutable_delta,
     github_json,
 )
+from axiom_encode.reviewed_pr_admission import _leaf_entries as _shared_leaf_entries
+from axiom_encode.reviewed_pr_admission import _object as _shared_object
+from axiom_encode.reviewed_pr_admission import _pages as _shared_pages
 from axiom_encode.rulespec_citation_paths import (
     RULESPEC_ATOMIC_ROOTS,
     citation_rulespec_path,
@@ -289,6 +292,36 @@ R_MERGE_GROUP_BASE = "merge_group_base_not_main"
 R_MERGE_GROUP_TREE = "merge_group_tree_differs"
 R_MERGE_GROUP_ANCESTRY = "merge_group_not_on_base"
 
+# Reasons that always mean "a read was incomplete or unreadable", whatever
+# raised them: a truncated tree, a listing past its page bound, a blob that
+# cannot be read whole, two reads of one delta that disagree, a request that
+# failed, an error nobody foresaw, an evaluation that did not happen. The
+# verdict stays ``fail``. It is not a decision about the pull request: the
+# evaluator could not see all of it. ``evaluate`` marks every such verdict
+# with ``EVIDENCE_INCOMPLETE_READ`` in its evidence.
+#
+# Other reasons are mixed. ``ci_not_green`` is a decision when the required
+# check is red and an incomplete read when its listing does not add up. For
+# those the mark is set by what failed, not by the reason: a response that is
+# not the complete, well-formed object or list its read asked for raises
+# ``_Unread`` (see ``_refuse_as``).
+INCOMPLETE_READ_REASONS = frozenset(
+    {
+        R_READ_FAILED,
+        R_EVALUATION_ERROR,
+        R_INVALID_REQUEST,
+        R_DELTA_INCOMPLETE,
+        R_DELTA_DISAGREES,
+        R_BLOB_UNREADABLE,
+        R_REVIEWS,
+        R_COMMITS,
+    }
+)
+# Evidence key of a verdict whose evaluation did not read everything it
+# needed. Present (``True``) only then. Such a verdict is never ``pass`` or
+# ``not_applicable``: only a ``_Refusal`` or an unforeseen error sets it.
+EVIDENCE_INCOMPLETE_READ = "incomplete_read"
+
 _SHA = re.compile(r"[0-9a-f]{40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _LOGIN = re.compile(r"[A-Za-z0-9-]{1,39}")
@@ -319,21 +352,64 @@ class Verdict:
 
 
 class _Refusal(AdmissionError):
-    def __init__(self, reason: str, detail: str = ""):
+    def __init__(self, reason: str, detail: str = "", *, unread: bool = False):
         super().__init__(detail or reason)
         self.reason = reason
         self.detail = detail
+        # True when the refusal comes from a read that was incomplete or
+        # unreadable, not from what a complete read showed.
+        self.unread = unread is True or reason in INCOMPLETE_READ_REASONS
+
+
+class _Unread(AdmissionError):
+    """A response is not the complete, well-formed answer to its read.
+
+    Not an object, not a list, a truncated tree, a listing past its page
+    bound, a count that does not add up, a field GitHub always sends that is
+    absent or ill-typed. The evaluator saw less than it asked for.
+    """
 
 
 @contextmanager
 def _refuse_as(reason: str):
-    """Give a reason code to a refusal raised by a shared admission helper."""
+    """Give a reason code to a refusal raised by a shared admission helper.
+
+    An ``_Unread`` keeps its meaning under every reason: the refusal carries
+    ``unread`` and the verdict the incomplete-read mark.
+    """
     try:
         yield
     except _Refusal:
         raise
     except AdmissionError as exc:
-        raise _Refusal(reason, str(exc)) from exc
+        raise _Refusal(reason, str(exc), unread=isinstance(exc, _Unread)) from exc
+
+
+def _shape_reader(helper):
+    """A shared response-shape helper whose refusal is an ``_Unread``.
+
+    ``_object``, ``_pages`` and ``_leaf_entries`` refuse only a response that
+    is not what its read asked for (no object, no list, more than a page, the
+    page bound, a truncated or malformed tree). None of them decides anything
+    about the pull request.
+    """
+
+    def wrapped(*args, **kwargs):
+        try:
+            return helper(*args, **kwargs)
+        except _Refusal:
+            raise
+        except AdmissionError as exc:
+            raise _Unread(str(exc)) from exc
+
+    wrapped.__name__ = helper.__name__
+    wrapped.__doc__ = helper.__doc__
+    return wrapped
+
+
+_object = _shape_reader(_shared_object)
+_pages = _shape_reader(_shared_pages)
+_leaf_entries = _shape_reader(_shared_leaf_entries)
 
 
 @dataclass(frozen=True)
@@ -590,7 +666,7 @@ def _main_tip(read: Callable[[str], object], root: str) -> str:
     main = _object(read(root + "/git/ref/heads/main"), "main ref")
     sha = _object(main.get("object"), "main object").get("sha")
     if not isinstance(sha, str) or not _SHA.fullmatch(sha):
-        raise AdmissionError("main ref is not an exact commit")
+        raise _Unread("main ref is not an exact commit")
     return sha
 
 
@@ -661,10 +737,14 @@ def _require_green_ci(
     runs = listing.get("check_runs")
     if (
         not isinstance(runs, list)
-        or not runs
-        or listing.get("total_count") != len(runs)
+        or type(listing.get("total_count")) is not int
+        or listing["total_count"] != len(runs)
     ):
-        raise AdmissionError("required check is absent or its listing is incomplete")
+        # More runs than one page, or a listing that is not a listing: the
+        # evaluator did not see every run with the required name.
+        raise _Unread("required check listing is incomplete")
+    if not runs:
+        raise AdmissionError("required check is absent")
     repository = root.removeprefix("/repos/")
     pattern = re.compile(
         re.escape(f"https://github.com/{repository}/actions/runs/")
@@ -1061,8 +1141,11 @@ def evaluate(
     try:
         return _evaluate(repository, pr, _reader(fetch), evidence)
     except _Refusal as refusal:
+        if refusal.unread:
+            evidence[EVIDENCE_INCOMPLETE_READ] = True
         return Verdict(FAIL, refusal.reason, refusal.detail, evidence)
     except Exception as exc:  # fail closed on anything unforeseen
+        evidence[EVIDENCE_INCOMPLETE_READ] = True
         return Verdict(FAIL, R_EVALUATION_ERROR, type(exc).__name__, evidence)
 
 
@@ -1075,7 +1158,7 @@ def _commit_tree(read: Callable[[str], object], root: str, sha: str) -> str:
         or not isinstance(tree, str)
         or not _SHA.fullmatch(tree)
     ):
-        raise AdmissionError("commit object does not name itself and one tree")
+        raise _Unread("commit object does not name itself and one tree")
     return tree
 
 
@@ -1118,8 +1201,11 @@ def evaluate_merge_group(
             repository, group_head, group_base, pr, fetch, evidence
         )
     except _Refusal as refusal:
+        if refusal.unread:
+            evidence[EVIDENCE_INCOMPLETE_READ] = True
         return Verdict(FAIL, refusal.reason, refusal.detail, evidence)
     except Exception as exc:  # fail closed on anything unforeseen
+        evidence[EVIDENCE_INCOMPLETE_READ] = True
         return Verdict(FAIL, R_EVALUATION_ERROR, type(exc).__name__, evidence)
 
 
@@ -1181,12 +1267,15 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             or not isinstance(branch, str)
             or not branch
         ):
-            raise AdmissionError("PR head is not an exact commit on a branch")
+            raise _Unread("PR head is not an exact commit on a branch")
+        # GitHub always sends these two objects. (``head.repo`` is different:
+        # it is null when the fork was deleted, which is a decision.)
+        _object(before.get("base"), "PR base")
+        if not _strict_int(_object(before.get("user"), "PR author").get("id")):
+            raise _Unread("PR author lacks a numeric identity")
         target = _Target(number, head, branch, repository)
         identity = _pr_identity(before, target)
         author_id = identity[1]
-        if not _strict_int(author_id):
-            raise AdmissionError("PR author lacks a numeric identity")
     evidence["head"] = head
     with _refuse_as(R_BASE_NOT_CURRENT):
         base = _main_tip(read, root)

@@ -8,9 +8,10 @@ The shadow runner (``command``, ``axiom-encode merge-guard-run``, workflow
 ``.github/workflows/merge-guard-runner.yml``) runs as the guard GitHub App:
 
 - ``dry-run`` (the default) reads and prints. It writes nothing to GitHub.
-- ``shadow`` also writes one check run per judged head, named
-  ``SHADOW_CHECK_NAME``, whose conclusion is always ``neutral``. The verdict is
-  in the title and the summary. A shadow check cannot block a merge and must
+- ``shadow`` also writes one check run per judged pull request on its head
+  commit, named ``SHADOW_CHECK_NAME``, whose conclusion is always
+  ``neutral``. The pull request number and the verdict are in the title and
+  the summary. A shadow check cannot block a merge and must
   never be made a required check: ``neutral`` satisfies a required check, so
   requiring it would require nothing.
 - The one writer, ``check_writer``, refuses every body that is not a
@@ -33,7 +34,18 @@ verdict is as late as the job can make it.
 Nothing here carries authority. The list of open pull requests is only a work
 list: every verdict comes from the evaluator's own live reads. A read that
 fails, is truncated or reaches its page bound is an error of the run. It is
-never reported as "no pull requests" or "nothing to check".
+never reported as "no pull requests" or "nothing to check", and an evaluation
+that could not read everything it needed is never reported as a completed
+run: its verdict is ``fail``, the report says ``complete: false`` and the
+exit code is ``EXIT_RUN_ERROR`` (``_evaluation_incomplete``).
+
+``complete: true`` means: every pull request of the work list this run
+obtained was evaluated from complete reads, and every intended check was
+written. It does not mean that the work list held every open pull request.
+The list is read page by page while pull requests open and close; a pull
+request that moves across a page boundary between two page reads can be
+missing from the list (or be refused as a repeated number). A sweep is
+therefore not a census, and the next sweep reads the list again.
 
 The token is read from the environment variable ``TOKEN_ENV`` only. It is
 never accepted on the command line and never printed.
@@ -176,13 +188,27 @@ MAX_ENFORCE_REQUESTS: Final = 350
 
 _API: Final = "https://api.github.com"
 _REPOSITORY = re.compile(r"rulespec-[a-z]{2}(-[a-z0-9]+)*")
-_TOKEN = re.compile(r"[A-Za-z0-9_.-]{20,512}")
+# The token is opaque. GitHub changes its format and length (40 characters
+# for an earlier installation token, about 520 for a stateless one, and it
+# says to expect more), so nothing here depends on either. Two tests only:
+# the characters are those of an HTTP ``Bearer`` credential (RFC 6750
+# ``b64token``: ASCII letters, digits and ``-._~+/=``), so the value cannot
+# split or fold the ``Authorization`` header (no space, no control character,
+# nothing outside ASCII); and the length is inside transport bounds. The
+# lower bound refuses an empty or placeholder value before any request; the
+# upper bound is above any header a server accepts and is not a token format
+# rule.
+MIN_TOKEN_CHARS: Final = 20
+MAX_TOKEN_CHARS: Final = 16 * 1024
+_TOKEN = re.compile(r"[A-Za-z0-9._~+/=-]{%d,%d}" % (MIN_TOKEN_CHARS, MAX_TOKEN_CHARS))
 _SHA = re.compile(r"[0-9a-f]{40}")
 # The temporary branch of a merge group that holds one pull request to
 # ``main``: ``refs/heads/gh-readonly-queue/main/pr-<number>-<40 hex>``.
 _QUEUE_REF = re.compile(
     r"refs/heads/gh-readonly-queue/main/pr-([1-9][0-9]{0,8})-[0-9a-f]{40}"
 )
+# ``_external_id``: ``pr-<number>:<sha256 hex>``.
+_EXTERNAL_ID = re.compile(r"pr-[1-9][0-9]*:[0-9a-f]{64}")
 _COMPARE_SEGMENT = re.compile(r"[0-9a-f]{40}\.\.\.[0-9a-f]{40}")
 _CHECK_RUNS_PATH = re.compile(
     r"/repos/TheAxiomFoundation/rulespec-[a-z]{2}(-[a-z0-9]+)*/check-runs"
@@ -191,7 +217,61 @@ _RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
 
 # Verdict reasons that mean "the evaluation could not read", not "the pull
 # request is refused". The verdict is still ``fail``; the run is also an error.
-_UNREAD_REASONS: Final = frozenset({guard.R_READ_FAILED, guard.R_EVALUATION_ERROR})
+_UNREAD_REASONS: Final = guard.INCOMPLETE_READ_REASONS
+# The reasons of a COMPLETED evaluation, by verdict. An evaluation counts as
+# completed only when its verdict and reason are listed here and it carries
+# no incomplete-read mark. The list is closed on purpose: a reason the
+# evaluator gains later is an error of the run until a reviewed change puts
+# it on one side (``tests/test_merge_guard_runner.py`` requires every reason
+# of the evaluator to be in exactly one of the two sets).
+_DECIDED_REASONS: Final = {
+    guard.PASS: frozenset({guard.R_PASS, guard.R_CONTROL_PLANE_PASS}),
+    guard.NOT_APPLICABLE: frozenset(
+        {guard.R_NO_GUARDED_CONTENT, guard.R_EARLIER_LANE, guard.R_INFRASTRUCTURE}
+    ),
+    guard.FAIL: frozenset(
+        {
+            guard.R_SIGNED_BACKFILL,
+            guard.R_GUARDED_LEAF,
+            guard.R_MANIFEST_REMOVED,
+            guard.R_NO_LANE,
+            guard.R_UNATTRIBUTED,
+            guard.R_CONTENT_NOT_COVERED,
+            guard.R_UNKNOWN_SCHEMA,
+            guard.R_MIXED_SCHEMAS,
+            guard.R_MULTIPLE_V6,
+            guard.R_UNSUPPORTED_REPOSITORY,
+            guard.R_PR_IDENTITY,
+            guard.R_PR_DRAFT,
+            guard.R_BASE_NOT_CURRENT,
+            guard.R_TOO_MANY_MANIFESTS,
+            guard.R_MANIFEST_UNPARSEABLE,
+            guard.R_MANIFEST_SHAPE,
+            guard.R_MANIFEST_CANDIDATE,
+            guard.R_CITATION,
+            guard.R_MANIFEST_PATH,
+            guard.R_SCOPE_PATHS,
+            guard.R_SCOPE_NOT_NEW,
+            guard.R_APPLIED_FILES,
+            guard.R_RUN,
+            guard.R_DISPATCHER_MISMATCH,
+            guard.R_DISPATCHER_NOT_ENROLLED,
+            guard.R_CHANGES_REQUESTED,
+            guard.R_NO_APPROVAL,
+            guard.R_NOT_ENROLLED,
+            guard.R_IS_AUTHOR,
+            guard.R_IS_DISPATCHER,
+            guard.R_AUTHORED_COMMITS,
+            guard.R_NOT_CONTENT_BOUND,
+            guard.R_NO_COUNTING_APPROVAL,
+            guard.R_CI,
+            guard.R_CHANGED,
+            guard.R_MERGE_GROUP_BASE,
+            guard.R_MERGE_GROUP_TREE,
+            guard.R_MERGE_GROUP_ANCESTRY,
+        }
+    ),
+}
 
 Fetch = Callable[[str], object]
 Post = Callable[[str, dict], object]
@@ -335,8 +415,52 @@ def open_pull_requests(repository: str, fetch: Fetch) -> list[int]:
     raise RunnerError("pull request list reached its page bound")
 
 
-def _verdict_digest(verdict: guard.Verdict) -> str:
-    """The identity of a shadow check: verdict, reason and detail.
+def _evaluation_incomplete(verdict: object) -> bool:
+    """Whether a verdict (as a dict) is NOT the result of a completed evaluation.
+
+    Fail closed: completed means a known verdict with a reason from the
+    closed list of decisions and no incomplete-read mark of the evaluator.
+    Everything else (a truncated tree, a listing past its page bound, a
+    failed request, an unknown reason, a verdict of an unexpected shape) is
+    an evaluation that could not read, and so an error of the run.
+    """
+    if not isinstance(verdict, dict):
+        return True
+    kind = verdict.get("verdict")
+    reason = verdict.get("reason")
+    evidence = verdict.get("evidence")
+    decided = _DECIDED_REASONS.get(kind) if isinstance(kind, str) else None
+    return (
+        decided is None
+        or not isinstance(reason, str)
+        or reason not in decided
+        or reason in _UNREAD_REASONS
+        or not isinstance(evidence, dict)
+        or guard.EVIDENCE_INCOMPLETE_READ in evidence
+    )
+
+
+def _external_id(number: int, verdict: guard.Verdict) -> str:
+    """The identity of a shadow check: the pull request and its verdict."""
+    return f"{_external_id_prefix(number)}{_verdict_digest(number, verdict)}"
+
+
+def _external_id_prefix(number: int) -> str:
+    if not _strict_int(number):
+        raise RunnerError("a shadow check needs the pull request it judges")
+    return f"pr-{number}:"
+
+
+def _verdict_digest(number: int, verdict: guard.Verdict) -> str:
+    """Digest of the pull request number, the verdict, reason and detail.
+
+    The verdict is for a pull request, not for a commit: the evaluator reads
+    the reviews and the CI run of ONE pull request. Two pull requests can
+    have the same head commit and different verdicts, and a check run
+    attaches to the commit. So the number is part of the identity (and of
+    the title): without it the two verdicts would overwrite each other's
+    "unchanged" state on every sweep and nobody could tell which pull request
+    a check on the shared commit is about.
 
     The evidence is not part of it. It names the ``main`` tip, so hashing it
     would write a new check on every open pull request each time ``main``
@@ -347,17 +471,23 @@ def _verdict_digest(verdict: guard.Verdict) -> str:
     command prints always carries the current evidence.
     """
     core = json.dumps(
-        [verdict.verdict, verdict.reason, verdict.detail],
+        [number, verdict.verdict, verdict.reason, verdict.detail],
         sort_keys=True,
         separators=(",", ":"),
     )
     return hashlib.sha256(core.encode("utf-8")).hexdigest()
 
 
-def shadow_check_body(verdict: guard.Verdict, head: str) -> dict:
-    """The check run a shadow evaluation writes. Always ``neutral``."""
+def shadow_check_body(verdict: guard.Verdict, head: str, number: int) -> dict:
+    """The check run a shadow evaluation writes. Always ``neutral``.
+
+    ``number`` is the pull request that was evaluated. It must be the one the
+    verdict names: a body never carries the verdict of another pull request.
+    """
     if not isinstance(head, str) or _SHA.fullmatch(head) is None:
         raise RunnerError("verdict names no head commit")
+    if not _strict_int(number) or verdict.evidence.get("pull_request") != number:
+        raise RunnerError("verdict is not for the pull request of the check")
     text = json.dumps(verdict.as_dict(), sort_keys=True, indent=2)
     if len(text) > MAX_SUMMARY_CHARS:
         text = text[:MAX_SUMMARY_CHARS] + "\n... (truncated)"
@@ -366,14 +496,19 @@ def shadow_check_body(verdict: guard.Verdict, head: str) -> dict:
         "head_sha": head,
         "status": "completed",
         "conclusion": SHADOW_CONCLUSION,
-        "external_id": _verdict_digest(verdict),
+        "external_id": _external_id(number, verdict),
         "output": {
-            "title": f"shadow verdict: {verdict.verdict} ({verdict.reason})",
+            "title": (
+                f"shadow verdict for #{number}: {verdict.verdict} ({verdict.reason})"
+            ),
             "summary": (
                 "Shadow mode. This check is informational: it is not a "
                 "required check, it cannot block this pull request, and its "
                 "conclusion is always neutral. It shows what the "
-                "content-bound merge guard would decide for this head.\n\n"
+                "content-bound merge guard would decide for pull request "
+                f"#{number} at this head. The verdict is for that pull "
+                "request only: another pull request with the same head "
+                "commit has its own shadow check on this commit.\n\n"
                 "```json\n" + text + "\n```"
             ),
         },
@@ -381,9 +516,21 @@ def shadow_check_body(verdict: guard.Verdict, head: str) -> dict:
 
 
 def _already_reported(
-    root: str, head: str, digest: str, fetch: Fetch, app_client_id: str | None
+    root: str,
+    head: str,
+    number: int,
+    external_id: str,
+    fetch: Fetch,
+    app_client_id: str | None,
 ) -> bool:
-    """Whether the guard App's newest shadow check on ``head`` has this verdict.
+    """Whether the guard App's newest shadow check of pull request ``number``
+    on ``head`` has this verdict.
+
+    A check of ours that names ANOTHER pull request on the same commit is not
+    looked at: it neither suppresses this verdict nor is it "the newest". A
+    check of ours whose ``external_id`` names no pull request in the exact
+    form of ``_external_id`` is kept in the comparison: it can make the
+    verdict be written again and can never suppress it.
 
     Only a check that the guard App itself published counts. Any workflow of
     the RuleSpec repository can create a check with the shadow name and the
@@ -445,19 +592,30 @@ def _already_reported(
             raise RunnerError("check run listing is incomplete")
     else:
         raise RunnerError("check run listing reached its page bound")
+    prefix = _external_id_prefix(number)
     ours = []
     for run in runs:
         app = run.get("app")
+        identity = run.get("external_id")
         if (
-            run.get("name") == SHADOW_CHECK_NAME
-            and isinstance(app, dict)
-            and app.get("client_id") == app_client_id
+            run.get("name") != SHADOW_CHECK_NAME
+            or not isinstance(app, dict)
+            or app.get("client_id") != app_client_id
         ):
-            ours.append(run)
+            continue
+        if (
+            isinstance(identity, str)
+            and _EXTERNAL_ID.fullmatch(identity) is not None
+            and not identity.startswith(prefix)
+        ):
+            continue  # ours, for another pull request with this head
+        ours.append(run)
     if not ours:
         return False
     newest = max(ours, key=lambda run: run["id"])
-    return newest.get("external_id") == digest and newest.get("status") == "completed"
+    return (
+        newest.get("external_id") == external_id and newest.get("status") == "completed"
+    )
 
 
 def report_one(
@@ -489,8 +647,10 @@ def report_one(
         return entry
     root = f"/repos/{guard.ORGANISATION}/{repository}"
     try:
-        body = shadow_check_body(verdict, head)
-        if _already_reported(root, head, body["external_id"], fetch, app_client_id):
+        body = shadow_check_body(verdict, head, number)
+        if _already_reported(
+            root, head, number, body["external_id"], fetch, app_client_id
+        ):
             entry["publication"] = "unchanged"
             return entry
         created = post(root + "/check-runs", body)
@@ -500,6 +660,7 @@ def report_one(
             or created.get("head_sha") != head
             or created.get("name") != SHADOW_CHECK_NAME
             or created.get("conclusion") != SHADOW_CONCLUSION
+            or created.get("external_id") != body["external_id"]
         ):
             raise RunnerError("GitHub did not confirm the shadow check run")
         entry["publication"] = "created"
@@ -522,9 +683,13 @@ def run(
     """Evaluate ``numbers``, or every open pull request to ``main``.
 
     Returns the report and the exit code. The exit code is about the run, not
-    the verdicts: ``EXIT_OK`` when every pull request was evaluated and every
-    intended publication happened, ``EXIT_RUN_ERROR`` otherwise. A ``fail``
-    verdict is a result, not a run error, unless its reason is a failed read.
+    the verdicts: ``EXIT_OK`` when every pull request of the work list was
+    evaluated from complete reads and every intended publication happened,
+    ``EXIT_RUN_ERROR`` otherwise. A ``fail`` verdict is a result, not a run
+    error, unless the evaluation behind it could not read everything
+    (``_evaluation_incomplete``): then the verdict stays ``fail`` AND the run
+    is an error with ``complete: false``. ``complete`` is about the work list
+    the run obtained (module docstring), not about every open pull request.
     """
     report: dict = {
         "schema": REPORT_SCHEMA,
@@ -563,9 +728,7 @@ def run(
     if any(entry["publication"] == "error" for entry in report["results"]):
         report["error"] = "a shadow check run was not published"
         return report, EXIT_RUN_ERROR
-    if any(
-        entry["verdict"]["reason"] in _UNREAD_REASONS for entry in report["results"]
-    ):
+    if any(_evaluation_incomplete(entry.get("verdict")) for entry in report["results"]):
         # The verdict is ``fail`` (closed), and the run says it could not read.
         report["error"] = "an evaluation could not read GitHub"
         return report, EXIT_RUN_ERROR
@@ -993,7 +1156,16 @@ def enforce(
     report["requests"] = counted.count
     if verdict is not None:
         report["verdict"] = verdict.as_dict()
-        if verdict.reason in _UNREAD_REASONS and "error" not in report:
+        if (
+            verdict.reason != R_EVENT_HEAD_STALE
+            and _evaluation_incomplete(report["verdict"])
+            and "error" not in report
+        ):
+            # A truncated tree, a listing at its page bound, a failed
+            # request, a reason outside the closed list of decisions: the
+            # verdict is not the result of a completed evaluation. (The
+            # runner's own ``R_EVENT_HEAD_STALE`` is a decision; it fails
+            # the job below like every other ``fail``.)
             report["error"] = "an evaluation could not read GitHub"
     if (
         verdict is not None
