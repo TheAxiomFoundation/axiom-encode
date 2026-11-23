@@ -158,10 +158,16 @@ class _Module:
     module: str
     export: str | None = "dependent"
     imports: tuple[str, ...] = ()
+    # A repository path outside title 26 of the statutes, without `.yaml`.
+    relative: str | None = None
+
+    @property
+    def path(self) -> str:
+        return self.relative or f"statutes/26/{self.section}"
 
     @property
     def target(self) -> str:
-        return f"us:statutes/26/{self.section}"
+        return f"us:{self.path}"
 
     def text(self) -> str:
         imports = ""
@@ -195,11 +201,13 @@ def _render(
     policyengine_rule_hint: str | None = None,
     source_text: str | None = None,
     canonical_concepts: tuple[str, ...] = (),
+    runner_backend: str = "codex",
+    reverse_context: bool = False,
 ) -> str:
     root = tmp_path.resolve() / "rulespec-us" / "us"
     paths = []
     for module in modules:
-        path = root / "statutes" / "26" / f"{module.section}.yaml"
+        path = root / f"{module.path}.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(module.text())
         paths.append(path)
@@ -245,6 +253,8 @@ def _render(
         else item
         for item in workspace.context_files
     ]
+    if reverse_context:
+        context_files.reverse()
     return evals._build_eval_prompt(
         "26 USC 151",
         "repo-augmented",
@@ -256,6 +266,7 @@ def _render(
         validation_retry_candidate=candidate,
         required_import_targets=required_import_targets,
         policyengine_rule_hint=policyengine_rule_hint,
+        runner_backend=runner_backend,
     )
 
 
@@ -268,7 +279,7 @@ def _section(prompt: str, heading: str) -> str:
 
 
 def _listing(prompt: str, module: _Module) -> str:
-    marker = f"- inspect `context/statutes/26/{module.section}.yaml`"
+    marker = f"- inspect `context/{module.path}.yaml`"
     lines = [line for line in prompt.splitlines() if line.startswith(marker)]
     assert len(lines) == 1, module.section
     return lines[0]
@@ -758,6 +769,411 @@ def test_the_blocker_pass_reads_each_copied_file_once(tmp_path, monkeypatch):
         "an import of `us:statutes/26/4`, which is not an import target"
     )
     assert evals._context_import_blockers(items[1:], composed_target=False) == {}
+
+
+# --- The generic import rules and the provider of a cited provision --------
+#
+# Review of e4e556254. Finding 1: the generic import rules still asked for an
+# import of a copied module the target cannot import. Finding 2: a blocked
+# parent caused deferral guidance although the exact cited provider was
+# importable.
+
+NOT_IMPORT_TARGETS = "Copied context that is not an import target:"
+BACKENDS = ("codex", "claude", "openai", "claude-api")
+# Each generic import rule: the text before the place where the eligibility
+# qualifier goes, the qualifier, and the text after it.
+GENERIC_IMPORT_RULES = (
+    (
+        "- If a copied context file",
+        " listed with an import target",
+        " already defines the exact symbol you need, import that exact symbol",
+    ),
+    (
+        "a copied context file for that citation is listed",
+        " with an import target",
+        ", import and use the listed exported symbol",
+    ),
+    (
+        "aggregate parent provision and copied child-fragment files",
+        " listed with an import target",
+        " already encode subparagraphs, import those child outputs",
+    ),
+    (
+        "a more specific child file under the current target path",
+        ", listed with an import target,",
+        " that exports the exact scalar needed by this source",
+    ),
+)
+CHILD_SCALAR_RULE = "Import the exact child export and use it"
+RATE_SOURCE = "Multiply the qualifying amount by the exemption rate."
+
+
+def _assert_generic_import_rules(prompt: str, *, scoped: bool) -> None:
+    flat = _flat(prompt)
+    for before, qualifier, after in GENERIC_IMPORT_RULES:
+        assert (before + qualifier + after in flat) == scoped, before
+        assert (before + after in flat) == (not scoped), before
+    assert flat.count(CHILD_SCALAR_RULE) == 1
+
+
+def _assert_defers_to(prompt: str, module: _Module, reason: str) -> None:
+    """The prompt names the module as no import target and asks for deferral."""
+    section = _section(prompt, NOT_IMPORT_TARGETS)
+    assert (
+        f"- `context/{module.path}.yaml`: `{module.target}` has {reason}.\n" in section
+    )
+    flat = _flat(section)
+    assert (
+        "Every import rule in this prompt applies only to a copied file that "
+        "is listed with an import target." in flat
+    )
+    assert "never import from it, even when it is the only copied file" in flat
+    assert (
+        "When a calculation needs something that only a file in this list "
+        "provides, omit or defer only the affected executable surface" in flat
+    )
+    assert "Do not add a local input, parameter, or rule that stands in" in flat
+    # The scope statement comes before the rules it scopes.
+    assert prompt.index(NOT_IMPORT_TARGETS) < prompt.index("Import and context rules:")
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_blocked_child_scalar_is_not_what_the_generic_rules_import(tmp_path, backend):
+    # The reviewer's probe for finding 1: before the fix the prompt marked the
+    # child as no import target and still said, without a condition, "Import
+    # the exact child export and use it"; nothing asked for deferral.
+    child = _Module("151/rate", COMPOSITION, "exemption_rate")
+
+    prompt = _render(
+        tmp_path, (child,), source_text=RATE_SOURCE, runner_backend=backend
+    )
+
+    _assert_generic_import_rules(prompt, scoped=True)
+    _assert_defers_to(prompt, child, COMPOSITION_REASON)
+    # The source cites no section, so deferral cannot come from this section.
+    assert UNAVAILABLE not in prompt
+    assert MANDATORY not in prompt
+    assert f"{child.target}#" not in prompt
+    assert f"import target `{child.target}`" not in prompt
+    assert "not an import target: `us:statutes/26/151/rate`" in _listing(prompt, child)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_an_atomic_child_scalar_keeps_the_generic_rules_word_for_word(
+    tmp_path, backend
+):
+    child = _Module("151/rate", ATOMIC, "exemption_rate")
+
+    prompt = _render(
+        tmp_path, (child,), source_text=RATE_SOURCE, runner_backend=backend
+    )
+
+    _assert_generic_import_rules(prompt, scoped=False)
+    assert NOT_IMPORT_TARGETS not in prompt
+    assert "listed with an import target" not in _flat(prompt)
+    assert "not an import target" not in prompt
+    assert f"exports `{child.target}#exemption_rate`" in _listing(prompt, child)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_blocked_policies_dependency_is_deferred_on_every_backend(tmp_path, backend):
+    # A policies-root module has no citation in the source text, so the
+    # "Unavailable cited RuleSpec context" section never names it.
+    dependency = _Module(
+        "plan",
+        COMPOSITION,
+        "plan_rate",
+        relative="policies/usda/snap/state-plan-composition",
+    )
+
+    prompt = _render(
+        tmp_path,
+        (dependency,),
+        source_text="Multiply the allotment by the plan rate.",
+        runner_backend=backend,
+    )
+
+    _assert_generic_import_rules(prompt, scoped=True)
+    _assert_defers_to(prompt, dependency, COMPOSITION_REASON)
+    assert UNAVAILABLE not in prompt
+    assert f"{dependency.target}#" not in prompt
+    inline = "=== FILE: context/policies/usda/snap/state-plan-composition.yaml ==="
+    if backend in {"openai", "claude-api"}:
+        # The inline copy shows the raw rule; the scope statement covers it.
+        copy = prompt[prompt.index(inline) :]
+        assert "- name: plan_rate" in copy
+        assert "also where an inline copy shows its rules" in _flat(
+            _section(prompt, NOT_IMPORT_TARGETS)
+        )
+    else:
+        assert inline not in prompt
+
+
+def test_each_blocked_module_is_named_once_and_no_importable_one(tmp_path):
+    atomic = _Module("152", ATOMIC)
+    composition = _Module("2", COMPOSITION)
+    nested = _Module("63", ATOMIC, imports=("us:statutes/26/2#dependent",))
+
+    prompt = _render(tmp_path, (atomic, composition, nested))
+
+    section = _section(prompt, NOT_IMPORT_TARGETS)
+    assert section.count("\n- `context/") == 2
+    _assert_defers_to(prompt, composition, COMPOSITION_REASON)
+    _assert_defers_to(prompt, nested, NESTED_REASON_2)
+    assert atomic.target not in section
+    _assert_importable(prompt, atomic)
+
+
+def test_a_composition_target_scopes_nothing_for_a_composition_import(tmp_path):
+    composition = _Module("152", COMPOSITION)
+
+    prompt = _render(tmp_path, (composition,), existing_target=COMPOSITION)
+
+    assert NOT_IMPORT_TARGETS not in prompt
+    _assert_generic_import_rules(prompt, scoped=False)
+    _assert_importable(prompt, composition)
+
+
+EXISTING_TARGET_WITH_SECTION_63_A_INPUT = EXISTING_TARGET_WITH_SECTION_63_INPUT.replace(
+    "taxable_income_under_section_63", "taxable_income_under_section_63_a"
+)
+SECTION_63_A_INPUT = "`us:statutes/26/151#input.taxable_income_under_section_63_a`"
+SECTION_63_A_SOURCE = "An amount is defined in section 63(a)."
+DEFER_INPUT = "omit or defer the surface that depends on it"
+
+
+def _render_section_63(tmp_path, parent, child, *, reverse, source=SECTION_63_A_SOURCE):
+    modules = (
+        _Module("63", parent, "taxable_income_total"),
+        _Module("63/a", child, "taxable_income"),
+    )
+    prompt = _render(
+        tmp_path,
+        modules,
+        existing_target=ATOMIC,
+        existing_target_rules=EXISTING_TARGET_WITH_SECTION_63_A_INPUT,
+        source_text=source,
+        reverse_context=reverse,
+    )
+    # The two orders are different prompts: the listings swap places.
+    first, second = (_listing(prompt, module) for module in modules)
+    assert (prompt.index(first) < prompt.index(second)) != reverse
+    return modules, prompt
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_blocked_parent_does_not_defer_what_the_exact_cited_file_provides(
+    tmp_path, reverse
+):
+    # The reviewer's probe for finding 2: before the fix the prompt required
+    # `us:statutes/26/63/a#taxable_income` and also asked to omit or defer the
+    # surface, because the first copied file that covered the input was the
+    # blocked parent.
+    (parent, child), prompt = _render_section_63(
+        tmp_path, COMPOSITION, ATOMIC, reverse=reverse
+    )
+
+    assert (
+        "copied context target `us:statutes/26/63/a` exports "
+        "`us:statutes/26/63/a#taxable_income`." in _section(prompt, MANDATORY)
+    )
+    invalid = _section(prompt, "Invalid copied local input names:")
+    assert (
+        f"- {SECTION_63_A_INPUT}: encoded cross-reference placeholder; a "
+        "context file for `us:statutes/26/63/a` is available" in invalid
+    )
+    assert DEFER_INPUT not in prompt
+    assert "`us:statutes/26/63` is not an import target" not in invalid
+    # No citation-based deferral: the cited provision has its provider.
+    assert UNAVAILABLE not in prompt
+    assert "copied context target `us:statutes/26/63` has" not in prompt
+    # The parent itself stays blocked, and is named as such.
+    assert "not an import target: `us:statutes/26/63` has" in _listing(prompt, parent)
+    assert f"{parent.target}#" not in prompt
+    _assert_defers_to(prompt, parent, COMPOSITION_REASON)
+    assert child.target not in _section(prompt, NOT_IMPORT_TARGETS)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_blocked_exact_cited_file_defers_beside_an_importable_parent(
+    tmp_path, reverse
+):
+    (parent, child), prompt = _render_section_63(
+        tmp_path, ATOMIC, COMPOSITION, reverse=reverse
+    )
+
+    invalid = _section(prompt, "Invalid copied local input names:")
+    assert (
+        f"- {SECTION_63_A_INPUT}: encoded cross-reference placeholder; the "
+        "copied context file for `us:statutes/26/63/a` is not an import "
+        f"target, so do not preserve this local input and {DEFER_INPUT}" in invalid
+    )
+    assert "a context file for `us:statutes/26/63` is available" not in invalid
+    assert (
+        f"copied context target `us:statutes/26/63/a` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+    assert f"{child.target}#" not in prompt
+    _assert_importable(prompt, parent)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_two_blocked_providers_defer_and_name_the_exact_cited_file(tmp_path, reverse):
+    _modules, prompt = _render_section_63(
+        tmp_path, COMPOSITION, COMPOSITION, reverse=reverse
+    )
+
+    invalid = _section(prompt, "Invalid copied local input names:")
+    assert (
+        "the copied context file for `us:statutes/26/63/a` is not an import "
+        f"target, so do not preserve this local input and {DEFER_INPUT}" in invalid
+    )
+    unavailable = _section(prompt, UNAVAILABLE)
+    for target in ("us:statutes/26/63", "us:statutes/26/63/a"):
+        assert f"copied context target `{target}` has {COMPOSITION_REASON}." in (
+            unavailable
+        )
+    assert MANDATORY not in prompt
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_blocked_parent_stays_unavailable_when_the_source_also_cites_it(
+    tmp_path, reverse
+):
+    _modules, prompt = _render_section_63(
+        tmp_path,
+        COMPOSITION,
+        ATOMIC,
+        reverse=reverse,
+        source="An amount is defined in section 63(a). See also section 63.",
+    )
+
+    assert (
+        f"copied context target `us:statutes/26/63` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+    assert "`us:statutes/26/63/a#taxable_income`" in _section(prompt, MANDATORY)
+    # The input names section 63(a), whose exact file is importable.
+    assert DEFER_INPUT not in prompt
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_blocked_parent_stays_unavailable_without_an_exact_cited_file(
+    tmp_path, reverse
+):
+    # The importable file is 63(a)(1); the source cites 63(a), which no
+    # importable copied file encodes exactly.
+    modules = (
+        _Module("63", COMPOSITION, "taxable_income_total"),
+        _Module("63/a/1", ATOMIC, "taxable_income"),
+    )
+
+    prompt = _render(
+        tmp_path, modules, source_text=SECTION_63_A_SOURCE, reverse_context=reverse
+    )
+
+    assert (
+        f"copied context target `us:statutes/26/63` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_an_importable_relative_decides_when_no_exact_file_is_copied(tmp_path, reverse):
+    # Neither copied file is section 63(a) itself. The input is deferred only
+    # when every covering file is blocked, whichever file is listed first.
+    modules = (
+        _Module("63", COMPOSITION, "taxable_income_total"),
+        _Module("63/a/1", ATOMIC, "taxable_income"),
+    )
+
+    prompt = _render(
+        tmp_path,
+        modules,
+        existing_target=ATOMIC,
+        existing_target_rules=EXISTING_TARGET_WITH_SECTION_63_A_INPUT,
+        source_text=SECTION_63_A_SOURCE,
+        reverse_context=reverse,
+    )
+
+    invalid = _section(prompt, "Invalid copied local input names:")
+    assert (
+        f"- {SECTION_63_A_INPUT}: encoded cross-reference placeholder; a "
+        "context file for `us:statutes/26/63/a/1` is available" in invalid
+    )
+    assert DEFER_INPUT not in prompt
+
+
+def test_an_exact_cited_file_without_exports_is_no_provider(tmp_path):
+    modules = (
+        _Module("63", COMPOSITION, "taxable_income_total"),
+        _Module("63/a", ATOMIC, export=None),
+    )
+
+    prompt = _render(tmp_path, modules, source_text=SECTION_63_A_SOURCE)
+
+    unavailable = _section(prompt, UNAVAILABLE)
+    assert (
+        f"copied context target `us:statutes/26/63` has {COMPOSITION_REASON}."
+        in unavailable
+    )
+    assert (
+        "copied context target `us:statutes/26/63/a` has no executable exports."
+        in unavailable
+    )
+
+
+def test_a_blocked_file_cited_without_the_word_section_stays_unavailable(tmp_path):
+    # No parsed citation reaches the blocked file, so nothing resolves it.
+    module = _Module("63/a", COMPOSITION, "taxable_income")
+
+    prompt = _render(tmp_path, (module,), source_text="The amount in 63(a) applies.")
+
+    assert (
+        f"copied context target `us:statutes/26/63/a` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+
+
+def test_an_empty_parent_keeps_its_unavailable_line_beside_an_exact_file(tmp_path):
+    # Only a module the target cannot import is resolved against the exact
+    # cited file; the earlier reasons of this section are as on main.
+    modules = (
+        _Module("63", ATOMIC, export=None),
+        _Module("63/a", ATOMIC, "taxable_income"),
+    )
+
+    prompt = _render(tmp_path, modules, source_text=SECTION_63_A_SOURCE)
+
+    assert (
+        "copied context target `us:statutes/26/63` has no executable exports."
+        in _section(prompt, UNAVAILABLE)
+    )
+    assert NOT_IMPORT_TARGETS not in prompt
+
+
+@pytest.mark.parametrize(
+    ("relative", "source"),
+    [
+        ("regulations/7-cfr/273/9", "Income is counted under section 273.9."),
+        ("regulations/10-ccr-2506-1/4.401", "See section 4.401 for the standard."),
+    ],
+)
+def test_a_cited_regulation_composition_is_listed_as_unavailable(
+    tmp_path, relative, source
+):
+    # The citation-based section reaches CFR and supported CCR paths as well
+    # as statutes; it does not reach the policies root (test above).
+    regulation = _Module("regulation", COMPOSITION, "countable", relative=relative)
+
+    prompt = _render(tmp_path, (regulation,), source_text=source)
+
+    assert (
+        f"copied context target `{regulation.target}` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+    _assert_defers_to(prompt, regulation, COMPOSITION_REASON)
+    assert f"{regulation.target}#" not in prompt
 
 
 def test_neither_prompt_tells_which_text_a_list_condition_excerpt_quotes(tmp_path):

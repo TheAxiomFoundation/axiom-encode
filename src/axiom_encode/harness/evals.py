@@ -12381,6 +12381,20 @@ import or re-export that exact canonical concept instead of duplicating it local
                 import_blockers=context_import_blockers,
             )
         )
+        blocked_context_import_section = _format_blocked_context_import_guidance(
+            rulespec_context_files,
+            import_blockers=context_import_blockers,
+        )
+        # The generic import rules below name "a copied context file". With a
+        # copied module the target cannot import, they name eligible files
+        # only; without one, every rule keeps its earlier text byte for byte.
+        listed_import_target = (
+            " listed with an import target" if context_import_blockers else ""
+        )
+        with_import_target = " with an import target" if context_import_blockers else ""
+        child_listed_import_target = (
+            ", listed with an import target," if context_import_blockers else ""
+        )
         context_section = f"""
 Context mode: `{mode}`.
 Context files are precedent and dependency context, not independent legal authority for new values:
@@ -12398,7 +12412,7 @@ Context files are precedent and dependency context, not independent legal author
 {partial_extent_child_schema_section}
 {parent_child_terminal_section}
 {child_exception_import_section}
-{cycle_prone_context_import_section}
+{cycle_prone_context_import_section}{blocked_context_import_section}
 Import and context rules:
 - Use the listed import target rather than the `./context/...` inspection path.
 - do not wrap import targets in quotes.
@@ -12406,7 +12420,7 @@ Import and context rules:
 - Top-level `imports:` entries must be scalar strings, never map entries like
   `- target:` plus `symbols:`. Import a copied export as one exact string such
   as `<jurisdiction>:<repo-path>#<exported_symbol>`.
-- If a copied context file already defines the exact symbol you need, import that exact symbol instead of inventing renamed locals that overlap with the copied file.
+- If a copied context file{listed_import_target} already defines the exact symbol you need, import that exact symbol instead of inventing renamed locals that overlap with the copied file.
 - Copied context listings include exported symbols as `import_target#name`; use
   those exact references in `imports:` and proof atoms when composing from context.
 - Copied context listings include local input slots as `import_target#input.name`.
@@ -12423,10 +12437,10 @@ Import and context rules:
 - An exact-oracle replacement contract is a narrow registry-owned exception: preserve its valid mapped names/public shapes and the listed valid explicit inputs while repairing their implementation. Prefix/fallback mappings and invalid legacy inputs create no preservation contract.
 - Never preserve, rename, or recreate a legacy local input if it conflicts with the current no-placeholder, no-bare-friendly-name, filing-status, temporal, import, or source-grounding rules. If an existing output cannot be represented faithfully without such a local input, defer that executable surface or leave it out of executable formulas.
 - When source text cites a section or subsection and a copied context file for
-  that citation is listed, import and use the listed exported symbol from that
+  that citation is listed{with_import_target}, import and use the listed exported symbol from that
   context instead of creating a local `section_...` or `subsection_...`
   placeholder.
-- If this target is an aggregate parent provision and copied child-fragment files
+- If this target is an aggregate parent provision and copied child-fragment files{listed_import_target}
   already encode subparagraphs, import those child outputs and compose them.
   Do not redefine the child parameters, helper rules, or copied executable
   outputs in the parent file.
@@ -12439,7 +12453,7 @@ Import and context rules:
   child Judgments only when the requested source itself states a new named
   parent condition or result that genuinely combines those child predicates with
   source-stated local conditions.
-- If context contains a more specific child file under the current target path
+- If context contains a more specific child file under the current target path{child_listed_import_target}
   that exports the exact scalar needed by this source, such as a `/rate`,
   `/threshold`, `/amount`, `/cap`, or `/limit` file, treat that child file as
   the canonical home for the scalar. Import the exact child export and use it
@@ -14118,6 +14132,43 @@ def _format_inline_context_snippets(
     return "\n\n".join(snippets)
 
 
+def _format_blocked_context_import_guidance(
+    context_files: Sequence[EvalContextFile],
+    *,
+    import_blockers: Mapping[str, str],
+) -> str:
+    """Scope the import rules to eligible files when a copied module is blocked.
+
+    The import rules of the prompt are generic: they ask for an import of the
+    copied file that defines a symbol, a cited provision, a child output or a
+    child scalar. This section names each copied module the target cannot
+    import, whatever its root and whether or not the source cites it, and asks
+    for deferral when such a module is the only provider.
+    """
+    lines: list[str] = []
+    seen: set[str] = set()
+    for item in context_files:
+        reason = import_blockers.get(item.source_path)
+        if reason is None or item.import_path is None or item.import_path in seen:
+            continue
+        seen.add(item.import_path)
+        lines.append(f"- `{item.workspace_path}`: `{item.import_path}` has {reason}.")
+    if not lines:
+        return ""
+    return f"""
+Copied context that is not an import target:
+{chr(10).join(lines)}
+Every import rule in this prompt applies only to a copied file that is listed
+with an import target. A file in this list is context to read, also where an
+inline copy shows its rules: never import from it, even when it is the only
+copied file that defines the symbol, cited provision, child output, or child
+scalar that a rule in this prompt tells you to import. When a calculation
+needs something that only a file in this list provides, omit or defer only the
+affected executable surface and keep encoding the independent rules from this
+source. Do not add a local input, parameter, or rule that stands in for it.
+"""
+
+
 def _format_context_file_listing(
     item: EvalContextFile,
     *,
@@ -15397,9 +15448,17 @@ def _format_unavailable_cited_context_guidance(
         if citation is None or not _source_text_cites_statute(source_text, citation):
             continue
         exports = _context_file_exports(item.source_path)
-        reason = (import_blockers or {}).get(
-            item.source_path
-        ) or _context_file_unavailable_reason(item.source_path, exports)
+        blocker = (import_blockers or {}).get(item.source_path)
+        if blocker is not None and _importable_context_resolves_source_citations(
+            source_text,
+            citation,
+            context_files,
+            import_blockers=import_blockers or {},
+        ):
+            # The source cites a provision that an importable copied file
+            # encodes exactly; this blocked relative is not its provider.
+            continue
+        reason = blocker or _context_file_unavailable_reason(item.source_path, exports)
         if reason is None:
             continue
         if item.import_path in seen:
@@ -15428,6 +15487,40 @@ and keep encoding independent rules from this source. Do not synthesize local
 facts to stand in for unavailable cited definitions, exceptions, exclusions, or
 computed amounts.
 """
+
+
+def _importable_context_resolves_source_citations(
+    source_text: str,
+    blocked: _StatuteCitation,
+    context_files: Sequence[EvalContextFile],
+    *,
+    import_blockers: Mapping[str, str],
+) -> bool:
+    """Return whether importable context provides every citation that reaches a blocked file.
+
+    A source citation reaches a blocked copied file when it names that file, an
+    ancestor of it or a descendant of it. The citation is resolved when a
+    copied file the target can import, with at least one export, encodes
+    exactly the cited provision. The result does not depend on the order of
+    the context files. With no parsed citation that reaches the blocked file
+    the answer is False, so the file stays listed as unavailable.
+    """
+    provided = {
+        (provider.section, provider.fragments)
+        for item in context_files
+        if item.source_path not in import_blockers
+        and item.kind != "existing_target"
+        and not item.kind.endswith("_test_context")
+        and (provider := _import_target_to_statute_citation(item.import_path))
+        is not None
+        and _context_file_exports(item.source_path)
+    }
+    reaching = [
+        (cited_parts.section, cited_parts.fragments)
+        for cited_parts, _start, _end in _iter_cited_usc_sections(source_text)
+        if _cited_parts_cover_import(cited_parts, blocked)
+    ]
+    return bool(reaching) and all(cited in provided for cited in reaching)
 
 
 def _format_missing_cited_source_guidance(
@@ -16516,26 +16609,36 @@ def _encoded_cross_reference_local_input_reason(
     target = _context_cross_reference_input_target(identifier, source_path)
     if not target:
         return ""
+    # Resolve the provider before choosing the guidance. The copied file for
+    # exactly the cited provision decides when there is one; a parent or a
+    # child decides only without it. Deferral is the answer only when no
+    # deciding file is one the target can import.
+    covering: list[tuple[str, EvalContextFile]] = []
     for item in context_files:
         if item.kind.endswith("_test_context") or item.kind == "existing_target":
             continue
         available = _normalize_prompt_import_target(item.import_path)
         if _prompt_import_covers(available, target):
-            if item.source_path in (import_blockers or {}):
-                # The input stays invalid, but no import can replace it.
-                return (
-                    "encoded cross-reference placeholder; the copied context "
-                    f"file for `{item.import_path}` is not an import target, "
-                    "so do not preserve this local input and omit or defer "
-                    "the surface that depends on it"
-                )
+            covering.append((available, item))
+    exact = [item for available, item in covering if available == target]
+    deciding = exact or [item for _available, item in covering]
+    if not deciding:
+        return ""
+    for item in deciding:
+        if item.source_path not in (import_blockers or {}):
             return (
                 "encoded cross-reference placeholder; a context file for "
                 f"`{item.import_path}` is available, so do not preserve this "
                 "local input unless the generated file imports an actual "
                 "exported output for that same referenced legal concept"
             )
-    return ""
+    # The input stays invalid, but no import can replace it.
+    return (
+        "encoded cross-reference placeholder; the copied context "
+        f"file for `{deciding[0].import_path}` is not an import target, "
+        "so do not preserve this local input and omit or defer "
+        "the surface that depends on it"
+    )
 
 
 def _context_cross_reference_input_target(
