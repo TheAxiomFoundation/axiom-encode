@@ -1917,6 +1917,7 @@ def test_the_design_states_the_request_budget_this_file_measures():
         "one hour and a fourth reaches the limit"
     ) in section
     assert '"1,000 requests per hour per repository"' in section
+    assert "pull-request job holds 20 polls and both evaluations" in section
     assert 3 * (20 + 2 * worst(10)) <= 1000 < 4 * (20 + 2 * worst(10))
 
 
