@@ -989,6 +989,10 @@ the merge guard compares them with live GitHub state.
   every v6 manifest as a unit `{M, P, T}`, and requires each unit to map to a
   queued PR with the same three blob ids for which `evaluate` passes.
 - rulespec-us#2160 plans a group size of 1, which is recommended for the pilot.
+  In the ruleset form the writer's lock requires it, with `ALLGREEN` and a
+  build concurrency of 1: the merge-group evaluation binds the final tree to
+  one judged pull request and does not prove that a group holds only that
+  pull request (§5, "Encoder").
 - **[check docs]** How to list the PRs in a merge group, and whether an
   App-created check run on the group SHA satisfies the queue.
 - `notary-guard` is independent. On a lane with a base `consumer.json`, lineage
