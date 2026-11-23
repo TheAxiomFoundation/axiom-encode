@@ -650,7 +650,7 @@ requires the guard check from the recorded guard App.
 | # | Lock | State today | Opened by |
 |---|---|---|---|
 | 1 | `reviewed_pr_admission.V6_WRITER_ENABLED` | `False` | Change 6, a reviewed one-line change |
-| 2 | `reviewed_pr_admission.GUARD_APP_ID` | `None` | A reviewed change that records the guard App's numeric App ID, after checklist step 1 |
+| 2 | `reviewed_pr_admission.GUARD_APP_ID` | `None` | A reviewed change that records the guard App's numeric App ID, after checklist step 1 (on hold: see that step in §8) |
 | 3 | `require_guard_enforced`: a live read of the public branch record `GET /repos/<repo>/branches/main` | refuses: `main` requires only `validate / validate` | Checklist step 4 (a maintainer makes `content-bound-merge-guard` a required check with the App's `app_id`) |
 
 - Lock 3 passes only when the record shows `protected: true`,
@@ -676,10 +676,13 @@ requires the guard check from the recorded guard App.
 - With the switch on, the lane also needs `V6_READER_ENABLED`: a v6 manifest
   that no verifier admits cannot be written.
 - **Known limit: the anonymous rate limit (availability only).** One signing
-  run of the candidate lane makes at least 45 anonymous reads (7 of them the
-  branch record), and one of the reviewed lane at least 38. The reviewer
-  counted 45 and 38 at `880238c7` with every list on one page; pagination
-  adds reads. GitHub allows 60 per hour per address. A
+  run of the candidate lane that goes through publication makes at least 45
+  anonymous reads (7 of them the branch record), and one of the reviewed lane
+  at least 38. The reviewer counted 45 and 38 at `880238c7` with every list
+  on one page; pagination adds reads. 45 is the count through the last
+  publication check: at this change the hosted workflow's v5 evidence step
+  stops a v6 manifest before that check, so a hosted candidate run ends
+  earlier and makes fewer reads. GitHub allows 60 per hour per address. A
   second run in the same hour from the same address is refused. It fails
   closed. Follow-up, not built: send the reads with the workflow token when
   one is available. The record is public, so a token only raises the limit;
@@ -835,7 +838,7 @@ Implementation comes strictly before activation.
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode | disable the workflow |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch. Built with three locks: `V6_WRITER_ENABLED = False`, `GUARD_APP_ID = None`, and a live read that the guard check is required (§5, "Encoder") | revert |
-| 5b | axiom-encode | Record the guard App's numeric App ID in `GUARD_APP_ID`; teach the hosted workflow's evidence step `candidate_rulespec_ref`. After checklist step 1 | set it back to `None` |
+| 5b | axiom-encode | Record the guard App's numeric App ID in `GUARD_APP_ID`; teach the hosted workflow's evidence step `candidate_rulespec_ref`. After checklist step 1, which is on hold: nobody may store the guard App key until the mechanism of `docs/merge-guard-key-protection.md` is chosen, implemented and independently reviewed (#2257). Until then no App ID exists to record | set it back to `None` |
 | 6 | axiom-encode | **Activation**: turn the switch on; update `docs/reviewed-pr-promotion.md` | flip the switch back; the required check stays |
 
 ### Activation checklist
@@ -844,8 +847,17 @@ Steps marked **M** need repository or organisation settings. Only a maintainer
 can do them. Maintainers must accept the proposed promotion order before
 activation.
 
-1. **M** Create the guard App, install it on `rulespec-us`, and store its key in
-   an axiom-encode environment restricted to branch `main`.
+1. **M** **On hold. Do not carry out this step as written.**
+   `docs/merge-guard-key-protection.md` (its second paragraph) suspends it:
+   nobody may store the guard App key or set `MERGE_GUARD_RUNNER_ENABLED`,
+   shadow mode included, until Max chooses a mechanism and complement,
+   maintainers implement them, and a fresh independent review verifies the
+   whole key-exposure set (§6 of that document), which covers every workflow
+   that can reach the key. Until then follow #2257, not this step; #2237
+   replaces it. The superseded instruction, kept only so that references to
+   "step 1" stay readable: create the guard App, install it on `rulespec-us`,
+   and store its key in an axiom-encode environment restricted to branch
+   `main`. A branch restriction alone does not protect the key.
 2. Merge changes 1-4, including 2b. Publish the check in shadow mode: visible,
    not required.
    Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
@@ -904,8 +916,10 @@ need approval credentials that agents cannot hold, for example a hardware-backed
 signed approval (option c in §3) or a separate approver account.
 
 **Residual risk the owners would accept on activation (proposed; they have
-not accepted it): an enrolled owner who is also a repository administrator.** Lock 3 of §5 is read again, never cached,
-at five points of a signing run: the preflight (start and end), the root
+not accepted it): an enrolled owner who is also a repository administrator.** Lock 3 of §5 is read again by the encoder, which keeps no local copy
+between reads (GitHub serves the anonymous branch record with
+`cache-control: public, max-age=60, s-maxage=60`, so an answer can be up to
+about a minute old), at five points of a signing run: the preflight (start and end), the root
 provisioner (start and end), before validation, immediately before signing,
 and before publication. After publication only the GitHub setting protects
 the merge. Today the approval before signing is enforced by encoder code,
