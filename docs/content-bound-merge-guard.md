@@ -1124,9 +1124,11 @@ by an unchanged diff:
   base). More than 600 evaluations; the designed differences are the one
   pull request of that suite with two v6 manifests and one test whose
   fixture lacks that tree.
-- `verify_reviewed_pr` is compared for single-unit candidates, result or
-  error text and reads [code:
-  `test_a_single_unit_candidate_is_judged_the_same_with_the_switch_on`].
+- `verify_reviewed_pr` with the switch off is the base's: the tests of the
+  admission half compare its answers for single-unit candidates in both
+  states [code:
+  `test_narrow_review_p3_1_admission_matches_the_guards_candidate_rule`,
+  `test_a_single_unit_candidate_with_no_other_file_is_judged_the_same`].
 
 **The intended change: review granularity.** Today one approval covers one
 unit. With the switch on, one approval covers every unit of the batch: the
@@ -1265,10 +1267,25 @@ files of the candidate may be complete sibling units [code:
   itself;
 - the unit of this run must not have a manifest yet;
 - the batch holds at most `MAX_V6_UNITS` units;
-- no other file, and no derived index beside siblings.
+- no other file. A file of no unit is refused before signing, with words
+  that say what to do: a helper module, a workflow, a pin, a ledger, and
+  the derived index `.axiom/index/provisions_to_rules.json`.
 
-A candidate with no file of another unit is not a batch: it is judged as a
-single-unit candidate, with the same words. Admission judges siblings from
+**Turning the switch on also tightens the single-unit lane, in this one
+way.** The rule above holds for every candidate of the candidate lane while
+the switch is on, also for one with no sibling. With the switch off a
+single-unit candidate may carry the derived index (the base's rule; RuleSpec
+`main` stopped tracking the index in rulespec-us#2152, and the guard has
+always refused it in the head). With the switch on the guard's candidate
+rule refuses a unit whose signed commit held the index, so admission refuses
+that candidate first and no signing run is spent: the operator removes the
+index from the candidate (merge `main`, delete the file) and dispatches
+again. This is the admission half of the candidate rule, as far as
+admission can know it: it cannot know which siblings will land, so complete
+sibling pairs stay admitted. A candidate that holds only its own pair is
+judged with the same result, error text and reads in both states.
+
+Admission judges siblings from
 their paths alone. It does not read their bytes or their manifests: the run
 signs one unit, the admission record binds that unit only, and the guard
 judges the final head. The reviewed (v5) lane never takes this path.

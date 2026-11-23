@@ -1081,49 +1081,58 @@ def _batch_unit_member(path: str) -> tuple[str, str] | None:
 
 
 def _batch_sibling_paths(paths: list, selector: PromotionSelector) -> frozenset[str]:
-    """The paths of the other units of a batch candidate, or a refusal.
+    """The paths of the other units of a candidate, or a refusal.
 
     Called only with every lock of the v6 writer open and the multi-unit
-    switch on. ``paths`` is the candidate pull request's file list. Besides
-    this run's own primary and companion, every path must belong to a
-    complete sibling unit: a primary and its companion, and optionally the
-    manifest at the canonical position of that primary (a sibling that an
-    earlier run of this batch already signed). The run's own unit must not
-    have a manifest yet. The whole batch holds at most ``MAX_V6_UNITS``
-    units. Judged from paths alone: the merge guard judges the final head,
-    and the sibling bytes are not this run's subject.
+    switch on, for every candidate, also one with no sibling. ``paths`` is
+    the candidate pull request's file list. Besides this run's own primary
+    and companion, every path must belong to a complete sibling unit: a
+    primary and its companion, and optionally the manifest at the canonical
+    position of that primary (a sibling that an earlier run of this batch
+    already signed). The run's own unit must not have a manifest yet. The
+    whole batch holds at most ``MAX_V6_UNITS`` units. Judged from paths
+    alone: the merge guard judges the final head, and the sibling bytes are
+    not this run's subject.
 
-    Returns the empty set for a candidate that holds no file of another
-    unit. Such a candidate is not a batch: the caller judges it exactly as a
-    single-unit candidate, with the single-unit words.
+    This is the admission half of the guard's candidate rule
+    (``v6_candidate_holds_unjudged_change``): with the switch on the guard
+    refuses a unit whose validated commit held any file that the final head
+    does not land. So a file of no unit is refused here, before a signing
+    run is spent on it: also the derived index, which a single-unit
+    candidate may carry while the switch is off. Admission cannot know which
+    siblings will land; a complete sibling pair stays admitted.
     """
 
     own = {selector.rulespec_path, selector.companion}
     own_stem = selector.rulespec_path.removesuffix(".yaml")
-    members = {
-        path: _batch_unit_member(path) if isinstance(path, str) else None
-        for path in paths
-        if path not in own
-    }
-    if not any(
-        member is not None and member[0] != own_stem for member in members.values()
-    ):
-        return frozenset()
     siblings: dict[str, set[str]] = {}
-    for member in members.values():
+    others = [path for path in paths if path not in own]
+    for path in others:
+        if path == INDEX_PATH:
+            raise AdmissionError(
+                "candidate holds the derived index " + INDEX_PATH + ": with the "
+                "multi-unit form on, the merge guard refuses a unit that was "
+                "signed beside it; RuleSpec main does not track the index, so "
+                "remove it from the candidate (merge main, delete the file) "
+                "before the dispatch"
+            )
+        member = _batch_unit_member(path) if isinstance(path, str) else None
         if member is None:
             raise AdmissionError(
-                "batch candidate changes a file that belongs to no promotion unit"
+                "candidate changes a file that belongs to no promotion unit: with "
+                "the multi-unit form on, the merge guard refuses a unit that was "
+                "signed beside it; remove the file from the candidate before the "
+                "dispatch"
             )
         siblings.setdefault(member[0], set()).add(member[1])
     if own_stem in siblings:
-        raise AdmissionError("batch candidate already holds a manifest for this unit")
+        raise AdmissionError("candidate already holds a manifest for this unit")
     if any(not {"primary", "companion"} <= roles for roles in siblings.values()):
         raise AdmissionError("batch candidate holds an incomplete sibling unit")
     limit = MAX_V6_UNITS
     if type(limit) is not int or len(siblings) + 1 > limit:
         raise AdmissionError("batch candidate holds more units than the batch limit")
-    return frozenset(members)
+    return frozenset(others)
 
 
 def _pages(fetch: Callable[[str], object], path: str) -> list[dict]:
@@ -1264,13 +1273,14 @@ def verify_reviewed_pr(
         raise AdmissionError("new candidate paths already exist on main")
     paths = [item.get("filename") for item in files]
     # The multi-unit form (switched off): the other files of the candidate
-    # may be complete sibling units, all new. With the switch off, or with no
-    # file of another unit, the allowed set is the one of a single-unit
-    # candidate.
+    # may be complete sibling units, all new, and nothing else, not the
+    # derived index either. With the switch off the allowed set is the one of
+    # a single-unit candidate.
     siblings: frozenset[str] = frozenset()
-    if candidate_lane and MULTI_UNIT_V6_ENABLED is True:
+    multi_unit = candidate_lane and MULTI_UNIT_V6_ENABLED is True
+    if multi_unit:
         siblings = _batch_sibling_paths(paths, selector)
-    allowed = expected | siblings if siblings else expected | {INDEX_PATH}
+    allowed = expected | siblings if multi_unit else expected | {INDEX_PATH}
     if (
         len(set(paths)) != len(paths)
         or not expected.issubset(paths)

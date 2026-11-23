@@ -1204,6 +1204,37 @@ def test_a_unit_file_that_the_candidate_base_already_held_refuses(on, units):
     )
 
 
+@pytest.mark.parametrize("units", [(1,), (1, 2)])
+def test_narrow_review_p3_2_an_allowlisted_file_added_at_the_candidate_refuses(
+    on, units
+):
+    """Narrow review of e058ec1ca, P3-2. The candidate added ``NOTICE``, a
+    file of the allowlist. ``main`` added the same bytes later, so the head
+    holds the file with that blob and its delta is the units only. The
+    candidate still differed from the commit it was cut from by a file of no
+    unit: the rule has no allowlist."""
+    older = oid("older-main-without-notice")
+    notice = {"NOTICE": b"notice\n"}
+    world = batch(units, base_extra=notice, candidate_bases={n: older for n in units})
+    world.tree(older, BASE_FILES)
+    world.ancestry(older, B, older)
+    fails(world, guard.R_CANDIDATE_UNJUDGED)
+    # The same head passes when the commit it was cut from held the file.
+    world.tree(older, BASE_FILES | notice)
+    expect(
+        world, guard.PASS, guard.R_PASS if len(units) == 1 else guard.R_MULTI_UNIT_PASS
+    )
+
+
+@pytest.mark.parametrize("path", ["README.md", "LICENSE"])
+def test_an_allowlisted_file_removed_at_the_candidate_refuses(on, path):
+    world = batch(base_extra={"LICENSE": b"license\n"})
+    files = candidate_files(world, candidate(0))
+    del files[path]
+    world.tree(candidate(0), files)
+    fails(world, guard.R_CANDIDATE_UNJUDGED)
+
+
 def test_an_unreadable_candidate_base_tree_refuses(on):
     world = batch()
     update_branch(world)
@@ -1996,6 +2027,14 @@ def test_the_design_states_the_freeze_rule_and_the_second_lock():
         "the final, judged batch or of the `main` commit it was cut from.**",
         "Removing a whole unit after a sibling was signed therefore refuses the rest",
         "With the switch off the rule is not applied",
+        "**Turning the switch on also tightens the single-unit lane, in this one "
+        "way.**",
+        "With the switch off a single-unit candidate may carry the derived index",
+        "so admission refuses that candidate first and no signing run is spent",
+        "the operator removes the index from the candidate (merge `main`, delete "
+        "the file) and dispatches again",
+        "so complete sibling pairs stay admitted",
+        "A file of no unit is refused before signing",
         "keeping them is question 2 below",
         "A unit whose run fails cannot be removed from a candidate whose other "
         "units are already signed",

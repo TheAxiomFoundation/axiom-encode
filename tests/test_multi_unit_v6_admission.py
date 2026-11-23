@@ -19,6 +19,7 @@ from axiom_encode import reviewed_pr_admission as admission
 from axiom_encode.reviewed_pr_admission import AdmissionError
 from tests.test_candidate_pr_admission import (  # noqa: F401 (fixtures)
     Recorder,
+    _promote,
     on,
     outcome,
     world,
@@ -37,9 +38,19 @@ COMPARE = ROOT + f"/compare/{BASE}...{HEAD}"
 HEAD_TREE = ROOT + f"/git/trees/{HEAD}?recursive=1"
 BASE_TREE = ROOT + f"/git/trees/{BASE}?recursive=1"
 OUT_OF_SCOPE = "candidate PR changes files outside its new module scope"
-NO_UNIT = "batch candidate changes a file that belongs to no promotion unit"
+NO_UNIT = (
+    "candidate changes a file that belongs to no promotion unit: with the "
+    "multi-unit form on, the merge guard refuses a unit that was signed beside it; "
+    "remove the file from the candidate before the dispatch"
+)
+HOLDS_INDEX = (
+    "candidate holds the derived index .axiom/index/provisions_to_rules.json: with "
+    "the multi-unit form on, the merge guard refuses a unit that was signed beside "
+    "it; RuleSpec main does not track the index, so remove it from the candidate "
+    "(merge main, delete the file) before the dispatch"
+)
 INCOMPLETE = "batch candidate holds an incomplete sibling unit"
-OWN_MANIFEST = "batch candidate already holds a manifest for this unit"
+OWN_MANIFEST = "candidate already holds a manifest for this unit"
 TOO_MANY = "batch candidate holds more units than the batch limit"
 INDEX = admission.INDEX_PATH
 
@@ -145,18 +156,6 @@ def _nothing(fake):
     return None
 
 
-def _index_added(fake):
-    add(fake, INDEX)
-
-
-def _index_modified(fake):
-    add(fake, INDEX, status="modified")
-
-
-def _workflow(fake):
-    add(fake, ".github/workflows/x.yml")
-
-
 def _companion_missing(fake):
     for listing in (fake[FILES], fake[COMPARE]["files"]):
         listing[:] = [item for item in listing if item["filename"] != T(7)]
@@ -181,18 +180,6 @@ def _moved_main(fake):
     fake[ROOT + "/git/ref/heads/main"] = {"object": {"sha": "9" * 40}}
 
 
-def _own_manifest(fake):
-    add(fake, OWN_M)
-
-
-def _readme(fake):
-    add(fake, "README.md")
-
-
-def _ledger_and_index(fake):
-    add(fake, "known-validation-gaps.yaml", INDEX)
-
-
 def _nameless_file(fake):
     fake[FILES].append({"status": "added"})
     fake[PR]["changed_files"] = len(fake[FILES])
@@ -200,22 +187,9 @@ def _nameless_file(fake):
 
 @pytest.mark.parametrize(
     "mutate",
-    [
-        _nothing,
-        _index_added,
-        _index_modified,
-        _workflow,
-        _companion_missing,
-        _primary_on_main,
-        _duplicate_file,
-        _moved_main,
-        _own_manifest,
-        _readme,
-        _ledger_and_index,
-        _nameless_file,
-    ],
+    [_nothing, _companion_missing, _primary_on_main, _duplicate_file, _moved_main],
 )
-def test_a_single_unit_candidate_is_judged_the_same_with_the_switch_on(
+def test_a_single_unit_candidate_with_no_other_file_is_judged_the_same(
     on,  # noqa: F811
     world,  # noqa: F811
     monkeypatch,
@@ -229,6 +203,97 @@ def test_a_single_unit_candidate_is_judged_the_same_with_the_switch_on(
     monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", True)
     assert outcome(admission.verify_reviewed_pr, SELECTOR, fetch=on_reads) == off
     assert on_reads.calls == off_reads.calls
+
+
+HELPER = "us-az/policies/des/faa5/medical/helper.yaml"
+PIN = ".axiom/workflow-toolchain.toml"
+WORKFLOW_FILE = ".github/workflows/x.yml"
+
+# What a single-unit candidate holds beside its pair -> (the base's answer
+# with the switch off, the refusal with the switch on).
+BESIDE_ONE_UNIT = {
+    "the derived index, added": ((INDEX,), "added", "ok", HOLDS_INDEX),
+    "the derived index, modified": ((INDEX,), "modified", "ok", HOLDS_INDEX),
+    "a helper module": ((HELPER,), "added", OUT_OF_SCOPE, INCOMPLETE),
+    "a workflow file": ((WORKFLOW_FILE,), "added", OUT_OF_SCOPE, NO_UNIT),
+    "a pin file": ((PIN,), "modified", OUT_OF_SCOPE, NO_UNIT),
+    "a README change": (("README.md",), "modified", OUT_OF_SCOPE, NO_UNIT),
+    "a ledger and the index": (
+        ("known-validation-gaps.yaml", INDEX),
+        "modified",
+        OUT_OF_SCOPE,
+        NO_UNIT,
+    ),
+    "its own manifest": ((OWN_M,), "added", OUT_OF_SCOPE, OWN_MANIFEST),
+}
+
+
+@pytest.mark.parametrize("case", sorted(BESIDE_ONE_UNIT))
+def test_narrow_review_p3_1_admission_matches_the_guards_candidate_rule(
+    on,  # noqa: F811
+    world,  # noqa: F811
+    monkeypatch,
+    case,
+):
+    """Narrow review of e058ec1ca, P3-1. With the switch on the guard refuses
+    a unit whose signed commit held a file that the head does not land, so
+    admission refuses such a candidate before a signing run is spent: with
+    words that say what to do. With the switch off admission answers as the
+    base does (the index is admitted, every other file is out of scope)."""
+    paths, status, off_answer, on_refusal = BESIDE_ONE_UNIT[case]
+    add(world, *paths, status=status)
+    off = outcome(admit, world)
+    assert off[0] == ("ok" if off_answer == "ok" else "AdmissionError"), off
+    if off_answer != "ok":
+        assert off[1] == off_answer
+    monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", True)
+    reads = Recorder(world)
+    assert outcome(admission.verify_reviewed_pr, SELECTOR, fetch=reads) == (
+        "AdmissionError",
+        on_refusal,
+    )
+    # Refused from the file list: no candidate byte is read.
+    assert not any("/contents/" in path for path in reads.calls)
+    assert not any(f"/git/trees/{HEAD}" in path for path in reads.calls)
+
+
+def test_a_refused_admission_leaves_nothing_that_the_signer_would_sign(
+    on,  # noqa: F811
+    world,  # noqa: F811
+    monkeypatch,
+    tmp_path,
+):
+    """The root provisioner writes an admission into the runtime attestation
+    only when ``verify_reviewed_pr`` returns one. For each refused candidate
+    of the table above no admission exists; the promotion command then stops
+    before validation, and no signature request reaches the signing broker."""
+    monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", True)
+    provisioned = []
+    for case in sorted(BESIDE_ONE_UNIT):
+        paths, status, _off, _on = BESIDE_ONE_UNIT[case]
+        fake = add(copy.deepcopy(world), *paths, status=status)
+        try:
+            provisioned.append(admit(fake))
+        except AdmissionError:
+            pass
+    assert provisioned == []
+    run = _promote(tmp_path, monkeypatch, live=lambda selector, record: None)
+    assert isinstance(run.error, ValueError)
+    assert str(run.error) == "reviewed candidate ref is not explicitly allowlisted"
+    assert run.events == [] and "sign" not in run.events
+    run.overlay.assert_not_called()
+    assert not run.manifest.exists()
+
+
+def test_a_file_entry_without_a_name_refuses_in_both_states(
+    on,  # noqa: F811
+    world,  # noqa: F811
+    monkeypatch,
+):
+    _nameless_file(world)
+    assert outcome(admit, world) == ("AdmissionError", OUT_OF_SCOPE)
+    monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", True)
+    assert outcome(admit, world) == ("AdmissionError", NO_UNIT)
 
 
 # --- on: one unit of a batch ------------------------------------------------------
@@ -279,7 +344,9 @@ def test_a_path_that_completes_no_sibling_unit_refuses(batch_on, world, path):  
     with pytest.raises(AdmissionError) as refusal:
         admit(world)
     member = admission._batch_unit_member(path)
-    assert str(refusal.value) == (NO_UNIT if member is None else INCOMPLETE)
+    assert str(refusal.value) == (
+        HOLDS_INDEX if path == INDEX else NO_UNIT if member is None else INCOMPLETE
+    )
 
 
 @pytest.mark.parametrize(
@@ -291,9 +358,9 @@ def test_a_path_that_completes_no_sibling_unit_refuses(batch_on, world, path):  
         ((P(8), M(8)), INCOMPLETE),
         ((T(8), M(8)), INCOMPLETE),
         ((*sibling(8), P(9)), INCOMPLETE),
-        ((*sibling(8), INDEX), NO_UNIT),
+        ((*sibling(8), INDEX), HOLDS_INDEX),
         ((*sibling(8), ".github/workflows/x.yml"), NO_UNIT),
-        ((OWN_M,), OUT_OF_SCOPE),
+        ((OWN_M,), OWN_MANIFEST),
         ((*sibling(8), OWN_M), OWN_MANIFEST),
     ],
 )
@@ -304,14 +371,20 @@ def test_each_batch_refusal_has_its_own_words(batch_on, world, paths, message): 
     assert str(refusal.value) == message
 
 
-def test_the_index_is_admitted_only_beside_a_single_unit(batch_on, world):  # noqa: F811
-    """The reviewed lane's optional index stays for a candidate with no
-    sibling; a batch may not carry it (the merge guard refuses it anyway)."""
+def test_the_index_is_admitted_only_with_the_switch_off(on, world, monkeypatch):  # noqa: F811
+    """The single-unit lane's optional index stays while the switch is off.
+    With it on, no candidate may carry it, alone or beside siblings."""
     alone = add(copy.deepcopy(world), INDEX)
     assert admit(alone)["schema"] == admission.CANDIDATE_SCHEMA
+    monkeypatch.setattr(admission, "MULTI_UNIT_V6_ENABLED", True)
+    monkeypatch.setattr(admission, "MAX_V6_UNITS", 10)
+    with pytest.raises(AdmissionError) as refusal:
+        admit(alone)
+    assert str(refusal.value) == HOLDS_INDEX
     add(world, INDEX, *sibling(8))
-    with pytest.raises(AdmissionError, match=NO_UNIT):
+    with pytest.raises(AdmissionError) as refusal:
         admit(world)
+    assert str(refusal.value) == HOLDS_INDEX
 
 
 @pytest.mark.parametrize("status", ["modified", "removed", "renamed"])
