@@ -81,12 +81,18 @@ alternatives list ("when each one of", "when not any of", "do not apply",
 
 Two rules. Each applies only to an alternatives list.
 
-1. **A clause inside the list stays in its own block.** When the cue stands in
-   an item, a note or an unmarked child of the list, and the text up to the
-   next marked item ends with a full stop, the clause ends where that item
-   starts. The items after it are alternatives of the chapeau; they cannot be
-   conjuncts of a sentence inside another member. A cue that stands before the
-   list's chapeau is not cut: the flat reading stays.
+1. **A clause inside the list stays in its own block.** When the cue and the
+   proof excerpt both stand in an item, a note or an unmarked child of the
+   list, and the text up to the next marked item ends with a full stop, the
+   clause ends where that item starts. The items after it are alternatives of
+   the chapeau; they cannot be conjuncts of a sentence inside another member.
+   The cut removes the run-on only: the sentence is then read exactly as the
+   same sentence standing alone
+   (`test_a_note_in_a_list_is_read_as_the_same_note_standing_alone`).
+   A cue that stands before the list's chapeau is not cut: the flat reading
+   stays. A rule that quotes the chapeau is the list's own rule: it is not
+   cut; its items are verified as alternatives (next section, without chapeau
+   facts).
 2. **A clause of the chapeau ends with the list.** The end of the last item is
    treated as the end of a sentence under the flat reader's own rule (a capital
    letter, `(` or a numbered label follows), and only when the items end alike
@@ -98,7 +104,8 @@ An excerpt that crosses one of these bounds keeps the flat reading.
 
 ## What is verified for a list of alternatives
 
-For a clause whose cue is in a cue-form chapeau:
+For a clause whose cue is in a cue-form chapeau, and for a rule that quotes a
+subject-form chapeau while the cue stands in an item:
 
 - The facts of the chapeau before "when|if any of the following" are read by
   the flat reader and stay simultaneous facts. Every true path of the formula
@@ -179,9 +186,8 @@ physical-allowance list, which have their own readers.
 - A list of alternatives under a negative output ("is not allowed when any of
   the following apply", encoded as `not (a or b)`): the reading wants a rule
   that is true when an alternative holds, so this encoding keeps a finding.
-- An alternatives list without a cue in its chapeau is not verified. Rule 1
-  removes the run-on from an inner `when`; the list itself is then unchecked,
-  as it is on the flat reading when no item holds a cue.
+- An alternatives list without a cue anywhere (subject form, no `when` in an
+  item) is not examined, as on the flat reading.
 - Lists with labels (`(a)`, `1.`) instead of markers, and nesting by indent.
 - Residual assurance limits: an input is matched to a fact by its name, as
   everywhere in this check; a chapeau fact that the flat reader does not count
