@@ -1719,6 +1719,22 @@ def test_the_design_states_the_request_budget_this_file_measures():
     assert f"`2 x (20 + 180) + 101 = {pull_request_run(20)}`" in section
     assert "Neither is in this change." in section
     assert "Each unit adds at least 5" in section
+    assert f"three reads at every one of {RUNNER_POLLS} polls" in section
+    assert "With the best layout (`20 + 5u`) that row covers 4 units" in section
+    assert (
+        f"A batch of 20 needs `3 x 101 + (24 + 180) + 3 = {merge_group_run(20)}`"
+        in (section)
+    )
+    assert (
+        f"The committed {limit} is what the runner's cap of {RUNNER_CAP} covers in "
+        f"every case. 10 needs a cap of at least {merge_group_run(10)} and 20 a cap "
+        f"of at least {merge_group_run(20)}"
+    ) in section
+    assert (
+        "At 30 to 40 units a day that is 90 to 120 actions a day by the dispatcher "
+        "and the merger"
+    ) in section
+    assert (3 * 30, 3 * 40) == (90, 120)
 
 
 def test_the_design_states_why_a_batch_is_one_queue_entry():
