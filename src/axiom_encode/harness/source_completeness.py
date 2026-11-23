@@ -40038,11 +40038,7 @@ def _exception_witnesses_for_branch(
                 or _numeric_pair_is_bound_to_stated_limit(
                     witness,
                     requirement=requirement,
-                    numeric_interval=numeric_interval
-                    or _negated_comparison_boundary_interval(
-                        condition_recall_text,
-                        extract_numeric_occurrences=extract_numeric_occurrences,
-                    ),
+                    numeric_interval=numeric_interval,
                     condition_recall_text=condition_recall_text,
                     source_text=source_text,
                     principal_rules=principal_rules,
@@ -40212,56 +40208,6 @@ def _exception_condition_interval(
     if is_floor:
         return _NumericInterval(occurrence, True, None, False)
     return _NumericInterval(None, False, occurrence, True)
-
-
-# A verb negated at a distance from its comparison: "has not paid rent for
-# more than one consecutive month". The interval parser declines the clause,
-# because the words do not say whether the negation reverses the comparison
-# ("did not work for more than 3 months" can mean worked 3 months or less, or
-# was out of work for over 3 months).
-_NEGATED_VERB_COMPARISON = re.compile(
-    r"\b(?:has|have|had|is|are|was|were|does|do|did)\s+not\s+"
-    r"(?P<gap>(?:[a-z][a-z'’-]*\s+){1,8}?)"
-    r"(?P<comparison>(?:more|less|fewer)\s+than|at\s+least|at\s+most)\s",
-    flags=re.IGNORECASE,
-)
-
-
-def _negated_comparison_boundary_interval(
-    text: str,
-    *,
-    extract_numeric_occurrences: NumericOccurrenceExtractor,
-) -> _NumericInterval | None:
-    """Return the one-sided interval of a comparison behind a distant negation.
-
-    Call it only for a clause the interval parser declined. The interval is
-    that of the comparison read without the negation, so it places the
-    boundary and its inclusivity, not the side the source means. The clause
-    must hold one such negated comparison and no other modal or negation.
-    """
-
-    matches = tuple(_NEGATED_VERB_COMPARISON.finditer(text))
-    if len(matches) != 1:
-        return None
-    match = matches[0]
-    clause_start = max(
-        text.rfind(mark, 0, match.start()) for mark in (".", ";", ":", "\n")
-    )
-    if _COUNT_WORDING_UNREAD_PREFIX.search(
-        text[clause_start + 1 : match.start()]
-    ) or _COUNT_WORDING_UNREAD_PREFIX.search(match.group("gap")):
-        return None
-    comparison_start = match.start("comparison")
-    interval = _shift_numeric_interval(
-        _exception_condition_interval(
-            text[comparison_start:],
-            extract_numeric_occurrences=extract_numeric_occurrences,
-        ),
-        comparison_start,
-    )
-    if interval is None or (interval.lower is None) == (interval.upper is None):
-        return None
-    return interval
 
 
 def _numeric_pair_is_bound_to_stated_limit(
@@ -41452,21 +41398,7 @@ def _numeric_exception_witness_matches_source(
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     if interval is None:
-        negated = _negated_comparison_boundary_interval(
-            condition_recall_text,
-            extract_numeric_occurrences=extract_numeric_occurrences,
-        )
-        if negated is None:
-            return False
-        # The negation can turn the side around; it cannot move the boundary.
-        # The pair must sit on the stated number and cross that boundary.
-        limit = float((negated.lower or negated.upper).value)
-        return any(
-            math.isclose(value, limit, rel_tol=0.0, abs_tol=1e-9)
-            for value in transition
-        ) and _interval_contains(negated, transition[0]) != _interval_contains(
-            negated, transition[1]
-        )
+        return False
     ordinary_value, exception_value = transition
     return not _interval_contains(interval, ordinary_value) and _interval_contains(
         interval, exception_value

@@ -549,107 +549,41 @@ def test_number_stated_twice_falls_back_to_the_name_test():
     assert "pair" not in _two_limit_checks("lending_unit_members", "lending_unit_tools")
 
 
-# --- 4. A comparison behind a distant negation ------------------------------
+# --- 4. A comparison behind a distant negation: unchanged --------------------
 
 NEGATED = (
     "A tenant unit is not eligible for a group loan when the tenant unit has "
     "not paid rent for more than one consecutive month."
 )
+NEGATED_NO_DIRECTION = (
+    "A tenant unit loses the rent credit when the tenant unit has not paid rent "
+    "for more than one consecutive month."
+)
 
 
-def _negated_boundary(text: str):
-    return sc._negated_comparison_boundary_interval(
-        sc.authoritative_numeric_recall_text(text),
-        extract_numeric_occurrences=_GROUNDING,
-    )
-
-
-def _negated_checks(
-    operator: str,
-    values: tuple[int, ...],
-    *,
-    name: str = "unpaid_rent_month_count",
-    source: str = NEGATED,
-    number: int = 1,
-) -> set[str]:
-    return _count_checks(
-        source, operator, values, name=name, number=number, threshold=None
-    )
-
-
-def test_negated_comparison_is_not_given_a_direction():
-    # "has not paid rent for more than one month" can mean unpaid for over a
-    # month, or not (paid for over a month). The interval stays unread.
-    condition = sc._source_exception_condition_text(NEGATED)
+@pytest.mark.parametrize("source", [NEGATED, NEGATED_NO_DIRECTION])
+def test_distant_negation_leaves_the_condition_unread(source):
+    # "Has not paid rent for more than one month" can mean unpaid for over a
+    # month, or not (paid for over a month). The words do not settle which
+    # side of the boundary the condition means, so no interval is read and
+    # no numeric pair is accepted, in either direction and for any name.
+    condition = sc._source_exception_condition_text(source)
     assert condition.startswith("when the tenant unit has not paid rent")
     assert _interval(condition) is None
-    negated = _negated_boundary(condition)
-    assert negated is not None
-    assert (negated.lower.value, negated.lower_inclusive, negated.upper) == (
-        1,
-        False,
-        None,
-    )
+    for name in ("unpaid_rent_month_count", "consecutive_months_rent_unpaid"):
+        for operator in (">", "<="):
+            checks = _count_checks(
+                source, operator, (1, 2), name=name, number=1, threshold=None
+            )
+            assert checks == {"pair"}, (name, operator)
 
 
-@pytest.mark.parametrize(
-    "name", ["unpaid_rent_month_count", "consecutive_months_rent_unpaid", "arrears"]
-)
-def test_count_pair_on_the_boundary_of_a_negated_comparison_passes(name):
-    # Either side may be the exception; the boundary lies between 1 and 2.
-    assert _negated_checks(">", (1, 2), name=name) == set()
-    assert _negated_checks("<=", (1, 2), name=name) == set()
-
-
-@pytest.mark.parametrize(
-    # The second name shares words with the condition and passes the name
-    # test; the first is linked by the number alone.
-    "name",
-    ["unpaid_rent_month_count", "consecutive_months_rent_unpaid"],
-)
-def test_negated_comparison_still_refuses_another_boundary(name):
-    # `>= 1` puts the boundary between 0 and 1: wrong under both readings.
-    assert _negated_checks(">=", (0, 1), name=name) == {"pair"}
-    assert _negated_checks("<", (0, 1), name=name) == {"pair"}
-    # No case on the stated number.
-    assert _negated_checks(">", (0, 5), name=name) == {"pair"}
-    assert _negated_checks("<=", (0, 5), name=name) == {"pair"}
-    # `> 2` with cases at 2 and 3: the pair misses the stated number.
-    assert _negated_checks(">", (2, 3), name=name, number=2) == {"pair"}
-
-
-@pytest.mark.parametrize(
-    "source",
-    [
-        # Two negated comparisons.
-        "when the tenant unit has not paid rent for more than one month and has "
-        "not filed for more than one month.",
-        # A modal in front of the negation.
-        "when the tenant unit may have not paid rent for more than one "
-        "consecutive month.",
-        # A second negation between the verb and the comparison.
-        "when the tenant unit has not paid or not offered rent for more than one "
-        "consecutive month.",
-        # A negation in the clause in front of the negated verb.
-        "when no adult of the tenant unit has not paid rent for more than one "
-        "consecutive month.",
-        # The comparison is too far from the negated verb.
-        "when the tenant unit has not paid any part of the rent that the lease "
-        "sets for the unit for more than one consecutive month.",
-        # No negated verb.
-        "when the tenant unit has paid rent for more than one consecutive month.",
-    ],
-)
-def test_other_negated_shapes_stay_unread(source):
-    assert _negated_boundary(source) is None
-
-
-def test_negated_reader_declines_an_adjacent_negation_the_parser_reads():
-    # "is not more than 4" is a ceiling the interval parser reads itself.
+def test_adjacent_negation_is_read_by_the_shared_parser_as_before():
+    # "has not more than 4" is a ceiling the interval parser reads itself.
     source = CONDITIONAL.format(wording="not more than 4")
     condition = sc._source_exception_condition_text(source)
-    assert _negated_boundary(condition) is None
     assert _interval(condition) == _ceiling(4)
+    assert _interval(condition, sc._formula_interval_from_text) == _ceiling(4)
     assert _count_checks(source, "<=", (4, 5)) == set()
     assert _count_checks(source, "<", (4, 5)) == {"pair"}
 
