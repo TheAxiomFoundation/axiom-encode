@@ -222,7 +222,11 @@ def test_the_closed_cue_form_is_read_as_alternatives(quantifier, cue, tail):
 )
 def test_the_closed_subject_form_is_read_as_alternatives_without_a_cue(chapeau):
     (only,) = structure.parse_source_lists(_list(chapeau, ANY_ITEMS))
-    assert (only.reading, only.cue_form) == ("alternatives", False)
+    assert (only.reading, only.cue_form, only.binds_items) == (
+        "alternatives",
+        False,
+        False,
+    )
 
 
 NOT_ALTERNATIVES = [
@@ -306,6 +310,28 @@ def test_a_chapeau_that_is_itself_a_marked_item_is_not_a_list_head():
     (only,) = structure.parse_source_lists(text)
     assert (only.reading, only.binds_items) == ("unrecognised", False)
     assert len(only.items) == 5
+
+
+def test_a_plain_paragraph_ends_the_list_and_a_wrapped_line_does_not():
+    text = (
+        ANY_CHAPEAU
+        + "\n\n● New vehicle\nwrapped words of the item\n\n● Lost card"
+        + "\n\nNext comes a plain paragraph.\n\n● Not an item of the list"
+    )
+    (only,) = structure.parse_source_lists(text)
+    assert [text[item.start : item.end] for item in only.items] == [
+        "● New vehicle\nwrapped words of the item",
+        "● Lost card",
+    ]
+
+
+def test_a_marked_item_at_the_start_is_not_a_list_head():
+    text = "● Any of the following apply:\n\n● New vehicle\n\n● Lost card"
+    assert structure.parse_source_lists(text) == ()
+
+
+def test_the_flat_reader_still_needs_two_facts():
+    assert sc._source_conjunctive_fact_gates("Granted if the holder owns a car.") == ()
 
 
 def test_a_list_ends_uncertainly_after_an_item_with_unmarked_children():
@@ -426,6 +452,7 @@ def test_alternatives_through_derived_rules_pass(monkeypatch):
     ("formula", "dtype"),
     [
         (f"if {FAITHFUL}: 1 else: 0", "Integer"),
+        (FAITHFUL, "Money"),
         (f"({A} or {B} or {C} or {D}) == True", "Judgment"),
         (f"count_true({A}, {B}, {C}, {D}) >= 1", "Judgment"),
     ],
@@ -433,10 +460,40 @@ def test_alternatives_through_derived_rules_pass(monkeypatch):
 def test_a_formula_outside_the_closed_boolean_reader_keeps_the_flat_reading(
     formula, dtype, monkeypatch
 ):
+    """Also a Boolean formula on a rule that is not declared Boolean."""
+
     off, on = _both(
         ANY_INPUTS, [("renewal", formula, [ANY_CHAPEAU])], ANY, monkeypatch, dtype
     )
     assert on == off
+
+
+def test_an_item_without_a_readable_fact_keeps_the_flat_reading(monkeypatch):
+    source = ANY + "\n\n● It"
+    rules = [("renewal", FAITHFUL, [ANY_CHAPEAU])]
+    assert _both(ANY_INPUTS, rules, source, monkeypatch) == (1, 1)
+
+
+def test_an_excerpt_at_two_places_keeps_the_flat_reading(monkeypatch):
+    """Ambiguous ownership is refused as before, not verified per clause."""
+
+    source = ANY + "\n\nRepeated for the second office.\n\n" + ANY
+    rules = [("renewal", FAITHFUL, [ANY_CHAPEAU])]
+    off, on = _both(ANY_INPUTS, rules, source, monkeypatch)
+    assert off == on == 1
+
+
+def test_a_list_with_unmarked_children_keeps_the_flat_reading_for_its_own_rule(
+    monkeypatch,
+):
+    inputs = [
+        "new_permit_requested",
+        "renewal_change_of_more_than_one_vehicle",
+        "fee_amount_questionable",
+    ]
+    rules = [("proof_needed", " or ".join(inputs), [NESTED.split("\n")[0]])]
+    off, on = _both(inputs, rules, NESTED, monkeypatch)
+    assert off == on
 
 
 CONJUNCT_ITEM = (
@@ -626,6 +683,25 @@ def test_a_note_without_a_full_stop_keeps_the_flat_reading(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "excerpt",
+    [
+        # The proof runs on into the next item, or stands before the list.
+        "the fee is considered due in the next month. ● Late fees when the "
+        "holder is paid monthly",
+        "Fees are listed below",
+    ],
+)
+def test_a_proof_outside_the_note_keeps_the_flat_reading(excerpt, monkeypatch):
+    source = (
+        "Fees are listed below\n\n"
+        "Any of the following parking fees are not refundable" + NOTE_TAIL
+    )
+    rules = [("due", "fee_has_no_due_date_shown", [excerpt])]
+    off, on = _both(["fee_has_no_due_date_shown"], rules, source, monkeypatch)
+    assert off == on
+
+
+@pytest.mark.parametrize(
     ("formula", "inputs"),
     [
         ("fee_has_no_due_date_shown", ["fee_has_no_due_date_shown"]),
@@ -754,6 +830,7 @@ NON_BINDING_CHAPEAUS = [
     "meets all of the following:",
     "A parking permit is granted if the holder fails all of the following:",
     "A parking permit is granted if all of the following fail:",
+    "A parking permit is granted if the holder meets the following:",
     "A parking permit is granted if all of the following apply to nobody:",
     "A parking permit is granted unless all of the following apply:",
     "The holder must provide all of the following:",
@@ -795,12 +872,12 @@ def test_item_only_proof_of_a_complete_conjunction_passes(monkeypatch):
 
 
 def test_one_rule_for_each_item_passes_when_a_rule_combines_them(monkeypatch):
-    source = _list(ALL_CHAPEAU, ALL_ITEMS)
+    source = _list(ALL_CHAPEAU, ALL_ITEMS) + "\n\nThe clerk then issues the permit."
     rules = [
         ("owns", ALL_INPUTS[0], [ALL_ITEMS[0]]),
         ("lives", ALL_INPUTS[1], [ALL_ITEMS[1]]),
         ("paid", ALL_INPUTS[2], [ALL_ITEMS[2]]),
-        ("granted", "owns and lives and paid", ["A parking permit is granted"]),
+        ("granted", "owns and lives and paid", ["The clerk then issues the permit."]),
     ]
     assert _both(ALL_INPUTS, rules, source, monkeypatch) == (0, 0)
 
@@ -829,6 +906,7 @@ def test_a_note_inside_a_list_binds_nothing(monkeypatch):
     source = (
         ALL_CHAPEAU
         + "\n\n● The holder owns a vehicle.\n\n"
+        + "● The holder has paid the fee.\n\n"
         + "NOTE The clerk records the plate number of the vehicle.\n\n"
         + "● The holder lives in the district."
     )
