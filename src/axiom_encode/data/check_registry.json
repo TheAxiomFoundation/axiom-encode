@@ -147,6 +147,7 @@
     {
       "category": "complete-source-unit:source-explicit-conditions",
       "cause": "encoder_output",
+      "enforcement": "advisory",
       "fix": "Declare each source-stated fact as its own document-root `inputs` entry (a sibling of `module` and `rules`) or canonical import, combine them in a derived Judgment with formula proof, and test each gate.",
       "gate": "ci",
       "id": "complete-source-unit:source-explicit-conditions/gates-collapsed",
@@ -1225,6 +1226,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "f265349d7de93e7a122559a61dc4020cf902b082a368ac49c77ffbf189bcb346",
+  "registry_sha256": "4c7e72b9e548027e74dc199406349a80c2f4d24d1464eff6315793ced01557d1",
   "schema": "axiom-encode/check-registry/v1"
 }

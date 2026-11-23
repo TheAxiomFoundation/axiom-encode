@@ -34,6 +34,8 @@ from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
 from axiom_encode.checks import (
     ValidationIssue,
+    advisory_issue_records,
+    advisory_review_context,
     issue_fix_feedback,
     typed_issue_document,
 )
@@ -1009,6 +1011,11 @@ class EvalArtifactMetrics:
     manual_outcome_exception_advice: list[dict[str, object]] = field(
         default_factory=list
     )
+    # ``validation-issue/v2`` records of CI findings whose check is declared
+    # ``enforcement="advisory"``. Each has ``"enforcement": "advisory"`` and
+    # the whole message. They never decide ``ci_pass`` and are never in
+    # ``ci_issues``; the reviewer sees them as warnings to examine.
+    advisory_issues: list[dict[str, object]] = field(default_factory=list)
 
 
 _VALIDATION_ISSUE_CLASSIFIERS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -1436,6 +1443,8 @@ class EvalResult:
             data["metrics"] = asdict(self.metrics)
             if not self.metrics.manual_outcome_exception_advice:
                 data["metrics"].pop("manual_outcome_exception_advice", None)
+            if not self.metrics.advisory_issues:
+                data["metrics"].pop("advisory_issues", None)
         return _bind_eval_result_payload(data)
 
 
@@ -6498,6 +6507,7 @@ def _eval_result_from_payload(
             manual_outcome_exception_advice=list(
                 metrics_payload.get("manual_outcome_exception_advice") or []
             ),
+            advisory_issues=list(metrics_payload.get("advisory_issues") or []),
             embedded_source_present=bool(
                 metrics_payload.get("embedded_source_present", False)
             ),
@@ -9068,6 +9078,18 @@ def _evaluate_artifact_in_scope(
                 "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
                 "is an acceptable representation."
             )
+        # Findings of advisory checks do not refuse the candidate; the
+        # reviewer gets them as warnings to examine. With none, the review
+        # context is unchanged.
+        ci_advisory_records = advisory_issue_records(
+            getattr(ci_result, "advisory_issues", None) or ()
+        )
+        # The generalist review context above holds the source excerpt.
+        advisory_context = advisory_review_context(
+            ci_advisory_records, source_in_prompt=True
+        )
+        if advisory_context:
+            review_context += "\n\n" + advisory_context
         # The encode retry loop feeds only compile/CI findings back to the
         # model and never gates apply on the reviewer, so in that lane a
         # reviewer call on an already-rejected candidate is pure latency.
@@ -9325,6 +9347,7 @@ def _evaluate_artifact_in_scope(
         manual_outcome_exception_advice=list(
             ci_result.details.get("manual_outcome_exception_advice") or []
         ),
+        advisory_issues=ci_advisory_records,
         embedded_source_present=bool(embedded_source),
         grounded_numeric_count=sum(1 for item in grounding_metrics if item.grounded),
         ungrounded_numeric_count=sum(

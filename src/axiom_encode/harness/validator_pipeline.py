@@ -63,8 +63,12 @@ from axiom_encode.bare_structure import bare_outline, mask_bare_labels
 from axiom_encode.checks import (
     IssueSubject,
     ValidationIssue,
+    advisory_issue_records,
+    advisory_log_line,
+    advisory_review_context,
     declare_check,
     map_issue_text,
+    partition_by_enforcement,
 )
 from axiom_encode.codex_cli import (
     codex_auth_secrets,
@@ -36798,6 +36802,10 @@ class ValidationResult:
     raw_output: Optional[str] = None
     prompt_sha256: Optional[str] = None
     details: dict[str, Any] = field(default_factory=dict)
+    # Findings of checks declared ``enforcement="advisory"`` (see
+    # ``axiom_encode.checks``). They are recorded and shown to the reviewer;
+    # ``passed``, ``issues`` and ``error`` hold blocking findings only.
+    advisory_issues: list[str] = field(default_factory=list)
 
 
 def _normalize_validation_staging_text(
@@ -37527,6 +37535,9 @@ class ValidatorPipeline:
             return text
 
         result.issues = [map_issue_text(issue, normalize) for issue in result.issues]
+        result.advisory_issues = [
+            map_issue_text(issue, normalize) for issue in result.advisory_issues
+        ]
         if result.error is not None:
             result.error = normalize(result.error)
         if result.raw_output is not None:
@@ -38223,14 +38234,28 @@ class ValidatorPipeline:
             results["ci"].details["complete_source_unit_recall"] = dict(
                 self._complete_source_unit_recall
             )
+        ci_advisory_records = advisory_issue_records(
+            getattr(results["ci"], "advisory_issues", None) or ()
+        )
         self._log_event(
             "validation_ci_end",
             "CI validation complete",
             {
                 "passed": results["ci"].passed,
                 "issues": results["ci"].issues,
+                **(
+                    {"advisory_issues": ci_advisory_records}
+                    if ci_advisory_records
+                    else {}
+                ),
                 "duration_ms": int((time.time() - ci_start) * 1000),
             },
+        )
+        # Advisory CI findings go to every reviewer as warnings to examine.
+        # With none, the reviewer prompts are byte-identical to before. These
+        # four prompts hold no source text, so the warning says so.
+        advisory_context = (
+            advisory_review_context(ci_advisory_records, source_in_prompt=False) or None
         )
 
         # Tier 2: Oracles (parallel, fast, generates comparison context)
@@ -38314,16 +38339,28 @@ class ValidatorPipeline:
 
             llm_validators = {
                 "rulespec_reviewer": lambda: self._run_reviewer(
-                    "rulespec-reviewer", rulespec_file, oracle_context
+                    "rulespec-reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
                 "formula_reviewer": lambda: self._run_reviewer(
-                    "Formula Reviewer", rulespec_file, oracle_context
+                    "Formula Reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
                 "parameter_reviewer": lambda: self._run_reviewer(
-                    "Parameter Reviewer", rulespec_file, oracle_context
+                    "Parameter Reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
                 "integration_reviewer": lambda: self._run_reviewer(
-                    "Integration Reviewer", rulespec_file, oracle_context
+                    "Integration Reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
             }
 
@@ -40781,6 +40818,18 @@ class ValidatorPipeline:
             validation_source_texts=validation_source_texts,
         )
 
+        # A finding of a check declared advisory is kept, apart from the
+        # blocking ones: it does not decide `passed` and is not the `error`.
+        # Every issue that is not positively advisory stays blocking.
+        issues, advisory_issues = partition_by_enforcement(issues)
+        # The one default operator surface: a WARNING line per advisory
+        # finding, in every lane that runs this step (validate, encode, the
+        # overlay validation of an apply).
+        for advisory_issue in advisory_issues:
+            line = advisory_log_line(advisory_issue, unit=self.source_citation_path)
+            if line is not None:
+                logger.warning("%s", line)
+
         duration = int((time.time() - start) * 1000)
         try:
             return ValidationResult(
@@ -40795,6 +40844,7 @@ class ValidatorPipeline:
                     if manual_advice
                     else {}
                 ),
+                advisory_issues=advisory_issues,
             )
         finally:
             tmpdir_cm.cleanup()
