@@ -12,7 +12,7 @@
 # workflow file names its own environment, and an environment's branch rule
 # limits the ref, not the workflow. So a workflow file that no code owner
 # reviews can select a key-bearing environment and read its key
-# (docs/merge-guard-key-protection.md, R3 and section 4, "Complement").
+# (docs/merge-guard-key-protection.md, REPO-3 and section 4, "Complement").
 # Keep this line above the more specific .github/ entries below. The last
 # matching pattern wins, so an entry below it decides the owners of its own
 # file, and this line gives an owner to every path that has no entry.

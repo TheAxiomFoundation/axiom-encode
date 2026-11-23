@@ -696,17 +696,23 @@ def test_the_request_cap_still_covers_every_documented_worst_case():
 # --- the design says what the code does (doc pins) ----------------------------
 
 DESIGN_REQUIRED = {
-    "superseded checklist": [
-        "**Superseded at this head. Do not activate from this list.**",
+    # On this branch the recommendation's checklist replaces the list that
+    # change 3b marked superseded; the four rules stand at its head.
+    "four rules of the checklist": [
+        "**Four rules that no reordering of this list may break**",
         "**The gate is the pinned workflow, not a status check by name.**",
+        "Nothing in this list requires a status check named `content-bound-merge-guard`.",
         "**No removal of the pre-sign approval before the queue is verified.**",
-        "must come AFTER the pinned workflow is required by the ruleset in Active mode",
-        "the merge queue is required on the target branch with a group size of 1",
+        "Change 6 (step 13) comes after the ruleset is `Active` (step 11)",
+        "the merge queue is required on `main` with a group size of 1 (step 8)",
         "has shown the guard's `merge_group` job rejecting a dismissed approval",
-        "**A live test that a same-named check cannot satisfy the rule.**",
-        "**One failed canary for each trigger**",
-        "main. *(Superseded: see the note above.",
-        "*(Superseded order: not before step 9 is done and the queue is required;",
+        "**A live test that a same-named check cannot satisfy the rule**",
+        "**One failed canary for each trigger** before `Active`",
+        "**the second canary: in that trial the merge group of a pull request "
+        "with no lane showed a failed `content-bound-merge-guard` job of the "
+        "`merge_group` event",
+        "**Hard precondition: a live `merge_group` run of the guard has rejected "
+        "a dismissed approval**",
     ],
     "inert path": [
         "The payload must also be a whole event of its kind",
