@@ -36367,10 +36367,18 @@ def _mask_quoted_integer_delimiters(text: str) -> str:
 # limit. The pair check owes a case pair for such a clause, and only a clause
 # with an interval can be paid with a numeric pair.
 _POSTFIX_LIMIT_COMPARISON = re.compile(
+    # "fifteen (15) or more days": the extractor reads the pair as one number.
+    r"(?:[ \t]*\([ \t]*[$€£]?\d[\d,.]*[ \t]*\))?"
     r"[ \t]*(?:%[ \t]*)?(?:\)[ \t]*)?(?:[A-Za-z]+[ \t]+){0,3}?"
     r"(?:or[ \t]+(?:(?P<lower>more|greater|higher)|(?P<upper>less|fewer|lower))"
     r"|(?:or|and)[ \t]+"
-    r"(?:(?P<lower_side>older|over|above)|(?P<upper_side>younger|under|below)))\b",
+    r"(?:(?P<lower_side>older|over|above)|(?P<upper_side>younger|under|below)))\b"
+    # "$500 or more than $1,000" and "20 days and over 65" start a second
+    # comparison, and "or under the plan" is a preposition; none of them
+    # closes the first number.
+    r"(?![ \t]+(?:than\b|age\b|(?:[$€£][ \t]?)?\d"
+    r"|(?:the|a|an|this|that|these|those|its|their|his|her)\b"
+    rf"|{_ENGLISH_CARDINAL_PHRASE}\b))",
     flags=re.IGNORECASE,
 )
 # The words in front of the number that make the prefix parser decline a
@@ -36387,17 +36395,11 @@ _POSTFIX_LIMIT_UNREAD_PREFIX = re.compile(
 )
 
 
-def _formula_postfix_limit_interval(
+def _formula_postfix_limits(
     text: str,
     occurrences: Sequence[NumericOccurrenceLike],
-) -> _NumericInterval | None:
-    """Read "N or more" and "N or fewer" as an inclusive one-sided interval.
-
-    The caller found no comparison in front of a number. The text must hold
-    exactly one number that is directly followed, after at most three unit
-    words, by a listed comparison; two such numbers, or a modal or negation
-    in front of the number, leave the clause unread as before.
-    """
+) -> tuple[tuple[NumericOccurrenceLike, bool], ...]:
+    """Return each number closed by a postfix comparison, and if it is a floor."""
 
     found: list[tuple[NumericOccurrenceLike, bool]] = []
     for occurrence in occurrences:
@@ -36410,6 +36412,22 @@ def _formula_postfix_limit_interval(
         found.append(
             (occurrence, bool(match.group("lower") or match.group("lower_side")))
         )
+    return tuple(found)
+
+
+def _formula_postfix_limit_interval(
+    text: str,
+    occurrences: Sequence[NumericOccurrenceLike],
+) -> _NumericInterval | None:
+    """Read "N or more" and "N or fewer" as an inclusive one-sided interval.
+
+    The caller found no comparison in front of a number. The text must hold
+    exactly one number that is directly followed, after at most three unit
+    words, by a listed comparison; two such numbers, or a modal or negation
+    in front of the number, leave the clause unread as before.
+    """
+
+    found = _formula_postfix_limits(text, occurrences)
     if len(found) != 1:
         return None
     occurrence, is_lower = found[0]
@@ -36587,6 +36605,14 @@ def _formula_interval_from_text(
             break
     if keyword is None:
         return _formula_postfix_limit_interval(comparison_text, numeric_occurrences)
+    if "fewer" in keyword.group().lower() and _formula_postfix_limits(
+        comparison_text, numeric_occurrences
+    ):
+        # "3 or more but fewer than 6": this parser composes no postfix floor
+        # with a prefix ceiling. Reading only "fewer than 6" would drop the
+        # floor, so the clause stays unread, as it was before "fewer than"
+        # became a comparison word.
+        return None
     range_text = text[keyword.start() :]
     if re.match(
         r"ab\s+(?:dem\s+)?(?:veranlagungszeitraum|tax\s+year|calendar\s+year)\b",
@@ -40106,7 +40132,11 @@ def _exception_witnesses_for_branch(
                 )
                 or _numeric_pair_is_bound_to_stated_limit(
                     witness,
-                    numeric_interval=numeric_interval,
+                    numeric_interval=numeric_interval
+                    or _negated_comparison_boundary_interval(
+                        condition_recall_text,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                    ),
                     condition_recall_text=condition_recall_text,
                     source_text=source_text,
                     principal_rules=principal_rules,
@@ -40158,6 +40188,56 @@ def _exception_witnesses_for_branch(
             )
         }
     )
+
+
+# A verb negated at a distance from its comparison: "has not paid rent for
+# more than one consecutive month". The interval parser declines the clause,
+# because the words do not say whether the negation reverses the comparison
+# ("did not work for more than 3 months" can mean worked 3 months or less, or
+# was out of work for over 3 months).
+_NEGATED_VERB_COMPARISON = re.compile(
+    r"\b(?:has|have|had|is|are|was|were|does|do|did)\s+not\s+"
+    r"(?P<gap>(?:[a-z][a-z'’-]*\s+){1,8}?)"
+    r"(?P<comparison>(?:more|less|fewer)\s+than|at\s+least|at\s+most)\s",
+    flags=re.IGNORECASE,
+)
+
+
+def _negated_comparison_boundary_interval(
+    text: str,
+    *,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> _NumericInterval | None:
+    """Return the one-sided interval of a comparison behind a distant negation.
+
+    Call it only for a clause the interval parser declined. The interval is
+    that of the comparison read without the negation, so it places the
+    boundary and its inclusivity, not the side the source means. The clause
+    must hold one such negated comparison and no other modal or negation.
+    """
+
+    matches = tuple(_NEGATED_VERB_COMPARISON.finditer(text))
+    if len(matches) != 1:
+        return None
+    match = matches[0]
+    clause_start = max(
+        text.rfind(mark, 0, match.start()) for mark in (".", ";", ":", "\n")
+    )
+    if _POSTFIX_LIMIT_UNREAD_PREFIX.search(
+        text[clause_start + 1 : match.start()]
+    ) or _POSTFIX_LIMIT_UNREAD_PREFIX.search(match.group("gap")):
+        return None
+    comparison_start = match.start("comparison")
+    interval = _shift_numeric_interval(
+        _formula_interval_from_text(
+            text[comparison_start:],
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        ),
+        comparison_start,
+    )
+    if interval is None or (interval.lower is None) == (interval.upper is None):
+        return None
+    return interval
 
 
 def _numeric_pair_is_bound_to_stated_limit(
@@ -41321,14 +41401,29 @@ def _numeric_exception_witness_matches_source(
     transition = witness.numeric_transition
     if transition is None:
         return False
+    condition_recall_text = authoritative_numeric_recall_text(
+        _source_exception_condition_text(branch.text)
+    )
     interval = _formula_interval_from_text(
-        authoritative_numeric_recall_text(
-            _source_exception_condition_text(branch.text)
-        ),
+        condition_recall_text,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     if interval is None:
-        return False
+        negated = _negated_comparison_boundary_interval(
+            condition_recall_text,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+        if negated is None:
+            return False
+        # The negation can turn the side around; it cannot move the boundary.
+        # The pair must sit on the stated number and cross that boundary.
+        limit = float((negated.lower or negated.upper).value)
+        return any(
+            math.isclose(value, limit, rel_tol=0.0, abs_tol=1e-9)
+            for value in transition
+        ) and _interval_contains(negated, transition[0]) != _interval_contains(
+            negated, transition[1]
+        )
     ordinary_value, exception_value = transition
     return not _interval_contains(interval, ordinary_value) and _interval_contains(
         interval, exception_value
