@@ -1066,9 +1066,9 @@ budget" below: the size that both bounds of the enforcing run cover today; a
 batch of 10 needs a higher request cap in the runner first).
 
 **Why this lane is the only way to land several units at one time.** The
-writer's lock requires of every `merge_queue` rule `grouping_strategy:
-"ALLGREEN"`, `max_entries_to_merge: 1`, `min_entries_to_merge: 1` and
-`max_entries_to_build: 1` ("Encoder" above) [code:
+writer's lock requires four settings of every `merge_queue` rule: one entry
+to merge at most and at least, one entry to build, and the `ALLGREEN`
+grouping strategy ("Encoder" above) [code:
 `_MERGE_QUEUE_REQUIRED`]. The reason: the guard's merge-group evaluation
 binds the tree of a group to one judged pull request and cannot prove that
 the group holds only that pull request [author-reported, draft #2286 at
@@ -1388,7 +1388,7 @@ Rate limit. The job token has "1,000 requests per hour per repository"
 [author-reported: the design at the head of draft #2287 quotes GitHub's
 "Rate limits for the REST API", read 2026-11-17]. The costliest hour of a
 pull-request job holds 20 polls and both evaluations: `20 + 2 x 120 = 260`
-requests for 10 units, against `20 + 2 x 30 = 80` today. So 3 such jobs fit
+requests for 10 units, against 80 today (two evaluations of 30 and 20 polls). So 3 such jobs fit
 one hour and a fourth reaches the limit; a refused request is a failed read
 and the job fails closed [inferred].
 

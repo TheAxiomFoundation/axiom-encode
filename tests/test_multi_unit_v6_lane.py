@@ -1188,6 +1188,22 @@ def test_the_candidate_is_compared_with_the_main_commit_it_was_cut_from(on):
     assert f"{ROOT}/git/trees/{B}?recursive=1" in world.calls
 
 
+@pytest.mark.parametrize("units", [(1,), (1, 2)])
+def test_a_unit_file_that_the_candidate_base_already_held_refuses(on, units):
+    """The ``main`` commit the candidate was cut from held other bytes at the
+    primary of unit 1, and ``main`` dropped that file before this head: at
+    the head the path is new, at the validated commit it was a replacement."""
+    older = oid("older-main-with-the-path")
+    world = batch(units, candidate_bases={n: older for n in units})
+    world.tree(older, BASE_FILES | {P(1): b"an earlier module at this path\n"})
+    world.ancestry(older, B, older)
+    fails(world, guard.R_CANDIDATE_UNJUDGED)
+    world.tree(older, BASE_FILES)
+    expect(
+        world, guard.PASS, guard.R_PASS if len(units) == 1 else guard.R_MULTI_UNIT_PASS
+    )
+
+
 def test_an_unreadable_candidate_base_tree_refuses(on):
     world = batch()
     update_branch(world)
@@ -1897,8 +1913,8 @@ def test_the_design_states_the_request_budget_this_file_measures():
     # The rate limit of the job token.
     assert (
         f"`20 + 2 x {worst(10)} = {20 + 2 * worst(10)}` requests for 10 units, "
-        "against `20 + 2 x 30 = 80` today. So 3 such jobs fit one hour and a "
-        "fourth reaches the limit"
+        "against 80 today (two evaluations of 30 and 20 polls). So 3 such jobs fit "
+        "one hour and a fourth reaches the limit"
     ) in section
     assert '"1,000 requests per hour per repository"' in section
     assert 3 * (20 + 2 * worst(10)) <= 1000 < 4 * (20 + 2 * worst(10))
@@ -1908,8 +1924,9 @@ def test_the_design_states_why_a_batch_is_one_queue_entry():
     section = design_section()
     for sentence in (
         "**Why this lane is the only way to land several units at one time.**",
-        '`grouping_strategy: "ALLGREEN"`, `max_entries_to_merge: 1`, '
-        "`min_entries_to_merge: 1` and `max_entries_to_build: 1`",
+        "requires four settings of every `merge_queue` rule: one entry to merge at "
+        "most and at least, one entry to build, and the `ALLGREEN` grouping "
+        "strategy",
         "cannot prove that the group holds only that pull request",
         "each entry needs its own fresh judgment",
         "A batch pull request is one queue entry: one merge-group run judges all "
