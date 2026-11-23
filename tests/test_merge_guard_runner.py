@@ -559,6 +559,9 @@ def test_reader_sends_the_evaluators_compare_path():
         ROOT + "/./pulls/1",
         ROOT + "/pulls/..?x=1",
         ROOT + "/pulls/1?x=..",
+        # A single dot as a segment of the query (independent review of
+        # a3c621254): only the plain ``segment == "."`` test refuses it.
+        ROOT + "/pulls?x=/./y",
         ROOT + "/%2e%2e/%2E%2E/other/pulls/1",
         ROOT + "/.%2e/pulls/1",
         ROOT + "/..%2f..%2fother/pulls/1",

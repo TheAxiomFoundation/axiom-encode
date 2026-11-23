@@ -409,6 +409,44 @@ _pages = _shape_reader(_shared_pages)
 _leaf_entries = _shape_reader(_shared_leaf_entries)
 
 
+def _fields(value: object, label: str, *keys: str) -> dict:
+    """``value`` as an object that HAS every one of ``keys``.
+
+    The rule for every read: a key the evaluator needs that is absent from
+    the response is an incomplete read (``_Unread``), whatever the reason
+    code of the step. A key that is present with another value than the
+    guard requires is a decision. An empty object is therefore never a
+    decision: ``{}`` for a comparison, a workflow run or the pull request
+    itself says nothing about the pull request.
+    """
+    found = _object(value, label)
+    missing = [key for key in keys if key not in found]
+    if missing:
+        raise _Unread(f"GitHub {label} lacks {', '.join(sorted(missing))}")
+    return found
+
+
+_PR_FIELDS = ("number", "state", "merged", "draft", "head", "base", "user")
+
+
+def _pull_request(value: object, label: str) -> dict:
+    """A pull request object with every field the evaluator reads."""
+    pull = _fields(value, label, *_PR_FIELDS)
+    _fields(pull["head"], label + " head", "sha", "ref", "repo")
+    _fields(pull["base"], label + " base", "sha", "ref", "repo")
+    _fields(pull["user"], label + " author", "id")
+    return pull
+
+
+def _ancestry(read: Callable[[str], object], path: str) -> tuple[object, object]:
+    """One comparison: its ``status`` and the commit id of its merge base."""
+    comparison = _fields(read(path), "ancestry", "status", "merge_base_commit")
+    fork = _fields(comparison["merge_base_commit"], "merge base", "sha")["sha"]
+    if not isinstance(comparison["status"], str) or not isinstance(fork, str):
+        raise _Unread("GitHub ancestry names no status or no merge base")
+    return comparison["status"], fork
+
+
 @dataclass(frozen=True)
 class _Target:
     """The fields ``_pr_identity`` reads from a promotion selector."""
@@ -638,6 +676,8 @@ def _actor_ids(commit: dict) -> set[int]:
     """
     ids = set()
     for role in ("author", "committer"):
+        if role not in commit:
+            raise _Unread(f"commit entry lacks its {role}")
         account = commit.get(role)
         if account is None:
             raise _Refusal(
@@ -660,8 +700,8 @@ def _commit_shas(commits: list[dict]) -> list[str]:
 
 
 def _main_tip(read: Callable[[str], object], root: str) -> str:
-    main = _object(read(root + "/git/ref/heads/main"), "main ref")
-    sha = _object(main.get("object"), "main object").get("sha")
+    main = _fields(read(root + "/git/ref/heads/main"), "main ref", "object")
+    sha = _fields(main["object"], "main object", "sha")["sha"]
     if not isinstance(sha, str) or not _SHA.fullmatch(sha):
         raise _Unread("main ref is not an exact commit")
     return sha
@@ -673,21 +713,32 @@ def _is_ancestor(
     """Whether ``ancestor`` is ``descendant`` or one of its ancestors."""
     if ancestor == descendant:
         return True
-    comparison = _object(read(f"{root}/compare/{ancestor}...{descendant}"), "ancestry")
-    return (
-        comparison.get("status") == "ahead"
-        and _object(comparison.get("merge_base_commit"), "merge base").get("sha")
-        == ancestor
-    )
+    status, fork = _ancestry(read, f"{root}/compare/{ancestor}...{descendant}")
+    return status == "ahead" and fork == ancestor
 
 
 def _signing_run(
     read: Callable[[str], object], run_id: str
 ) -> tuple[int, int, str, str, int | None]:
     """Snapshot a successful encoder-main dispatch and its observed attempt."""
-    run = _object(read(f"{ENCODER_ROOT}/actions/runs/{run_id}"), "signing run")
-    actor = _object(run.get("actor"), "run actor")
-    trigger = _object(run.get("triggering_actor"), "triggering actor")
+    run = _fields(
+        read(f"{ENCODER_ROOT}/actions/runs/{run_id}"),
+        "signing run",
+        "id",
+        "repository",
+        "event",
+        "path",
+        "head_branch",
+        "head_sha",
+        "status",
+        "conclusion",
+        "actor",
+        "triggering_actor",
+        "run_attempt",
+    )
+    _fields(run["repository"], "run repository", "full_name")
+    actor = _fields(run["actor"], "run actor", "id")
+    trigger = _fields(run["triggering_actor"], "triggering actor", "id", "login")
     commit = run.get("head_sha")
     if (
         str(run.get("id")) != run_id
@@ -749,7 +800,17 @@ def _require_green_ci(
     )
     identities = set()
     for run in runs:
-        run = _object(run, "check run")
+        run = _fields(
+            run,
+            "check run",
+            "name",
+            "app",
+            "head_sha",
+            "status",
+            "conclusion",
+            "details_url",
+        )
+        _fields(run["app"], "check app", "id")
         match = pattern.fullmatch(str(run.get("details_url", "")))
         if (
             run.get("name") != REQUIRED_CHECK_NAME
@@ -761,9 +822,21 @@ def _require_green_ci(
             or ("id" in run and not _strict_int(run["id"]))
         ):
             raise AdmissionError("required check is not green on the current head")
-        workflow = _object(
-            read(f"{root}/actions/runs/{match.group(1)}"), "check workflow run"
+        workflow = _fields(
+            read(f"{root}/actions/runs/{match.group(1)}"),
+            "check workflow run",
+            "id",
+            "event",
+            "path",
+            "head_sha",
+            "status",
+            "conclusion",
+            "repository",
+            "head_repository",
+            "pull_requests",
+            "run_attempt",
         )
+        _fields(workflow["repository"], "run repository", "full_name")
         pulls = workflow.get("pull_requests")
         if (
             str(workflow.get("id")) != match.group(1)
@@ -1046,7 +1119,7 @@ def _control_plane_verdict(
     with _refuse_as(R_CI):
         ci_state = _require_green_ci(read, root, head, number)
     with _refuse_as(R_CHANGED):
-        after = _object(read(pr_path), "PR recheck")
+        after = _pull_request(read(pr_path), "PR recheck")
         if (
             _pr_identity(after, target) != identity
             or after.get("draft") is not False
@@ -1168,8 +1241,8 @@ def _evaluate(name, number, read, evidence) -> Verdict:
     # 1. PR identity: open, unmerged, same-repository head, base ``main``,
     # strictly ahead of the live ``main`` tip.
     with _refuse_as(R_PR_IDENTITY):
-        before = _object(read(pr_path), "PR")
-        pr_head = _object(before.get("head"), "PR head")
+        before = _pull_request(read(pr_path), "PR")
+        pr_head = before["head"]
         head, branch = pr_head.get("sha"), pr_head.get("ref")
         if (
             not isinstance(head, str)
@@ -1178,10 +1251,9 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             or not branch
         ):
             raise _Unread("PR head is not an exact commit on a branch")
-        # GitHub always sends these two objects. (``head.repo`` is different:
-        # it is null when the fork was deleted, which is a decision.)
-        _object(before.get("base"), "PR base")
-        if not _strict_int(_object(before.get("user"), "PR author").get("id")):
+        # (``head.repo`` is present and null when the fork was deleted: that
+        # is a decision. An absent ``repo`` key is an incomplete read.)
+        if not _strict_int(before["user"]["id"]):
             raise _Unread("PR author lacks a numeric identity")
         target = _Target(number, head, branch, repository)
         identity = _pr_identity(before, target)
@@ -1190,10 +1262,15 @@ def _evaluate(name, number, read, evidence) -> Verdict:
     with _refuse_as(R_BASE_NOT_CURRENT):
         base = _main_tip(read, root)
         evidence["base"] = base
-        comparison = _object(read(f"{root}/compare/{base}...{head}"), "ancestry")
+        comparison = _fields(
+            read(f"{root}/compare/{base}...{head}"),
+            "ancestry",
+            "status",
+            "merge_base_commit",
+        )
         if (
-            comparison.get("status") != "ahead"
-            or _object(comparison.get("merge_base_commit"), "merge base").get("sha")
+            comparison["status"] != "ahead"
+            or _fields(comparison["merge_base_commit"], "merge base", "sha")["sha"]
             != base
         ):
             raise AdmissionError("head must descend from the current main tip")
@@ -1308,7 +1385,7 @@ def _evaluate(name, number, read, evidence) -> Verdict:
         with _refuse_as(R_CI):
             ci_state = _require_green_ci(read, root, head, number)
         with _refuse_as(R_CHANGED):
-            after = _object(read(pr_path), "PR recheck")
+            after = _pull_request(read(pr_path), "PR recheck")
             if _pr_identity(after, target) != identity or _main_tip(read, root) != base:
                 raise AdmissionError("PR or main changed during evaluation")
             if _require_green_ci(read, root, head, number) != ci_state:
@@ -1532,7 +1609,7 @@ def _evaluate(name, number, read, evidence) -> Verdict:
 
     # 8. Re-read the mutable state; any movement refuses this evaluation.
     with _refuse_as(R_CHANGED):
-        after = _object(read(pr_path), "PR recheck")
+        after = _pull_request(read(pr_path), "PR recheck")
         if (
             _pr_identity(after, target) != identity
             or after.get("draft") is not False

@@ -1497,13 +1497,21 @@ def test_enrolled_dispatcher_id_with_another_login_is_not_enrolled():
         {"id": MAX[0], "login": MAX[1]},  # a re-run by another person
         {"id": PAVEL[0], "login": "renamed-account"},
         {"id": PAVEL[0], "login": None},
-        {"id": PAVEL[0]},
     ],
 )
 def test_manifest_dispatcher_must_be_the_run_trigger(trigger):
     world = build()
     world.api[SIGNING_RUN]["triggering_actor"] = trigger
     fails(world, guard.R_DISPATCHER_MISMATCH)
+
+
+def test_a_run_trigger_without_a_login_field_is_an_incomplete_read():
+    # A login that is present and null is a decision (above). A response
+    # that lacks the field is not what the read asked for.
+    world = build()
+    world.api[SIGNING_RUN]["triggering_actor"] = {"id": PAVEL[0]}
+    result = fails(world, guard.R_RUN)
+    assert result.evidence[guard.EVIDENCE_INCOMPLETE_READ] is True
 
 
 @pytest.mark.parametrize(
