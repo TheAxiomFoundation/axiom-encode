@@ -40132,6 +40132,7 @@ def _exception_witnesses_for_branch(
                 )
                 or _numeric_pair_is_bound_to_stated_limit(
                     witness,
+                    requirement=requirement,
                     numeric_interval=numeric_interval
                     or _negated_comparison_boundary_interval(
                         condition_recall_text,
@@ -40243,6 +40244,7 @@ def _negated_comparison_boundary_interval(
 def _numeric_pair_is_bound_to_stated_limit(
     witness: _ExceptionWitness,
     *,
+    requirement: str,
     numeric_interval: _NumericInterval | None,
     condition_recall_text: str,
     source_text: str,
@@ -40263,14 +40265,22 @@ def _numeric_pair_is_bound_to_stated_limit(
       (`Money` exactly when the source writes a currency amount);
     - the output's formula compares that input directly with a literal or
       parameter of that value;
-    - one case of the pair sits exactly on the stated number.
+    - one case of the pair sits exactly on the stated number;
+    - the check reads from the source whether the condition enables or
+      blocks the output. Where it reads no such direction, a pair with the
+      effect reversed also passes the caller's tests, and only the name test
+      stands between that pair and the obligation.
 
     The caller has already required the pair to cross the source interval in
-    the source's direction.
+    the source's direction, and tests the effect after this link.
     """
 
     transition = witness.numeric_transition
-    if transition is None or numeric_interval is None:
+    if (
+        transition is None
+        or numeric_interval is None
+        or requirement not in {"enable", "exclude", "zero"}
+    ):
         return False
     bounds = tuple(
         bound
