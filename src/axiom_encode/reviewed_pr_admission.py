@@ -67,8 +67,10 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # section 9). Do not turn lock 1 before activation checklist step 4 is done.
 #
 # RESIDUAL RISK the owners would accept by opening lock 1 (a proposal: they
-# have not accepted it). Lock 3 is read again, never
-# cached, at five points: preflight (start and end), root provisioner (start
+# have not accepted it). Lock 3 is read again by the encoder, which keeps no
+# local copy between reads, at five points (GitHub serves the anonymous
+# branch record with ``cache-control: public, max-age=60, s-maxage=60``, so
+# an answer can be up to about a minute old): preflight (start and end), root provisioner (start
 # and end), before validation, immediately before signing, before
 # publication. AFTER publication only the GitHub setting protects the merge.
 # Today the approval before signing is enforced by this module, independent
@@ -80,11 +82,13 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # still runs validation. Neither prevents the merge or supplies a review.
 #
 # KNOWN LIMIT (availability only). Every read is anonymous. One signing run
-# of this lane makes at least 45 reads (7 of them the branch record) and one
-# of the reviewed lane at least 38, counted by the reviewer at 880238c7 with
-# every list on one page; pagination adds reads. GitHub allows 60 per hour
-# per address, so a second run in the same hour from the same address is
-# refused. Follow-up: send the reads with the
+# of this lane that goes through publication makes at least 45 reads (7 of
+# them the branch record) and one of the reviewed lane at least 38, counted
+# by the reviewer at 880238c7 with every list on one page; pagination adds
+# reads. 45 is the count through the last publication check; the hosted
+# workflow's v5 evidence step at this change stops a v6 manifest before it.
+# GitHub allows 60 per hour per address, so a second run in the same hour
+# from the same address is refused. Follow-up: send the reads with the
 # workflow token when one is available. The record is public, so a token
 # only raises the limit; any error must still refuse.
 V6_WRITER_ENABLED: Final[bool] = False
