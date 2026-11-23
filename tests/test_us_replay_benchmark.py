@@ -53,6 +53,7 @@ from scripts.replay_us_failure_bundles import (
     gate_markdown,
     guard_violations,
     import_symbol_contents,
+    issue_rule,
     load_bundle_cases,
     load_fixture,
     load_split_map,
@@ -158,6 +159,13 @@ def test_snapshot_totals_match_cases():
 def test_fixture_set_covers_failing_rule_classes_and_controls():
     snapshot = json.loads(SNAPSHOT.read_text())
     replayed = {rule for case in snapshot["cases"].values() for rule in case["rules"]}
+    # A rule class whose findings are advisory (docs/validator-checks.md) is
+    # still replayed; its findings are pinned under `advisory_findings`.
+    replayed |= {
+        issue_rule(finding)
+        for case in snapshot["cases"].values()
+        for finding in case.get("advisory_findings", [])
+    }
     recorded = {
         rule
         for directory in fixture_directories(FIXTURES)
