@@ -22444,6 +22444,11 @@ def _source_gates_without_distinct_terminal(
 
 
 _STRUCTURAL_NAME_LIMIT = 10
+_STRUCTURAL_NEGATING_NAME = re.compile(
+    r"(?:^|_)(?:not|no|non|never|without|none|neither|nor|cannot|isnt|doesnt|"
+    r"lacks?|lacking|missing|absent|fails?|failed|denied|false|untrue)(?:_|$)",
+    re.IGNORECASE,
+)
 _STRUCTURAL_FREE_NAME_LIMIT = 6
 _STRUCTURAL_OPTION_LIMIT = 256
 _STRUCTURAL_BINDING_LIST_LIMIT = 8
@@ -22488,6 +22493,17 @@ def _structural_item_gates(
     gates = _source_conjunctive_fact_gates(
         "when " + words, care_source_text=care_source_text, minimum_gates=1
     )
+    segments = [
+        segment
+        for _connector, segment in _source_gate_split_conjunctive_conditions(
+            words, keep_correlative_prepositions=True
+        )
+        if segment.strip()
+    ]
+    if len(segments) > 1:
+        # A joint of several parts: each part must be a fact that the flat
+        # reader counts, else a part could be dropped without a trace.
+        return gates if len(gates) == len(segments) else None
     if gates:
         return gates
     # A nominal item ("New application") has no predicate wording, so the flat
@@ -22706,6 +22722,17 @@ def _alternative_list_defect(
     chapeau_candidates = candidates(reading.chapeau_gates)
     if chapeau_candidates is None or any(item is None for item in item_candidates):
         return None
+    # The items are affirmative (the reader declined any other). An input
+    # whose name negates cannot stand for one.
+    item_candidates = [
+        [
+            tuple(
+                name for name in gate if _STRUCTURAL_NEGATING_NAME.search(name) is None
+            )
+            for gate in item or ()
+        ]
+        for item in item_candidates
+    ]
     item_names = frozenset(
         name for item in item_candidates for gate in item or () for name in gate
     )

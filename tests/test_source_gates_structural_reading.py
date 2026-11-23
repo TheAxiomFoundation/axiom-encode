@@ -1441,3 +1441,34 @@ def test_a_decoy_rule_that_quotes_a_cue_form_chapeau_is_itself_verified(
         (name, formula, [ANY_CHAPEAU]),
     ]
     assert _both(SHORT_INPUTS, rules, source, monkeypatch)[1] == 1
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["fee_amount_not_disputed", "fee_amount_disputed_not", "no_fee_amount_disputed"],
+)
+def test_an_input_whose_name_negates_does_not_stand_for_an_alternative(
+    name, monkeypatch
+):
+    source = _list(ANY_CHAPEAU, SHORT_ITEMS)
+    inputs = [*SHORT_INPUTS[:2], name]
+    rules = [("renewal", " or ".join(inputs), [ANY_CHAPEAU])]
+    assert _both(inputs, rules, source, monkeypatch)[1] == 1
+
+
+@pytest.mark.parametrize(
+    ("first", "inputs"),
+    [
+        ("holder_lives_in_district", ["holder_lives_in_district"]),
+        (
+            "(new_vehicle and holder_lives_in_district)",
+            ["new_vehicle", "holder_lives_in_district"],
+        ),
+    ],
+)
+def test_a_joint_item_with_a_part_that_is_no_counted_fact_keeps_the_flat_reading(
+    first, inputs, monkeypatch
+):
+    items = ("New vehicle, and the holder lives in the district", *SHORT_ITEMS[1:])
+    rules = [("renewal", f"{first} or {OR_REST}", [ANY_CHAPEAU])]
+    _same([*inputs, *SHORT_INPUTS[1:]], rules, _list(ANY_CHAPEAU, items), monkeypatch)
