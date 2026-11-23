@@ -78,15 +78,19 @@ def test_finalized_exact_dependents_refuse_required_review_before_signing(
             },
             required=required,
         )
-        pairs = cli._review_applied_pairs([output])
+        pairs = cli._review_applied_pairs([output], manifest_root=output.parent)
         record = build_generalist_review_record(
             state,
             pairs,
             [
-                digest
+                (path, digest)
                 for pair in pairs
-                for digest in (pair.rulespec_sha256, pair.test_sha256)
+                for path, digest in (
+                    (pair.rulespec_path, pair.rulespec_sha256),
+                    (pair.test_path, pair.test_sha256),
+                )
             ],
+            reviewed_rulespec_path=output.name,
         )
         assert record["status"] == "passed"
         assert record["required"] is required

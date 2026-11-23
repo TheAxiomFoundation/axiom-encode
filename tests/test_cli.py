@@ -23965,11 +23965,59 @@ rules: []
             assert record["status"] == "partial"
             assert record["reason"] == "unreviewed_applied_files"
             assert {
+                "path": "statutes/26/64.yaml",
                 "sha256": hashlib.sha256(dependent.encode()).hexdigest(),
                 "reviewed": False,
                 "complete": False,
             } in record["files"]
+            assert [entry["path"] for entry in record["files"]] == [
+                "statutes/26/63.test.yaml",
+                "statutes/26/63.yaml",
+                "statutes/26/64.yaml",
+            ]
             assert run.apply.called is (not require_flag)
+
+    @pytest.mark.parametrize(
+        "supplemental",
+        [
+            # A repaired dependent companion with the bytes of the reviewed one.
+            {"statutes/26/64.test.yaml": "[]\n"},
+            # A dependent module with the bytes of the reviewed module.
+            {"statutes/26/64.yaml": "format: rulespec/v1\nrules: []\n"},
+            # Both: the whole reviewed pair again at another path.
+            {
+                "statutes/26/64.yaml": "format: rulespec/v1\nrules: []\n",
+                "statutes/26/64.test.yaml": "[]\n",
+            },
+        ],
+    )
+    def test_review_gate_does_not_credit_reviewed_bytes_at_another_path(
+        self, tmp_path, capsys, supplemental
+    ):
+        for require_flag, code in ((True, 1), (False, 0)):
+            (tmp_path / str(require_flag)).mkdir()
+            run = self._run_review_gate(
+                tmp_path / str(require_flag),
+                capsys,
+                review=self._REVIEW_PASSED,
+                require_flag=require_flag,
+                supplemental_files={
+                    Path(path): content for path, content in supplemental.items()
+                },
+            )
+
+            assert run.code == code
+            record = run.outcome["generalist_review"]
+            assert record["status"] == "partial"
+            assert record["reason"] == "unreviewed_applied_files"
+            assert {entry["path"]: entry["reviewed"] for entry in record["files"]} == {
+                "statutes/26/63.yaml": True,
+                "statutes/26/63.test.yaml": True,
+                **dict.fromkeys(supplemental, False),
+            }
+            assert run.apply.called is (not require_flag)
+            if require_flag:
+                assert run.outcome["status"] == "apply_blocked_review"
 
     def test_review_gate_required_pass_does_not_cover_a_truncated_review(
         self, tmp_path, capsys
@@ -24060,10 +24108,19 @@ rules: []
                 "reviewer_model": "gpt-test",
             },
         )
+        module_path = "statutes/26/63.yaml"
         return build_generalist_review_record(
             state,
-            [applied_pair(*pair_bytes)],
-            [hashlib.sha256(raw).hexdigest() for raw in applied_bytes],
+            [applied_pair(*pair_bytes, rulespec_path=module_path)],
+            [
+                (path, hashlib.sha256(raw).hexdigest())
+                for path, raw in zip(
+                    (module_path, "statutes/26/63.test.yaml"),
+                    applied_bytes,
+                    strict=True,
+                )
+            ],
+            reviewed_rulespec_path=module_path,
         )
 
     @pytest.mark.parametrize("refused", [False, True])
@@ -24172,8 +24229,8 @@ rules: []
     def test_review_gate_outcome_reports_a_companion_that_apply_adds(
         self, tmp_path, capsys
     ):
-        # A deferred candidate without a companion: planning adds an empty
-        # one, so two files are applied where the gate's record lists one.
+        # The writer's plan has a companion that the gate's own plan did
+        # not list: two files are applied where the gate's record lists one.
         rulespec = b"format: rulespec/v1\nrules: []\n"
         writer_record = self._writer_record(
             self._REVIEW_PASSED, (rulespec, b"[]\n"), (rulespec, b"[]\n")
@@ -24191,9 +24248,14 @@ rules: []
             )
             return [tmp_path / "policy" / "statutes/26/63.yaml"]
 
+        module_path = "statutes/26/63.yaml"
         with patch(
-            "axiom_encode.cli._review_applied_pairs",
-            side_effect=lambda files: [applied_pair(Path(files[0]).read_bytes(), None)],
+            "axiom_encode.cli._planned_review_files",
+            side_effect=lambda result, **_kwargs: (
+                [applied_pair(rulespec, None, rulespec_path=module_path)],
+                [(module_path, hashlib.sha256(rulespec).hexdigest())],
+                module_path,
+            ),
         ):
             run = self._run_review_gate(
                 tmp_path, capsys, review=self._REVIEW_PASSED, apply_side_effect=apply

@@ -29601,8 +29601,10 @@ def _applied_manifest_exact_schema_issues(
             ValidationIssue(f"{manifest_label} {issue}", check=issue.check)
             for issue in generalist_review_record_issues(
                 payload[GENERALIST_REVIEW_FIELD],
+                # Each applied path with its own digest: a file is reviewed
+                # at its path, not wherever equal bytes are applied.
                 [
-                    entry["sha256"]
+                    (entry.get("path"), entry["sha256"])
                     for entry in (
                         applied_entries if isinstance(applied_entries, list) else []
                     )
@@ -35087,11 +35089,14 @@ def _mark_logged_iteration_review_blocked(
         print(f"  run_log_review_block=failed:{type(exc).__name__}")
 
 
-def _review_applied_pairs(rulespec_files: Sequence[Path]) -> list[AppliedPair]:
+def _review_applied_pairs(
+    rulespec_files: Sequence[Path], *, manifest_root: Path
+) -> list[AppliedPair]:
     """Digest each RuleSpec file with its companion test, as they are now.
 
-    A file that cannot be read contributes no pair, so a verdict cannot be
-    bound to it.
+    Each pair carries the module's path under ``manifest_root``, the path the
+    manifest lists it at. A file that cannot be read, or that is not under
+    the root, contributes no pair, so a verdict cannot be bound to it.
     """
 
     pairs: list[AppliedPair] = []
@@ -35100,12 +35105,57 @@ def _review_applied_pairs(rulespec_files: Sequence[Path]) -> list[AppliedPair]:
             continue
         test_path = _rulespec_test_path(path)
         try:
+            manifest_path = path.relative_to(manifest_root).as_posix()
             rulespec = path.read_bytes()
             test = test_path.read_bytes() if test_path.is_file() else None
-        except OSError:
+        except (OSError, ValueError):
             continue
-        pairs.append(applied_pair(rulespec, test))
+        pairs.append(applied_pair(rulespec, test, rulespec_path=manifest_path))
     return pairs
+
+
+def _planned_review_files(
+    result,
+    *,
+    output_root: Path,
+    supplemental_files: Mapping[Path, str] | None,
+) -> tuple[list[AppliedPair], list[tuple[str, str]], str | None]:
+    """The apply plan as the review record sees it, before anything is written.
+
+    Returns the module pairs of the plan, every planned (path, byte digest),
+    and the planned path of the reviewed candidate. The plan is the one
+    ``_planned_apply_file_bytes`` installs: the candidate, its companion test
+    (also the empty one that apply writes) and every supplemental file, each
+    at its own path. A plan that cannot be made returns no file and no
+    reviewed path, so no verdict is bound to it.
+    """
+
+    try:
+        output_file = Path(str(getattr(result, "output_file", "") or ""))
+        relative_output = _canonical_apply_relative_path(
+            _relative_generated_output_path(result, output_root=output_root)
+        )
+        planned, _wrote_empty = _planned_apply_file_bytes(
+            output_file,
+            relative_output=relative_output,
+            supplemental_files=dict(supplemental_files or {}),
+        )
+    except (OSError, RuntimeError, ValueError):
+        return [], [], None
+    pairs = [
+        applied_pair(
+            raw,
+            planned.get(_rulespec_test_path(path)),
+            rulespec_path=path.as_posix(),
+        )
+        for path, raw in planned.items()
+        if not path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+    ]
+    files = [
+        (path.as_posix(), hashlib.sha256(raw).hexdigest())
+        for path, raw in planned.items()
+    ]
+    return pairs, files, relative_output.as_posix()
 
 
 def _validate_encode_producer_guidance_request(args) -> None:
@@ -43053,24 +43103,23 @@ def _run_encode_attempt(
                     # The manifest writer rebuilds this against the digests it
                     # signs and enforces the requirement again; this check
                     # refuses before any signing or installation starts.
-                    candidate_pairs = _review_applied_pairs(
-                        [Path(str(getattr(result, "output_file", "") or ""))]
+                    # Overlay validation can add repaired dependents; the
+                    # reviewer never read them, also not one whose bytes
+                    # equal a reviewed file. Each planned path is listed.
+                    (
+                        planned_review_pairs,
+                        planned_review_files,
+                        reviewed_review_path,
+                    ) = _planned_review_files(
+                        result,
+                        output_root=args.output,
+                        supplemental_files=supplemental_files,
                     )
                     review_record = build_generalist_review_record(
                         review_state,
-                        candidate_pairs,
-                        # Overlay validation can add repaired dependents; the
-                        # reviewer never read them.
-                        [
-                            digest
-                            for pair in candidate_pairs
-                            for digest in (pair.rulespec_sha256, pair.test_sha256)
-                            if digest is not None
-                        ]
-                        + [
-                            hashlib.sha256(content.encode("utf-8")).hexdigest()
-                            for content in dict(supplemental_files or {}).values()
-                        ],
+                        planned_review_pairs,
+                        planned_review_files,
+                        reviewed_rulespec_path=reviewed_review_path,
                     )
                     setattr(result, _GENERALIST_REVIEW_STATE_ATTR, review_state)
                     vars(result).pop(_GENERALIST_REVIEW_APPLIED_RECORD_ATTR, None)
@@ -66402,8 +66451,15 @@ def _write_applied_encoding_manifest(
             raise RuntimeError("Generalist review state is malformed")
         review_record = build_generalist_review_record(
             review_state,
-            _review_applied_pairs(unique_applied_files),
-            [str(item["sha256"]) for item in payload["applied_files"]],
+            _review_applied_pairs(unique_applied_files, manifest_root=manifest_root),
+            [
+                (str(item["path"]), str(item["sha256"]))
+                for item in payload["applied_files"]
+            ],
+            # The reviewer read this encode's own module, which the manifest
+            # lists at this path. A dependent at another path stays
+            # unreviewed, also when its bytes equal a reviewed file.
+            reviewed_rulespec_path=manifest_relative_output.as_posix(),
         )
         # The encode outcome reports this record, also when the target's
         # manifest cannot carry it or the requirement refuses below.

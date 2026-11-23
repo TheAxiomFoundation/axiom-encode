@@ -35,6 +35,13 @@ model-manifest unit, not that whole transaction; dependent migration manifests
 carry no generalist-review record. The CLI and direct apply entrypoint refuse
 that migration path when the caller requires review.
 
+A verdict covers paths, not bytes. The record lists every applied file by
+manifest path and byte digest, and marks as reviewed only the module path
+the reviewer was asked about and the companion test path of that module. A
+file at another path stays unreviewed also when its bytes equal a reviewed
+file: its path selects the module that supplies its validation context, and
+the reviewer did not read that context.
+
 "The same content" is decided by a content digest, not by file bytes. Between
 the review and the apply, ``encode --apply`` stamps
 ``module.source_verification`` with the resolver's attested corpus path and
@@ -44,7 +51,12 @@ scalar values as well as file bytes. The content digest is the SHA-256 of the YA
 node tree (each scalar with its resolved type and its exact text), with those
 two stamped keys left out. Key order, harmless quoting and comments do not
 change it; other edits do, including one that only a YAML 1.1 reader
-treats as equal (``yes`` and ``true``, ``010`` and ``8``). A document with a
+treats as equal (``yes`` and ``true``, ``010`` and ``8``). Each scalar also
+carries the type that ``yaml.safe_load`` gives it, because that loader reads
+the companion tests: plain ``yes``, ``0b10`` and ``2001-01-01`` differ from
+their quoted spellings, so two files with one digest load as equal values
+there. Mapping key order is the one difference of the loaded value that the
+digest ignores. A document with a
 repeated key, a collection alias or a merge key has no content digest. Keys
 are repeated when their node is the same, and also when a reader gives two
 scalar keys equal values (``0x10`` and ``16``, ``1`` and ``1.0``): the loaded
@@ -62,9 +74,9 @@ this digest cannot establish as equal leave the verdict unavailable, even
 when a particular respelling might be harmless. The record also names byte
 digests on both sides.
 
-The record holds only enumerated words, numbers and digests. Reviewer prose
-(issues, reasoning) never enters it, so model output cannot place a string of
-its choice in a signed manifest.
+The record holds only enumerated words, numbers, digests and the manifest's
+own file paths. Reviewer prose (issues, reasoning) never enters it, so model
+output cannot place a string of its choice in a signed manifest.
 """
 
 from __future__ import annotations
@@ -73,12 +85,15 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Any, Iterable, Mapping
 
 import yaml
 
 from axiom_encode.checks import ValidationIssue, declare_check
+from axiom_encode.constants import RULESPEC_FILE_SUFFIX, RULESPEC_TEST_FILE_SUFFIX
 from axiom_encode.yaml_serialization import is_yaml12_core_non_string, safe_dump_yaml
 
 GENERALIST_REVIEW_FIELD = "generalist_review"
@@ -161,9 +176,11 @@ CHECK_REVIEW_RECORD_BINDING = declare_check(
     "manifest:generalist-review/binding",
     title="Generalist review verdict is not bound to the applied files",
     requires=(
-        "The record lists exactly the files the manifest applies; a passed "
-        "record marks every one of them reviewed in full; a scored record has "
-        "equal reviewed and applied content digests."
+        "The record lists exactly the files the manifest applies, each by "
+        "path and digest; a passed record marks every one of them reviewed in "
+        "full; a scored record has equal reviewed and applied content digests "
+        "and marks as reviewed only the reviewed module path and its "
+        "companion test path."
     ),
     why=_RECORD_WHY,
     fix=_RECORD_FIX,
@@ -203,11 +220,14 @@ _DIGEST_FIELDS = (
     "test_content_sha256",
 )
 _PAIR_FIELDS = frozenset(_DIGEST_FIELDS)
+# Where the bound pair is applied: manifest paths, None when nothing is bound.
+_PATH_FIELDS = ("rulespec_path", "test_path")
+_APPLIED_FIELDS = _PAIR_FIELDS | frozenset(_PATH_FIELDS)
 # The reviewed RuleSpec after the dump that apply performs on it.
 _DUMPED_FIELD = "rulespec_dumped_content_sha256"
 _REVIEWED_FIELDS = _PAIR_FIELDS | {_DUMPED_FIELD}
 _MERGE_TAG = "tag:yaml.org,2002:merge"
-_FILE_FIELDS = frozenset({"sha256", "reviewed", "complete"})
+_FILE_FIELDS = frozenset({"path", "sha256", "reviewed", "complete"})
 # The two keys `encode --apply` stamps into module.source_verification.
 _SOURCE_STAMP_KEYS = ("corpus_citation_path", "source_sha256")
 _NULL_TAG = "tag:yaml.org,2002:null"
@@ -429,7 +449,17 @@ def _canonical_node(
             "FALSE",
         }:
             value = value.lower()
-        return ["scalar", tag, value, implicit_yaml12_non_string]
+        # The type `yaml.safe_load` gives the scalar is part of its content:
+        # that loader runs the companion tests. Plain `yes`, `0b10`, `1_000`,
+        # `1:30` and `2001-01-01` are a boolean, numbers and a date there, and
+        # strings when quoted; the tag above is the same string tag for both
+        # spellings. With the loader's tag in the content, two files with an
+        # equal digest load as equal values (the text is exact, apart from
+        # the null and boolean spellings that load as one value). The same
+        # holds for a quoted `!` scalar, which PyYAML resolves like a plain
+        # one (`! "yes"` loads as True) and the tag above calls a string.
+        pyyaml_tag = getattr(node, "_review_pyyaml_tag", node.tag)
+        return ["scalar", tag, value, implicit_yaml12_non_string, pyyaml_tag]
     if id(node) in seen:
         raise ValueError("YAML alias")
     seen.add(id(node))
@@ -478,15 +508,27 @@ def _canonical_node(
     raise TypeError(f"unsupported YAML node {type(node).__name__}")
 
 
+# The content of a companion test that is not there. No node tree has this
+# canonical form: a tree is null or a list that starts with a node kind.
+_ABSENT_TEST_CONTENT_SHA256 = hashlib.sha256(b'["absent"]').hexdigest()
+
+
 def review_content_sha256(raw: bytes | None, *, rulespec: bool) -> str | None:
     """Digest the content of one reviewed or applied YAML file.
 
-    ``raw`` None is an absent file, which digests like an empty document, so
-    an absent companion test equals the empty one that apply writes. A file
-    that cannot be decoded or parsed has no content digest (None), and a
-    verdict without one is never bound.
+    ``raw`` None is an absent file. A file that cannot be decoded or parsed
+    has no content digest (None), and a verdict without one is never bound.
+
+    A companion test (``rulespec`` False) keeps the differences that its
+    loader acts on. An absent file has a digest of its own: nothing loads it.
+    An empty list (``[]``, zero test cases) differs from a null document (an
+    empty file, only comments, ``~``), which the loader refuses, and from an
+    empty mapping. A RuleSpec module without content (absent, null, ``{}``,
+    ``[]``) has one digest: the apply stamp can add an empty ``module``.
     """
 
+    if raw is None and not rulespec:
+        return _ABSENT_TEST_CONTENT_SHA256
     if raw is None:
         root: yaml.Node | None = None
     else:
@@ -514,7 +556,11 @@ def review_content_sha256(raw: bytes | None, *, rulespec: bool) -> str | None:
             drop[id(root)] = frozenset({"module"})
     try:
         canonical_value = _canonical_node(root, drop=drop, seen=set())
-        if _is_empty(root) or canonical_value == ["mapping", _MAP_TAG, []]:
+        if rulespec:
+            if _is_empty(root) or canonical_value == ["mapping", _MAP_TAG, []]:
+                canonical_value = None
+        elif isinstance(root, yaml.ScalarNode) and _is_empty(root):
+            # `~` and `null` load like an empty file: one null document.
             canonical_value = None
         canonical = json.dumps(
             canonical_value,
@@ -526,9 +572,6 @@ def review_content_sha256(raw: bytes | None, *, rulespec: bool) -> str | None:
     except (TypeError, ValueError, RecursionError):
         return None
     return hashlib.sha256(canonical.encode("ascii")).hexdigest()
-
-
-_ABSENT_TEST_CONTENT_SHA256 = review_content_sha256(None, rulespec=False)
 
 
 def apply_stamp_dump(payload: object) -> str:
@@ -602,24 +645,89 @@ def empty_deferred_companion_test(rulespec: bytes) -> bytes | None:
     return None
 
 
+def is_manifest_file_path(value: object) -> bool:
+    """Return whether ``value`` is one canonical manifest-relative file path.
+
+    One spelling per file: POSIX separators, relative, no empty, ``.`` or
+    ``..`` segment, no backslash and no control character. A path with
+    another spelling is not compared with anything; it is refused.
+    """
+
+    if not isinstance(value, str) or not value or len(value) > 4096:
+        return False
+    if "\\" in value or any(
+        ord(char) < 32 or ord(char) == 127 or char in "\u2028\u2029" for char in value
+    ):
+        return False
+    return all(part not in {"", ".", ".."} for part in value.split("/"))
+
+
+def _path_collision_key(path: str) -> str:
+    """One key for paths that a file system can resolve to one file.
+
+    Case and Unicode composition do not separate two files on every file
+    system, so two listed paths with one key are refused, not compared.
+    """
+
+    return unicodedata.normalize("NFC", unicodedata.normalize("NFD", path).casefold())
+
+
+def is_rulespec_module_path(value: object) -> bool:
+    """Return whether ``value`` is a manifest path of a module, not a test."""
+
+    return (
+        is_manifest_file_path(value)
+        and str(value).endswith(RULESPEC_FILE_SUFFIX)
+        and not str(value).endswith(RULESPEC_TEST_FILE_SUFFIX)
+        and PurePosixPath(str(value)).name != RULESPEC_FILE_SUFFIX
+    )
+
+
+def companion_test_manifest_path(rulespec_path: str) -> str:
+    """The manifest path of the companion test of one module path."""
+
+    path = PurePosixPath(rulespec_path)
+    return path.with_name(f"{path.stem}{RULESPEC_TEST_FILE_SUFFIX}").as_posix()
+
+
 @dataclass(frozen=True)
 class AppliedPair:
-    """One applied RuleSpec file and its companion test, by digest."""
+    """One applied RuleSpec file and its companion test, by path and digest.
+
+    ``rulespec_path`` is the manifest path of the module. The companion test
+    is at :func:`companion_test_manifest_path` of it and nowhere else. A pair
+    without a path is never bound to a verdict.
+    """
 
     rulespec_sha256: str
     rulespec_content_sha256: str | None
     test_sha256: str | None
     test_content_sha256: str | None
+    rulespec_path: str | None = None
+
+    @property
+    def test_path(self) -> str | None:
+        """The companion's manifest path; None without a companion or path."""
+
+        if self.test_sha256 is None or not is_rulespec_module_path(self.rulespec_path):
+            return None
+        return companion_test_manifest_path(str(self.rulespec_path))
 
 
-def applied_pair(rulespec: bytes, test: bytes | None) -> AppliedPair:
-    """Digest one RuleSpec file and its companion test (None when absent)."""
+def applied_pair(
+    rulespec: bytes, test: bytes | None, *, rulespec_path: str | None = None
+) -> AppliedPair:
+    """Digest one RuleSpec file and its companion test (None when absent).
+
+    ``rulespec_path`` is the manifest path the module is applied at.
+    """
 
     return AppliedPair(
         rulespec_sha256=hashlib.sha256(rulespec).hexdigest(),
         rulespec_content_sha256=review_content_sha256(rulespec, rulespec=True),
         test_sha256=None if test is None else hashlib.sha256(test).hexdigest(),
         test_content_sha256=review_content_sha256(test, rulespec=False),
+        rulespec_path=rulespec_path,
     )
 
 
@@ -694,18 +802,54 @@ def _reviewer_identity(evidence: Mapping[str, Any]) -> dict[str, object]:
     }
 
 
+def _applied_file_list(
+    applied_files: Iterable[object],
+) -> tuple[dict[str, str], bool]:
+    """Return the applied files as path -> byte digest, and whether the list
+    is sound.
+
+    The list is not sound when an item is not a (path, digest) pair of a
+    canonical manifest path and a SHA-256, when one path has two digests, or
+    when two paths can be one file (case, Unicode composition). An unsound
+    list binds no verdict. Malformed items are left out of the mapping.
+    """
+
+    listed: dict[str, str] = {}
+    sound = True
+    for item in applied_files:
+        if (
+            not isinstance(item, tuple)
+            or len(item) != 2
+            or not is_manifest_file_path(item[0])
+            or not _is_sha256(item[1])
+        ):
+            sound = False
+            continue
+        path, sha256 = item
+        if listed.setdefault(path, sha256) != sha256:
+            sound = False
+    if len({_path_collision_key(path) for path in listed}) != len(listed):
+        sound = False
+    return listed, sound
+
+
 def _file_entries(
-    sha256s: Iterable[object], reviewed: Mapping[str, bool]
+    listed: Mapping[str, str], reviewed: Mapping[str, bool]
 ) -> list[dict[str, object]]:
-    """One entry per applied file: reviewed at all, and reviewed in full."""
+    """One entry per applied path: reviewed at all, and reviewed in full.
+
+    ``reviewed`` is keyed by path. A file is reviewed because the reviewer
+    read the file at that path, never because another path holds equal bytes.
+    """
 
     return [
         {
-            "sha256": sha256,
-            "reviewed": sha256 in reviewed,
-            "complete": reviewed.get(sha256, False),
+            "path": path,
+            "sha256": listed[path],
+            "reviewed": path in reviewed,
+            "complete": reviewed.get(path, False),
         }
-        for sha256 in sorted({item for item in sha256s if _is_sha256(item)})
+        for path in sorted(listed)
     ]
 
 
@@ -729,7 +873,7 @@ def _unscored_record(
         "verdict": {"passed": None, "score": None, "issue_count": 0},
         "prompt_sha256": None,
         "reviewed": dict.fromkeys((*_DIGEST_FIELDS, _DUMPED_FIELD)),
-        "applied": dict.fromkeys(_DIGEST_FIELDS),
+        "applied": dict.fromkeys((*_DIGEST_FIELDS, *_PATH_FIELDS)),
         "files": files,
     }
 
@@ -737,28 +881,41 @@ def _unscored_record(
 def build_generalist_review_record(
     state: GeneralistReviewState,
     applied: Iterable[AppliedPair],
-    applied_sha256s: Iterable[object] | None = None,
+    applied_files: Iterable[object] | None = None,
+    *,
+    reviewed_rulespec_path: object = None,
 ) -> dict[str, object]:
     """Return the record for ``state`` against the files that are applied.
 
     ``applied`` are the RuleSpec files the encode applies (or is about to
-    apply), each with its companion test. ``applied_sha256s`` are the byte
-    digests of every applied file, whether or not it is in a pair; left out,
-    they are the files of the pairs. A scored verdict counts only when one
-    pair has the content the reviewer read, and it is ``passed`` only when
-    that pair is everything that is applied and the reviewer saw it whole.
+    apply), each with its manifest path and its companion test.
+    ``applied_files`` are the (manifest path, byte digest) pairs of every
+    applied file, whether or not it is in a pair; left out, they are the
+    files of the pairs. ``reviewed_rulespec_path`` is the manifest path of
+    the one module the reviewer was asked about.
+
+    A scored verdict counts only for the pair at that path, and only when
+    that pair has the content the reviewer read and is in ``applied_files``
+    with its digests. It marks the module path and its companion test path
+    reviewed, and no other path: a file with equal bytes at another path is
+    validated in another module's context, which the reviewer did not read.
+    The record is ``passed`` only when those two paths are everything that
+    is applied and the reviewer saw both files whole.
     """
 
     pairs = [pair for pair in applied if isinstance(pair, AppliedPair)]
-    if applied_sha256s is None:
-        applied_sha256s = [
-            digest
+    if applied_files is None:
+        applied_files = [
+            (path, digest)
             for pair in pairs
-            for digest in (pair.rulespec_sha256, pair.test_sha256)
+            for path, digest in (
+                (pair.rulespec_path, pair.rulespec_sha256),
+                (pair.test_path, pair.test_sha256),
+            )
             if digest is not None
         ]
-    all_files = list(applied_sha256s)
-    unreviewed = _file_entries(all_files, {})
+    listed, sound = _applied_file_list(applied_files)
+    unreviewed = _file_entries(listed, {})
     required = state.required is True
     if state.skipped_by_flag is True:
         return _unscored_record(
@@ -797,6 +954,10 @@ def build_generalist_review_record(
             or _is_sha256(evidence.get("reviewed_test_sha256"))
         )
         or not _is_sha256(evidence.get("reviewed_test_content_sha256"))
+        # No companion file was read exactly when the reviewed companion
+        # content is that of an absent file.
+        or (evidence.get("reviewed_test_sha256") is None)
+        != (evidence.get("reviewed_test_content_sha256") == _ABSENT_TEST_CONTENT_SHA256)
         or (verdict is True and score < PASS_SCORE_THRESHOLD)
         # A passing verdict counts only as the reviewer's own boolean
         # `passed: true`. The eval pipeline can infer a pass from the score
@@ -820,36 +981,62 @@ def build_generalist_review_record(
     # different from the reviewed node tree, even if the loader collapsed it.
     if reviewed[_DUMPED_FIELD] != reviewed["rulespec_content_sha256"]:
         reviewed[_DUMPED_FIELD] = None
+    # Only the pair at the reviewed module path can carry the verdict. Two
+    # pairs at one path, a path with another spelling, or an applied file
+    # list that is not sound, bind nothing.
+    at_reviewed_path = [
+        pair
+        for pair in pairs
+        if is_rulespec_module_path(reviewed_rulespec_path)
+        and pair.rulespec_path == reviewed_rulespec_path
+    ]
     bound_pair = next(
         (
             pair
-            for pair in pairs
-            if _is_sha256(pair.rulespec_sha256)
+            for pair in at_reviewed_path
+            if sound
+            and len(at_reviewed_path) == 1
+            and _is_sha256(pair.rulespec_sha256)
             and pair.rulespec_content_sha256 == reviewed["rulespec_content_sha256"]
             and pair.test_content_sha256 == reviewed["test_content_sha256"]
             and (pair.test_sha256 is None or _is_sha256(pair.test_sha256))
+            and (pair.test_sha256 is None)
+            == (pair.test_content_sha256 == _ABSENT_TEST_CONTENT_SHA256)
+            # The pair is applied: each of its files is listed at its own
+            # path with its own digest.
+            and listed.get(str(pair.rulespec_path)) == pair.rulespec_sha256
+            and (
+                pair.test_sha256 is None
+                or listed.get(str(pair.test_path)) == pair.test_sha256
+            )
         ),
         None,
     )
     if bound_pair is None:
         status = STATUS_UNAVAILABLE
         reason: str | None = REASON_CONTENT_NOT_APPLIED
-        applied_digests: dict[str, object] = dict.fromkeys(_DIGEST_FIELDS)
+        applied_digests: dict[str, object] = dict.fromkeys(
+            (*_DIGEST_FIELDS, *_PATH_FIELDS)
+        )
         files = unreviewed
     else:
         applied_digests = {
-            field: getattr(bound_pair, field) for field in _DIGEST_FIELDS
+            field: getattr(bound_pair, field)
+            for field in (*_DIGEST_FIELDS, *_PATH_FIELDS)
         }
         # Only an explicit True says the prompt showed the whole file.
         seen_whole = {
-            bound_pair.rulespec_sha256: evidence.get("rulespec_complete") is True
+            str(bound_pair.rulespec_path): evidence.get("rulespec_complete") is True
         }
         # A reviewer that read no companion test has reviewed no applied
-        # companion file, not even an empty one whose content equals an
-        # absent one: that file stays unreviewed and the record is partial.
+        # companion file. The content digests above already keep such a
+        # pair apart (an absent companion is a content of its own); this is
+        # a second guard that leaves the file unreviewed.
         if bound_pair.test_sha256 is not None and reviewed["test_sha256"] is not None:
-            seen_whole[bound_pair.test_sha256] = evidence.get("test_complete") is True
-        files = _file_entries(all_files, seen_whole)
+            seen_whole[str(bound_pair.test_path)] = (
+                evidence.get("test_complete") is True
+            )
+        files = _file_entries(listed, seen_whole)
         if not verdict:
             status, reason = STATUS_FAILED, None
         elif not files or not all(entry["reviewed"] for entry in files):
@@ -878,16 +1065,17 @@ def build_generalist_review_record(
 
 def generalist_review_record_issues(
     record: object,
-    applied_sha256s: Iterable[str],
+    applied_files: Iterable[object],
 ) -> list[ValidationIssue]:
     """Return every reason ``record`` is not a well-formed, bound record.
 
     This is the reader's check, from the manifest alone. The record must list
-    exactly ``applied_sha256s`` (the manifest's own file digests). A record
-    that says ``passed`` must mark every one of them reviewed in full. A
-    scored record must carry the matching verdict and equal reviewed and
-    applied content digests, and may mark as reviewed only the files of the
-    pair it names. Any other record must mark no file reviewed.
+    exactly ``applied_files``: the manifest's own (path, byte digest) pairs.
+    A record that says ``passed`` must mark every one of them reviewed in
+    full. A scored record must carry the matching verdict and equal reviewed
+    and applied content digests, and may mark as reviewed only the module
+    path it names and the companion test path of that module, each with the
+    digest it names. Any other record must mark no file reviewed.
     """
 
     def shape(message: str) -> ValidationIssue:
@@ -936,11 +1124,12 @@ def generalist_review_record_issues(
         or not isinstance(reviewed, dict)
         or frozenset(reviewed) != _REVIEWED_FIELDS
         or not isinstance(applied_block, dict)
-        or frozenset(applied_block) != _PAIR_FIELDS
+        or frozenset(applied_block) != _APPLIED_FIELDS
         or not isinstance(files, list)
         or not all(
             isinstance(entry, dict)
             and frozenset(entry) == _FILE_FIELDS
+            and is_manifest_file_path(entry["path"])
             and _is_sha256(entry["sha256"])
             and isinstance(entry["reviewed"], bool)
             and isinstance(entry["complete"], bool)
@@ -949,12 +1138,18 @@ def generalist_review_record_issues(
     ):
         return found + [shape("generalist_review has a malformed nested object")]
 
-    listed = [entry["sha256"] for entry in files]
-    if listed != sorted(set(listed)):
+    listed = [entry["path"] for entry in files]
+    if listed != sorted(set(listed)) or len(
+        {_path_collision_key(path) for path in listed}
+    ) != len(listed):
         found += [shape("generalist_review files are not sorted and unique")]
     if any(entry["complete"] and not entry["reviewed"] for entry in files):
         found += [shape("generalist_review marks an unreviewed file complete")]
-    if set(listed) != {digest for digest in applied_sha256s if _is_sha256(digest)}:
+    # Each applied path with its own digest: equal bytes at two paths are two
+    # files, and a manifest list that is not sound matches no record.
+    manifest_files, manifest_sound = _applied_file_list(applied_files)
+    record_files = {(entry["path"], entry["sha256"]) for entry in files}
+    if not manifest_sound or record_files != set(manifest_files.items()):
         found += [
             binding("generalist_review does not list exactly the applied file digests")
         ]
@@ -986,12 +1181,27 @@ def generalist_review_record_issues(
         found += [shape("generalist_review issue_count is not an integer")]
     elif issue_count < 0:
         found += [shape("generalist_review issue_count is negative")]
-    reviewed_files = {entry["sha256"] for entry in files if entry["reviewed"]}
+    reviewed_files = {
+        (entry["path"], entry["sha256"]) for entry in files if entry["reviewed"]
+    }
     if not all(
         value is None or _is_sha256(value)
-        for value in (*reviewed.values(), *applied_block.values())
+        for value in (
+            *reviewed.values(),
+            *(applied_block[field] for field in _DIGEST_FIELDS),
+        )
     ):
         return found + [shape("generalist_review has a malformed digest")]
+    rulespec_path = applied_block["rulespec_path"]
+    test_path = applied_block["test_path"]
+    if not (rulespec_path is None or is_rulespec_module_path(rulespec_path)) or not (
+        test_path is None
+        or (
+            rulespec_path is not None
+            and test_path == companion_test_manifest_path(rulespec_path)
+        )
+    ):
+        return found + [shape("generalist_review has a malformed applied path")]
 
     scored = status in _BOUND_STATUSES or reason == REASON_CONTENT_NOT_APPLIED
     if not scored:
@@ -1001,7 +1211,7 @@ def generalist_review_record_issues(
             or issue_count != 0
             or prompt_sha256 is not None
             or any(value is not None for value in reviewed.values())
-            or any(applied_block[field] is not None for field in _DIGEST_FIELDS)
+            or any(value is not None for value in applied_block.values())
             or reviewed_files
             or backend is not None
             or model is not None
@@ -1021,6 +1231,10 @@ def generalist_review_record_issues(
         or not _is_sha256(reviewed["rulespec_content_sha256"])
         or not (reviewed["test_sha256"] is None or _is_sha256(reviewed["test_sha256"]))
         or not _is_sha256(reviewed["test_content_sha256"])
+        # A reviewer that read no companion file has the content digest of
+        # an absent one, and only that reviewer has it.
+        or (reviewed["test_sha256"] is None)
+        != (reviewed["test_content_sha256"] == _ABSENT_TEST_CONTENT_SHA256)
     ):
         return found + [shape("generalist_review scored verdict is malformed")]
     if passed and float(score) < PASS_SCORE_THRESHOLD:
@@ -1036,10 +1250,7 @@ def generalist_review_record_issues(
             verdict_issue("generalist_review status failed contradicts its verdict")
         ]
     if status == STATUS_UNAVAILABLE:
-        if (
-            any(applied_block[field] is not None for field in _DIGEST_FIELDS)
-            or reviewed_files
-        ):
+        if any(value is not None for value in applied_block.values()) or reviewed_files:
             found += [
                 binding(
                     "generalist_review says the reviewed content was not applied, "
@@ -1062,19 +1273,38 @@ def generalist_review_record_issues(
         found += [
             binding("generalist_review dump digest differs from reviewed content")
         ]
+    # The verdict covers the named module path and its companion test path,
+    # each with the named digest, and no other path with equal bytes.
     pair_files = {
-        digest
-        for digest in (
-            applied_block["rulespec_sha256"],
+        (path, digest)
+        for path, digest in (
+            (rulespec_path, applied_block["rulespec_sha256"]),
             # An applied companion counts as reviewed only when the reviewer
             # read a companion file.
-            None if reviewed["test_sha256"] is None else applied_block["test_sha256"],
+            (
+                test_path,
+                None
+                if reviewed["test_sha256"] is None
+                else applied_block["test_sha256"],
+            ),
+        )
+        if digest is not None
+    }
+    applied_pair_files = {
+        (path, digest)
+        for path, digest in (
+            (rulespec_path, applied_block["rulespec_sha256"]),
+            (test_path, applied_block["test_sha256"]),
         )
         if digest is not None
     }
     if (
         not _is_sha256(applied_block["rulespec_sha256"])
+        or rulespec_path is None
+        or (test_path is None) != (applied_block["test_sha256"] is None)
         or reviewed_files != pair_files
+        # The pair the verdict is bound to is among the listed files.
+        or not applied_pair_files <= record_files
         or (
             applied_block["test_sha256"] is None
             and applied_block["test_content_sha256"] != _ABSENT_TEST_CONTENT_SHA256

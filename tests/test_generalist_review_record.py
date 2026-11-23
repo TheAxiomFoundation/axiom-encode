@@ -30,11 +30,8 @@ from axiom_encode.generalist_review_record import (
     AppliedPair,
     GeneralistReviewState,
     ReviewRequirementRefused,
-    applied_pair,
     apply_stamp_dump,
-    build_generalist_review_record,
     dumped_review_content_sha256,
-    generalist_review_record_issues,
     review_content_sha256,
     review_evidence_digests,
     review_requirement_refusal,
@@ -72,6 +69,74 @@ _stamped["module"]["source_verification"] = {
     "source_sha256": "5" * 64,
 }
 STAMPED_RULE_BYTES = yaml.safe_dump(_stamped, sort_keys=False).encode()
+# The manifest paths of the one reviewed module and its companion test.
+RULE_PATH = "statutes/rule.yaml"
+TEST_PATH = "statutes/rule.test.yaml"
+
+
+def applied_pair(rulespec, test, *, rulespec_path=RULE_PATH):
+    """The module's pair at the reviewed path, unless a test names another."""
+
+    return record_module.applied_pair(rulespec, test, rulespec_path=rulespec_path)
+
+
+def _with_paths(applied, sha256s):
+    """Give bare digests a manifest path: that of their pair, or their own.
+
+    Tests written before the record named paths list applied files by digest.
+    A digest of a pair file is listed at the pair's path; any other digest is
+    one more applied file at a path of its own.
+    """
+
+    known = {}
+    for pair in applied:
+        if isinstance(pair, AppliedPair):
+            known.setdefault(pair.rulespec_sha256, pair.rulespec_path)
+            if pair.test_sha256 is not None:
+                known.setdefault(pair.test_sha256, pair.test_path)
+    return [
+        item
+        if isinstance(item, tuple) or not isinstance(item, str)
+        else (known.get(item) or f"statutes/other/{item}.yaml", item)
+        for item in sha256s
+    ]
+
+
+def build_generalist_review_record(
+    state, applied, applied_files=None, *, reviewed_rulespec_path=RULE_PATH
+):
+    applied = list(applied)
+    return record_module.build_generalist_review_record(
+        state,
+        applied,
+        None if applied_files is None else _with_paths(applied, applied_files),
+        reviewed_rulespec_path=reviewed_rulespec_path,
+    )
+
+
+def generalist_review_record_issues(record, applied_files):
+    """The reader, for a manifest list of (path, digest) pairs or of digests.
+
+    A bare digest is listed at the path the record gives it, or at a path of
+    its own when the record does not list it.
+    """
+
+    files = record.get("files") if isinstance(record, dict) else None
+    known = {}
+    for entry in files if isinstance(files, list) else []:
+        if isinstance(entry, dict) and isinstance(entry.get("sha256"), str):
+            known.setdefault(entry["sha256"], entry.get("path"))
+    return record_module.generalist_review_record_issues(
+        record,
+        [
+            item
+            if isinstance(item, tuple) or not isinstance(item, str)
+            else (known.get(item) or f"statutes/other/{item}.yaml", item)
+            for item in applied_files
+        ],
+    )
+
+
 REPAIRED_RULE_BYTES = RULE_BYTES.replace(b"formula: 1000", b"formula: max(0, 1000)")
 PAIR = applied_pair(RULE_BYTES, TEST_BYTES)
 STAMPED_PAIR = applied_pair(STAMPED_RULE_BYTES, TEST_BYTES)
@@ -87,8 +152,28 @@ DIGEST_FIELDS = (
 )
 
 
+OTHER_PATH = "statutes/other.yaml"
+UNBOUND_APPLIED = dict.fromkeys((*DIGEST_FIELDS, "rulespec_path", "test_path"))
+
+
 def _digests(pair):
     return {field: getattr(pair, field) for field in DIGEST_FIELDS}
+
+
+def _applied(pair):
+    """Expected `applied`: the pair's digests and the paths it is applied at."""
+
+    return {
+        **_digests(pair),
+        "rulespec_path": pair.rulespec_path,
+        "test_path": pair.test_path,
+    }
+
+
+def _other_pair():
+    """A repaired dependent: another module, applied at another path."""
+
+    return applied_pair(REPAIRED_RULE_BYTES, None, rulespec_path=OTHER_PATH)
 
 
 def _reviewed(pair, rulespec=None):
@@ -105,15 +190,45 @@ def _reviewed(pair, rulespec=None):
 UNSCORED_REVIEWED = dict.fromkeys((*DIGEST_FIELDS, "rulespec_dumped_content_sha256"))
 
 
-def _files(*entries):
-    """Expected `files`: (sha256, reviewed, complete) triples, sorted."""
+class _FilesByDigest(list):
+    """Expected `files` that leave the paths open: equal to a record's list
+    with the same (sha256, reviewed, complete) entries, at any paths."""
 
-    return sorted(
-        (
-            {"sha256": sha256, "reviewed": reviewed, "complete": complete}
-            for sha256, reviewed, complete in entries
-        ),
-        key=lambda entry: entry["sha256"],
+    def __eq__(self, other):
+        if not isinstance(other, list):
+            return NotImplemented
+        return sorted(
+            (entry["sha256"], entry["reviewed"], entry["complete"]) for entry in other
+        ) == sorted(
+            (entry["sha256"], entry["reviewed"], entry["complete"]) for entry in self
+        )
+
+    __hash__ = None
+
+
+def _files(*entries):
+    """Expected `files`: (sha256, reviewed, complete) triples, at any path.
+
+    A (path, sha256, reviewed, complete) entry also fixes the path; a list of
+    those is compared exactly.
+    """
+
+    if entries and all(len(entry) == 4 for entry in entries):
+        return sorted(
+            (
+                {
+                    "path": path,
+                    "sha256": sha256,
+                    "reviewed": reviewed,
+                    "complete": complete,
+                }
+                for path, sha256, reviewed, complete in entries
+            ),
+            key=lambda entry: entry["path"],
+        )
+    return _FilesByDigest(
+        {"sha256": sha256, "reviewed": reviewed, "complete": complete}
+        for sha256, reviewed, complete in entries
     )
 
 
@@ -154,7 +269,11 @@ def _issues(record, applied_sha256s=None):
     if applied_sha256s is None:
         files = record.get("files") if isinstance(record, dict) else None
         applied_sha256s = (
-            [entry.get("sha256") for entry in files if isinstance(entry, dict)]
+            [
+                (entry.get("path"), entry.get("sha256"))
+                for entry in files
+                if isinstance(entry, dict)
+            ]
             if isinstance(files, list)
             else APPLIED_SHA256S
         )
@@ -241,7 +360,6 @@ def test_values_that_only_yaml_1_1_reads_as_equal_have_different_digests(left, r
         (b"a: True\n", b"a: true\n"),
         (b"a: 'x'\n", b'a: "x"\n'),
         (b"a: x\n", b"a: 'x'\n"),
-        (b"a: 2018-01-01\n", b"a: '2018-01-01'\n"),
         (b"a: |-\n  x\n  y\n", b'a: "x\\ny"\n'),
         (b"{a: 1, b: [1, 2]}\n", b"b:\n- 1\n- 2\na: 1\n"),
     ],
@@ -324,13 +442,48 @@ def test_stamp_keys_are_neutral_only_in_a_rulespec_module():
     ) != review_content_sha256(b"", rulespec=True)
 
 
-def test_absent_and_empty_companion_tests_have_one_content_digest():
+def test_absent_null_and_empty_companion_tests_are_different_content(tmp_path):
+    # The companion loader acts on the difference: nothing loads an absent
+    # file, an empty list is zero cases, and it refuses a null document and
+    # an empty mapping.
     absent = review_content_sha256(None, rulespec=False)
+    groups = {
+        "empty list": (b"[]\n", b"[]  # none\n", b"--- []\n", b"[ ]\n"),
+        "null document": (b"", b"# nothing\n", b"~\n", b"null\n", b"---\n"),
+        "empty mapping": (b"{}\n", b"{ }\n"),
+        "cases": (TEST_BYTES,),
+    }
+    digests = {
+        name: {review_content_sha256(raw, rulespec=False) for raw in spellings}
+        for name, spellings in groups.items()
+    }
 
     assert absent is not None
-    for empty in (b"", b"[]\n", b"{}\n", b"# nothing\n"):
-        assert review_content_sha256(empty, rulespec=False) == absent
-    assert review_content_sha256(TEST_BYTES, rulespec=False) != absent
+    assert all(len(found) == 1 and None not in found for found in digests.values())
+    assert len({absent, *(next(iter(found)) for found in digests.values())}) == 5
+
+    def load(raw):
+        path = tmp_path / "x.test.yaml"
+        path.write_bytes(raw)
+        try:
+            return cli._load_rulespec_test_cases(path)
+        except ValueError:
+            return "refused"
+
+    assert {load(raw) == [] for raw in groups["empty list"]} == {True}
+    assert {
+        load(raw) for raw in (*groups["null document"], *groups["empty mapping"])
+    } == {"refused"}
+    # A module without content keeps one digest: the stamp can add `module`.
+    assert (
+        len(
+            {
+                review_content_sha256(raw, rulespec=True)
+                for raw in (None, b"", b"~\n", b"{}\n", b"[]\n", b"module:\n")
+            }
+        )
+        == 1
+    )
 
 
 @pytest.mark.parametrize(
@@ -379,9 +532,14 @@ def test_passed_record_carries_identity_verdict_and_digests():
         "verdict": {"passed": True, "score": 8.5, "issue_count": 2},
         "prompt_sha256": PROMPT_SHA,
         "reviewed": _reviewed(PAIR),
-        "applied": _digests(PAIR),
+        "applied": {
+            **_digests(PAIR),
+            "rulespec_path": RULE_PATH,
+            "test_path": TEST_PATH,
+        },
         "files": _files(
-            (PAIR.rulespec_sha256, True, True), (PAIR.test_sha256, True, True)
+            (RULE_PATH, PAIR.rulespec_sha256, True, True),
+            (TEST_PATH, PAIR.test_sha256, True, True),
         ),
     }
     assert _issues(record) == []
@@ -408,7 +566,7 @@ def test_failed_record_keeps_the_reviewer_score():
     assert record["status"] == "failed"
     assert record["reason"] is None
     assert record["verdict"] == {"passed": False, "score": 3.0, "issue_count": 2}
-    assert record["applied"] == _digests(PAIR)
+    assert record["applied"] == _applied(PAIR)
     assert _issues(record) == []
 
 
@@ -426,7 +584,7 @@ def test_reviewer_that_could_not_start_is_unavailable():
     assert record["files"] == _files(
         (PAIR.rulespec_sha256, False, False), (PAIR.test_sha256, False, False)
     )
-    assert record["applied"] == dict.fromkeys(DIGEST_FIELDS)
+    assert record["applied"] == UNBOUND_APPLIED
     assert _issues(record) == []
 
 
@@ -536,7 +694,7 @@ def test_verdict_on_other_content_is_unavailable(verdict, applied):
     # The verdict the reviewer gave stays readable; it is not the status.
     assert record["verdict"]["passed"] is verdict
     assert record["reviewed"]["rulespec_sha256"] == PAIR.rulespec_sha256
-    assert record["applied"] == dict.fromkeys(DIGEST_FIELDS)
+    assert record["applied"] == UNBOUND_APPLIED
     assert _issues(record) == []
 
 
@@ -545,18 +703,18 @@ def test_verdict_never_binds_to_a_pair_without_valid_byte_digests():
         malformed = AppliedPair(**{**_digests(PAIR), field: value})
         record = _build(applied=[malformed])
         assert record["status"] == "unavailable"
-        assert record["applied"] == dict.fromkeys(DIGEST_FIELDS)
+        assert record["applied"] == UNBOUND_APPLIED
 
 
 def test_pass_on_one_file_is_partial_when_another_file_is_applied():
     # A dependent that overlay validation repaired is applied unreviewed.
-    other = applied_pair(REPAIRED_RULE_BYTES, None)
+    other = _other_pair()
 
     for applied in ([other, STAMPED_PAIR], [STAMPED_PAIR, other]):
         record = _build(applied=applied, required=True)
         assert record["status"] == "partial"
         assert record["reason"] == "unreviewed_applied_files"
-        assert record["applied"] == _digests(STAMPED_PAIR)
+        assert record["applied"] == _applied(STAMPED_PAIR)
         assert record["files"] == _files(
             (other.rulespec_sha256, False, False),
             (STAMPED_PAIR.rulespec_sha256, True, True),
@@ -572,9 +730,12 @@ def test_pass_is_partial_when_an_applied_file_is_in_no_pair():
 
     assert record["status"] == "partial"
     assert record["reason"] == "unreviewed_applied_files"
-    assert {"sha256": OTHER_SHA, "reviewed": False, "complete": False} in record[
-        "files"
-    ]
+    assert {
+        "path": f"statutes/other/{OTHER_SHA}.yaml",
+        "sha256": OTHER_SHA,
+        "reviewed": False,
+        "complete": False,
+    } in record["files"]
 
 
 @pytest.mark.parametrize(
@@ -601,7 +762,7 @@ def test_pass_on_a_truncated_file_is_partial(evidence, truncated):
 
 def test_unreviewed_file_takes_precedence_over_truncation():
     record = _build(
-        applied=[PAIR, applied_pair(REPAIRED_RULE_BYTES, None)],
+        applied=[PAIR, _other_pair()],
         evidence=_evidence(rulespec_complete=False),
     )
 
@@ -613,7 +774,7 @@ def test_unreviewed_file_takes_precedence_over_truncation():
 
 def test_failed_review_stays_failed_whatever_else_is_applied():
     record = _build(
-        applied=[PAIR, applied_pair(REPAIRED_RULE_BYTES, None)],
+        applied=[PAIR, _other_pair()],
         evidence=_evidence(rulespec_complete=False),
         metrics_pass=False,
         score=2.0,
@@ -625,7 +786,11 @@ def test_failed_review_stays_failed_whatever_else_is_applied():
 
 def test_pass_with_nothing_applied_is_never_passed():
     assert _build(applied=[], applied_sha256s=[])["status"] == "unavailable"
-    assert _build(applied_sha256s=[])["status"] == "partial"
+    # A pair that is in no applied file list is not applied: nothing is bound.
+    record = _build(applied_sha256s=[])
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "reviewed_content_not_applied"
+    assert record["files"] == []
 
 
 @pytest.mark.parametrize(
@@ -637,7 +802,7 @@ def test_pass_with_nothing_applied_is_never_passed():
     ],
 )
 def test_reader_refuses_a_partial_record_dressed_up(path, value):
-    partial = _build(applied=[PAIR, applied_pair(REPAIRED_RULE_BYTES, None)])
+    partial = _build(applied=[PAIR, _other_pair()])
     assert partial["status"] == "partial"
     assert _issues(partial) == []
     index = next(i for i, entry in enumerate(partial["files"]) if not entry["reviewed"])
@@ -650,7 +815,7 @@ def test_reader_refuses_a_partial_record_dressed_up(path, value):
 
 
 def test_reader_refuses_a_pass_that_marks_an_unread_file_reviewed():
-    other = applied_pair(REPAIRED_RULE_BYTES, None)
+    other = _other_pair()
     partial = _build(applied=[PAIR, other])
     forged = copy.deepcopy(partial)
     forged["status"], forged["reason"] = "passed", None
@@ -727,24 +892,27 @@ def test_review_without_a_companion_test_covers_an_absent_one_only():
     assert record["applied"]["test_sha256"] is None
     assert _issues(record, [absent.rulespec_sha256]) == []
 
-    # An applied empty companion has the content of an absent one, so the
-    # verdict binds; but the reviewer never read that file, so the record
-    # does not mark it reviewed and a required review refuses.
-    empty = applied_pair(RULE_BYTES, b"[]\n")
-    record = _build(applied=[empty], evidence=evidence, required=True)
-    assert record["status"] == "partial"
-    assert record["reason"] == "unreviewed_applied_files"
-    assert record["applied"]["test_sha256"] == empty.test_sha256
-    assert record["files"] == _files(
-        (empty.rulespec_sha256, True, True), (empty.test_sha256, False, False)
-    )
-    assert review_requirement_refusal(record) is not None
-    assert (
-        _issues(
-            {**record, "required": False}, [empty.rulespec_sha256, empty.test_sha256]
+    # An applied companion, also an empty one, is not the content of an
+    # absent one: the reviewer never read that file, so nothing is bound and
+    # a required review refuses.
+    for later in (b"[]\n", b"", b"~\n", b"{}\n"):
+        empty = applied_pair(RULE_BYTES, later)
+        record = _build(applied=[empty], evidence=evidence, required=True)
+        assert record["status"] == "unavailable"
+        assert record["reason"] == "reviewed_content_not_applied"
+        assert record["applied"] == UNBOUND_APPLIED
+        assert record["files"] == _files(
+            (empty.rulespec_sha256, False, False), (empty.test_sha256, False, False)
         )
-        == []
-    )
+        assert review_requirement_refusal(record) is not None
+        assert (
+            _issues(
+                {**record, "required": False},
+                [empty.rulespec_sha256, empty.test_sha256],
+            )
+            == []
+        )
+    empty = applied_pair(RULE_BYTES, b"[]\n")
     # A reviewer that was shown the empty companion covers it.
     shown = _build(applied=[empty], evidence=_evidence(test=b"[]\n"), required=True)
     assert shown["status"] == "passed"
@@ -871,7 +1039,7 @@ def test_reader_refuses_a_forged_pass_on_content_that_was_not_applied():
     assert _issues(forged)
     # Naming the applied file does not help: its content digest differs.
     repaired = applied_pair(REPAIRED_RULE_BYTES, TEST_BYTES)
-    forged["applied"] = _digests(repaired)
+    forged["applied"] = _applied(repaired)
     assert (
         "generalist_review verdict is on content that differs from the applied content"
         in _issues(forged, [repaired.rulespec_sha256, repaired.test_sha256])
@@ -965,7 +1133,7 @@ def test_requirement_refuses_every_status_but_passed():
         _build(applied=[]),
         _build(applied=[applied_pair(REPAIRED_RULE_BYTES, TEST_BYTES)]),
         _build(evidence=_evidence(rulespec_complete=False)),
-        _build(applied=[PAIR, applied_pair(REPAIRED_RULE_BYTES, None)]),
+        _build(applied=[PAIR, _other_pair()]),
         {},
         {"status": "PASSED"},
     ):
@@ -1053,7 +1221,8 @@ def _record_for(result, rule, **state):
             skipped_by_flag=state.get("skipped_by_flag", False),
             required=state.get("required", False),
         ),
-        cli._review_applied_pairs([rule]),
+        cli._review_applied_pairs([rule], manifest_root=rule.parent),
+        reviewed_rulespec_path=rule.name,
     )
 
 
@@ -1117,25 +1286,35 @@ def test_review_prompt_and_digests_use_the_same_file_snapshot(
     changed = rule if changed_file == "rulespec" else test
     original = RULE_BYTES if changed_file == "rulespec" else TEST_BYTES
     replacement = original.replace(b"1000", b"2000")
-    original_read_text = Path.read_text
+    original_read_bytes = Path.read_bytes
     prompts = []
+    reads = []
 
-    def replace_after_text_read(path, *args, **kwargs):
-        text = original_read_text(path, *args, **kwargs)
+    def replace_after_first_read(path):
+        # The reviewer call reads each file with `read_bytes`. Swap the file
+        # right after its first read: a second read would see other bytes.
+        raw = original_read_bytes(path)
         if path == changed:
-            changed.write_bytes(replacement)
-        return text
+            reads.append(raw)
+            if len(reads) == 1:
+                changed.write_bytes(replacement)
+        return raw
 
     def reviewer(prompt, **_kwargs):
         prompts.append(prompt)
         return '{"score": 9.0, "passed": true}', 0
 
-    monkeypatch.setattr(Path, "read_text", replace_after_text_read)
+    monkeypatch.setattr(Path, "read_bytes", replace_after_first_read)
     monkeypatch.setattr(validator_pipeline, "run_claude_code", reviewer)
 
     result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
 
+    monkeypatch.setattr(Path, "read_bytes", original_read_bytes)
+    # One read of the file: the prompt and the digests come from one snapshot.
+    assert reads == [original]
+    assert changed.read_bytes() == replacement
     assert original.decode() in prompts[0]
+    assert replacement.decode() not in prompts[0]
     digest_field = (
         "reviewed_rulespec_sha256"
         if changed_file == "rulespec"
@@ -1145,10 +1324,11 @@ def test_review_prompt_and_digests_use_the_same_file_snapshot(
         result.details["review_evidence"][digest_field]
         == hashlib.sha256(original).hexdigest()
     )
+    # The candidate is now the swapped file, which the reviewer never read.
     record = _record_for(result, rule, required=True)
-    if changed.read_bytes() == replacement:
-        assert record["status"] != "passed"
-        assert review_requirement_refusal(record) is not None
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "reviewed_content_not_applied"
+    assert review_requirement_refusal(record) is not None
 
 
 @pytest.mark.parametrize("verdict", ["false", "true", 0, 1, None, [], {}, [True]])
@@ -1249,13 +1429,13 @@ def test_review_without_a_companion_test_file(tmp_path, monkeypatch):
 
     assert result.details["review_evidence"]["reviewed_test_sha256"] is None
     assert _record_for(result, rule)["status"] == "passed"
-    # This module is not deferred, so the reviewer was shown no companion. An
-    # empty one that appears later is a file the reviewer did not read.
-    (tmp_path / "rule.test.yaml").write_text("[]\n")
-    assert _record_for(result, rule)["status"] == "partial"
-    assert _record_for(result, rule)["reason"] == "unreviewed_applied_files"
-    (tmp_path / "rule.test.yaml").write_bytes(TEST_BYTES)
-    assert _record_for(result, rule)["status"] == "unavailable"
+    # This module is not deferred, so the reviewer was shown no companion. A
+    # companion that appears later, also an empty one, is a file the reviewer
+    # did not read: nothing is bound.
+    for later in (b"[]\n", b"", TEST_BYTES):
+        (tmp_path / "rule.test.yaml").write_bytes(later)
+        assert _record_for(result, rule)["status"] == "unavailable"
+        assert _record_for(result, rule)["reason"] == "reviewed_content_not_applied"
 
 
 def test_applied_pairs_pair_each_rulespec_with_its_companion_test(tmp_path):
@@ -1265,12 +1445,21 @@ def test_applied_pairs_pair_each_rulespec_with_its_companion_test(tmp_path):
     lone = tmp_path / "lone.yaml"
     lone.write_bytes(REPAIRED_RULE_BYTES)
 
-    assert cli._review_applied_pairs([rule, test, lone, tmp_path / "gone.yaml"]) == [
-        PAIR,
-        applied_pair(REPAIRED_RULE_BYTES, None),
+    pairs = cli._review_applied_pairs(
+        [rule, test, lone, tmp_path / "gone.yaml"], manifest_root=tmp_path
+    )
+    assert pairs == [
+        applied_pair(RULE_BYTES, TEST_BYTES, rulespec_path="rule.yaml"),
+        applied_pair(REPAIRED_RULE_BYTES, None, rulespec_path="lone.yaml"),
+    ]
+    assert [(pair.rulespec_path, pair.test_path) for pair in pairs] == [
+        ("rule.yaml", "rule.test.yaml"),
+        ("lone.yaml", None),
     ]
     # A companion test is never a RuleSpec of its own.
-    assert cli._review_applied_pairs([test]) == []
+    assert cli._review_applied_pairs([test], manifest_root=tmp_path) == []
+    # A file outside the manifest root has no manifest path and no pair.
+    assert cli._review_applied_pairs([rule], manifest_root=tmp_path / "other") == []
 
 
 def test_review_of_a_truncated_candidate_says_so(tmp_path, monkeypatch):
@@ -1581,7 +1770,9 @@ def test_artifact_evaluation_carries_the_review_evidence_to_the_record(
         SimpleNamespace(metrics=metrics), skipped_by_flag=False, required=True
     )
     record = build_generalist_review_record(
-        state, cli._review_applied_pairs([rulespec_file])
+        state,
+        cli._review_applied_pairs([rulespec_file], manifest_root=rulespec_file.parent),
+        reviewed_rulespec_path=rulespec_file.name,
     )
     assert record["status"] == status
     if status == "unavailable":
@@ -1623,6 +1814,7 @@ def _write_manifest(
     program_bytes=b"program: us-sc/snap\nperiod: 2026-01\n",
     test_bytes=b"[]\n",
     orphan_test=False,
+    orphan_bytes=b"- name: orphan\n",
     results=None,
 ):
     checkout = tmp_path / "rulespec-us"
@@ -1639,7 +1831,7 @@ def _write_manifest(
     if orphan_test:
         # A companion test applied without its RuleSpec is in no pair.
         orphan = program.with_name("other.test.yaml")
-        orphan.write_bytes(b"- name: orphan\n")
+        orphan.write_bytes(orphan_bytes)
         applied.append(orphan)
     output_root = tmp_path / "out"
     generated = output_root / "openai-test" / relative_output
@@ -1765,7 +1957,9 @@ def test_manifest_records_each_review_status_under_the_signature(
     )
     forged = copy.deepcopy(payload)
     forged[GENERALIST_REVIEW_FIELD] = build_generalist_review_record(
-        _bound_state()(applied), cli._review_applied_pairs(applied)
+        _bound_state()(applied),
+        cli._review_applied_pairs(applied, manifest_root=tmp_path / "rulespec-us"),
+        reviewed_rulespec_path=payload["applied_files"][0]["path"],
     )
     if status != "passed":
         assert forged[GENERALIST_REVIEW_FIELD]["status"] == "passed"
@@ -1773,7 +1967,7 @@ def test_manifest_records_each_review_status_under_the_signature(
         assert (
             generalist_review_record_issues(
                 forged[GENERALIST_REVIEW_FIELD],
-                [item["sha256"] for item in payload["applied_files"]],
+                [(item["path"], item["sha256"]) for item in payload["applied_files"]],
             )
             == []
         )
@@ -1795,11 +1989,14 @@ def test_manifest_pass_is_partial_when_an_applied_file_was_not_reviewed(tmp_path
         "partial",
         "unreviewed_applied_files",
     )
-    assert {"sha256": _sha(applied[2]), "reviewed": False, "complete": False} in (
-        record["files"]
-    )
-    assert [entry["sha256"] for entry in record["files"]] == sorted(
-        item["sha256"] for item in payload["applied_files"]
+    assert {
+        "path": "programs/us-sc/snap/other.test.yaml",
+        "sha256": _sha(applied[2]),
+        "reviewed": False,
+        "complete": False,
+    } in record["files"]
+    assert [(entry["path"], entry["sha256"]) for entry in record["files"]] == sorted(
+        (item["path"], item["sha256"]) for item in payload["applied_files"]
     )
     with pytest.raises(RuntimeError, match="unreviewed_applied_files"):
         _write_manifest(
@@ -1897,7 +2094,7 @@ def test_manifest_verdict_on_content_that_is_not_applied_is_unavailable(
     assert record["status"] == "unavailable"
     assert record["reason"] == "reviewed_content_not_applied"
     assert record["verdict"]["passed"] is True
-    assert record["applied"] == dict.fromkeys(DIGEST_FIELDS)
+    assert record["applied"] == UNBOUND_APPLIED
 
 
 @pytest.mark.parametrize(
@@ -2574,7 +2771,7 @@ def test_ambiguous_reviewed_file_is_never_bound_by_its_dump(reviewed):
     assert record["reason"] == "unreadable_review_result"
     assert review_requirement_refusal(record) is not None
     # The reader refuses a record that binds through the dump alone.
-    applied_digests = _digests(applied_pair(applied, TEST_BYTES))
+    applied_digests = _applied(applied_pair(applied, TEST_BYTES))
     if applied_digests["rulespec_content_sha256"] is not None:
         forged = _build()
         forged["reviewed"] = {
@@ -2586,8 +2783,8 @@ def test_ambiguous_reviewed_file_is_never_bound_by_its_dump(reviewed):
         }
         forged["applied"] = applied_digests
         forged["files"] = _files(
-            (applied_digests["rulespec_sha256"], True, True),
-            (applied_digests["test_sha256"], True, True),
+            (RULE_PATH, applied_digests["rulespec_sha256"], True, True),
+            (TEST_PATH, applied_digests["test_sha256"], True, True),
         )
         assert _issues(forged) == ["generalist_review scored verdict is malformed"]
 
@@ -2815,7 +3012,7 @@ def test_reader_returns_issues_and_never_raises_on_any_wrong_type(junk):
         _build(),
         _build(applied=[]),
         _build(skipped_by_flag=True),
-        _build(applied=[PAIR, applied_pair(REPAIRED_RULE_BYTES, None)]),
+        _build(applied=[PAIR, _other_pair()]),
     ]
     for record in records:
         for path in set(_leaf_paths(record)):
@@ -3200,30 +3397,46 @@ def test_companion_that_the_reviewer_never_saw_is_not_credited(tmp_path, monkeyp
     planned, wrote_empty, record = _planned_record(rule, result)
 
     assert wrote_empty is True
-    assert record["status"] == "partial"
-    assert record["reason"] == "unreviewed_applied_files"
+    assert record["status"] == "unavailable"
+    assert record["reason"] == "reviewed_content_not_applied"
     assert record["files"] == _files(
-        (_sha(rule), True, True), (_EMPTY_COMPANION_SHA, False, False)
+        (_sha(rule), False, False), (_EMPTY_COMPANION_SHA, False, False)
     )
     assert review_requirement_refusal(record) is not None
     assert _issues(record, [entry["sha256"] for entry in record["files"]]) == [
-        "generalist_review was required but the recorded status is partial"
+        "generalist_review was required but the recorded status is unavailable"
     ]
 
 
 def test_reader_refuses_a_pass_that_credits_an_unseen_companion():
     applied = applied_pair(RULE_BYTES, b"[]\n")
-    honest = _build(applied=[applied], evidence=_evidence(test=None))
-    assert honest["status"] == "partial"
+    assert _build(applied=[applied], evidence=_evidence(test=None))["status"] == (
+        "unavailable"
+    )
+    # A record of a review that read no companion file, dressed up as a pass
+    # on an applied companion.
+    manifest = [applied.rulespec_sha256, applied.test_sha256]
+    passed = _build(applied=[applied], evidence=_evidence(test=b"[]\n"))
+    assert passed["status"] == "passed"
+    assert _issues(passed, manifest) == []
 
-    forged = copy.deepcopy(honest)
-    forged["status"], forged["reason"] = "passed", None
-    for entry in forged["files"]:
-        entry["reviewed"] = entry["complete"] = True
-
-    assert forged["reviewed"]["test_sha256"] is None
-    assert "generalist_review verdict is not bound to the applied file digests" in (
-        _issues(forged, [applied.rulespec_sha256, applied.test_sha256])
+    forged = copy.deepcopy(passed)
+    forged["reviewed"]["test_sha256"] = None
+    assert _issues(forged, manifest) == [
+        "generalist_review scored verdict is malformed"
+    ]
+    # With the content digest of an absent companion on both sides too.
+    absent = review_content_sha256(None, rulespec=False)
+    forged["reviewed"]["test_content_sha256"] = absent
+    forged["applied"]["test_content_sha256"] = absent
+    assert _issues(forged, manifest) == [
+        "generalist_review verdict is not bound to the applied file digests"
+    ]
+    # A reviewed companion file never has the content of an absent one.
+    forged = copy.deepcopy(passed)
+    forged["reviewed"]["test_content_sha256"] = absent
+    assert _issues(forged, manifest)[0] == (
+        "generalist_review scored verdict is malformed"
     )
 
 
@@ -3473,12 +3686,17 @@ def test_an_empty_companion_is_shown_to_the_reviewer_it_is_credited_to(
 @pytest.mark.parametrize(
     ("later", "status"),
     [
-        # Binding is by canonical content: an empty list, a null document, a
-        # 0-byte file and a comment are one content.
+        # Binding is by canonical content: an empty list with other
+        # formatting or a comment is the same content.
         (b"[]\n", "passed"),
         (b"[]  # comment\n", "passed"),
-        (b"~\n", "passed"),
-        (b"", "passed"),
+        (b"[ ]\n", "passed"),
+        # A null document, a 0-byte file and an empty mapping are other
+        # content: the companion loader refuses them.
+        (b"~\n", "unavailable"),
+        (b"", "unavailable"),
+        (b"# comment\n", "unavailable"),
+        (b"{}\n", "unavailable"),
         # A companion with cases is other content.
         (TEST_BYTES, "unavailable"),
         (b"- name: one\n", "unavailable"),
@@ -3652,3 +3870,1242 @@ def test_a_key_that_is_not_a_scalar_has_no_content_digest(raw):
     )
     assert record["status"] == "unavailable"
     assert record["reason"] == "unreadable_review_result"
+
+
+# --- review of c3bf0d657: coverage is bound to each manifest path ---------
+
+_PRIMARY = Path("statutes/26/32/c/2.yaml")
+_PRIMARY_TEST = "statutes/26/32/c/2.test.yaml"
+_DEPENDENT_TEST = "statutes/26/24/d.test.yaml"
+_EMPTY_RULE = b"format: rulespec/v1\nrules: []\n"
+
+
+def _repaired_dependent_companion(tmp_path) -> str:
+    """The text the real obsolete-input repair writes for a dependent test."""
+
+    repo = tmp_path / "rulespec-us" / "us"
+    dependent = repo / "statutes/26/24/d.yaml"
+    dependent_test = repo / _DEPENDENT_TEST
+    target = repo / _PRIMARY
+    dependent.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    dependent.write_bytes(_EMPTY_RULE)
+    target.write_bytes(_EMPTY_RULE)
+    dependent_test.write_text(
+        "- name: stale_cross_module_input\n"
+        "  period: 2026\n"
+        "  input:\n"
+        "    us:statutes/26/24/d#input.qualifying_children_count: 2\n"
+        "    us:statutes/26/1401#input.self_employment_income: 0\n"
+        "  output:\n"
+        "    us:statutes/26/24/d#refundable_ctc: 2550\n"
+    )
+    validation = SimpleNamespace(
+        results={
+            "ci": SimpleNamespace(
+                error=(
+                    "Test case `stale_cross_module_input` execution failed: "
+                    "dataset input "
+                    "`tmp-rulespec:statutes/26/1401#input.self_employment_income` "
+                    "must use an absolute legal RuleSpec reference that resolves "
+                    "to an input slot, derived rule, or parameter in the compiled "
+                    "program"
+                )
+            )
+        }
+    )
+    changed = cli._remove_invalid_dependent_test_inputs(
+        overlay_repo=repo,
+        relative_output=_PRIMARY,
+        validations=[(dependent, validation)],
+    )
+    assert changed == [dependent_test]
+    return dependent_test.read_text()
+
+
+def _generated_candidate(tmp_path, rule: bytes, test: bytes | None):
+    """One generated candidate where `encode --apply` finds it."""
+
+    output_root = tmp_path / "out"
+    output_file = output_root / "codex-test" / _PRIMARY
+    output_file.parent.mkdir(parents=True)
+    output_file.write_bytes(rule)
+    if test is not None:
+        output_file.with_name("2.test.yaml").write_bytes(test)
+    return output_root, SimpleNamespace(
+        output_file=str(output_file), runner="codex-test"
+    )
+
+
+def _planned_plan_record(tmp_path, rule, test, supplemental, *, required=True):
+    """The record `encode --apply` builds before it writes: the real planner,
+    the real record builder, and a review of exactly ``rule`` and ``test``."""
+
+    output_root, result = _generated_candidate(tmp_path, rule, test)
+    pairs, files, reviewed_path = cli._planned_review_files(
+        result, output_root=output_root, supplemental_files=supplemental
+    )
+    record = record_module.build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=rule, test=test), required=required),
+        pairs,
+        files,
+        reviewed_rulespec_path=reviewed_path,
+    )
+    return record, files
+
+
+def test_repaired_dependent_companion_with_the_reviewed_bytes_stays_unreviewed(
+    tmp_path,
+):
+    # The probe of the review: the obsolete-input repair leaves a dependent's
+    # companion test byte-identical to the reviewed primary companion.
+    repaired = _repaired_dependent_companion(tmp_path)
+    companion = repaired.encode()
+
+    record, files = _planned_plan_record(
+        tmp_path, _EMPTY_RULE, companion, {Path(_DEPENDENT_TEST): repaired}
+    )
+
+    assert len(files) == 3
+    shared = hashlib.sha256(companion).hexdigest()
+    assert record["files"] == _files(
+        (_DEPENDENT_TEST, shared, False, False),
+        (_PRIMARY_TEST, shared, True, True),
+        (_PRIMARY.as_posix(), hashlib.sha256(_EMPTY_RULE).hexdigest(), True, True),
+    )
+    assert (record["status"], record["reason"]) == (
+        "partial",
+        "unreviewed_applied_files",
+    )
+    assert record["applied"]["rulespec_path"] == _PRIMARY.as_posix()
+    assert record["applied"]["test_path"] == _PRIMARY_TEST
+    assert review_requirement_refusal(record) is not None
+    assert record_module.generalist_review_record_issues(record, files) == [
+        "generalist_review was required but the recorded status is partial"
+    ]
+    # Without the dependent the same review covers the whole plan.
+    alone, alone_files = _planned_plan_record(
+        tmp_path / "alone", _EMPTY_RULE, companion, {}
+    )
+    assert alone["status"] == "passed"
+    assert record_module.generalist_review_record_issues(alone, alone_files) == []
+
+
+def test_reader_refuses_a_pass_that_credits_equal_bytes_at_another_path(tmp_path):
+    repaired = _repaired_dependent_companion(tmp_path)
+    honest, files = _planned_plan_record(
+        tmp_path, _EMPTY_RULE, repaired.encode(), {Path(_DEPENDENT_TEST): repaired}
+    )
+    forged = copy.deepcopy(honest)
+    forged["status"], forged["reason"] = "passed", None
+    for entry in forged["files"]:
+        entry["reviewed"] = entry["complete"] = True
+
+    assert "generalist_review verdict is not bound to the applied file digests" in (
+        record_module.generalist_review_record_issues(forged, files)
+    )
+    # A record in the shape before paths: two digests for three applied paths.
+    by_digest = copy.deepcopy(forged)
+    by_digest["files"] = [
+        {key: value for key, value in entry.items() if key != "path"}
+        for entry in forged["files"][1:]
+    ]
+    assert record_module.generalist_review_record_issues(by_digest, files) == [
+        "generalist_review has a malformed nested object"
+    ]
+    # Leaving the dependent out of the record does not help either.
+    two_paths = copy.deepcopy(forged)
+    two_paths["files"] = [
+        entry for entry in forged["files"] if entry["path"] != _DEPENDENT_TEST
+    ]
+    assert record_module.generalist_review_record_issues(two_paths, files) == [
+        "generalist_review does not list exactly the applied file digests"
+    ]
+
+
+def test_signed_manifest_does_not_credit_a_companion_with_equal_bytes_elsewhere(
+    tmp_path,
+):
+    # The writer, with a fixture signer: a companion at another path that is
+    # byte-identical to the reviewed companion is one more applied file.
+    payload, applied = _write_manifest(
+        tmp_path,
+        per_file=True,
+        orphan_test=True,
+        orphan_bytes=b"[]\n",
+        review_state=_bound_state(),
+    )
+
+    assert _sha(applied[1]) == _sha(applied[2])
+    record = payload[GENERALIST_REVIEW_FIELD]
+    assert len(payload["applied_files"]) == len(record["files"]) == 3
+    assert (record["status"], record["reason"]) == (
+        "partial",
+        "unreviewed_applied_files",
+    )
+    assert {entry["path"]: entry["reviewed"] for entry in record["files"]} == {
+        "programs/us-sc/snap/fy-2026.yaml": True,
+        "programs/us-sc/snap/fy-2026.test.yaml": True,
+        "programs/us-sc/snap/other.test.yaml": False,
+    }
+    assert not any("generalist_review" in issue for issue in _schema_issues(payload))
+    with pytest.raises(ReviewRequirementRefused, match="unreviewed_applied_files"):
+        _write_manifest(
+            tmp_path / "required",
+            per_file=True,
+            orphan_test=True,
+            orphan_bytes=b"[]\n",
+            review_state=_bound_state(required=True),
+        )
+
+
+_OTHER_MODULE = "statutes/26/24/d.yaml"
+
+
+def _hostile_plans():
+    """Plans that try to get review credit for a path the reviewer never read.
+
+    Each is (name, supplemental files, expected status, reviewed paths).
+    The reviewed candidate is `_EMPTY_RULE` with `TEST_BYTES` at `_PRIMARY`.
+    """
+
+    rule, test = _EMPTY_RULE.decode(), TEST_BYTES.decode()
+    primary, primary_test = _PRIMARY.as_posix(), _PRIMARY_TEST
+    both = [primary_test, primary]
+    partial = "partial"
+    return [
+        ("no-supplemental", {}, "passed", both),
+        ("same-test-at-2-paths", {_DEPENDENT_TEST: test}, partial, both),
+        (
+            "same-test-at-3-paths",
+            {_DEPENDENT_TEST: test, "statutes/26/25.test.yaml": test},
+            partial,
+            both,
+        ),
+        (
+            "same-test-at-4-paths",
+            {
+                _DEPENDENT_TEST: test,
+                "statutes/26/25.test.yaml": test,
+                "regulations/1/2.test.yaml": test,
+            },
+            partial,
+            both,
+        ),
+        ("same-module-at-2-paths", {_OTHER_MODULE: rule}, partial, both),
+        (
+            "same-pair-at-2-paths",
+            {_OTHER_MODULE: rule, _DEPENDENT_TEST: test},
+            partial,
+            both,
+        ),
+        (
+            "same-pair-at-4-paths",
+            {
+                path: content
+                for stem in ("statutes/26/24/d", "statutes/26/25", "regulations/1/2")
+                for path, content in (
+                    (stem + ".yaml", rule),
+                    (stem + ".test.yaml", test),
+                )
+            },
+            partial,
+            both,
+        ),
+        # The same directory and the same file name in another directory.
+        ("sibling-test", {"statutes/26/32/c/3.test.yaml": test}, partial, both),
+        ("same-name-elsewhere", {"statutes/26/33/c/2.test.yaml": test}, partial, both),
+        ("same-name-other-root", {"regulations/26/32/c/2.yaml": rule}, partial, both),
+        # A path that differs from a reviewed path only by case or by Unicode
+        # composition can be the same file: the list binds nothing.
+        ("case-of-the-module", {"statutes/26/32/C/2.yaml": rule}, "unavailable", []),
+        ("case-of-the-test", {"statutes/26/32/c/2.TEST.yaml": test}, "unavailable", []),
+        (
+            "case-of-a-dependent",
+            {"statutes/26/24/D.test.yaml": test, _DEPENDENT_TEST: test},
+            "unavailable",
+            [],
+        ),
+        (
+            "unicode-composition",
+            {"statutes/26/café.yaml": rule, "statutes/26/café.yaml": rule},
+            "unavailable",
+            [],
+        ),
+        # A supplemental file at a reviewed path replaces the planned bytes.
+        ("primary-path-same-bytes", {primary: rule}, "passed", both),
+        ("primary-test-path-same-bytes", {primary_test: test}, "passed", both),
+        (
+            "primary-path-other-bytes",
+            {primary: rule.replace("[]", "[{name: x}]")},
+            "unavailable",
+            [],
+        ),
+        (
+            "primary-test-path-other-bytes",
+            {primary_test: test.replace("1000", "2000")},
+            "unavailable",
+            [],
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("supplemental", "status", "reviewed_paths"),
+    [plan[1:] for plan in _hostile_plans()],
+    ids=[plan[0] for plan in _hostile_plans()],
+)
+def test_review_credit_never_leaves_the_reviewed_paths(
+    tmp_path, supplemental, status, reviewed_paths
+):
+    record, files = _planned_plan_record(
+        tmp_path,
+        _EMPTY_RULE,
+        TEST_BYTES,
+        {Path(path): content for path, content in supplemental.items()},
+    )
+
+    assert record["status"] == status
+    assert [
+        entry["path"] for entry in record["files"] if entry["reviewed"]
+    ] == reviewed_paths
+    assert sorted((entry["path"], entry["sha256"]) for entry in record["files"]) == (
+        sorted(files)
+    )
+    if status != "passed":
+        assert review_requirement_refusal(record) is not None
+    else:
+        assert len(files) == 2
+    # The reader agrees with the builder on the same list: it refuses a list
+    # with two paths that can be one file, and accepts every other record.
+    issues = record_module.generalist_review_record_issues(
+        {**record, "required": False}, files
+    )
+    paths = [path for path, _digest in files]
+    if len({record_module._path_collision_key(path) for path in paths}) != len(paths):
+        assert status == "unavailable"
+        assert issues == [
+            "generalist_review files are not sorted and unique",
+            "generalist_review does not list exactly the applied file digests",
+        ]
+    else:
+        assert issues == []
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "statutes/26/32/c/./2.yaml",
+        "statutes/26/32/c//2.yaml",
+        "statutes/26/32/x/../c/2.yaml",
+        "./statutes/26/32/c/2.yaml",
+        "/statutes/26/32/c/2.yaml",
+        "statutes/26/32/c/2.yaml/",
+        "statutes\\26\\32\\c\\2.yaml",
+        "statutes/26/32/c/2.yaml\n",
+        "statutes/26/32/c/2.yaml\x00",
+        "statutes/26/32/c/2.yaml ",
+        "statutes/26/32/C/2.yaml",
+        "STATUTES/26/32/c/2.yaml",
+        "statutes/26/32/c/2.YAML",
+        "statutes/26/32/c/2.yml",
+        "statutes/26/32/c/2",
+        "statutes/26/32/c/2.test.yaml",
+        "statutes/26/32/c/.yaml",
+        "statutes/26/24/d.yaml",
+        "",
+        None,
+        0,
+        b"statutes/26/32/c/2.yaml",
+        ["statutes/26/32/c/2.yaml"],
+        Path("statutes/26/32/c/2.yaml"),
+    ],
+)
+def test_another_spelling_of_the_reviewed_path_binds_nothing(spelling):
+    primary = _PRIMARY.as_posix()
+    pair = applied_pair(_EMPTY_RULE, TEST_BYTES, rulespec_path=primary)
+    files = [(primary, pair.rulespec_sha256), (_PRIMARY_TEST, pair.test_sha256)]
+    state = _state(evidence=_evidence(rulespec=_EMPTY_RULE), required=True)
+    build = record_module.build_generalist_review_record
+    assert build(state, [pair], files, reviewed_rulespec_path=primary)["status"] == (
+        "passed"
+    )
+
+    # As the path the reviewer was asked about.
+    record = build(state, [pair], files, reviewed_rulespec_path=spelling)
+    assert (record["status"], record["reason"]) == (
+        "unavailable",
+        "reviewed_content_not_applied",
+    )
+    assert not any(entry["reviewed"] for entry in record["files"])
+    # As the path of the pair, also when the reviewer is said to have read it.
+    if not isinstance(spelling, list):
+        moved = AppliedPair(**{**_digests(pair), "rulespec_path": spelling})
+        for reviewed_path in (primary, spelling):
+            record = build(state, [moved], files, reviewed_rulespec_path=reviewed_path)
+            assert record["status"] == "unavailable"
+            assert not any(entry["reviewed"] for entry in record["files"])
+    # As the listed path of the module file.
+    listed = [(spelling, pair.rulespec_sha256), (_PRIMARY_TEST, pair.test_sha256)]
+    record = build(state, [pair], listed, reviewed_rulespec_path=primary)
+    assert record["status"] == "unavailable"
+    assert not any(entry["reviewed"] for entry in record["files"])
+    assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        [],
+        [(_PRIMARY.as_posix(), "0" * 64), (_PRIMARY_TEST, "1" * 64)],
+        "swapped",
+        "module-only",
+        "test-only",
+        "test-with-another-digest",
+        "one-malformed-item-more",
+        "one-bare-digest-more",
+        "one-path-two-digests",
+        "list-items",
+        "bare-digests",
+        "three-tuples",
+    ],
+)
+def test_an_applied_file_list_that_does_not_hold_the_pair_binds_nothing(files):
+    primary = _PRIMARY.as_posix()
+    pair = applied_pair(_EMPTY_RULE, TEST_BYTES, rulespec_path=primary)
+    good = [(primary, pair.rulespec_sha256), (_PRIMARY_TEST, pair.test_sha256)]
+    files = (
+        {
+            # Each digest at the other file's path.
+            "swapped": [
+                (primary, pair.test_sha256),
+                (_PRIMARY_TEST, pair.rulespec_sha256),
+            ],
+            # The companion is on disk and in the pair, but is not applied.
+            "module-only": good[:1],
+            "test-only": good[1:],
+            "test-with-another-digest": [good[0], (_PRIMARY_TEST, "0" * 64)],
+            "one-malformed-item-more": [*good, ("statutes/./26/x.yaml", "0" * 64)],
+            "one-bare-digest-more": [*good, "0" * 64],
+            "one-path-two-digests": [*good, (primary, "0" * 64)],
+            "list-items": [list(item) for item in good],
+            "bare-digests": [pair.rulespec_sha256, pair.test_sha256],
+            "three-tuples": [(*item, True) for item in good],
+        }.get(files, files)
+        if isinstance(files, str)
+        else files
+    )
+
+    record = record_module.build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=_EMPTY_RULE), required=True),
+        [pair],
+        files,
+        reviewed_rulespec_path=primary,
+    )
+
+    assert (record["status"], record["reason"]) == (
+        "unavailable",
+        "reviewed_content_not_applied",
+    )
+    assert not any(entry["reviewed"] for entry in record["files"])
+    assert record["applied"] == UNBOUND_APPLIED
+
+
+def test_two_pairs_at_the_reviewed_path_bind_nothing():
+    primary = _PRIMARY.as_posix()
+    pair = applied_pair(_EMPTY_RULE, TEST_BYTES, rulespec_path=primary)
+    files = [(primary, pair.rulespec_sha256), (_PRIMARY_TEST, pair.test_sha256)]
+    for second in (
+        pair,
+        applied_pair(REPAIRED_RULE_BYTES, None, rulespec_path=primary),
+    ):
+        for pairs in ([pair, second], [second, pair]):
+            record = record_module.build_generalist_review_record(
+                _state(evidence=_evidence(rulespec=_EMPTY_RULE)),
+                pairs,
+                files,
+                reviewed_rulespec_path=primary,
+            )
+            assert record["status"] == "unavailable"
+
+
+def test_a_pair_without_a_path_is_never_bound():
+    pair = record_module.applied_pair(RULE_BYTES, TEST_BYTES)
+    assert pair.rulespec_path is None and pair.test_path is None
+
+    for reviewed_path in (None, RULE_PATH):
+        record = record_module.build_generalist_review_record(
+            _state(), [pair], reviewed_rulespec_path=reviewed_path
+        )
+        assert record["status"] == "unavailable"
+        assert record["files"] == []
+    # The default of the builder is no reviewed path at all.
+    assert (
+        record_module.build_generalist_review_record(_state(), APPLIED)["status"]
+        == "unavailable"
+    )
+
+
+def _two_path_record():
+    """An honest partial record: one digest applied at two companion paths."""
+
+    primary = _PRIMARY.as_posix()
+    pair = applied_pair(_EMPTY_RULE, TEST_BYTES, rulespec_path=primary)
+    files = [
+        (primary, pair.rulespec_sha256),
+        (_PRIMARY_TEST, pair.test_sha256),
+        (_DEPENDENT_TEST, pair.test_sha256),
+    ]
+    record = record_module.build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=_EMPTY_RULE)),
+        [pair],
+        files,
+        reviewed_rulespec_path=primary,
+    )
+    assert record["status"] == "partial"
+    assert record_module.generalist_review_record_issues(record, files) == []
+    return record, files
+
+
+def _entry(record, path):
+    return next(entry for entry in record["files"] if entry["path"] == path)
+
+
+@pytest.mark.parametrize(
+    "forge",
+    [
+        "credit-the-other-path",
+        "move-the-credit",
+        "rename-the-other-path-in-record",
+        "name-the-other-path-as-the-pair",
+        "name-the-other-test-path",
+        "drop-the-test-path",
+        "drop-the-module-path",
+        "test-path-without-test-digest",
+        "module-path-is-a-test",
+        "module-path-spelling",
+        "path-not-a-string",
+        "path-case-duplicate",
+        "paths-on-an-unbound-record",
+        "paths-on-an-unscored-record",
+        "test-path-without-a-companion",
+        "manifest-lists-the-path-twice",
+        "manifest-path-spelling",
+        "manifest-digest-at-other-path",
+    ],
+)
+def test_reader_refuses_every_forged_path_binding(forge):
+    record, files = _two_path_record()
+    primary = _PRIMARY.as_posix()
+    forged = copy.deepcopy(record)
+    manifest = list(files)
+    if forge == "credit-the-other-path":
+        _entry(forged, _DEPENDENT_TEST).update(reviewed=True, complete=True)
+        forged["status"], forged["reason"] = "passed", None
+    elif forge == "move-the-credit":
+        _entry(forged, _DEPENDENT_TEST).update(reviewed=True, complete=True)
+        _entry(forged, _PRIMARY_TEST).update(reviewed=False, complete=False)
+    elif forge == "rename-the-other-path-in-record":
+        _entry(forged, _DEPENDENT_TEST)["path"] = "statutes/26/32/c/2.test.yaml.bak"
+    elif forge == "name-the-other-path-as-the-pair":
+        forged["applied"]["rulespec_path"] = "statutes/26/24/d.yaml"
+        forged["applied"]["test_path"] = _DEPENDENT_TEST
+    elif forge == "name-the-other-test-path":
+        forged["applied"]["test_path"] = _DEPENDENT_TEST
+    elif forge == "drop-the-test-path":
+        forged["applied"]["test_path"] = None
+    elif forge == "drop-the-module-path":
+        forged["applied"]["rulespec_path"] = None
+        forged["applied"]["test_path"] = None
+    elif forge == "test-path-without-test-digest":
+        forged["applied"]["test_sha256"] = None
+    elif forge == "module-path-is-a-test":
+        forged["applied"]["rulespec_path"] = _PRIMARY_TEST
+        forged["applied"]["test_path"] = "statutes/26/32/c/2.test.test.yaml"
+    elif forge == "module-path-spelling":
+        forged["applied"]["rulespec_path"] = "statutes/26/32/c/./2.yaml"
+    elif forge == "path-not-a-string":
+        _entry(forged, _DEPENDENT_TEST)["path"] = None
+    elif forge == "path-case-duplicate":
+        forged["files"].append(
+            {**_entry(forged, _DEPENDENT_TEST), "path": "statutes/26/24/D.test.yaml"}
+        )
+        forged["files"].sort(key=lambda entry: entry["path"])
+        manifest.append(("statutes/26/24/D.test.yaml", files[2][1]))
+    elif forge == "paths-on-an-unbound-record":
+        forged["status"], forged["reason"] = (
+            "unavailable",
+            "reviewed_content_not_applied",
+        )
+        forged["applied"] = {**UNBOUND_APPLIED, "rulespec_path": primary}
+        for entry in forged["files"]:
+            entry["reviewed"] = entry["complete"] = False
+    elif forge == "paths-on-an-unscored-record":
+        forged = record_module.build_generalist_review_record(
+            _state(skipped_by_flag=True), [], files
+        )
+        assert record_module.generalist_review_record_issues(forged, files) == []
+        forged["applied"]["rulespec_path"] = primary
+    elif forge == "test-path-without-a-companion":
+        # A pass on a module without a companion, that names a companion path.
+        pair = applied_pair(_EMPTY_RULE, None, rulespec_path=primary)
+        manifest = [(primary, pair.rulespec_sha256)]
+        forged = record_module.build_generalist_review_record(
+            _state(evidence=_evidence(rulespec=_EMPTY_RULE, test=None)),
+            [pair],
+            manifest,
+            reviewed_rulespec_path=primary,
+        )
+        assert forged["status"] == "passed"
+        assert record_module.generalist_review_record_issues(forged, manifest) == []
+        forged["applied"]["test_path"] = _PRIMARY_TEST
+    elif forge == "manifest-lists-the-path-twice":
+        manifest.append((_DEPENDENT_TEST, "0" * 64))
+    elif forge == "manifest-path-spelling":
+        manifest[2] = ("statutes/26/24/./d.test.yaml", files[2][1])
+    elif forge == "manifest-digest-at-other-path":
+        manifest[2] = ("statutes/26/25.test.yaml", files[2][1])
+
+    issues = record_module.generalist_review_record_issues(forged, manifest)
+
+    assert issues
+    assert all(
+        issue.check.startswith("manifest:generalist-review/") for issue in issues
+    )
+
+
+def test_manifest_reader_gives_each_applied_path_to_the_record_check(tmp_path):
+    payload, _applied_files = _write_manifest(
+        tmp_path,
+        per_file=True,
+        orphan_test=True,
+        orphan_bytes=b"[]\n",
+        review_state=_bound_state(),
+    )
+    baseline = _schema_issues(payload)
+    assert not any("generalist_review" in issue for issue in baseline)
+
+    def added(changed):
+        return [issue for issue in _schema_issues(changed) if issue not in baseline]
+
+    # Crediting the equal bytes at the other path is refused from the
+    # manifest alone, although every listed digest is a reviewed digest.
+    forged = copy.deepcopy(payload)
+    record = forged[GENERALIST_REVIEW_FIELD]
+    record["status"], record["reason"] = "passed", None
+    for entry in record["files"]:
+        entry["reviewed"] = entry["complete"] = True
+    assert added(forged) == [
+        "manifest generalist_review verdict is not bound to the applied file digests"
+    ]
+    # A manifest entry at another path than the record lists is refused.
+    renamed = copy.deepcopy(payload)
+    renamed["applied_files"][-1]["path"] = "programs/us-sc/snap/renamed.test.yaml"
+    assert (
+        "manifest generalist_review does not list exactly the applied file digests"
+        in added(renamed)
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "valid", "module"),
+    [
+        ("statutes/26/32/c/2.yaml", True, True),
+        ("a.yaml", True, True),
+        ("statutes/26/32/c/2.test.yaml", True, False),
+        ("statutes/26/32/c/2.json", True, False),
+        ("statutes/.yaml", True, False),
+        ("statutes/café.yaml", True, True),
+        ("", False, False),
+        ("/a.yaml", False, False),
+        ("a//b.yaml", False, False),
+        ("./a.yaml", False, False),
+        ("a/../b.yaml", False, False),
+        ("a/b.yaml/", False, False),
+        ("a\\b.yaml", False, False),
+        ("a\tb.yaml", False, False),
+        ("a\x7fb.yaml", False, False),
+        ("a b.yaml", False, False),
+        ("a/" * 2100 + "b.yaml", False, False),
+        (None, False, False),
+        (b"a.yaml", False, False),
+    ],
+)
+def test_manifest_path_rules(path, valid, module):
+    assert record_module.is_manifest_file_path(path) is valid
+    assert record_module.is_rulespec_module_path(path) is module
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["a.yaml", "statutes/26/32/c/2.yaml", "statutes/a.b.yaml", "x/.hidden.yaml"],
+)
+def test_companion_manifest_path_is_the_path_apply_writes(path):
+    assert record_module.companion_test_manifest_path(path) == (
+        cli._rulespec_test_path(Path(path)).as_posix()
+    )
+
+
+def test_a_plan_that_cannot_be_made_lists_no_file_and_binds_nothing(tmp_path):
+    output_root, result = _generated_candidate(tmp_path, _EMPTY_RULE, TEST_BYTES)
+    assert (
+        cli._planned_review_files(
+            result, output_root=output_root, supplemental_files=None
+        )[2]
+        == _PRIMARY.as_posix()
+    )
+
+    refused = [
+        # Not protected RuleSpec YAML, a traversal, and content that is not text.
+        {Path("notes/readme.txt"): "x"},
+        {Path("statutes/../statutes/26/24/d.yaml"): "x"},
+        {Path(_DEPENDENT_TEST): b"[]\n"},
+    ]
+    for supplemental in refused:
+        assert cli._planned_review_files(
+            result, output_root=output_root, supplemental_files=supplemental
+        ) == ([], [], None)
+    # A candidate that is gone, or outside the output root.
+    assert cli._planned_review_files(
+        result, output_root=tmp_path / "elsewhere", supplemental_files={}
+    ) == ([], [], None)
+    Path(result.output_file).unlink()
+    plan = cli._planned_review_files(
+        result, output_root=output_root, supplemental_files={}
+    )
+    assert plan == ([], [], None)
+    record = record_module.build_generalist_review_record(
+        _state(evidence=_evidence(rulespec=_EMPTY_RULE), required=True),
+        plan[0],
+        plan[1],
+        reviewed_rulespec_path=plan[2],
+    )
+    assert record["status"] == "unavailable"
+    assert review_requirement_refusal(record) is not None
+
+
+# --- review of c3bf0d657: an equal digest is an equal loaded companion ----
+
+# Scalars that `yaml.safe_load` (the loader of companion tests) reads with a
+# type, and that a quoted spelling turns into a string.
+_LOADER_TYPED_SCALARS = [
+    "yes",
+    "no",
+    "on",
+    "off",
+    "Yes",
+    "NO",
+    "On",
+    "OFF",
+    "y",
+    "n",
+    "true",
+    "False",
+    "~",
+    "null",
+    "1_000",
+    "0x10",
+    "0b10",
+    "0o17",
+    "012",
+    "1e3",
+    "1.5e3",
+    ".inf",
+    "-.INF",
+    ".nan",
+    "1:30",
+    "1:30.5",
+    "2001-01-01",
+    "2001-01-01T10:00:00Z",
+    "2001-01-01 10:00:00",
+    "12",
+    "-7",
+    "+3",
+    "1.0",
+    "1.",
+    ".5",
+    "=",
+    "<<",
+    "",
+    "plain text",
+]
+
+
+def _scalar_spellings(text):
+    """Every way to write one scalar text in a flow-safe position."""
+
+    spellings = [f"'{text}'", f'"{text}"', f"!!str '{text}'", f"! '{text}'"]
+    if text:
+        spellings += [text, f"! {text}", f"!!str {text}"]
+    for tag in ("!!bool", "!!int", "!!float", "!!null", "!!timestamp"):
+        spellings.append(f"{tag} '{text}'")
+    return spellings
+
+
+def _typed(value):
+    """A loaded value with its types, so that 1, 1.0 and True stay apart."""
+
+    if isinstance(value, dict):
+        return (
+            "dict",
+            sorted((repr(_typed(key)), _typed(item)) for key, item in value.items()),
+        )
+    if isinstance(value, (list, tuple)):
+        return (type(value).__name__, [_typed(item) for item in value])
+    if isinstance(value, float) and value != value:
+        return ("float", "nan")
+    return (type(value).__name__, repr(value))
+
+
+def _loaded(raw):
+    try:
+        return _typed(yaml.safe_load(raw))
+    except Exception as exc:  # noqa: BLE001 - any loader failure is one outcome
+        return ("error", type(exc).__name__)
+
+
+_COMPANION_SHAPES = {
+    "value": "- name: case\n  period: 2026\n  output:\n    x: {}\n",
+    "input-value": "- name: case\n  period: 2026\n  input:\n    us:a#input.b: {}\n",
+    "key": "- name: case\n  period: 2026\n  output:\n    {}: 1\n",
+    "list-item": "- name: case\n  period: 2026\n  output:\n    x: [{}, 1]\n",
+    "cases-mapping": "cases:\n  - name: case\n    output:\n      x: {}\n",
+    "period": "- name: case\n  period: {}\n  output:\n    x: 1\n",
+}
+
+
+@pytest.mark.parametrize("shape", list(_COMPANION_SHAPES))
+def test_files_with_one_content_digest_load_as_one_companion(shape):
+    # Every spelling of every scalar, in one position of a companion test.
+    # Files that share a digest must load as the same typed value: the test
+    # runner then reads the same cases from both.
+    by_digest: dict[str, set] = {}
+    documents = 0
+    for text in _LOADER_TYPED_SCALARS:
+        for spelling in _scalar_spellings(text):
+            raw = _COMPANION_SHAPES[shape].format(spelling).encode()
+            documents += 1
+            digest = review_content_sha256(raw, rulespec=False)
+            if digest is not None:
+                by_digest.setdefault(digest, set()).add(repr(_loaded(raw)))
+
+    assert documents > 400
+    assert len(by_digest) > 100
+    assert {
+        digest: values for digest, values in by_digest.items() if len(values) > 1
+    } == {}
+
+
+@pytest.mark.parametrize(
+    ("plain", "quoted", "actual"),
+    [
+        # The two pairs of the review.
+        ("0b10", "'0b10'", {"kind": "integer", "value": 2}),
+        ("yes", "'yes'", {"kind": "bool", "value": True}),
+        ("no", '"no"', {"kind": "bool", "value": False}),
+        ("on", "'on'", {"kind": "bool", "value": True}),
+        ("off", "'off'", {"kind": "bool", "value": False}),
+        ("1_000", "'1_000'", {"kind": "integer", "value": 1000}),
+        ("1:30", "'1:30'", {"kind": "integer", "value": 90}),
+        ("012", "'012'", {"kind": "integer", "value": 10}),
+        ("0x10", "'0x10'", {"kind": "integer", "value": 16}),
+        ("~", "'~'", {"kind": "text", "value": None}),
+        ("'12'", '! "12"', {"kind": "text", "value": "12"}),
+        ("'0b10'", "! '0b10'", {"kind": "text", "value": "0b10"}),
+    ],
+)
+def test_requoting_a_typed_companion_value_never_keeps_the_review(
+    tmp_path, plain, quoted, actual
+):
+    # The probe of the review: the real companion loader, the real scalar
+    # comparison and the record builder.
+    files = []
+    for name, text in (("reviewed", quoted), ("applied", plain)):
+        path = tmp_path / f"{name}.test.yaml"
+        path.write_text(f"- name: case\n  period: 2026\n  output:\n    x: {text}\n")
+        files.append(path)
+    reviewed, applied = (path.read_bytes() for path in files)
+    loaded = [cli._load_rulespec_test_cases(path)[0]["output"]["x"] for path in files]
+    matches = [cli._rulespec_scalar_matches(actual, value) for value in loaded]
+    # The two spellings are two tests: they load, and compare, differently.
+    assert _typed(loaded[0]) != _typed(loaded[1])
+    assert matches[0] is not matches[1]
+
+    assert review_content_sha256(reviewed, rulespec=False) != (
+        review_content_sha256(applied, rulespec=False)
+    )
+    for seen, written in ((reviewed, applied), (applied, reviewed)):
+        record = _build(
+            applied=[applied_pair(RULE_BYTES, written)],
+            evidence=_evidence(test=seen),
+            required=True,
+        )
+        assert (record["status"], record["reason"]) == (
+            "unavailable",
+            "reviewed_content_not_applied",
+        )
+        assert review_requirement_refusal(record) is not None
+    # The same file on both sides still binds.
+    for same in (reviewed, applied):
+        assert (
+            _build(
+                applied=[applied_pair(RULE_BYTES, same)],
+                evidence=_evidence(test=same),
+                required=True,
+            )["status"]
+            == "passed"
+        )
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        (b"a: yes\n", b"a: 'yes'\n"),
+        (b"a: no\n", b'a: "no"\n'),
+        (b"a: on\n", b"a: 'on'\n"),
+        (b"a: off\n", b"a: 'off'\n"),
+        (b"a: 0b10\n", b"a: '0b10'\n"),
+        (b"a: 1_000\n", b"a: '1_000'\n"),
+        (b"a: 1:30\n", b"a: '1:30'\n"),
+        (b"a: 2001-01-01\n", b"a: '2001-01-01'\n"),
+        (b"a: 2018-01-01\n", b"a: '2018-01-01'\n"),
+        (b"a: 2001-01-01T10:00:00Z\n", b"a: '2001-01-01T10:00:00Z'\n"),
+        (b"a: ~\n", b"a: '~'\n"),
+        (b"a: 012\n", b"a: '012'\n"),
+        (b"a: 0x10\n", b"a: '0x10'\n"),
+        (b"a: 1e3\n", b"a: '1e3'\n"),
+        (b"a: .inf\n", b"a: '.inf'\n"),
+        (b"a: ! 'yes'\n", b"a: 'yes'\n"),
+        (b"a: ! '12'\n", b"a: '12'\n"),
+        (b"a: ! |\n  yes\n", b'a: "yes\\n"\n'),
+        (b"yes: 1\n", b"'yes': 1\n"),
+        (b"no: 1\n", b"'no': 1\n"),
+        (b"on: 1\n", b"'on': 1\n"),
+        (b"0b10: 1\n", b"'0b10': 1\n"),
+        (b"1_000: 1\n", b"'1_000': 1\n"),
+        (b"2001-01-01: 1\n", b"'2001-01-01': 1\n"),
+        (b"1:30: 1\n", b"'1:30': 1\n"),
+        (b"~: 1\n", b"'~': 1\n"),
+        (b"012: 1\n", b"'012': 1\n"),
+        (b"0x10: 1\n", b"'0x10': 1\n"),
+        (b"1e3: 1\n", b"'1e3': 1\n"),
+        (b".inf: 1\n", b"'.inf': 1\n"),
+    ],
+)
+def test_a_quoted_scalar_never_has_the_digest_of_the_typed_plain_scalar(left, right):
+    # `yaml.safe_load` gives the two spellings different values, except for
+    # `1e3`, which only a YAML 1.2 reader types.
+    for rulespec in (True, False):
+        digests = [
+            review_content_sha256(raw, rulespec=rulespec) for raw in (left, right)
+        ]
+        assert digests[0] != digests[1] or digests == [None, None]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2001-01-01",
+        "'2001-01-01'",
+        "2001-01-01 10:00:00",
+        "'yes'",
+        "'0b10'",
+        "'1_000'",
+        "'1:30'",
+        "'012'",
+        "'~'",
+        "true",
+        "~",
+        ".inf",
+        "1.5",
+        "'on'",
+    ],
+)
+def test_scalars_that_the_apply_dump_keeps_still_bind(value):
+    # The apply stamp loads and dumps the reviewed module. A scalar whose
+    # loaded type and text survive that dump keeps its review.
+    reviewed = _rule(value)
+    record = _build(
+        applied=[applied_pair(_as_apply_rewrites(reviewed), TEST_BYTES)],
+        evidence=_evidence(rulespec=reviewed),
+        required=True,
+    )
+
+    assert record["status"] == "passed"
+    assert _issues(record) == []
+
+
+@settings(
+    max_examples=300,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+@given(
+    scalars=st.lists(
+        st.tuples(
+            st.sampled_from(_LOADER_TYPED_SCALARS),
+            st.integers(min_value=0, max_value=11),
+            st.sampled_from(_LOADER_TYPED_SCALARS),
+            st.integers(min_value=0, max_value=11),
+        ),
+        min_size=1,
+        max_size=3,
+        unique_by=lambda item: item[0],
+    ),
+    respell=st.lists(st.integers(min_value=0, max_value=11), min_size=6, max_size=6),
+)
+def test_respelled_documents_with_one_digest_load_alike(scalars, respell):
+    def document(offsets):
+        lines = []
+        for index, (key, key_spelling, value, value_spelling) in enumerate(scalars):
+            keys = _scalar_spellings(key)
+            values = _scalar_spellings(value)
+            lines.append(
+                f"{keys[(key_spelling + offsets[2 * index]) % len(keys)]}: "
+                f"{values[(value_spelling + offsets[2 * index + 1]) % len(values)]}\n"
+            )
+        return "".join(lines).encode()
+
+    first, second = document([0] * 6), document(respell)
+    digests = [review_content_sha256(raw, rulespec=False) for raw in (first, second)]
+    if digests[0] is not None and digests[0] == digests[1]:
+        assert _loaded(first) == _loaded(second)
+
+
+# --- review of c3bf0d657: limits that the guide states --------------------
+
+
+@pytest.mark.parametrize(
+    ("comment_length", "status"),
+    [(199, "unavailable"), (200, "unavailable"), (201, "passed")],
+)
+def test_guide_bound_of_a_comment_between_a_quoted_key_and_its_colon(
+    tmp_path, monkeypatch, comment_length, status
+):
+    # The guide states this limit: a competing key is read through a comment
+    # of at most 200 characters between the key and its colon.
+    output = (
+        '{"score":9,"passed":true}\n"Passed" /*' + "x" * comment_length + "*/ : false"
+    )
+    rule, result = _review(tmp_path, monkeypatch, output)
+
+    assert _record_for(result, rule, required=True)["status"] == status
+
+
+@pytest.mark.parametrize(
+    ("output", "status", "reason"),
+    [
+        ('{"score": 2}', "failed", None),
+        ('{"score": 9}', "unavailable", "unreadable_review_result"),
+        ('{"score": 9, "passed": "yes"}', "unavailable", "reviewer_error"),
+        ('{"score": 2, "passed": 0}', "unavailable", "reviewer_error"),
+    ],
+)
+def test_guide_statement_of_what_an_inferred_verdict_records(
+    tmp_path, monkeypatch, output, status, reason
+):
+    rule, result = _review(tmp_path, monkeypatch, output)
+    record = _record_for(result, rule, required=True)
+
+    assert (record["status"], record["reason"]) == (status, reason)
+    assert review_requirement_refusal(record) is not None
+
+
+def test_accepted_retained_candidate_is_not_reviewed_and_required_mode_refuses(
+    tmp_path, capsys
+):
+    # The guide states this limit. A retry that accepts the retained repair
+    # candidate runs no model and no reviewer: the record is `skipped`, and
+    # a required review refuses, also where a reviewer CLI could start.
+    from axiom_encode.harness.evals import ValidationRetryCandidate, run_model_eval
+    from axiom_encode.harness.validator_pipeline import (
+        ValidationResult,
+        ValidatorPipeline,
+    )
+    from tests.test_evals import _canonical_rulespec_content_root
+    from tests.test_repair_overlay_failure_is_retryable import (
+        _bind_corpus,
+        _make_workspace,
+    )
+
+    output_root = tmp_path / "out"
+    workspace = _make_workspace(output_root / "_eval_workspaces" / "workspace")
+    rules_path = tmp_path / "rules"
+    rules_path.mkdir()
+    candidate = ValidationRetryCandidate(
+        rulespec="format: rulespec/v1\nmodule: {summary: retained}\nrules: []\n",
+        tests="[]\n",
+    )
+    with (
+        patch(
+            "axiom_encode.harness.evals.prepare_eval_workspace",
+            return_value=workspace,
+        ),
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval",
+            side_effect=AssertionError("model must not run"),
+        ),
+        patch("axiom_encode.harness.evals._hydrate_eval_root"),
+        patch.object(
+            ValidatorPipeline,
+            "_run_compile_check",
+            return_value=ValidationResult("compile", passed=True),
+        ),
+        patch.object(
+            ValidatorPipeline,
+            "_run_ci",
+            return_value=ValidationResult("ci", passed=True),
+        ),
+        patch.object(
+            validator_pipeline,
+            "run_claude_code",
+            side_effect=AssertionError("reviewer must not run"),
+        ) as reviewer_cli,
+    ):
+        result = run_model_eval(
+            citations=["us-ca/regulation/mpp/63-503"],
+            runner_specs=["codex:gpt-5.5"],
+            output_root=output_root,
+            policy_path=_canonical_rulespec_content_root(tmp_path, "us-ca"),
+            runtime_axiom_rules_path=rules_path,
+            corpus_release=_bind_corpus(tmp_path),
+            mode="cold",
+            validation_retry_candidate=candidate,
+            accept_valid_retry_candidate=True,
+        )[0]
+
+    assert "retained_candidate_preflight=accepted" in capsys.readouterr().out
+    assert result.success is True
+    reviewer_cli.assert_not_called()
+    pairs, files, reviewed_path = cli._planned_review_files(
+        result, output_root=output_root, supplemental_files={}
+    )
+    assert len(files) == 2
+    record = record_module.build_generalist_review_record(
+        cli._encode_generalist_review_state(
+            result, skipped_by_flag=False, required=True
+        ),
+        pairs,
+        files,
+        reviewed_rulespec_path=reviewed_path,
+    )
+    assert (record["status"], record["reason"]) == ("skipped", "reviewer_not_run")
+    assert not any(entry["reviewed"] for entry in record["files"])
+    assert review_requirement_refusal(record) is not None
+
+
+_WHOLE_COMPANIONS = [
+    b"",
+    b"~\n",
+    b"null\n",
+    b"# only a comment\n",
+    b"---\n",
+    b"--- ~\n",
+    b"[]\n",
+    b"[ ]\n",
+    b"--- []\n",
+    b"[]  # none\n",
+    b"{}\n",
+    b"''\n",
+    b"'[]'\n",
+    b"'~'\n",
+    b"!!seq []\n",
+    b"!!map {}\n",
+    b"!!set {}\n",
+    b"!!omap []\n",
+    b"!!pairs []\n",
+    b"!!str\n",
+    b"!!null ''\n",
+    b"! []\n",
+    b"-\n",
+    b"- ~\n",
+    b"- []\n",
+    b"- {}\n",
+    b"cases:\n",
+    b"cases: ~\n",
+    b"cases: []\n",
+    b"cases: {}\n",
+    b"cases: [{}]\n",
+    b"cases: [~]\n",
+    b"- name: a\n",
+    b"- name: a\n  output: {}\n",
+    b"- name: a\n  output:\n",
+    b"- name: a\n  output: []\n",
+    TEST_BYTES,
+]
+
+
+def test_whole_companion_documents_with_one_digest_load_alike(tmp_path):
+    by_digest: dict[str, set] = {}
+    outcomes: dict[str, set] = {}
+    path = tmp_path / "x.test.yaml"
+    for raw in _WHOLE_COMPANIONS:
+        digest = review_content_sha256(raw, rulespec=False)
+        assert digest is not None
+        assert digest != review_content_sha256(None, rulespec=False)
+        by_digest.setdefault(digest, set()).add(repr(_loaded(raw)))
+        path.write_bytes(raw)
+        try:
+            outcome = repr(_typed(cli._load_rulespec_test_cases(path)))
+        except Exception as exc:  # noqa: BLE001 - any refusal is one outcome
+            outcome = f"refused: {type(exc).__name__}"
+        outcomes.setdefault(digest, set()).add(outcome)
+
+    assert len(by_digest) > 20
+    assert {d: v for d, v in by_digest.items() if len(v) > 1} == {}
+    # The companion loader gives one outcome per digest too.
+    assert {d: v for d, v in outcomes.items() if len(v) > 1} == {}
+
+
+def test_inconsistent_absent_companion_digests_bind_nothing():
+    absent = review_content_sha256(None, rulespec=False)
+    empty_list = review_content_sha256(b"[]\n", rulespec=False)
+    # Evidence that names no companion file with the content of a file, and
+    # a companion file with the content of an absent one.
+    for evidence in (
+        _evidence(test=None, reviewed_test_content_sha256=empty_list),
+        _evidence(test=b"[]\n", reviewed_test_content_sha256=absent),
+    ):
+        for test in (None, b"[]\n"):
+            record = _build(applied=[applied_pair(RULE_BYTES, test)], evidence=evidence)
+            assert record["status"] == "unavailable"
+            assert record["reason"] == "unreadable_review_result"
+    # The same on the applied side.
+    for test_sha256, content in ((None, empty_list), ("1" * 64, absent)):
+        pair = AppliedPair(
+            **{
+                **_digests(applied_pair(RULE_BYTES, None)),
+                "test_sha256": test_sha256,
+                "test_content_sha256": content,
+                "rulespec_path": RULE_PATH,
+            }
+        )
+        for evidence in (_evidence(test=None), _evidence(test=b"[]\n")):
+            record = _build(applied=[pair], evidence=evidence)
+            assert record["status"] == "unavailable"
+            assert record["reason"] == "reviewed_content_not_applied"
+
+
+def test_a_pair_at_another_path_never_carries_the_verdict():
+    # Only a dependent is applied, and it has exactly the reviewed content.
+    other = applied_pair(RULE_BYTES, TEST_BYTES, rulespec_path=OTHER_PATH)
+    files = [
+        (OTHER_PATH, other.rulespec_sha256),
+        (other.test_path, other.test_sha256),
+    ]
+    build = record_module.build_generalist_review_record
+
+    record = build(
+        _state(required=True), [other], files, reviewed_rulespec_path=RULE_PATH
+    )
+
+    assert (record["status"], record["reason"]) == (
+        "unavailable",
+        "reviewed_content_not_applied",
+    )
+    assert not any(entry["reviewed"] for entry in record["files"])
+    # The same pair at the reviewed path is the reviewed module.
+    assert (
+        build(_state(), [other], files, reviewed_rulespec_path=OTHER_PATH)["status"]
+        == "passed"
+    )

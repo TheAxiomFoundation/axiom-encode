@@ -141,28 +141,59 @@ reviewer's own JSON boolean `"passed": true` in its one verdict object, with a
 JSON number as `score`. A score without that field, a non-boolean `passed`, a
 non-number `score`, or another spelling of a verdict key (`passed`, `score`,
 `blocking_issues`; for example `"Passed"` or `"Blocking_Issues"`) is not a
-pass. The spelling rule covers every key of decoded JSON in the output and
-every quoted key in the text around the verdict, also in an object that only
-a lenient reader accepts. It does not cover text inside a string value, an
-unquoted key after a comma on the same line, or other words for a verdict
-(`verdict`, `failed`). Eval scoring keeps its older fallback from the score;
-that fallback never reaches the record.
+pass. The spelling rule covers every key of decoded JSON in the output. In
+the text around the verdict it covers a quoted key that is followed by its
+colon, with only whitespace and short `/* */` comments between them, also in
+an object that only a lenient reader accepts. It does not cover a quoted key
+that a comment of more than 200 characters, more than eight comments in a row
+or a line comment separates from its colon; text inside a string value; an
+unquoted key after a comma on the same line; or other words for a verdict
+(`verdict`, `failed`). Eval scoring keeps its older fallback from the score.
+A pass that the fallback infers never reaches the record as a pass: a score
+without `passed` is recorded as `failed` when the fallback says fail (for
+example `{"score": 2}`) and as `unavailable` otherwise, and a non-boolean
+`passed` is recorded as `unavailable` (`reviewer_error`).
 
 The record binds a verdict by canonical YAML content, not by bytes. "Shown the
 whole content" means: the prompt showed the whole text of a file whose
 canonical content equals the applied file. Comments, key order and harmless
-quoting can differ; the record names the byte digests of both sides.
+quoting can differ; the record names the byte digests of both sides. Quoting
+is not harmless when it changes the value that the companion-test loader
+(`yaml.safe_load`) reads: plain `yes`, `0b10`, `1_000`, `1:30` and
+`2001-01-01` are a boolean, numbers and a date there, and strings when
+quoted. Such a pair has two canonical contents, so a review of one spelling
+does not cover the other.
+
+The record binds review coverage to each manifest path. Its `files` list has
+one entry per applied path, with that path's byte digest. The verdict covers
+only the module path that the reviewer was asked about and the companion test
+path of that module. Another applied file stays not reviewed also when its
+bytes equal a reviewed file, for example a repaired dependent companion test
+that is byte-identical to the reviewed one: its path selects another module
+as its validation context, and the reviewer did not read that context. The
+record is then `partial` and a required apply refuses. Paths have one
+spelling (relative, `/` separators, no `.` or `..` segment); a list with
+another spelling, or with two paths that differ only by case or Unicode
+composition, binds no verdict.
+
+A retry that accepts a retained repair candidate without a new model call
+does not run the reviewer. Its record is `skipped` (`reviewer_not_run`), so
+with `--require-review` that encode ends `apply_blocked_review` even where a
+reviewer CLI is available. Encode the citation again to get a reviewed
+candidate.
 
 For a deferred module without a companion test, apply writes an empty
 companion test (`[]`). The reviewer prompt shows that generated companion and
 the record binds its canonical content, so the whole-file statement also
-holds for it. An empty list, a null document, a file with only comments and a
-0-byte file are one canonical content: a reviewed empty companion covers any
-of them. A companion with test cases is other content and is never covered by
-a review of an empty one. A companion file that exists is always shown in the
-prompt, also when it is empty. A companion that the reviewer was not shown is
-recorded as not reviewed: the record is `partial` and a required apply
-refuses.
+holds for it. An empty list is one canonical content whatever its formatting
+or comments. A null document (a 0-byte file, a file with only comments, `~`)
+and an empty mapping are other contents, because the companion-test loader
+refuses them, and an absent companion is a content of its own. A reviewed
+empty companion covers none of them, and a companion with test cases is
+never covered by a review of an empty one. A companion file that exists is
+always shown in the prompt, also when it is empty. A companion that the
+reviewer was not shown binds no verdict: the record is `unavailable` and a
+required apply refuses.
 
 A file has no canonical content digest, and so no binding, when its mapping
 keys are ambiguous: a repeated key, two keys that PyYAML (YAML 1.1), a YAML

@@ -1038,7 +1038,7 @@
       "fix": "Do not edit a signed manifest. Run encode --apply again so the encoder writes and signs the record itself.",
       "gate": "manifest",
       "id": "manifest:generalist-review/binding",
-      "requires": "The record lists exactly the files the manifest applies; a passed record marks every one of them reviewed in full; a scored record has equal reviewed and applied content digests.",
+      "requires": "The record lists exactly the files the manifest applies, each by path and digest; a passed record marks every one of them reviewed in full; a scored record has equal reviewed and applied content digests and marks as reviewed only the reviewed module path and its companion test path.",
       "severity": "important",
       "site": "axiom_encode/generalist_review_record.py:generalist_review_record_issues",
       "title": "Generalist review verdict is not bound to the applied files",
@@ -1225,6 +1225,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "bab57e30323a881e42b1c84ae9183e824c72a034847f789086c7bed8606e739b",
+  "registry_sha256": "f265349d7de93e7a122559a61dc4020cf902b082a368ac49c77ffbf189bcb346",
   "schema": "axiom-encode/check-registry/v1"
 }
