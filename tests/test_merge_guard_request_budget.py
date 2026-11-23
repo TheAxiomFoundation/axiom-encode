@@ -447,6 +447,23 @@ def test_the_budget_pin_reports_each_lost_and_each_doubled_sentence(sentence):
     assert f"lost or doubled: {sentence}" in budget_problems(text + " " + sentence)
 
 
+KEY_PROTECTION_BUDGET = [
+    "the cap of 450 requests for a run admits about 54 units",
+    "whose costliest hour is 260 requests: three such runs fit the limit and a "
+    "fourth does not",
+]
+
+
+def test_the_key_protection_document_states_the_same_cap():
+    text = " ".join(
+        (REPOSITORY_ROOT / "docs" / "merge-guard-key-protection.md")
+        .read_text(encoding="utf-8")
+        .split()
+    )
+    assert [text.count(sentence) for sentence in KEY_PROTECTION_BUDGET] == [1, 1]
+    assert "cap of 350" not in text
+
+
 def test_the_budget_pin_reports_the_figures_of_the_earlier_cap():
     text = design_text()
     assert budget_problems(text + " 2 x (11 + 3u) + 101 <= 350") == ["stale: <= 350"]
