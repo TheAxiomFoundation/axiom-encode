@@ -37743,7 +37743,9 @@ class ValidatorPipeline:
             results["ci"].details["complete_source_unit_recall"] = dict(
                 self._complete_source_unit_recall
             )
-        ci_advisory_records = advisory_issue_records(results["ci"].advisory_issues)
+        ci_advisory_records = advisory_issue_records(
+            getattr(results["ci"], "advisory_issues", None) or ()
+        )
         self._log_event(
             "validation_ci_end",
             "CI validation complete",
