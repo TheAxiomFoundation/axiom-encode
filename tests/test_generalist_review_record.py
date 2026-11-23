@@ -1815,6 +1815,7 @@ def _write_manifest(
     test_bytes=b"[]\n",
     orphan_test=False,
     orphan_bytes=b"- name: orphan\n",
+    twin_modules=(),
     results=None,
 ):
     checkout = tmp_path / "rulespec-us"
@@ -1833,6 +1834,16 @@ def _write_manifest(
         orphan = program.with_name("other.test.yaml")
         orphan.write_bytes(orphan_bytes)
         applied.append(orphan)
+    for position, name in twin_modules:
+        # Another module with the bytes of this encode's module and test.
+        twin = program.with_name(f"{name}.yaml")
+        twin.write_bytes(program_bytes)
+        twin_test = program.with_name(f"{name}.test.yaml")
+        twin_test.write_bytes(test_bytes)
+        if position == "before":
+            applied[:0] = [twin, twin_test]
+        else:
+            applied += [twin, twin_test]
     output_root = tmp_path / "out"
     generated = output_root / "openai-test" / relative_output
     generated.parent.mkdir(parents=True)
@@ -2473,7 +2484,19 @@ rules:
 
 @pytest.mark.parametrize(
     "value",
-    ["0.10", "1500.00", ".5", "1_000", "+5", "yes", "0x10", "1.0e+3", "010", "1:00"],
+    # Not a plain float that every reader reads as one value: an integer, a
+    # float that only one dialect types, or a string that holds a number.
+    [
+        "1_000",
+        "+5",
+        "yes",
+        "0x10",
+        "010",
+        "1:00",
+        "1_0.50",
+        "1:30.50",
+        "!!float 0.10",
+    ],
 )
 def test_scalar_respelling_is_not_an_alternate_review_binding(value):
     reviewed = _rule(value)
@@ -4622,6 +4645,21 @@ _LOADER_TYPED_SCALARS = [
     "-7",
     "+3",
     "1.0",
+    "1.00",
+    "0.20",
+    "0.2",
+    ".2",
+    "2.0e-1",
+    "0.0",
+    "-0.0",
+    "0",
+    "1.5e+3",
+    "1500.0",
+    "1_0.5",
+    "10.5",
+    ".Inf",
+    "+.inf",
+    ".NaN",
     "1.",
     ".5",
     "=",
@@ -5109,3 +5147,241 @@ def test_a_pair_at_another_path_never_carries_the_verdict():
         build(_state(), [other], files, reviewed_rulespec_path=OTHER_PATH)["status"]
         == "passed"
     )
+
+
+# --- independent review of 9730b4fba ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    "twins",
+    [
+        (("before", "fy-2025"),),
+        (("after", "fy-2027"),),
+        (("before", "fy-2025"), ("after", "fy-2027")),
+    ],
+)
+def test_signed_manifest_credits_its_own_module_among_modules_with_equal_bytes(
+    tmp_path, twins
+):
+    # Other applied modules have exactly the reviewed bytes, before and after
+    # this encode's module in the applied list. The writer must name its own
+    # module as the reviewed one, not the first or the last pair.
+    program_bytes = b"program: us-sc/snap\nperiod: 2026-01\n"
+    state = _bound_state(reviewed_rulespec=program_bytes, reviewed_test=b"[]\n")
+    payload, _applied_files = _write_manifest(
+        tmp_path, per_file=True, twin_modules=twins, review_state=state
+    )
+
+    record = payload[GENERALIST_REVIEW_FIELD]
+    assert len(record["files"]) == 2 + 2 * len(twins)
+    assert len({entry["sha256"] for entry in record["files"]}) == 2
+    assert (record["status"], record["reason"]) == (
+        "partial",
+        "unreviewed_applied_files",
+    )
+    assert record["applied"]["rulespec_path"] == "programs/us-sc/snap/fy-2026.yaml"
+    assert record["applied"]["test_path"] == "programs/us-sc/snap/fy-2026.test.yaml"
+    assert sorted(entry["path"] for entry in record["files"] if entry["reviewed"]) == [
+        "programs/us-sc/snap/fy-2026.test.yaml",
+        "programs/us-sc/snap/fy-2026.yaml",
+    ]
+    assert not any("generalist_review" in issue for issue in _schema_issues(payload))
+    with pytest.raises(ReviewRequirementRefused, match="unreviewed_applied_files"):
+        _write_manifest(
+            tmp_path / "required",
+            per_file=True,
+            twin_modules=twins,
+            review_state=_bound_state(
+                reviewed_rulespec=program_bytes, reviewed_test=b"[]\n", required=True
+            ),
+        )
+
+
+_ONE_FLOAT_VALUE = [
+    ("0.20", "0.2"),
+    ("0.200", "0.2"),
+    (".2", "0.2"),
+    ("+0.2", "0.2"),
+    ("2.0e-1", "0.2"),
+    ("1762.50", "1762.5"),
+    ("1500.00", "1500.0"),
+    ("1.", "1.0"),
+    ("1.0e+3", "1000.0"),
+    ("0.10", "0.1"),
+    ("-0.50", "-0.5"),
+    ("-0.00", "-0.0"),
+    (".Inf", ".inf"),
+    ("+.INF", ".inf"),
+    ("-.Inf", "-.inf"),
+    (".NaN", ".nan"),
+    ("1.0e+400", ".inf"),
+]
+
+
+@pytest.mark.parametrize(("spelling", "dumped"), _ONE_FLOAT_VALUE)
+def test_a_plain_float_that_every_reader_reads_alike_binds_by_its_value(
+    spelling, dumped
+):
+    # The probe of the review: the model writes `0.20`, the apply dump writes
+    # `0.2`. Every modeled reader gives both the same float.
+    reviewed = _rule(spelling)
+    applied = _as_apply_rewrites(reviewed)
+    assert f"value: {dumped}\n".encode() in applied
+    assert record_module._agreed_plain_float(spelling) is not None
+    assert _loaded(_rule(spelling)) == _loaded(_rule(dumped))
+
+    for seen, written in ((reviewed, applied), (_rule(dumped), applied)):
+        record = _build(
+            applied=[applied_pair(written, TEST_BYTES)],
+            evidence=_evidence(rulespec=seen),
+            required=True,
+        )
+        assert record["status"] == "passed"
+        assert review_requirement_refusal(record) is None
+        assert _issues(record) == []
+    # In a companion test and as a mapping key too.
+    for template in ("- output: {{x: {}}}\n", "{}: 1\n"):
+        assert review_content_sha256(
+            template.format(spelling).encode(), rulespec=False
+        ) == review_content_sha256(template.format(dumped).encode(), rulespec=False)
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        # A string that holds the number, and a tagged scalar.
+        ("0.2", "'0.2'"),
+        ("0.20", "'0.20'"),
+        ("'0.20'", "'0.2'"),
+        ('"x * 0.20"', '"x * 0.2"'),
+        ("x * 0.20", "x * 0.2"),
+        ("0.20", "!!float 0.20"),
+        ("0.20", "!!str 0.20"),
+        # An integer is not the float of the same value.
+        ("0", "0.0"),
+        ("1", "1.0"),
+        ("1000", "1.0e+3"),
+        # The sign of zero, and values that differ.
+        ("-0.0", "0.0"),
+        ("0.2", "0.3"),
+        ("0.2", "-0.2"),
+        (".inf", "-.inf"),
+        (".nan", ".inf"),
+        (".nan", "0.0"),
+        # One dialect reads a string or another number: the text stays exact.
+        ("1.5e3", "1500.0"),
+        ("1e3", "1000.0"),
+        ("1_0.5", "10.5"),
+        ("1:30.5", "90.5"),
+        ("0.2_0", "0.2"),
+        ("1_000.0", "1000.0"),
+    ],
+)
+def test_float_value_binding_never_joins_values_that_a_reader_tells_apart(left, right):
+    for template in ("a: {}\n", "- output: {{x: {}}}\n"):
+        for rulespec in (True, False):
+            digests = [
+                review_content_sha256(template.format(text).encode(), rulespec=rulespec)
+                for text in (left, right)
+            ]
+            assert None not in digests
+            assert digests[0] != digests[1]
+    record = _build(
+        applied=[applied_pair(_rule(right), TEST_BYTES)],
+        evidence=_evidence(rulespec=_rule(left)),
+        required=True,
+    )
+    assert (record["status"], record["reason"]) == (
+        "unavailable",
+        "reviewed_content_not_applied",
+    )
+
+
+def test_two_spellings_of_one_float_key_are_a_repeated_key():
+    for raw in (b"{0.20: a, 0.2: b}\n", b"{.5: a, 0.50: b}\n", b"{1.0: a, 1: b}\n"):
+        assert review_content_sha256(raw, rulespec=False) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "agreed"),
+    [
+        ("0.20", 0.2),
+        (".5", 0.5),
+        ("-1.50", -1.5),
+        ("1.0e+3", 1000.0),
+        ("1.5e3", 1500.0),  # PyYAML resolves this one as a string, not here
+        ("1_0.5", None),
+        ("1:30.5", None),
+        ("abc", None),
+        ("", None),
+        ("12", None),
+        ("0x10", None),
+    ],
+)
+def test_agreed_plain_float(text, agreed):
+    assert record_module._agreed_plain_float(text) == agreed
+
+
+_FLOAT_TEXT = st.one_of(
+    st.from_regex(r"[-+]?[0-9]{1,6}\.[0-9]{0,8}([eE][-+][0-9]{1,3})?", fullmatch=True),
+    st.from_regex(r"[-+]?\.[0-9]{1,8}([eE][-+]?[0-9]{1,3})?", fullmatch=True),
+    st.from_regex(r"[-+]?[0-9_]{1,6}\.[0-9_]{0,6}", fullmatch=True),
+    st.from_regex(r"[-+]?[0-9]{1,4}(\.[0-9]{1,4})?[eE][0-9]{1,2}", fullmatch=True),
+    st.sampled_from(
+        [".inf", "-.inf", "+.Inf", ".nan", ".NaN", "-0.0", "0.0", "0.", "-0."]
+    ),
+    st.floats(allow_nan=False).map(repr),
+)
+
+
+@settings(max_examples=600, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(text=_FLOAT_TEXT, other=_FLOAT_TEXT)
+def test_plain_float_spellings_bind_through_the_apply_dump(text, other):
+    raw = _rule(text)
+    try:
+        loaded = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return
+    dumped = apply_stamp_dump(loaded).encode()
+    digest, dumped_digest = (
+        review_content_sha256(raw, rulespec=True),
+        review_content_sha256(dumped, rulespec=True),
+    )
+    if record_module._agreed_plain_float(text) is not None and isinstance(
+        loaded["rules"][0]["value"], float
+    ):
+        # Every reader agrees on the value: the dump keeps the content.
+        assert digest is not None and digest == dumped_digest
+        assert dumped_review_content_sha256(raw) == digest
+    # Whatever the spelling: one digest means one typed value for PyYAML and
+    # for a YAML 1.2 core reader.
+    other_raw = _rule(other)
+    if digest is not None and digest == review_content_sha256(other_raw, rulespec=True):
+        assert _loaded(raw) == _loaded(other_raw)
+        yaml12 = [
+            record_module._yaml12_core_value(item)
+            if record_module.is_yaml12_core_non_string(item)
+            else item
+            for item in (text, other)
+        ]
+        assert _typed(yaml12[0]) == _typed(yaml12[1])
+
+
+def test_guide_limit_of_the_reader_other_bytes_under_the_reviewed_content_digest():
+    # The guide states this limit. The reader has only the manifest: it
+    # cannot recompute a content digest from a byte digest, so a record that
+    # names other bytes under the reviewed content digest is well formed. The
+    # manifest signature covers it; the writer builds the record from the
+    # files it signs.
+    forged = _build()
+    other = "9" * 64
+    forged["applied"]["rulespec_sha256"] = other
+    next(entry for entry in forged["files"] if entry["path"] == RULE_PATH)["sha256"] = (
+        other
+    )
+
+    assert _issues(forged, [(RULE_PATH, other), (TEST_PATH, PAIR.test_sha256)]) == []
+    # The honest manifest list refuses it: the bytes it lists are not these.
+    assert _issues(
+        forged, [(RULE_PATH, PAIR.rulespec_sha256), (TEST_PATH, PAIR.test_sha256)]
+    ) == ["generalist_review does not list exactly the applied file digests"]

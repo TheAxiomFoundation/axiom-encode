@@ -162,7 +162,12 @@ is not harmless when it changes the value that the companion-test loader
 (`yaml.safe_load`) reads: plain `yes`, `0b10`, `1_000`, `1:30` and
 `2001-01-01` are a boolean, numbers and a date there, and strings when
 quoted. Such a pair has two canonical contents, so a review of one spelling
-does not cover the other.
+does not cover the other. A plain float that every modeled reader
+(`yaml.safe_load`, a YAML 1.2 core reader, a reader of both typed forms)
+reads as one value is bound by that value, because the apply dump respells
+it: `0.20` and `0.2` are one content. A quoted number, a tagged number, an
+integer, `-0.0` against `0.0`, and a spelling that one dialect reads another
+way (`1_000.0`, `1.5e3`) keep their exact text.
 
 The record binds review coverage to each manifest path. Its `files` list has
 one entry per applied path, with that path's byte digest. The verdict covers
@@ -175,6 +180,17 @@ record is then `partial` and a required apply refuses. Paths have one
 spelling (relative, `/` separators, no `.` or `..` segment); a list with
 another spelling, or with two paths that differ only by case or Unicode
 composition, binds no verdict.
+
+The manifest reader checks the record against the manifest alone. It checks
+the exact (path, digest) list, the shape of each path, that the reviewed
+entries are the named module and its companion test, and that the reviewed
+and applied content digests are equal. It does not check which module the
+reviewer read, and it cannot recompute a content digest from the listed byte
+digests: a forged record that names other bytes as `applied.rulespec_sha256`
+and keeps the reviewed content digest is accepted by the reader. The reader
+relies on the manifest signature for that. The manifest writer is the only
+site that puts the record in a manifest, and it builds the record from the
+files it signs.
 
 A retry that accepts a retained repair candidate without a new model call
 does not run the reviewer. Its record is `skipped` (`reviewer_not_run`), so

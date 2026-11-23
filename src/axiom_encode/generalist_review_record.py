@@ -55,7 +55,9 @@ treats as equal (``yes`` and ``true``, ``010`` and ``8``). Each scalar also
 carries the type that ``yaml.safe_load`` gives it, because that loader reads
 the companion tests: plain ``yes``, ``0b10`` and ``2001-01-01`` differ from
 their quoted spellings, so two files with one digest load as equal values
-there. Mapping key order is the one difference of the loaded value that the
+there. A plain float that every modeled reader reads as one value is the one
+exception to "exact text": its content is the value (``0.20`` and ``0.2``),
+which the apply dump respells. Mapping key order is the one difference of the loaded value that the
 digest ignores. A document with a
 repeated key, a collection alias or a merge key has no content digest. Keys
 are repeated when their node is the same, and also when a reader gives two
@@ -299,6 +301,38 @@ def _yaml12_core_value(text: str) -> object:
 
 
 _VALUE_TAG = "tag:yaml.org,2002:value"
+_FLOAT_TAG = "tag:yaml.org,2002:float"
+
+
+def _agreed_plain_float(text: str) -> float | None:
+    """The float that every modeled reader gives a plain scalar, or None.
+
+    ``yaml.safe_load`` (YAML 1.1) and a YAML 1.2 core reader must both read a
+    float, and the same one (the reader that mixes their typed forms then
+    reads it too). ``0.20``, ``0.2`` and ``.2`` are such a scalar; ``1_0.5``,
+    ``1:30.5`` and ``1.5e3`` are not, because one dialect reads a string.
+    """
+
+    if not is_yaml12_core_non_string(text):
+        # A string for a YAML 1.2 core reader, whatever `float()` accepts
+        # (it reads `1_0.5`).
+        return None
+    try:
+        yaml11 = _KEY_VALUE_CONSTRUCTOR.construct_yaml_float(
+            yaml.ScalarNode(_FLOAT_TAG, text)
+        )
+        yaml12 = _yaml12_core_value(text)
+    except Exception:  # noqa: BLE001 - any constructor failure
+        return None
+    if type(yaml11) is not float or type(yaml12) is not float:
+        return None
+    if math.isnan(yaml11) and math.isnan(yaml12):
+        return yaml11
+    if yaml11 != yaml12 or math.copysign(1.0, yaml11) != math.copysign(1.0, yaml12):
+        return None
+    return yaml11
+
+
 _YAML12_CORE_TYPED_TAGS = frozenset(
     {_NULL_TAG, _BOOL_TAG, "tag:yaml.org,2002:int", "tag:yaml.org,2002:float"}
 )
@@ -449,6 +483,22 @@ def _canonical_node(
             "FALSE",
         }:
             value = value.lower()
+        pyyaml_tag = getattr(node, "_review_pyyaml_tag", node.tag)
+        if (
+            implicit_plain
+            and tag == _FLOAT_TAG
+            and pyyaml_tag == _FLOAT_TAG
+            and is_yaml12_core_non_string(value)
+        ):
+            # A plain float that every modeled reader reads as one value has
+            # that value as its content, not its spelling: the apply dump
+            # writes `0.20` again as `0.2`. `repr` keeps `-0.0` apart from
+            # `0.0`, and all spellings of infinity and of NaN are one value
+            # each. A quoted or tagged scalar, an integer and a scalar that
+            # one dialect reads another way keep their exact text.
+            number = _agreed_plain_float(value)
+            if number is not None:
+                value = repr(number)
         # The type `yaml.safe_load` gives the scalar is part of its content:
         # that loader runs the companion tests. Plain `yes`, `0b10`, `1_000`,
         # `1:30` and `2001-01-01` are a boolean, numbers and a date there, and
@@ -458,7 +508,6 @@ def _canonical_node(
         # the null and boolean spellings that load as one value). The same
         # holds for a quoted `!` scalar, which PyYAML resolves like a plain
         # one (`! "yes"` loads as True) and the tag above calls a string.
-        pyyaml_tag = getattr(node, "_review_pyyaml_tag", node.tag)
         return ["scalar", tag, value, implicit_yaml12_non_string, pyyaml_tag]
     if id(node) in seen:
         raise ValueError("YAML alias")
