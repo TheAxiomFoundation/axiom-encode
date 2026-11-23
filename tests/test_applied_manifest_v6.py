@@ -650,7 +650,9 @@ def test_exactly_two_readers_pass_admit_v6():
         "src/axiom_encode/supabase_sync.py",
         "src/axiom_encode/prepare_signed_backfill.py",
         "src/axiom_encode/reviewed_repair_patch.py",
-        ".github/workflows/targeted-signed-reencode.yml",
+        # targeted-signed-reencode.yml left this list with change 5b: its
+        # evidence step reads v6 behind the writer's locks, and the rest of
+        # the workflow stays v5-only (tests/test_candidate_promotion_evidence.py).
     ],
 )
 def test_v5_only_readers_do_not_know_v6(path):

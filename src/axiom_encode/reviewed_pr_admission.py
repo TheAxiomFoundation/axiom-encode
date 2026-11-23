@@ -86,8 +86,11 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # of this lane that goes through publication makes at least 45 reads (7 of
 # them the branch record) and one of the reviewed lane at least 38, counted
 # by the reviewer at 880238c7 with every list on one page; pagination adds
-# reads. 45 is the count through the last publication check; the hosted
-# workflow's v5 evidence step at this change stops a v6 manifest before it.
+# reads. 45 is the count through the last publication check, counted at
+# change 5, where the hosted workflow's v5 evidence step stopped a v6
+# manifest before it. The evidence step of change 5b
+# (``candidate_promotion_evidence``) lets it through and adds one read of the
+# branch record per v6 manifest: at least 46. Neither was measured again.
 # GitHub allows 60 per hour per address, so a second run in the same hour
 # from the same address is refused. Follow-up: send the reads with the
 # workflow token when one is available. The record is public, so a token
