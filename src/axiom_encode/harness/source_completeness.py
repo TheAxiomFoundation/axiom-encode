@@ -39994,8 +39994,9 @@ def _exception_witnesses_for_branch(
         }
     requirement = _source_exception_effect_requirement(branch.text)
     condition_text = _source_exception_condition_text(branch.text)
+    condition_recall_text = authoritative_numeric_recall_text(condition_text)
     numeric_interval = _formula_interval_from_text(
-        authoritative_numeric_recall_text(condition_text),
+        condition_recall_text,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     equality_candidates = {
@@ -40103,6 +40104,16 @@ def _exception_witnesses_for_branch(
                         )
                     ),
                 )
+                or _numeric_pair_is_bound_to_stated_limit(
+                    witness,
+                    numeric_interval=numeric_interval,
+                    condition_recall_text=condition_recall_text,
+                    source_text=source_text,
+                    principal_rules=principal_rules,
+                    input_declarations=input_declarations or {},
+                    formula_environment=formula_environment or {},
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                )
                 or _source_qualified_cardinality_evidence(
                     branch,
                     witness,
@@ -40147,6 +40158,93 @@ def _exception_witnesses_for_branch(
             )
         }
     )
+
+
+def _numeric_pair_is_bound_to_stated_limit(
+    witness: _ExceptionWitness,
+    *,
+    numeric_interval: _NumericInterval | None,
+    condition_recall_text: str,
+    source_text: str,
+    principal_rules: dict[str, dict[str, Any]],
+    input_declarations: Mapping[str, dict[str, Any]],
+    formula_environment: Mapping[str, Any],
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> bool:
+    """Link a numeric case pair to its condition by the number, not the name.
+
+    The name test asks whether the selector's name shares words with the
+    condition. A correct pair on an input named with other words fails it.
+    This link needs no name. All of these must hold:
+
+    - the condition states one limit, and the source unit states that number
+      once, so the pair cannot belong to another condition;
+    - the selector is a declared local input whose dtype fits the number
+      (`Money` exactly when the source writes a currency amount);
+    - the output's formula compares that input directly with a literal or
+      parameter of that value;
+    - one case of the pair sits exactly on the stated number.
+
+    The caller has already required the pair to cross the source interval in
+    the source's direction.
+    """
+
+    transition = witness.numeric_transition
+    if transition is None or numeric_interval is None:
+        return False
+    bounds = tuple(
+        bound
+        for bound in (numeric_interval.lower, numeric_interval.upper)
+        if bound is not None
+    )
+    if len(bounds) != 1:
+        return False
+    bound = bounds[0]
+    limit = float(bound.value)
+    if not any(
+        math.isclose(value, limit, rel_tol=0.0, abs_tol=1e-9) for value in transition
+    ):
+        return False
+    declaration = input_declarations.get(witness.selector_name)
+    if not isinstance(declaration, dict):
+        return False
+    dtype = str(declaration.get("dtype") or "").strip().lower()
+    states_currency = bool(
+        re.search(r"[$€£]\s?$", condition_recall_text[: bound.start])
+        or re.match(r"[$€£]", condition_recall_text[bound.start : bound.end])
+    )
+    if dtype not in {"money", "count", "integer", "int"} or (
+        (dtype == "money") != states_currency
+    ):
+        return False
+    stated = sum(
+        math.isclose(float(occurrence.value), limit, rel_tol=0.0, abs_tol=1e-9)
+        for occurrence in extract_numeric_occurrences(
+            authoritative_numeric_recall_text(source_text)
+        )
+    )
+    if stated != 1:
+        return False
+    target = _rulespec_runtime_decimal(limit)
+    if target is None or witness.rule_name not in principal_rules:
+        return False
+    for expression in _rule_parsed_expressions(principal_rules[witness.rule_name]):
+        for node in ast.walk(expression):
+            if not isinstance(node, ast.Compare):
+                continue
+            operands = [node.left, *node.comparators]
+            for left, right in zip(operands, operands[1:]):
+                for operand, threshold in ((left, right), (right, left)):
+                    if (
+                        isinstance(operand, ast.Name)
+                        and operand.id == witness.selector_name
+                        and target
+                        in _constant_node_values(
+                            threshold, formula_environment=formula_environment
+                        )
+                    ):
+                        return True
+    return False
 
 
 def _selector_targets_numeric_condition(
