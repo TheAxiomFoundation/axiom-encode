@@ -93,7 +93,22 @@ _REVERSING_WORD = re.compile(
 _QUALIFYING_WORD = re.compile(
     r"\b(?:if|when|whenever|where|while|until|once|provided|providing|only|both|"
     r"either|as|who|whom|whose|that|which|also|plus|together|additionally|"
-    r"including|includes?|whether|because|since|after|before|during|then)\b",
+    r"including|includes?|whether|because|since|after|before|during|then|with|"
+    r"within|more|less|least|most|than|over|under|above|below|exceed\w*|even|"
+    r"each|every|all|any)\b",
+    re.IGNORECASE,
+)
+# A second condition or quantifier before the cue of a cue-form chapeau.
+_STEM_CUE = re.compile(
+    r"\b(?:if|when|whenever|where|while|until|unless|whether|even|provided|"
+    r"providing|each|every|both|either|neither|asks?|decides?)\b",
+    re.IGNORECASE,
+)
+# A paragraph after the list that may add to the list's condition.
+_ADDING_WORD = re.compile(
+    r"\b(?:also|too|addition|additionally|well|further|furthermore|likewise|"
+    r"moreover|must|shall|required?|requires|needs?|needed|only|unless|provided|"
+    r"except\w*|if|when|whenever|following|above|listed|these|those|such)\b",
     re.IGNORECASE,
 )
 # A cue-form chapeau states an affirmative main clause before its cue.
@@ -219,8 +234,12 @@ def chapeau_is_affirmative(chapeau_text: str, *, cue_form: bool) -> bool:
     collapsed = " ".join(chapeau_text.split())
     cue = _ANY_CUE_CHAPEAU.search(collapsed)
     stem = collapsed[: cue.start()] if cue_form and cue is not None else collapsed
-    if cue_form and (cue is None or _AFFIRMATIVE_VERB.search(stem) is None):
-        return False
+    if cue_form:
+        if cue is None or _AFFIRMATIVE_VERB.search(stem) is None:
+            return False
+        stem = re.sub(r"\bonly\s*\Z", "", stem, flags=re.IGNORECASE)
+        if _STEM_CUE.search(stem) is not None:
+            return False
     return _REVERSING_WORD.search(stem) is None
 
 
@@ -235,13 +254,22 @@ def item_is_plain(body: str) -> bool:
     words = re.sub(r"\A(?:when|if)\s+", "", body.strip(), flags=re.IGNORECASE)
     words = re.sub(r"(?:\s*\([^()]*\))+\s*\.?\s*\Z", "", words).rstrip(" .")
     return (
-        re.fullmatch(
-            r"[A-Za-z0-9$][A-Za-z0-9$ '’-]*(?:, and [A-Za-z0-9$ '’-]+)?", words
-        )
+        re.fullmatch(r"[A-Z0-9$][A-Za-z0-9$ '’-]*(?:, and [A-Za-z0-9$ '’-]+)?", words)
         is not None
+        and re.search(r"\b(?:and|or|nor)\s*\Z", words, re.IGNORECASE) is None
+        and len(re.findall(r"\bor\b", words, re.IGNORECASE)) <= 1
         and _REVERSING_WORD.search(words) is None
         and _QUALIFYING_WORD.search(words) is None
     )
+
+
+def item_or_sides(body: str) -> tuple[str, str] | None:
+    """Return the two sides of the one "or" of a plain item, if it has one."""
+
+    words = re.sub(r"\A(?:when|if)\s+", "", body.strip(), flags=re.IGNORECASE)
+    words = re.sub(r"(?:\s*\([^()]*\))+\s*\.?\s*\Z", "", words).rstrip(" .")
+    parts = re.split(r"\bor\b", words, flags=re.IGNORECASE)
+    return (parts[0], parts[1]) if len(parts) == 2 else None
 
 
 def _chapeau_reading(chapeau_text: str) -> tuple[str, bool, bool]:
@@ -344,7 +372,7 @@ def parse_source_lists(text: str) -> tuple[SourceList, ...]:
             and re.match(r"[A-Z]", following_text) is not None
             and following_text.rstrip().endswith(".")
             and _CONTINUATION_START.match(following_text) is None
-            and "following" not in following_text.lower()
+            and _ADDING_WORD.search(following_text) is None
         )
         lists.append(
             SourceList(

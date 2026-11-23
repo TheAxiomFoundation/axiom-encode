@@ -22462,6 +22462,9 @@ class _StructuralClauseReading:
     ) = None
     chapeau_gates: tuple[tuple[frozenset[str], frozenset[str]], ...] = ()
     chapeau_text: str = ""
+    # For an item with one "or": the source words that only its left side and
+    # only its right side hold. The item's inputs must name both sides.
+    alternative_sides: tuple[tuple[frozenset[str], frozenset[str]] | None, ...] = ()
 
 
 def _structural_excerpt_pattern(excerpt: str) -> re.Pattern[str] | None:
@@ -22571,6 +22574,7 @@ def _structural_clause_reading(
         if source_list.items_with_children:
             return None
         alternatives = []
+        sides: list[tuple[frozenset[str], frozenset[str]] | None] = []
         for item in source_list.items:
             body = _list_structure.item_body(source_text, item)
             if not _list_structure.item_is_plain(body):
@@ -22581,9 +22585,22 @@ def _structural_clause_reading(
             if gates is None:
                 return None
             alternatives.append(gates)
+            halves = _list_structure.item_or_sides(body)
+            if halves is None:
+                sides.append(None)
+                continue
+            left, right = (
+                _source_gate_semantic_tokens(half, care_source_text=care_source_text)
+                - _SOURCE_GATE_SUBJECT_PRONOUNS
+                for half in halves
+            )
+            if len(gates) != 1 or not left - right or not right - left:
+                return None
+            sides.append((left - right, right - left))
         return _StructuralClauseReading(
             bounded(clause.start, min(clause.end, boundary)),
             alternatives=tuple(alternatives),
+            alternative_sides=tuple(sides),
             chapeau_gates=(
                 _source_conjunctive_fact_gates(
                     stem, care_source_text=care_source_text, minimum_gates=1
@@ -22751,6 +22768,26 @@ def _alternative_list_defect(
                 f"alternative {index} of the list has no input of its own that "
                 "makes the rule true whatever the other alternatives are"
             )
+        halves = (
+            reading.alternative_sides[index - 1]
+            if index <= len(reading.alternative_sides)
+            else None
+        )
+        if halves is not None:
+            named = frozenset().union(
+                *(
+                    terminal_evidence[name].entities
+                    | terminal_evidence[name].predicates
+                    for option in item_options
+                    for name in option
+                    if name in terminal_evidence
+                )
+            )
+            if not named & halves[0] or not named & halves[1]:
+                return (
+                    f"alternative {index} of the list states two cases joined by "
+                    "`or`; its inputs name only one of them"
+                )
         options.append(item_options[:8])
 
     def distinct(index: int, picked: tuple[frozenset[str], ...]) -> bool:
@@ -23983,29 +24020,42 @@ def _opaque_same_source_condition_input_issues(
                 )
             ):
                 continue
-            bound = {
-                name
-                for name, rule_spans in spans.items()
-                if any(
-                    item.start <= start and end <= item.end
+            quoted = {
+                name: {
+                    item.start
                     for start, end in rule_spans
                     for item in source_list.items
-                )
+                    if item.start <= start and end <= item.end
+                }
+                for name, rule_spans in spans.items()
             }
+            bound = {name for name, items in quoted.items() if items}
             if not bound:
                 continue
             grew = True
             while grew:
                 grew = False
                 for name, rule in eligible.items():
-                    if name not in bound and any(
-                        dependency in bound
+                    uses = {
+                        dependency
                         for _index, text, _lo, _hi in interval_cache.get(name, ())
                         for dependency in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text)
-                    ):
+                        if dependency in bound and dependency != name
+                    }
+                    covered = set(quoted.get(name, ())).union(
+                        *(quoted.get(dependency, ()) for dependency in uses)
+                    )
+                    if uses and (name not in bound or covered != quoted.get(name)):
                         bound.add(name)
+                        quoted[name] = covered
                         grew = True
-            if len(bound) > _STRUCTURAL_BINDING_RULE_LIMIT:
+            if len(bound) > _STRUCTURAL_BINDING_RULE_LIMIT or not any(
+                # One rule for each item and no rule that combines them says
+                # nothing about the list as a whole: it is not read against
+                # it. A rule that covers two items or more is.
+                len(quoted.get(name, ())) >= 2
+                for name in bound
+            ):
                 continue
             refusals: list[list[str]] = []
             for name in sorted(bound):
