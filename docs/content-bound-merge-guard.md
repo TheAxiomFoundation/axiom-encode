@@ -653,7 +653,8 @@ token, about 520 for a stateless one,
 [changelog of 2026-10-02](https://github.blog/changelog/2026-10-02-stateless-github-app-installation-tokens-rolled-out/),
 cited by the review of head `36bab7533`; not read by the author). The CLI
 tests two things only: every character is one of an HTTP `Bearer` credential
-(ASCII letters, digits and `-._~+/=`, RFC 6750 `b64token`), so the value
+(RFC 6750 `b64token`: ASCII letters, digits and `-._~+/`, then `=` only as
+padding at the end), so the value
 cannot split the `Authorization` header, and the length is 20 to 16,384
 characters, a transport bound and not a format rule. An earlier revision
 capped the length at 512 and refused a current token before any request.
@@ -687,7 +688,11 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
   command exits 1. That covers a failed request, a tree GitHub truncates, a
   review, commit or file listing at the evaluator's page bound, a blob that
   cannot be read whole, a required-check listing that does not add up, and a
-  response that is not the object or list its read asked for. The evaluator
+  response that is not the object or list its read asked for, and a
+  response that lacks a field the evaluator needs (an empty object for a
+  comparison, a workflow run or the pull request is never a decision: an
+  absent field is an incomplete read, a field with another value than the
+  guard requires is a decision). The evaluator
   marks such a verdict with `incomplete_read: true` in its evidence
   (`INCOMPLETE_READ_REASONS` for the reasons that always mean it, the mark
   alone for a mixed reason such as `ci_not_green`). The runner counts an
