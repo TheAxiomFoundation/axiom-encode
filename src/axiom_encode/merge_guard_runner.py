@@ -205,16 +205,30 @@ _REPOSITORY = re.compile(r"rulespec-[a-z]{2}(-[a-z0-9]+)*")
 # The token is opaque. GitHub changes its format and length (40 characters
 # for an earlier installation token, about 520 for a stateless one, and it
 # says to expect more), so nothing here depends on either. Two tests only:
-# the characters are those of an HTTP ``Bearer`` credential (RFC 6750
-# ``b64token``: ASCII letters, digits and ``-._~+/=``), so the value cannot
+# the value has the grammar of an HTTP ``Bearer`` credential (RFC 6750
+# ``b64token``: one or more ASCII letters, digits or ``-._~+/``, then any
+# number of ``=`` as padding at the end and nowhere else), so it cannot
 # split or fold the ``Authorization`` header (no space, no control character,
-# nothing outside ASCII); and the length is inside transport bounds. The
+# nothing outside ASCII); and the length is inside transport bounds. No
+# GitHub token format has an ``=`` inside (the legacy and the stateless
+# installation token have none at all). The
 # lower bound refuses an empty or placeholder value before any request; the
 # upper bound is above any header a server accepts and is not a token format
 # rule.
 MIN_TOKEN_CHARS: Final = 20
 MAX_TOKEN_CHARS: Final = 16 * 1024
-_TOKEN = re.compile(r"[A-Za-z0-9._~+/=-]{%d,%d}" % (MIN_TOKEN_CHARS, MAX_TOKEN_CHARS))
+_TOKEN = re.compile(r"[A-Za-z0-9._~+/-]+=*")
+
+
+def _valid_token(token: object) -> bool:
+    """Whether ``token`` is a ``b64token`` inside the transport bounds."""
+    return (
+        isinstance(token, str)
+        and MIN_TOKEN_CHARS <= len(token) <= MAX_TOKEN_CHARS
+        and _TOKEN.fullmatch(token) is not None
+    )
+
+
 _SHA = re.compile(r"[0-9a-f]{40}")
 # The temporary branch of a merge group that holds one pull request to
 # ``main``: ``refs/heads/gh-readonly-queue/main/pr-<number>-<40 hex>``.
@@ -340,7 +354,7 @@ def _request(
         )
     ):
         raise RunnerError("invalid GitHub API path")
-    if not isinstance(token, str) or _TOKEN.fullmatch(token) is None:
+    if not _valid_token(token):
         raise RunnerError(f"{TOKEN_ENV} is absent or malformed")
     data = None
     headers = {
@@ -767,7 +781,7 @@ def command(args, *, environ=None, opener=None) -> int:
     environ = os.environ if environ is None else environ
     token = environ.get(TOKEN_ENV, "")
     numbers = None if args.pr is None else [args.pr]
-    if _TOKEN.fullmatch(token) is None:
+    if not _valid_token(token):
         # Fail closed and say why. No anonymous fallback: an unauthenticated
         # sweep would hit the public rate limit and report partial results.
         report = {
@@ -1401,7 +1415,7 @@ def enforce_command(
         return code
     token = environ.get(TOKEN_ENV, "")
     try:
-        if not isinstance(token, str) or _TOKEN.fullmatch(token) is None:
+        if not _valid_token(token):
             # Fail closed and say why. No anonymous fallback.
             raise RunnerError(
                 f"{TOKEN_ENV} is absent or malformed: the enforcing runner "
