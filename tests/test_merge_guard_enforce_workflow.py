@@ -512,12 +512,14 @@ def longest_run_seconds() -> dict[str, int]:
             + evaluation
         ),
         # The wait, its last poll interval and last poll at its highest
-        # cost, and the one evaluation.
+        # cost, the one evaluation, and the second read of the group's
+        # check after it.
         "merge_group": (
             runner.MERGE_GROUP_WAIT_SECONDS
             + runner.MERGE_GROUP_POLL_SECONDS
             + runner.MERGE_GROUP_POLL_READS * request
             + evaluation
+            + runner.GROUP_CI_RECHECK_READS * request
         ),
     }
 
@@ -553,7 +555,7 @@ def test_the_job_publishes_the_reserved_check_name_and_covers_the_wait():
     # 30 requests of 30 seconds are 15 minutes for one evaluation.
     assert longest_run_seconds() == {
         "pull_request": 900 + 18000 + 180 + 30 + 900,  # 20,010 s, 333.5 minutes
-        "merge_group": 18000 + 180 + 90 + 900,  # 19,170 s, 319.5 minutes
+        "merge_group": 18000 + 180 + 90 + 900 + 90,  # 19,260 s, 321 minutes
     }
     assert max(longest_run_seconds().values()) == 20010 <= TIMEOUT_MINUTES * 60
     assert TIMEOUT_MINUTES < HOSTED_JOB_LIMIT_MINUTES
@@ -627,9 +629,10 @@ def test_the_header_states_what_is_off_and_what_is_unverified():
         "only when GITHUB_REPOSITORY is TheAxiomFoundation/axiom-encode AND the "
         "event payload agrees",
         "every pull request of that repository would pass with no evaluation",
-        "Activation hold: before the ruleset goes Active, a pull request with no "
-        "lane must show a FAILED job of this workflow under the ruleset in "
-        "Evaluate mode",
+        "Activation hold, one canary for each trigger: before the ruleset goes "
+        "Active, a pull request with no lane AND a merge group of such a pull "
+        "request must each show a FAILED job of this workflow under the ruleset "
+        "in Evaluate mode",
         "waits, for at most 5 hours, until the group's own `validate / validate` "
         "run has completed, and evaluates after that",
         "No live ruleset run has shown what `github.workflow_sha` is",

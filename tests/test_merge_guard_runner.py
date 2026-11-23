@@ -64,6 +64,8 @@ RECORDED = json.loads(
 TOKEN = "ghs_" + "x" * 36
 CLIENT = "Iv23liGuardAppClient"
 OUR_APP = {"id": 987654, "slug": "axiom-merge-guard", "client_id": CLIENT}
+# The evidence every verdict of the evaluator carries: the judged pull request.
+FOR_42 = {"pull_request": 42}
 
 
 def sweep(*args, **kwargs):
@@ -99,6 +101,7 @@ class Writer:
             "name": body["name"],
             "head_sha": body["head_sha"],
             "conclusion": body["conclusion"],
+            "external_id": body["external_id"],
         } | self.changes
 
 
@@ -118,11 +121,11 @@ def test_shadow_check_is_not_the_enforcing_check_and_is_always_neutral():
     assert runner.SHADOW_CONCLUSION == "neutral"
     assert runner.MODES == ("dry-run", "shadow")
     for verdict in (
-        guard.Verdict(guard.PASS, guard.R_PASS),
-        guard.Verdict(guard.FAIL, guard.R_NO_LANE),
-        guard.Verdict(guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT),
+        guard.Verdict(guard.PASS, guard.R_PASS, "", FOR_42),
+        guard.Verdict(guard.FAIL, guard.R_NO_LANE, "", FOR_42),
+        guard.Verdict(guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT, "", FOR_42),
     ):
-        body = runner.shadow_check_body(verdict, H)
+        body = runner.shadow_check_body(verdict, H, 42)
         assert body["name"] == runner.SHADOW_CHECK_NAME
         assert body["conclusion"] == "neutral"
         assert body["status"] == "completed"
@@ -140,12 +143,12 @@ def test_the_enforcing_check_name_is_never_written():
 
 
 def test_shadow_body_refuses_a_missing_head_and_bounds_the_summary():
-    verdict = guard.Verdict(guard.FAIL, guard.R_NO_LANE, "d" * 20000)
+    verdict = guard.Verdict(guard.FAIL, guard.R_NO_LANE, "d" * 20000, FOR_42)
     with pytest.raises(runner.RunnerError):
-        runner.shadow_check_body(verdict, "not-a-sha")
+        runner.shadow_check_body(verdict, "not-a-sha", 42)
     with pytest.raises(runner.RunnerError):
-        runner.shadow_check_body(verdict, None)
-    summary = runner.shadow_check_body(verdict, H)["output"]["summary"]
+        runner.shadow_check_body(verdict, None, 42)
+    summary = runner.shadow_check_body(verdict, H, 42)["output"]["summary"]
     assert len(summary) < runner.MAX_SUMMARY_CHARS + 500
     assert "truncated" in summary
 
@@ -300,9 +303,14 @@ def test_truncated_tree_fails_closed_and_is_reported_as_fail():
     world.tree(H, {"README.md": b"x\n"}, truncated=True)
     world = shadow_world(world)
     writer = Writer()
-    report, _code = sweep(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
+    report, code = sweep(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
     (entry,) = report["results"]
     assert entry["verdict"]["verdict"] == "fail"
+    assert entry["verdict"]["reason"] == guard.R_DELTA_INCOMPLETE
+    # Review of head 36bab7533: the verdict stays ``fail`` AND the run is an
+    # error. A truncated tree is not a completed evaluation.
+    assert code == runner.EXIT_RUN_ERROR and report["complete"] is False
+    assert report["error"] == "an evaluation could not read GitHub"
     ((_path, body),) = writer.calls
     assert body["conclusion"] == "neutral"
     assert "fail" in body["output"]["title"]
@@ -314,13 +322,15 @@ def test_truncated_file_list_fails_closed():
     world.api[ROOT + "/pulls/42/files?per_page=100&page=1"] = world.api[
         ROOT + "/pulls/42/files?per_page=100&page=1"
     ][:-1]
-    report, _code = sweep(NAME, [42], runner.DRY_RUN, fetch=world.fetch)
+    report, code = sweep(NAME, [42], runner.DRY_RUN, fetch=world.fetch)
     assert report["results"][0]["verdict"]["verdict"] == "fail"
+    assert report["results"][0]["verdict"]["reason"] == guard.R_DELTA_DISAGREES
+    assert code == runner.EXIT_RUN_ERROR and report["complete"] is False
 
 
 def test_shadow_does_not_repeat_an_unchanged_verdict():
     world = plain({"README.md": b"x\n"})
-    digest = runner.shadow_check_body(world.evaluate(), H)["external_id"]
+    digest = runner.shadow_check_body(world.evaluate(), H, 42)["external_id"]
     older = {
         "id": 5,
         "name": runner.SHADOW_CHECK_NAME,
@@ -349,7 +359,7 @@ def test_shadow_does_not_repeat_an_unchanged_verdict():
 
 def test_shadow_reports_again_when_the_newest_check_differs():
     world = plain({"README.md": b"x\n"})
-    digest = runner.shadow_check_body(world.evaluate(), H)["external_id"]
+    digest = runner.shadow_check_body(world.evaluate(), H, 42)["external_id"]
     same_but_older = {
         "id": 5,
         "name": runner.SHADOW_CHECK_NAME,
@@ -629,6 +639,7 @@ class ReadWriteOpener:
                 "name": body["name"],
                 "head_sha": body["head_sha"],
                 "conclusion": body["conclusion"],
+                "external_id": body["external_id"],
             }
             return Response(201, json.dumps(created).encode())
         assert request.get_method() == "GET" and request.data is None
@@ -753,7 +764,9 @@ def test_default_opener_refuses_redirects_and_ignores_proxies(monkeypatch):
 def test_writer_posts_check_runs_only_and_requires_created():
     opener = Opener(status=201, raw=b'{"id": 1}')
     post = runner.check_writer(TOKEN, opener=opener)
-    body = runner.shadow_check_body(guard.Verdict(guard.FAIL, guard.R_NO_LANE), H)
+    body = runner.shadow_check_body(
+        guard.Verdict(guard.FAIL, guard.R_NO_LANE, "", FOR_42), H, 42
+    )
     assert post(ROOT + "/check-runs", body) == {"id": 1}
     (request,) = opener.requests
     assert request.get_method() == "POST"
@@ -1049,7 +1062,7 @@ def test_fixture_tree_and_modules_are_what_the_tests_assume():
 
 def _digest_world():
     world = plain({"README.md": b"x\n"})
-    return world, runner.shadow_check_body(world.evaluate(), H)["external_id"]
+    return world, runner.shadow_check_body(world.evaluate(), H, 42)["external_id"]
 
 
 def _check(digest, **changes):
@@ -1089,14 +1102,14 @@ def test_a_changed_detail_on_the_same_head_is_reported_again():
     earlier = guard.Verdict(
         verdict.verdict, verdict.reason, verdict.detail + " (earlier)", verdict.evidence
     )
-    earlier_digest = runner.shadow_check_body(earlier, H)["external_id"]
-    assert earlier_digest != runner.shadow_check_body(verdict, H)["external_id"]
+    earlier_digest = runner.shadow_check_body(earlier, H, 42)["external_id"]
+    assert earlier_digest != runner.shadow_check_body(verdict, H, 42)["external_id"]
     publication, calls = _publication(world, [_check(earlier_digest)])
     assert publication == "created" and len(calls) == 1
     # No detail against an empty detail is a change as well.
     bare = guard.Verdict(verdict.verdict, verdict.reason, "", verdict.evidence)
     publication, calls = _publication(
-        world, [_check(runner.shadow_check_body(bare, H)["external_id"])]
+        world, [_check(runner.shadow_check_body(bare, H, 42)["external_id"])]
     )
     assert publication == "created" and len(calls) == 1
 
@@ -1114,7 +1127,7 @@ def test_changed_evidence_alone_is_not_reported_again():
     )
     assert earlier.evidence != verdict.evidence
     publication, calls = _publication(
-        world, [_check(runner.shadow_check_body(earlier, H)["external_id"])]
+        world, [_check(runner.shadow_check_body(earlier, H, 42)["external_id"])]
     )
     assert publication == "unchanged" and calls == []
 
@@ -1196,8 +1209,8 @@ def test_an_unforeseen_evaluation_error_is_a_run_error(monkeypatch):
 
 
 def _body(**changes):
-    verdict = guard.Verdict(guard.FAIL, guard.R_NO_LANE)
-    return runner.shadow_check_body(verdict, H) | changes
+    verdict = guard.Verdict(guard.FAIL, guard.R_NO_LANE, "", FOR_42)
+    return runner.shadow_check_body(verdict, H, 42) | changes
 
 
 @pytest.mark.parametrize(
@@ -3249,7 +3262,9 @@ def test_a_required_check_that_stays_pending_times_out_and_fails():
     assert "error" not in report
 
 
-def test_a_full_pull_request_wait_and_both_evaluations_fit_under_the_request_cap():
+def test_a_full_pull_request_wait_and_both_evaluations_fit_under_the_request_cap(
+    monkeypatch,
+):
     # The worst honest pull-request run (review round 2, P2-1 and P3-3): the
     # required check is pending at the first evaluation and at 100 polls, and
     # completed at the last poll the wait allows. Then the second evaluation
@@ -3257,16 +3272,31 @@ def test_a_full_pull_request_wait_and_both_evaluations_fit_under_the_request_cap
     world = build()
     reads = pending_then(world, polls=runner.MAX_CI_POLLS)
     time = Time()
+    started = []
+    evaluate = guard.evaluate
+
+    def counting(*args, **kwargs):
+        started.append(len(world.calls))
+        return evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(guard, "evaluate", counting)
     report, code = judge(world, time=time)
     assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
+    # Each evaluation is counted by itself: the first ends at the CI rule,
+    # the polls follow, the second runs whole.
+    first_start, second_start = started
+    assert first_start == 0
+    assert second_start - 101 * runner.CI_POLL_READS == 16
+    assert report["requests"] - second_start == 25
     assert report["evaluations"] == 2
     assert report["ci_polls"] == runner.MAX_CI_POLLS == 101
     assert report["waited_seconds"] == runner.CI_WAIT_SECONDS
     # The listing is read once by the first evaluation, once by each poll
     # and twice by the second evaluation (its check and its recheck).
     assert len(reads) == 1 + 101 * runner.CI_POLL_READS + 2
-    first = FIRST_EVALUATION_READS_UNTIL_CI
-    assert report["requests"] == first + 101 * runner.CI_POLL_READS + 29 == 142
+    first, second = FIRST_EVALUATION_READS_UNTIL_CI, SECOND_EVALUATION_READS
+    assert (first, second) == (16, 25)
+    assert report["requests"] == first + 101 * runner.CI_POLL_READS + second == 142
     assert report["requests"] <= 2 * 30 + 101 == 161 <= runner.MAX_ENFORCE_REQUESTS
 
 
@@ -3492,7 +3522,10 @@ def test_a_merge_group_is_evaluated_only_after_its_required_check_completes():
     assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
     # Three pending polls with a sleep after each, the fourth poll and its
     # read of the workflow run, and only then the first read of the
-    # evaluation. No poll and no sleep follows it.
+    # evaluation. No sleep follows it. After the last read of the evaluation
+    # the group's check and its workflow run are read once more (review of
+    # head 979124f10: the success must still be the same attempt); those two
+    # reads are the last two of the run.
     poll, sleep = ("read", GROUP_CHECK_LISTING), ("sleep", 180)
     assert record[:9] == [
         poll,
@@ -3505,9 +3538,13 @@ def test_a_merge_group_is_evaluated_only_after_its_required_check_completes():
         ("read", GROUP_RUN_PATH),
         ("read", FIRST_EVALUATION_READ),
     ]
-    assert poll not in record[9:] and sleep not in record[9:]
-    assert ("read", GROUP_RUN_PATH) not in record[9:]
+    assert record[-2:] == [poll, ("read", GROUP_RUN_PATH)]
+    evaluation = record[8:-2]
+    assert len(evaluation) == 29
+    assert poll not in evaluation and sleep not in record[9:]
+    assert ("read", GROUP_RUN_PATH) not in evaluation
     assert report["evaluations"] == 1 and report["ci_polls"] == 4
+    assert report["group_ci_rechecks"] == 1
     assert report["waited_seconds"] == 3 * runner.MERGE_GROUP_POLL_SECONDS == 540
 
 
@@ -3685,11 +3722,14 @@ def test_the_costliest_merge_group_wait_and_the_evaluation_fit_under_the_request
     assert report["ci_polls"] == runner.MAX_MERGE_GROUP_POLLS == 101
     assert report["waited_seconds"] == runner.MERGE_GROUP_WAIT_SECONDS
     assert runner.MERGE_GROUP_POLL_READS == 3
-    assert world.calls.count(GROUP_CHECK_LISTING) == 101
-    assert world.calls.count(GROUP_RUN_PATH) == 101
-    assert len(reads) == 101
-    assert report["requests"] == 3 * 101 + 29 == 332
-    assert report["requests"] <= 3 * 101 + 30 == 333 <= runner.MAX_ENFORCE_REQUESTS
+    # 101 polls and the one read after the evaluation, three reads each.
+    assert runner.GROUP_CI_RECHECK_READS == 3 and report["group_ci_rechecks"] == 1
+    assert world.calls.count(GROUP_CHECK_LISTING) == 102
+    assert world.calls.count(GROUP_RUN_PATH) == 102
+    assert len(reads) == 102
+    assert report["requests"] == 3 * 101 + 29 + 3 == 335
+    assert report["requests"] <= 3 * 101 + 30 + 3 == 336
+    assert 336 <= runner.MAX_ENFORCE_REQUESTS
 
 
 def test_the_costliest_merge_group_wait_that_never_completes_stays_under_the_cap():
@@ -3743,7 +3783,7 @@ def test_a_full_merge_group_wait_and_the_evaluation_fit_under_the_request_cap():
     report, code = judge_group(world)
     assert (reason_of(report), code) == (("pass", guard.R_PASS), 0)
     assert report["ci_polls"] == runner.MAX_MERGE_GROUP_POLLS
-    assert report["requests"] == 2 * 101 + 29 == 231
+    assert report["requests"] == 2 * 101 + 29 + 2 == 233
     assert report["requests"] <= runner.MAX_ENFORCE_REQUESTS
 
 
@@ -3986,8 +4026,9 @@ PASSING_RUN_LENGTHS = {
     "pull_request": 25,
     "pull_request_v5": 14,
     "pull_request_waited": 43,
-    # One poll (the listing and the workflow run) and the evaluation of 29.
-    "merge_group": 31,
+    # One poll (the listing and the workflow run), the evaluation of 29, and
+    # the listing and the workflow run once more after it.
+    "merge_group": 33,
 }
 READ_INDEXES = [
     (key, index)
@@ -3999,7 +4040,7 @@ READ_INDEXES = [
 def test_the_passing_runs_have_the_measured_number_of_reads():
     assert set(PASSING_RUN_LENGTHS) == set(PASSING_RUNS)
     assert {key: run_length(key) for key in PASSING_RUNS} == PASSING_RUN_LENGTHS
-    assert len(READ_INDEXES) == 25 + 14 + 43 + 31
+    assert len(READ_INDEXES) == 25 + 14 + 43 + 33
 
 
 @pytest.mark.parametrize(("key", "index"), READ_INDEXES)
@@ -4012,6 +4053,11 @@ def test_case_17_a_failed_read_at_any_index_fails_the_job(key, index):
     if key == "merge_group" and index < 2:
         # A failed poll of the merge group wait: no evaluation, no verdict.
         assert report["verdict"] is None and report["evaluations"] == 0
+    elif key == "merge_group" and index >= 31:
+        # A failed read of the group's check AFTER the evaluation: the
+        # verdict that was reached stays in the report, and the job fails.
+        assert report["verdict"]["verdict"] == "pass"
+        assert report["group_ci_rechecks"] == 1
     else:
         assert report["verdict"]["verdict"] == "fail"
     assert report["requests"] == index + 1 or report["evaluations"] == 2
@@ -4027,15 +4073,20 @@ MEASURED_REQUESTS = {
     "allowlist only": 5,
     "v6 unit, unapproved": 15,
     "control plane, pass (lane switched on in the test)": 17,
-    "merge group of a v6 unit, pass (2 reads of one poll, then 29)": 31,
+    "merge group of a v6 unit, pass (2 reads of one poll, 29, then 2 again)": 33,
 }
-MERGE_GROUP_LABEL = "merge group of a v6 unit, pass (2 reads of one poll, then 29)"
+MERGE_GROUP_LABEL = (
+    "merge group of a v6 unit, pass (2 reads of one poll, 29, then 2 again)"
+)
 # The largest evaluation any fixture makes. MAX_ENFORCE_REQUESTS leaves room
 # for two of them and every poll of one full wait.
 LARGEST_EVALUATION = 30
 # Reads of the first evaluation of the v6 fixture until it finds the required
-# check pending and stops with ``ci_not_green``.
-FIRST_EVALUATION_READS_UNTIL_CI = 12
+# check pending and stops with ``ci_not_green``, and of its second, whole
+# evaluation. (The review of head 979124f10 measured 16 and 25; an earlier
+# revision stated 12 and 29, which only has the same sum.)
+FIRST_EVALUATION_READS_UNTIL_CI = 16
+SECOND_EVALUATION_READS = 25
 
 
 def five_v5_units():
@@ -4088,11 +4139,12 @@ def test_request_volume_per_evaluation_is_measured_and_bounded(monkeypatch):
         measured[label] = report["requests"]
         monkeypatch.setattr(guard, "INFRASTRUCTURE_LANE_ENABLED", False)
     assert measured == MEASURED_REQUESTS
-    evaluations = measured | {MERGE_GROUP_LABEL: measured[MERGE_GROUP_LABEL] - 2}
+    evaluations = measured | {MERGE_GROUP_LABEL: measured[MERGE_GROUP_LABEL] - 4}
     assert max(evaluations.values()) == 29 <= LARGEST_EVALUATION
     # Pull request: two evaluations and every poll of one full wait fit under
     # the cap. Merge group: every poll of one full wait at its highest cost
-    # (three reads, review round 2 P3-3) and the one evaluation fit under it.
+    # (three reads, review round 2 P3-3), the one evaluation and the second
+    # read of the group's check after it fit under it.
     # The cap is well under the documented 1,000 requests per hour.
     pull_request_worst = (
         2 * LARGEST_EVALUATION + runner.MAX_CI_POLLS * runner.CI_POLL_READS
@@ -4100,20 +4152,29 @@ def test_request_volume_per_evaluation_is_measured_and_bounded(monkeypatch):
     merge_group_worst = (
         runner.MAX_MERGE_GROUP_POLLS * runner.MERGE_GROUP_POLL_READS
         + LARGEST_EVALUATION
+        + runner.GROUP_CI_RECHECK_READS
     )
-    assert (pull_request_worst, merge_group_worst) == (161, 333)
+    assert (pull_request_worst, merge_group_worst) == (161, 336)
+    assert runner.GROUP_CI_RECHECK_READS == runner.MERGE_GROUP_POLL_READS
     assert max(pull_request_worst, merge_group_worst) <= runner.MAX_ENFORCE_REQUESTS
     assert runner.MAX_MERGE_GROUP_POLLS == 101 and runner.MAX_CI_POLLS == 101
     assert (runner.CI_POLL_READS, runner.MERGE_GROUP_POLL_READS) == (1, 3)
     assert runner.MERGE_GROUP_POLL_READS == 1 + runner.MAX_GROUP_CHECK_RUNS
     assert runner.MAX_ENFORCE_REQUESTS == 350
-    # The polls of one run in any one hour: 20 for either event. With an
-    # evaluation in the same hour that is at most 50 requests for a pull
-    # request and 90 for a merge group (design section 8).
+    # The polls of one run in any one hour: 20 for either event. One hour
+    # can hold BOTH evaluations of a pull-request run (a short wait: the
+    # review of head 979124f10 measured 61 reads in 3,420 simulated seconds),
+    # so the hourly maximum is 20 + 2 x 30 = 80 for a pull request, and
+    # 60 + 30 + 3 = 93 for a merge group (design section 8).
     assert 3600 // runner.MERGE_GROUP_POLL_SECONDS == 20
     assert 3600 // runner.CI_POLL_SECONDS == 20
-    assert 20 * runner.CI_POLL_READS + LARGEST_EVALUATION == 50
-    assert 20 * runner.MERGE_GROUP_POLL_READS + LARGEST_EVALUATION == 90
+    assert 20 * runner.CI_POLL_READS + 2 * LARGEST_EVALUATION == 80
+    assert (
+        20 * runner.MERGE_GROUP_POLL_READS
+        + LARGEST_EVALUATION
+        + runner.GROUP_CI_RECHECK_READS
+        == 93
+    )
     # A v5 lane costs three reads per unit: its manifest and two module files.
     assert (26 - 14) / 4 == 3
 

@@ -8,9 +8,10 @@ The shadow runner (``command``, ``axiom-encode merge-guard-run``, workflow
 ``.github/workflows/merge-guard-runner.yml``) runs as the guard GitHub App:
 
 - ``dry-run`` (the default) reads and prints. It writes nothing to GitHub.
-- ``shadow`` also writes one check run per judged head, named
-  ``SHADOW_CHECK_NAME``, whose conclusion is always ``neutral``. The verdict is
-  in the title and the summary. A shadow check cannot block a merge and must
+- ``shadow`` also writes one check run per judged pull request on its head
+  commit, named ``SHADOW_CHECK_NAME``, whose conclusion is always
+  ``neutral``. The pull request number and the verdict are in the title and
+  the summary. A shadow check cannot block a merge and must
   never be made a required check: ``neutral`` satisfies a required check, so
   requiring it would require nothing.
 - The one writer, ``check_writer``, refuses every body that is not a
@@ -33,7 +34,18 @@ verdict is as late as the job can make it.
 Nothing here carries authority. The list of open pull requests is only a work
 list: every verdict comes from the evaluator's own live reads. A read that
 fails, is truncated or reaches its page bound is an error of the run. It is
-never reported as "no pull requests" or "nothing to check".
+never reported as "no pull requests" or "nothing to check", and an evaluation
+that could not read everything it needed is never reported as a completed
+run: its verdict is ``fail``, the report says ``complete: false`` and the
+exit code is ``EXIT_RUN_ERROR`` (``_evaluation_incomplete``).
+
+``complete: true`` means: every pull request of the work list this run
+obtained was evaluated from complete reads, and every intended check was
+written. It does not mean that the work list held every open pull request.
+The list is read page by page while pull requests open and close; a pull
+request that moves across a page boundary between two page reads can be
+missing from the list (or be refused as a repeated number). A sweep is
+therefore not a census, and the next sweep reads the list again.
 
 The token is read from the environment variable ``TOKEN_ENV`` only. It is
 never accepted on the command line and never printed.
@@ -142,13 +154,22 @@ CI_POLL_READS: Final = 1
 # hold at most ``MAX_GROUP_CHECK_RUNS`` checks; more is an error of the run.
 # So a poll costs at most ``MERGE_GROUP_POLL_READS`` = 3 reads (review round
 # 2, P3-3: two listed checks, the first with a completed run, the second with
-# a run in progress), and 101 polls and the largest measured evaluation (29
-# reads, 30 with headroom) are at most 3 * 101 + 30 = 333 requests.
+# a run in progress).
+#
+# The success of the group's check is read BEFORE the evaluation, and the
+# evaluation takes time. So after an evaluation that did not fail the run
+# reads the check and its workflow runs once more and requires the SAME
+# successful check run, workflow run and attempt (``_require_same_group_ci``,
+# review of head 979124f10). That second read costs at most
+# ``GROUP_CI_RECHECK_READS`` = 3 reads, like a poll. 101 polls, the largest
+# measured evaluation (29 reads, 30 with headroom) and the second read are
+# at most 3 * 101 + 30 + 3 = 336 requests.
 MERGE_GROUP_POLL_SECONDS: Final = 180
 MERGE_GROUP_WAIT_SECONDS: Final = 5 * 3600
 MAX_MERGE_GROUP_POLLS: Final = MERGE_GROUP_WAIT_SECONDS // MERGE_GROUP_POLL_SECONDS + 1
 MAX_GROUP_CHECK_RUNS: Final = 2
 MERGE_GROUP_POLL_READS: Final = 1 + MAX_GROUP_CHECK_RUNS
+GROUP_CI_RECHECK_READS: Final = MERGE_GROUP_POLL_READS
 # The workflow run event of the required check on a merge group head.
 MERGE_GROUP_RUN_EVENT: Final = "merge_group"
 # One event payload. GitHub documents "Payloads are capped at 25 MB"
@@ -164,25 +185,51 @@ MAX_EVENT_BYTES: Final = 4 * 1024 * 1024
 # reaches this cap (design, section 4). The cap then fails the run closed;
 # it never yields a verdict. Pull request: two evaluations and every poll of one full wait are
 # 2 * 30 + 101 * 1 = 161 requests. Merge group: every poll at its highest
-# cost and the one evaluation are 3 * 101 + 30 = 333 requests (see above).
+# cost, the one evaluation and the second read of the group's check are
+# 3 * 101 + 30 + 3 = 336 requests (see above). For a merge group whose pull
+# request is an earlier-lane train of ``u`` units the evaluation is about
+# 15 + 3u reads, so the cap admits about 77 units when each poll costs one
+# read and about 9 when every poll costs three (a foreign check with the
+# required name on the group head); past that the run fails closed.
 # Both worst cases are driven by tests. Past the cap every read fails, so a
 # verdict is ``fail`` and a wait is an error. A full wait takes five hours,
-# so in any one hour a run makes at most 20 polls: 20 + 30 = 50 requests for
-# a pull request (an hour that holds an evaluation), 60 + 30 = 90 for a merge
-# group. GitHub documents the job token's limit as 1,000 requests per hour
+# so in any one hour a run makes at most 20 polls. An hour can hold both
+# evaluations of a pull-request run (a short wait): 20 + 2 * 30 = 80
+# requests. For a merge group: 60 + 30 + 3 = 93. GitHub documents the job token's limit as 1,000 requests per hour
 # per repository
 # (https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
 MAX_ENFORCE_REQUESTS: Final = 350
 
 _API: Final = "https://api.github.com"
 _REPOSITORY = re.compile(r"rulespec-[a-z]{2}(-[a-z0-9]+)*")
-_TOKEN = re.compile(r"[A-Za-z0-9_.-]{20,512}")
+# The token is opaque. GitHub changes its format and length (40 characters
+# for an earlier installation token, about 520 for a stateless one, and it
+# says to expect more), so nothing here depends on either. Two tests only:
+# the characters are those of an HTTP ``Bearer`` credential (RFC 6750
+# ``b64token``: ASCII letters, digits and ``-._~+/=``), so the value cannot
+# split or fold the ``Authorization`` header (no space, no control character,
+# nothing outside ASCII); and the length is inside transport bounds. The
+# lower bound refuses an empty or placeholder value before any request; the
+# upper bound is above any header a server accepts and is not a token format
+# rule.
+MIN_TOKEN_CHARS: Final = 20
+MAX_TOKEN_CHARS: Final = 16 * 1024
+_TOKEN = re.compile(r"[A-Za-z0-9._~+/=-]{%d,%d}" % (MIN_TOKEN_CHARS, MAX_TOKEN_CHARS))
 _SHA = re.compile(r"[0-9a-f]{40}")
 # The temporary branch of a merge group that holds one pull request to
 # ``main``: ``refs/heads/gh-readonly-queue/main/pr-<number>-<40 hex>``.
 _QUEUE_REF = re.compile(
     r"refs/heads/gh-readonly-queue/main/pr-([1-9][0-9]{0,8})-[0-9a-f]{40}"
 )
+# ``_external_id``: ``pr-<number>:<sha256 hex>``.
+_EXTERNAL_ID = re.compile(r"pr-[1-9][0-9]*:[0-9a-f]{64}")
+# The inert path (``_require_source_event``): a merge group of the encoder
+# repository itself. Its queue may serve any branch, so the branch is not
+# fixed; the shape is.
+_SOURCE_QUEUE_REF = re.compile(
+    r"refs/heads/gh-readonly-queue/[A-Za-z0-9._/-]+/pr-[1-9][0-9]{0,8}-[0-9a-f]{40}"
+)
+_SOURCE_BASE_REF = re.compile(r"refs/heads/[A-Za-z0-9._/-]+")
 _COMPARE_SEGMENT = re.compile(r"[0-9a-f]{40}\.\.\.[0-9a-f]{40}")
 _CHECK_RUNS_PATH = re.compile(
     r"/repos/TheAxiomFoundation/rulespec-[a-z]{2}(-[a-z0-9]+)*/check-runs"
@@ -191,7 +238,61 @@ _RUN_ID = re.compile(r"[1-9][0-9]{0,19}")
 
 # Verdict reasons that mean "the evaluation could not read", not "the pull
 # request is refused". The verdict is still ``fail``; the run is also an error.
-_UNREAD_REASONS: Final = frozenset({guard.R_READ_FAILED, guard.R_EVALUATION_ERROR})
+_UNREAD_REASONS: Final = guard.INCOMPLETE_READ_REASONS
+# The reasons of a COMPLETED evaluation, by verdict. An evaluation counts as
+# completed only when its verdict and reason are listed here and it carries
+# no incomplete-read mark. The list is closed on purpose: a reason the
+# evaluator gains later is an error of the run until a reviewed change puts
+# it on one side (``tests/test_merge_guard_runner.py`` requires every reason
+# of the evaluator to be in exactly one of the two sets).
+_DECIDED_REASONS: Final = {
+    guard.PASS: frozenset({guard.R_PASS, guard.R_CONTROL_PLANE_PASS}),
+    guard.NOT_APPLICABLE: frozenset(
+        {guard.R_NO_GUARDED_CONTENT, guard.R_EARLIER_LANE, guard.R_INFRASTRUCTURE}
+    ),
+    guard.FAIL: frozenset(
+        {
+            guard.R_SIGNED_BACKFILL,
+            guard.R_GUARDED_LEAF,
+            guard.R_MANIFEST_REMOVED,
+            guard.R_NO_LANE,
+            guard.R_UNATTRIBUTED,
+            guard.R_CONTENT_NOT_COVERED,
+            guard.R_UNKNOWN_SCHEMA,
+            guard.R_MIXED_SCHEMAS,
+            guard.R_MULTIPLE_V6,
+            guard.R_UNSUPPORTED_REPOSITORY,
+            guard.R_PR_IDENTITY,
+            guard.R_PR_DRAFT,
+            guard.R_BASE_NOT_CURRENT,
+            guard.R_TOO_MANY_MANIFESTS,
+            guard.R_MANIFEST_UNPARSEABLE,
+            guard.R_MANIFEST_SHAPE,
+            guard.R_MANIFEST_CANDIDATE,
+            guard.R_CITATION,
+            guard.R_MANIFEST_PATH,
+            guard.R_SCOPE_PATHS,
+            guard.R_SCOPE_NOT_NEW,
+            guard.R_APPLIED_FILES,
+            guard.R_RUN,
+            guard.R_DISPATCHER_MISMATCH,
+            guard.R_DISPATCHER_NOT_ENROLLED,
+            guard.R_CHANGES_REQUESTED,
+            guard.R_NO_APPROVAL,
+            guard.R_NOT_ENROLLED,
+            guard.R_IS_AUTHOR,
+            guard.R_IS_DISPATCHER,
+            guard.R_AUTHORED_COMMITS,
+            guard.R_NOT_CONTENT_BOUND,
+            guard.R_NO_COUNTING_APPROVAL,
+            guard.R_CI,
+            guard.R_CHANGED,
+            guard.R_MERGE_GROUP_BASE,
+            guard.R_MERGE_GROUP_TREE,
+            guard.R_MERGE_GROUP_ANCESTRY,
+        }
+    ),
+}
 
 Fetch = Callable[[str], object]
 Post = Callable[[str, dict], object]
@@ -335,8 +436,52 @@ def open_pull_requests(repository: str, fetch: Fetch) -> list[int]:
     raise RunnerError("pull request list reached its page bound")
 
 
-def _verdict_digest(verdict: guard.Verdict) -> str:
-    """The identity of a shadow check: verdict, reason and detail.
+def _evaluation_incomplete(verdict: object) -> bool:
+    """Whether a verdict (as a dict) is NOT the result of a completed evaluation.
+
+    Fail closed: completed means a known verdict with a reason from the
+    closed list of decisions and no incomplete-read mark of the evaluator.
+    Everything else (a truncated tree, a listing past its page bound, a
+    failed request, an unknown reason, a verdict of an unexpected shape) is
+    an evaluation that could not read, and so an error of the run.
+    """
+    if not isinstance(verdict, dict):
+        return True
+    kind = verdict.get("verdict")
+    reason = verdict.get("reason")
+    evidence = verdict.get("evidence")
+    decided = _DECIDED_REASONS.get(kind) if isinstance(kind, str) else None
+    return (
+        decided is None
+        or not isinstance(reason, str)
+        or reason not in decided
+        or reason in _UNREAD_REASONS
+        or not isinstance(evidence, dict)
+        or guard.EVIDENCE_INCOMPLETE_READ in evidence
+    )
+
+
+def _external_id(number: int, verdict: guard.Verdict) -> str:
+    """The identity of a shadow check: the pull request and its verdict."""
+    return f"{_external_id_prefix(number)}{_verdict_digest(number, verdict)}"
+
+
+def _external_id_prefix(number: int) -> str:
+    if not _strict_int(number):
+        raise RunnerError("a shadow check needs the pull request it judges")
+    return f"pr-{number}:"
+
+
+def _verdict_digest(number: int, verdict: guard.Verdict) -> str:
+    """Digest of the pull request number, the verdict, reason and detail.
+
+    The verdict is for a pull request, not for a commit: the evaluator reads
+    the reviews and the CI run of ONE pull request. Two pull requests can
+    have the same head commit and different verdicts, and a check run
+    attaches to the commit. So the number is part of the identity (and of
+    the title): without it the two verdicts would overwrite each other's
+    "unchanged" state on every sweep and nobody could tell which pull request
+    a check on the shared commit is about.
 
     The evidence is not part of it. It names the ``main`` tip, so hashing it
     would write a new check on every open pull request each time ``main``
@@ -347,17 +492,23 @@ def _verdict_digest(verdict: guard.Verdict) -> str:
     command prints always carries the current evidence.
     """
     core = json.dumps(
-        [verdict.verdict, verdict.reason, verdict.detail],
+        [number, verdict.verdict, verdict.reason, verdict.detail],
         sort_keys=True,
         separators=(",", ":"),
     )
     return hashlib.sha256(core.encode("utf-8")).hexdigest()
 
 
-def shadow_check_body(verdict: guard.Verdict, head: str) -> dict:
-    """The check run a shadow evaluation writes. Always ``neutral``."""
+def shadow_check_body(verdict: guard.Verdict, head: str, number: int) -> dict:
+    """The check run a shadow evaluation writes. Always ``neutral``.
+
+    ``number`` is the pull request that was evaluated. It must be the one the
+    verdict names: a body never carries the verdict of another pull request.
+    """
     if not isinstance(head, str) or _SHA.fullmatch(head) is None:
         raise RunnerError("verdict names no head commit")
+    if not _strict_int(number) or verdict.evidence.get("pull_request") != number:
+        raise RunnerError("verdict is not for the pull request of the check")
     text = json.dumps(verdict.as_dict(), sort_keys=True, indent=2)
     if len(text) > MAX_SUMMARY_CHARS:
         text = text[:MAX_SUMMARY_CHARS] + "\n... (truncated)"
@@ -366,14 +517,19 @@ def shadow_check_body(verdict: guard.Verdict, head: str) -> dict:
         "head_sha": head,
         "status": "completed",
         "conclusion": SHADOW_CONCLUSION,
-        "external_id": _verdict_digest(verdict),
+        "external_id": _external_id(number, verdict),
         "output": {
-            "title": f"shadow verdict: {verdict.verdict} ({verdict.reason})",
+            "title": (
+                f"shadow verdict for #{number}: {verdict.verdict} ({verdict.reason})"
+            ),
             "summary": (
                 "Shadow mode. This check is informational: it is not a "
                 "required check, it cannot block this pull request, and its "
                 "conclusion is always neutral. It shows what the "
-                "content-bound merge guard would decide for this head.\n\n"
+                "content-bound merge guard would decide for pull request "
+                f"#{number} at this head. The verdict is for that pull "
+                "request only: another pull request with the same head "
+                "commit has its own shadow check on this commit.\n\n"
                 "```json\n" + text + "\n```"
             ),
         },
@@ -381,9 +537,21 @@ def shadow_check_body(verdict: guard.Verdict, head: str) -> dict:
 
 
 def _already_reported(
-    root: str, head: str, digest: str, fetch: Fetch, app_client_id: str | None
+    root: str,
+    head: str,
+    number: int,
+    external_id: str,
+    fetch: Fetch,
+    app_client_id: str | None,
 ) -> bool:
-    """Whether the guard App's newest shadow check on ``head`` has this verdict.
+    """Whether the guard App's newest shadow check of pull request ``number``
+    on ``head`` has this verdict.
+
+    A check of ours that names ANOTHER pull request on the same commit is not
+    looked at: it neither suppresses this verdict nor is it "the newest". A
+    check of ours whose ``external_id`` names no pull request in the exact
+    form of ``_external_id`` is kept in the comparison: it can make the
+    verdict be written again and can never suppress it.
 
     Only a check that the guard App itself published counts. Any workflow of
     the RuleSpec repository can create a check with the shadow name and the
@@ -445,19 +613,30 @@ def _already_reported(
             raise RunnerError("check run listing is incomplete")
     else:
         raise RunnerError("check run listing reached its page bound")
+    prefix = _external_id_prefix(number)
     ours = []
     for run in runs:
         app = run.get("app")
+        identity = run.get("external_id")
         if (
-            run.get("name") == SHADOW_CHECK_NAME
-            and isinstance(app, dict)
-            and app.get("client_id") == app_client_id
+            run.get("name") != SHADOW_CHECK_NAME
+            or not isinstance(app, dict)
+            or app.get("client_id") != app_client_id
         ):
-            ours.append(run)
+            continue
+        if (
+            isinstance(identity, str)
+            and _EXTERNAL_ID.fullmatch(identity) is not None
+            and not identity.startswith(prefix)
+        ):
+            continue  # ours, for another pull request with this head
+        ours.append(run)
     if not ours:
         return False
     newest = max(ours, key=lambda run: run["id"])
-    return newest.get("external_id") == digest and newest.get("status") == "completed"
+    return (
+        newest.get("external_id") == external_id and newest.get("status") == "completed"
+    )
 
 
 def report_one(
@@ -489,8 +668,10 @@ def report_one(
         return entry
     root = f"/repos/{guard.ORGANISATION}/{repository}"
     try:
-        body = shadow_check_body(verdict, head)
-        if _already_reported(root, head, body["external_id"], fetch, app_client_id):
+        body = shadow_check_body(verdict, head, number)
+        if _already_reported(
+            root, head, number, body["external_id"], fetch, app_client_id
+        ):
             entry["publication"] = "unchanged"
             return entry
         created = post(root + "/check-runs", body)
@@ -500,6 +681,7 @@ def report_one(
             or created.get("head_sha") != head
             or created.get("name") != SHADOW_CHECK_NAME
             or created.get("conclusion") != SHADOW_CONCLUSION
+            or created.get("external_id") != body["external_id"]
         ):
             raise RunnerError("GitHub did not confirm the shadow check run")
         entry["publication"] = "created"
@@ -522,9 +704,13 @@ def run(
     """Evaluate ``numbers``, or every open pull request to ``main``.
 
     Returns the report and the exit code. The exit code is about the run, not
-    the verdicts: ``EXIT_OK`` when every pull request was evaluated and every
-    intended publication happened, ``EXIT_RUN_ERROR`` otherwise. A ``fail``
-    verdict is a result, not a run error, unless its reason is a failed read.
+    the verdicts: ``EXIT_OK`` when every pull request of the work list was
+    evaluated from complete reads and every intended publication happened,
+    ``EXIT_RUN_ERROR`` otherwise. A ``fail`` verdict is a result, not a run
+    error, unless the evaluation behind it could not read everything
+    (``_evaluation_incomplete``): then the verdict stays ``fail`` AND the run
+    is an error with ``complete: false``. ``complete`` is about the work list
+    the run obtained (module docstring), not about every open pull request.
     """
     report: dict = {
         "schema": REPORT_SCHEMA,
@@ -563,9 +749,7 @@ def run(
     if any(entry["publication"] == "error" for entry in report["results"]):
         report["error"] = "a shadow check run was not published"
         return report, EXIT_RUN_ERROR
-    if any(
-        entry["verdict"]["reason"] in _UNREAD_REASONS for entry in report["results"]
-    ):
+    if any(_evaluation_incomplete(entry.get("verdict")) for entry in report["results"]):
         # The verdict is ``fail`` (closed), and the run says it could not read.
         report["error"] = "an evaluation could not read GitHub"
         return report, EXIT_RUN_ERROR
@@ -706,8 +890,17 @@ def _ci_settled(root: str, head: str, fetch: Fetch) -> bool:
     return bool(runs) and all(run.get("status") == "completed" for run in runs)
 
 
-def _group_ci_succeeded(root: str, group_head: str, fetch: Fetch) -> bool:
-    """Whether the merge group's own required check has completed.
+GroupCi = frozenset  # of (check run id, workflow run id, run attempt)
+
+
+def _group_ci_succeeded(root: str, group_head: str, fetch: Fetch) -> GroupCi | None:
+    """The merge group's own required check, once it has completed with success.
+
+    Returns ``None`` while the check is absent or not completed. Otherwise
+    returns the identity of what succeeded: for every listed check its check
+    run id, the id of its workflow run and that run's attempt. ``enforce``
+    reads this twice, before and after the evaluation, and passes only when
+    both reads give the same identity (``_require_same_group_ci``).
 
     For a merge group an early end of the wait is not harmless: the
     evaluation would then run long before the merge. So a name is not enough
@@ -720,11 +913,12 @@ def _group_ci_succeeded(root: str, group_head: str, fetch: Fetch) -> bool:
     error (closed): any workflow of the repository with ``checks: write`` can
     delay a group that way, never pass one.
 
-    Returns False while the check is absent or not completed. Once it has
-    completed, anything but ``success``, of the check or of its workflow run,
-    is an error of the run: the job fails and nothing is evaluated. A red
-    group therefore never has a green guard job, whatever the repository's own
-    requirement of that check does.
+    Once the check has completed, anything but ``success``, of the check or
+    of its workflow run, is an error of the run: the job fails. A red group
+    therefore never has a green guard job, whatever the repository's own
+    requirement of that check does. A check or a workflow run without a
+    numeric id, or a run without a numeric attempt, is foreign: the identity
+    could not be compared later.
     """
     runs = _required_check_runs(root, group_head, fetch)
     if len(runs) > MAX_GROUP_CHECK_RUNS:
@@ -734,9 +928,10 @@ def _group_ci_succeeded(root: str, group_head: str, fetch: Fetch) -> bool:
             "one poll reads"
         )
     if not runs or any(run.get("status") != "completed" for run in runs):
-        return False
+        return None
     repository = root.removeprefix("/repos/")
     prefix = f"https://github.com/{repository}/actions/runs/"
+    identity: set[tuple[int, str, int]] = set()
     foreign = RunnerError(
         "a check with the required name on the merge group head is not the "
         "merge group run of the required workflow"
@@ -756,6 +951,7 @@ def _group_ci_succeeded(root: str, group_head: str, fetch: Fetch) -> bool:
             or run.get("head_sha") != group_head
             or _RUN_ID.fullmatch(run_id) is None
             or _RUN_ID.fullmatch(job) is None
+            or not _strict_int(run.get("id"))
         ):
             raise foreign
         workflow = fetch(f"{root}/actions/runs/{run_id}")
@@ -768,21 +964,54 @@ def _group_ci_succeeded(root: str, group_head: str, fetch: Fetch) -> bool:
             or workflow.get("head_sha") != group_head
             or not isinstance(named, dict)
             or named.get("full_name") != repository
+            or not _strict_int(workflow.get("run_attempt"))
         ):
             raise foreign
         if workflow.get("status") != "completed":
-            return False
+            return None
         if run.get("conclusion") != "success" or workflow.get("conclusion") != (
             "success"
         ):
             raise RunnerError("the required check of the merge group did not succeed")
-    return True
+        identity.add((run["id"], run_id, workflow["run_attempt"]))
+    if len(identity) != len(runs):
+        raise foreign  # two listed checks with one identity
+    return frozenset(identity)
+
+
+def _require_same_group_ci(
+    root: str, group_head: str, fetch: Fetch, first: GroupCi
+) -> None:
+    """Refuse unless the group's required check is STILL the success ``first``.
+
+    The evaluation takes time, and the group's validation can be replaced
+    meanwhile: a re-run adds an attempt, a new run has another id, a check
+    can be deleted or turn red. A success that was read before the
+    evaluation says nothing about the validation that is current when the
+    job ends. So this reads the check and its workflow run again, after the
+    evaluation, and accepts one outcome only: completed, successful, and the
+    same check run, the same workflow run and the same attempt as before.
+    A check that is now absent, in progress, red, another one, or one more
+    is an error of the run. It does not wait: the job fails and the queue
+    entry needs a new group.
+    """
+    current = _group_ci_succeeded(root, group_head, fetch)
+    if current is None:
+        raise RunnerError(
+            "the required check of the merge group is no longer completed "
+            "after the evaluation"
+        )
+    if not isinstance(first, frozenset) or not first or current != first:
+        raise RunnerError(
+            "the required check of the merge group is not the successful run "
+            "that was read before the evaluation"
+        )
 
 
 def _wait_for_group_ci(
     root: str, group_head: str, fetch: Fetch, sleep: Sleep, clock: Clock, report: dict
-) -> None:
-    """Return when the merge group's required check has completed.
+) -> GroupCi:
+    """Return the identity of the group's required check once it succeeded.
 
     Raises ``RunnerError`` when it has not within ``MERGE_GROUP_WAIT_SECONDS``
     on the injected clock or ``MAX_MERGE_GROUP_POLLS`` polls. Records the
@@ -795,8 +1024,8 @@ def _wait_for_group_ci(
             settled = _group_ci_succeeded(root, group_head, fetch)
         finally:
             report["waited_seconds"] = max(0, int(clock() - start))
-        if settled:
-            return
+        if settled is not None:
+            return settled
         if (
             clock() - start >= MERGE_GROUP_WAIT_SECONDS
             or report["ci_polls"] >= MAX_MERGE_GROUP_POLLS
@@ -869,7 +1098,16 @@ def _enforce_pull_request(
     report["event_head"] = event_head
     report["evaluations"] = 1
     verdict = _bind_event_head(guard.evaluate(name, number, fetch=fetch), event_head)
-    if verdict.verdict == guard.FAIL and verdict.reason == guard.R_CI:
+    if (
+        verdict.verdict == guard.FAIL
+        and verdict.reason == guard.R_CI
+        # Only a decision is waited for: the required check is absent,
+        # pending or red. A ``ci_not_green`` that comes from a read the
+        # evaluator could not make whole (a listing that does not add up, a
+        # response of the wrong shape) is an error of the run, like every
+        # other failed read: no wait, no second evaluation.
+        and guard.EVIDENCE_INCOMPLETE_READ not in verdict.evidence
+    ):
         root = f"/repos/{guard.ORGANISATION}/{name}"
         try:
             waited, polls = _wait_for_ci(root, event_head, fetch, sleep, clock)
@@ -912,13 +1150,32 @@ def _enforce_merge_group(
     report["event_head"] = group_head
     # First the wait, then the one evaluation. A wait that fails or ends
     # without a completed check raises: the run is an error with no verdict.
-    _wait_for_group_ci(
-        f"/repos/{guard.ORGANISATION}/{name}", group_head, fetch, sleep, clock, report
-    )
+    root = f"/repos/{guard.ORGANISATION}/{name}"
+    group_ci = _wait_for_group_ci(root, group_head, fetch, sleep, clock, report)
     report["evaluations"] = 1
     verdict = guard.evaluate_merge_group(
         name, group_head, group_base, number, fetch=fetch
     )
+    if verdict.verdict != guard.FAIL:
+        # Review of head 979124f10: the group's validation was read BEFORE
+        # the evaluation. It must still be that same successful attempt now,
+        # at the last moment before this job can end with success. Anything
+        # else raises: an error of the run, never a pass. (A ``fail`` needs
+        # no second read: it ends the job with failure anyway.)
+        report["group_ci_rechecks"] = 1
+        try:
+            _require_same_group_ci(root, group_head, fetch, group_ci)
+        except RunnerError as exc:
+            # The verdict stays in the report; the error ends the job with
+            # failure (``enforce`` returns success only without an error).
+            report["error"] = str(exc)
+            return verdict
+        except Exception as exc:  # an injected reader's own error type
+            report["error"] = (
+                "reading the merge group's required check again failed: "
+                + type(exc).__name__
+            )
+            return verdict
     bound = verdict.evidence.get("merge_group")
     if (verdict.verdict, verdict.reason) in SUCCESS_VERDICTS and (
         not isinstance(bound, dict)
@@ -961,6 +1218,7 @@ def enforce(
         "requests": 0,
         "evaluations": 0,
         "ci_polls": 0,
+        "group_ci_rechecks": 0,
         "waited_seconds": 0,
     }
     verdict = None
@@ -993,7 +1251,16 @@ def enforce(
     report["requests"] = counted.count
     if verdict is not None:
         report["verdict"] = verdict.as_dict()
-        if verdict.reason in _UNREAD_REASONS and "error" not in report:
+        if (
+            verdict.reason != R_EVENT_HEAD_STALE
+            and _evaluation_incomplete(report["verdict"])
+            and "error" not in report
+        ):
+            # A truncated tree, a listing at its page bound, a failed
+            # request, a reason outside the closed list of decisions: the
+            # verdict is not the result of a completed evaluation. (The
+            # runner's own ``R_EVENT_HEAD_STALE`` is a decision; it fails
+            # the job below like every other ``fail``.)
             report["error"] = "an evaluation could not read GitHub"
     if (
         verdict is not None
@@ -1018,9 +1285,21 @@ def _require_source_event(event_name: object, payload: dict) -> None:
     - ``repository.full_name`` is the encoder repository;
     - for ``pull_request``, the pull request's own base repository
       (``pull_request.base.repo.full_name``) is the encoder repository. A
-      pull request of a RuleSpec repository names that repository there.
+      pull request of a RuleSpec repository names that repository there;
+    - the payload is a COMPLETE event of its kind (review of head
+      979124f10): for ``pull_request`` a ``pull_request`` object with a
+      number that the payload's ``number`` repeats and an exact head commit;
+      for ``merge_group`` a ``merge_group`` object with an exact head and
+      base commit, a ``head_ref`` under ``refs/heads/gh-readonly-queue/`` and
+      a ``base_ref`` under ``refs/heads/``. An earlier revision ended a
+      ``merge_group`` event that held nothing but the repository name with
+      success.
 
-    A ``merge_group`` payload has no second field that names a repository.
+    A ``merge_group`` payload has no second field that names a repository,
+    so for that event the shape test is all there is. The activation
+    checklist therefore needs a canary for EACH trigger on the target
+    repository: a pull request with no lane, and a merge group of it, must
+    each show a FAILED guard job before the ruleset leaves Evaluate mode.
 
     This narrows the assumption and does not remove it. If a ruleset run for
     a RuleSpec repository carried the encoder repository BOTH in
@@ -1045,6 +1324,30 @@ def _require_source_event(event_name: object, payload: dict) -> None:
             raise RunnerError(
                 "GITHUB_REPOSITORY names the source repository and the pull "
                 "request of the event belongs to another repository"
+            )
+        number = pull.get("number")
+        if not _strict_int(number) or type(payload.get("number")) is not int:
+            raise RunnerError("event payload names no pull request number")
+        if payload["number"] != number:
+            raise RunnerError("event payload names two pull request numbers")
+        _event_sha(
+            _event_object(pull.get("head"), "pull request head").get("sha"), "head"
+        )
+    else:
+        group = _event_object(payload.get("merge_group"), "merge_group")
+        _event_sha(group.get("head_sha"), "merge group head")
+        _event_sha(group.get("base_sha"), "merge group base")
+        head_ref, base_ref = group.get("head_ref"), group.get("base_ref")
+        if (
+            not isinstance(head_ref, str)
+            or _SOURCE_QUEUE_REF.fullmatch(head_ref) is None
+            or not isinstance(base_ref, str)
+            or _SOURCE_BASE_REF.fullmatch(base_ref) is None
+            or head_ref.split("/")[3:-1] != base_ref.split("/")[2:]
+        ):
+            raise RunnerError(
+                "merge group of the source repository is not a queue branch "
+                "of one of its branches"
             )
 
 
