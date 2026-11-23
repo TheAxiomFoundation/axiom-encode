@@ -1,3 +1,7 @@
+## 0.2.2389
+
+- Validate complete T1170 source obligations against execution evidence (#2110)
+
 ## 0.2.2388
 
 - Report each companion-test gap once with source detail; require executed clamps (#1901)
