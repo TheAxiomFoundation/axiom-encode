@@ -760,7 +760,7 @@ Neither form is recorded, and at most one may be.
       request that the group ref names, the tree of the group commit is the
       tree of that pull request's judged head, and the group's reported
       base is the judged `main` tip [read in `content_merge_guard.py` of
-      `claude/merge-guard-enforce` at `979124f10`]. That binds the **final
+      `claude/merge-guard-enforce` at `519603227`]. That binds the **final
       tree** to one judgment. It does not prove that the group holds only
       that pull request; the evaluation reads no other member.
     - A group of two pull requests therefore does **not** always fail at
@@ -768,7 +768,7 @@ Neither form is recorded, and at most one may be.
       first, the final tree is the tree of the second head; with a reported
       base equal to the `main` tip the evaluation returns `pass` and has
       read only the second pull request [reproduced against that module at
-      `979124f10` with its own fixtures; what `merge_group.base_sha` is for
+      `519603227` with its own fixtures; what `merge_group.base_sha` is for
       an entry behind another is not verified: experiment X5 of #2287].
       With `HEADGREEN` GitHub requires only "the commit at the head of the
       merge group" to pass [schema text of `grouping_strategy`], so the
@@ -778,8 +778,13 @@ Neither form is recorded, and at most one may be.
       fresh judgment: a dismissed approval or a changes-requested review on
       it does not stop it.
     - What safety requires. The admission without the approval before
-      signing needs more than the final-tree binding: **every pull request
+      signing needs more than the final-tree binding: **every queue entry
       that merges must have its own fresh passing judgment at merge time**.
+      (An entry, not every pull request: a pull request whose commits are
+      all inside another judged pull request's head is marked merged by
+      GitHub when that one merges, without entering the queue. Its bytes
+      are bound through the other judgment, and no setting of the queue
+      changes that.)
       The guard cannot prove that for a group of several entries. So the
       queue must merge every entry alone and only on its own passing
       merge-group checks, and the lock refuses every queue rule that does
@@ -805,12 +810,18 @@ Neither form is recorded, and at most one may be.
       heads; a final tree equal to an inner member's head; both readings of
       `base_sha`; a moved `main`; both strategies; group sizes 1 to 3),
       with each entry's check computed by the real evaluator of
-      `claude/merge-guard-enforce` at `979124f10` and the queue's merge
+      `claude/merge-guard-enforce` at `519603227` and the queue's merge
       rule modelled from the schema text. A pull request merged without its
       own passing check in 7 scenarios, all of them `HEADGREEN` with a
       group size above 1, and in none with the settings the lock requires
       [fix-agent-executed 2026-11-22; the harness is not in the
-      repository].
+      repository]. This is a consistency check of the argument above and no
+      more. The zero for `ALLGREEN` follows from the model's own merge rule
+      (every entry's check must pass) together with one assertion on the
+      evaluator, that it never passes an entry whose own pull request
+      judgment fails; the 696 scenarios reduce to 16 distinct calls of the
+      evaluator. It says nothing about what GitHub does, and it does not
+      model the time between a judgment and the merge.
     - This rests on that guard, which the lock does not read; on GitHub
       requiring the workflow on the merge group and applying the queue
       parameters as its schema describes them [not verified: experiments
@@ -824,6 +835,35 @@ Neither form is recorded, and at most one may be.
     sha}`; the App form's record is unchanged. Revalidation compares the
     whole record, so a pin that moves between admission and signing
     refuses, also to another recorded SHA.
+  - **A repeated key in the response text refuses**, at every level of the
+    listing. `json.loads` keeps the last value of a repeated key, so the
+    text `"max_entries_to_merge": 5, "max_entries_to_merge": 1` would read
+    as 1, and `"type": "merge_queue", "type": "deletion"` would hide a weak
+    queue rule; which value GitHub's own code reads is not known. The
+    production reader of this listing parses the text itself and refuses.
+    The limit: the other reads of the module (the pull request, the
+    reviews, the signing run, the App form's branch record) use the shared
+    reader of the reviewed lane, which keeps the last value; it is the
+    reader of the lane that is active today and is not changed here.
+  - **The paging assumption.** The listing is read in pages of 100 and
+    ends at the first page with fewer than 100 rules. If GitHub ever
+    returned a short page that is not the last, the rules after it would
+    not be read, and a second `workflows` rule or a weak queue rule there
+    would be missed. GitHub documents no such page; nothing here verifies
+    it.
+  - **Three more things the read does not show** (independent review of
+    `4c7da64f0`). A merge queue set in classic branch protection: this
+    read lists rulesets only, and if such a queue exists beside the
+    ruleset's queue rule, which of the two governs a merge is not known
+    and the classic one's settings are not checked; the precondition for
+    activation is that there is no merge queue in classic branch
+    protection of `main` (below). The age of the answer: GitHub serves the
+    listing to an anonymous reader with `cache-control: public,
+    max-age=60, s-maxage=60` [read 2026-11-22], as it does the branch
+    record, so a change of the rules can be about a minute old before a
+    read shows it. The time between the end of the guard's merge-group job
+    and the merge: a dismissal in that window is not judged again, and
+    only X15 of #2287 measures the window.
   - What this read cannot see: the bypass list of the organization ruleset
     (the ruleset endpoint returns `bypass_actors` only to a caller with
     write access to the ruleset [docs: REST "Get a repository ruleset",
@@ -1172,6 +1212,12 @@ merges:
   maximum group size 1, build concurrency 1. The lock refuses any other
   value at every read (§5, "Encoder"); the status-check timeout and the
   merge method are #2287's to state.
+- **No classic merge queue.** A `rulespec-us` administrator confirms that
+  the classic branch protection of `main` has no merge queue. The lock
+  cannot see one, and which queue governs when both exist is not known;
+  the question belongs in the owner experiment of #2287 as one more
+  recorded observation. Until it is answered there, a classic queue beside
+  the ruleset's queue is a reason not to activate.
 
 - Record the live response of
   `GET /repos/TheAxiomFoundation/rulespec-us/rules/branches/main` with the

@@ -18,6 +18,7 @@ import ast
 import copy
 import itertools
 import json
+import re
 import urllib.error
 from pathlib import Path
 
@@ -1503,7 +1504,8 @@ def test_the_queue_safety_argument_is_the_final_tree_binding_and_no_more():
             text.replace("It does not", "does not")
         )
         assert "has read only the second pull request" in text
-        assert "979124f10" in text
+        assert "519603227" in text
+        assert "979124f10" not in text
         assert "experiment X5" in text
         # What safety requires, and that the lock refuses the rest.
         assert "own fresh passing judgment at merge time" in text
@@ -1511,11 +1513,11 @@ def test_the_queue_safety_argument_is_the_final_tree_binding_and_no_more():
             assert name in text, name
     assert "FINAL TREE" in source and "**final tree**" in design
     assert (
-        "EVERY pull request that merges must have its own fresh passing judgment "
+        "EVERY queue entry that merges must have its own fresh passing judgment "
         "at merge time"
     ) in source
     assert (
-        "**every pull request that merges must have its own fresh passing "
+        "**every queue entry that merges must have its own fresh passing "
         "judgment at merge time**"
     ) in design
     assert "A model run, not evidence about GitHub" in design
@@ -2098,3 +2100,253 @@ def test_the_lock_state_table_has_exactly_the_expected_admitting_rows():
     # App form: 4 states of the unread rules listing. Ruleset form: 3 states
     # of the unread branch record.
     assert len(admitting) == 4 + 3
+
+
+# --- repeated JSON keys in the response text (independent review of 4c7da64f0) ----
+
+GOOD_RAW = json.dumps(SYNTHETIC["response"], indent=1)
+DUPLICATE = "GitHub response repeats a JSON object key$"
+
+
+def _raw(old: str, new: str) -> str:
+    assert GOOD_RAW.count(old) == 1, old
+    return GOOD_RAW.replace(old, new)
+
+
+RAW_DUPLICATES = {
+    # The reviewer's two inputs: ``json.loads`` keeps the last value.
+    "group-size-five-then-one": _raw(
+        '"max_entries_to_merge": 1',
+        '"max_entries_to_merge": 5, "max_entries_to_merge": 1',
+    ),
+    "queue-type-then-deletion": None,  # built below: a second, weak queue rule
+    "group-size-one-then-five": _raw(
+        '"max_entries_to_merge": 1',
+        '"max_entries_to_merge": 1, "max_entries_to_merge": 5',
+    ),
+    "strategy-headgreen-then-allgreen": _raw(
+        '"grouping_strategy": "ALLGREEN"',
+        '"grouping_strategy": "HEADGREEN", "grouping_strategy": "ALLGREEN"',
+    ),
+    "same-value-twice": _raw(
+        '"grouping_strategy": "ALLGREEN"',
+        '"grouping_strategy": "ALLGREEN", "grouping_strategy": "ALLGREEN"',
+    ),
+    # Nested: the workflow entry, three levels down.
+    "ref-then-absent-by-a-second-sha": _raw(
+        f'"sha": "{SHA_A}"', f'"sha": "{"c3" * 20}", "sha": "{SHA_A}"'
+    ),
+    "repository-id-twice": _raw(
+        f'"repository_id": {REPOSITORY_ID}',
+        f'"repository_id": 1, "repository_id": {REPOSITORY_ID}',
+    ),
+    "workflows-list-twice": _raw(
+        '"workflows": [', '"workflows": [{"path": "x"}], "workflows": ['
+    ),
+    "parameters-twice-in-the-workflows-rule": _raw(
+        '"parameters": {\n   "workflows"',
+        '"parameters": {"do_not_enforce_on_create": true}, "parameters": {\n   "workflows"',
+    ),
+    "source-type-repository-then-organization": _raw(
+        '"ruleset_source_type": "Organization"',
+        '"ruleset_source_type": "Repository", "ruleset_source_type": "Organization"',
+    ),
+    "ruleset-id-twice": _raw(
+        '"ruleset_id": 4242', '"ruleset_id": 1, "ruleset_id": 4242'
+    ),
+    # The same key spelled with an escape is the same key.
+    "escaped-spelling-of-the-same-key": _raw(
+        '"max_entries_to_merge": 1',
+        '"max_entries_to_merge": 5, "max_entries_to_\\u006derge": 1',
+    ),
+    # A repeated key inside a value that the lock otherwise ignores.
+    "duplicate-in-an-unrelated-rule": GOOD_RAW[: GOOD_RAW.rindex("]")]
+    + ', {"type": "deletion", "x": 1, "x": 2}]',
+}
+_WEAK = copy.deepcopy(SYNTHETIC["response"][1])
+_WEAK["parameters"] |= {"grouping_strategy": "HEADGREEN", "max_entries_to_merge": 5}
+RAW_DUPLICATES["queue-type-then-deletion"] = (
+    GOOD_RAW[: GOOD_RAW.rindex("]")]
+    + ", "
+    + json.dumps(_WEAK).replace(
+        '"type": "merge_queue"', '"type": "merge_queue", "type": "deletion"'
+    )
+    + "]"
+)
+
+
+def _serve(monkeypatch, raw: str):
+    requests = []
+
+    class Opener:
+        def open(self, request, timeout):
+            requests.append(request.full_url)
+            return _Response(200, raw.encode())
+
+    monkeypatch.setattr(
+        admission.urllib.request, "build_opener", lambda *handlers: Opener()
+    )
+    return requests
+
+
+@pytest.mark.parametrize("name", sorted(RAW_DUPLICATES))
+def test_a_repeated_key_in_the_listing_text_refuses(ruleset_on, monkeypatch, name):
+    raw = RAW_DUPLICATES[name]
+    # The text is JSON, and the lenient parser would have read it.
+    lenient = json.loads(raw)
+    assert isinstance(lenient, list)
+    requests = _serve(monkeypatch, raw)
+    with pytest.raises(AdmissionError, match=DUPLICATE):
+        enforced(admission.github_json)
+    assert requests == ["https://api.github.com" + RULES]
+
+
+def test_without_the_refusal_the_reviewers_two_texts_would_be_accepted(
+    ruleset_on, monkeypatch
+):
+    """What the refusal is for: read with ``json.loads`` alone, the last value
+    wins, and both texts satisfy the lock."""
+
+    for name in ("group-size-five-then-one", "queue-type-then-deletion"):
+        parsed = json.loads(RAW_DUPLICATES[name])
+        assert enforced({RULES: parsed}.__getitem__) == ACCEPTED, name
+    # The control: the same text without the repetition is accepted by the
+    # production reader, so the refusals above come from the repeated key.
+    requests = _serve(monkeypatch, GOOD_RAW)
+    assert enforced(admission.github_json) == ACCEPTED
+    assert len(requests) == 1
+
+
+def test_the_unique_key_reader_replaces_only_the_shared_production_reader(
+    ruleset_on, monkeypatch
+):
+    assert admission._SHARED_GITHUB_READER is admission.github_json
+    # A reader that is merely NAMED ``github_json`` (a stand-in set on the
+    # module) is an injected reader: it is called, not replaced.
+    calls = []
+
+    def stand_in(path):
+        calls.append(path)
+        return listing()
+
+    monkeypatch.setattr(admission, "github_json", stand_in)
+    assert enforced(admission.github_json) == ACCEPTED
+    assert calls == [RULES]
+
+
+def test_the_shared_reader_of_the_active_lane_is_unchanged(monkeypatch):
+    """The reviewed lane's reader still parses as before (last value wins):
+    this change gives the active lane no new refusal."""
+
+    _serve(monkeypatch, '{"a": 1, "a": 2, "b": {"c": 1, "c": 3}}')
+    path = "/repos/TheAxiomFoundation/rulespec-us/pulls/1"
+    assert admission.github_json(path) == {"a": 2, "b": {"c": 3}}
+    with pytest.raises(AdmissionError, match=DUPLICATE):
+        admission._github_json_unique_keys(path)
+    _serve(monkeypatch, '{"a": 1, "b": [{"c": 1}, {"c": 1}]}')
+    assert admission._github_json_unique_keys(path) == {
+        "a": 1,
+        "b": [{"c": 1}, {"c": 1}],
+    }
+
+
+def test_the_limits_added_by_the_independent_review_are_stated():
+    def flat(path):
+        text = (REPOSITORY_ROOT / path).read_text("utf-8").replace("#", " ")
+        return " ".join(text.split())
+
+    source = flat("src/axiom_encode/reviewed_pr_admission.py")
+    design = flat("docs/content-bound-merge-guard.md")
+    for text in (source, design):
+        assert "no merge queue in classic branch protection of" in text
+        assert "which of the two governs a merge is not known" in text
+        assert "max-age=60, s-maxage=60" in text
+        assert "ends at the first page with fewer than 100 rules" in text
+        assert "between the end of the guard's merge-group job and the merge" in text
+        assert "keeps the last value" in text
+
+
+def test_the_queue_sentences_are_pinned_word_for_word():
+    """Independent review of ``4c7da64f0``: five rewordings survived the
+    looser pins (the withdrawn claim reworded, another build concurrency, the
+    section 6 sentence removed, the changelog without the settings, "may
+    merge" for the missing-run experiment)."""
+
+    def flat(path):
+        text = (REPOSITORY_ROOT / path).read_text("utf-8").replace("#", " ")
+        return " ".join(text.split())
+
+    design = flat("docs/content-bound-merge-guard.md")
+    source = flat("src/axiom_encode/reviewed_pr_admission.py")
+    changelog = flat("changelog.d/2172-guard-ruleset-lock.added.md")
+    # The withdrawn claim, in any wording: no sentence says that such a group
+    # always fails.
+    for text in (design, source):
+        lowered = text.lower()
+        for phrase in ("always fails", "always fail at", "always fail there"):
+            assert lowered.count(phrase) == lowered.count("not** " + phrase) + (
+                lowered.count("not " + phrase)
+            ), phrase
+        assert "never passes a group of two" not in lowered
+    assert (
+        "A group of two pull requests therefore does **not** always fail at the guard."
+    ) in design
+    assert "So a group of two pull requests does NOT always fail there." in source
+    # The four required values, as the code has them.
+    assert dict(admission._MERGE_QUEUE_REQUIRED) == {
+        "grouping_strategy": "ALLGREEN",
+        "max_entries_to_build": 1,
+        "min_entries_to_merge": 1,
+        "max_entries_to_merge": 1,
+    }
+    assert (
+        'requires four of them, present and exact: `grouping_strategy: "ALLGREEN"`, '
+        "`max_entries_to_merge: 1`, `min_entries_to_merge: 1` and "
+        "`max_entries_to_build: 1`."
+    ) in design
+    assert (
+        '``grouping_strategy`` ``"ALLGREEN"``, ``max_entries_to_merge`` ``1``, '
+        "``min_entries_to_merge`` ``1`` and ``max_entries_to_build`` ``1``."
+    ) in source
+    for text in (design, source):
+        assert not re.search(r"max_entries_to_(?:build|merge)`*:? `*[02-9]", text)
+    # Section 6.
+    assert (
+        "In the ruleset form the writer's lock requires it, with `ALLGREEN` and a "
+        "build concurrency of 1: the merge-group evaluation binds the final tree "
+        "to one judged pull request and does not prove that a group holds only "
+        'that pull request (§5, "Encoder").'
+    ) in design
+    # The changelog names the settings.
+    assert (
+        "with a merge queue rule of that repository's own ruleset that merges "
+        "every entry alone and only on its own passing checks (`ALLGREEN`, group "
+        "size 1, build concurrency 1)."
+    ) in changelog
+    # The three experiments, with what must hold.
+    assert (
+        "**A missing run blocks (X8 of 2287, parts (a) and (b)).** A head that "
+        "gets no run of the required workflow (a push by a job token, `[skip "
+        "ci]`) cannot merge."
+    ) in design
+    assert (
+        "pinned to a commit SHA runs exactly the file of that commit, also after "
+        "the source branch moves, for a pull request and for a `merge_group` run."
+    ) in design
+    assert (
+        "A pull request whose approval is dismissed before or in the queue does "
+        "not merge, and the queue merges only after the guard's merge-group job "
+        "has ended."
+    ) in design
+    assert (
+        "**No classic merge queue.** A `rulespec-us` administrator confirms that "
+        "the classic branch protection of `main` has no merge queue."
+    ) in design
+    # The model is called what it is.
+    assert ("This is a consistency check of the argument above and no more.") in design
+    assert "16 distinct calls of the evaluator" in design
+    assert "does not model the time between a judgment and the merge" in design
+    # An entry, not every pull request.
+    for text in (design, source):
+        assert "every pull request that merges must" not in text.lower()
+        assert "An entry, not every pull request" in text

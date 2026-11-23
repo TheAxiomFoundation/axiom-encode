@@ -243,8 +243,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         raise AdmissionError("GitHub admission requests must not redirect")
 
 
-def github_json(path: str) -> object:
-    """Read a bounded response only from the fixed GitHub API origin."""
+def _github_response(path: str) -> bytes:
+    """The bounded response body of one read of the fixed GitHub API origin."""
     if not path.startswith("/repos/TheAxiomFoundation/") or "#" in path:
         raise AdmissionError("invalid admission API path")
     request = urllib.request.Request(
@@ -264,7 +264,41 @@ def github_json(path: str) -> object:
         raw = response.read(MAX_RESPONSE_BYTES + 1)
     if len(raw) > MAX_RESPONSE_BYTES:
         raise AdmissionError("GitHub admission response exceeds its bound")
-    return json.loads(raw)
+    return raw
+
+
+def github_json(path: str) -> object:
+    """Read a bounded response only from the fixed GitHub API origin."""
+    return json.loads(_github_response(path))
+
+
+# The reader above, by identity: the ruleset form of the guard lock replaces
+# exactly this function with the one below, and no injected reader.
+_SHARED_GITHUB_READER: Final = github_json
+
+
+def _unique_keys(pairs: list[tuple[str, object]]) -> dict:
+    """``object_pairs_hook`` that refuses a JSON object with a repeated key."""
+
+    result: dict = {}
+    for key, value in pairs:
+        if key in result:
+            raise AdmissionError("GitHub response repeats a JSON object key")
+        result[key] = value
+    return result
+
+
+def _github_json_unique_keys(path: str) -> object:
+    """``github_json``, refusing a repeated object key at every level.
+
+    ``json.loads`` keeps the LAST value of a repeated key. For the branch
+    rules that would let ``"max_entries_to_merge": 5, "max_entries_to_merge":
+    1`` read as 1, and ``"type": "merge_queue", "type": "deletion"`` hide a
+    queue rule. Whether GitHub's own code reads the first or the last is not
+    known, so such a response refuses.
+    """
+
+    return json.loads(_github_response(path), object_pairs_hook=_unique_keys)
 
 
 @dataclass(frozen=True)
@@ -656,7 +690,7 @@ def _require_guard_workflow_ruleset(
       is the tree of the second head; with a reported base equal to the
       ``main`` tip, the evaluation passes and has read only the second pull
       request (reproduced against ``content_merge_guard.py`` of
-      ``claude/merge-guard-enforce`` at ``979124f10``). What
+      ``claude/merge-guard-enforce`` at ``519603227``). What
       ``merge_group.base_sha`` is for an entry behind another is not verified
       (experiment X5).
     - With ``HEADGREEN`` GitHub requires only "the commit at the head of the
@@ -666,8 +700,12 @@ def _require_guard_workflow_ruleset(
       pull request itself merges with no fresh judgment: a dismissed
       approval or a changes-requested review on it does not stop it.
     - The admission without the approval before signing needs more than the
-      final-tree binding: EVERY pull request that merges must have its own
-      fresh passing judgment at merge time. The guard cannot prove that for
+      final-tree binding: EVERY queue entry that merges must have its own
+      fresh passing judgment at merge time. (An entry, not every pull
+      request: a pull request whose commits are all inside another judged
+      pull request's head is marked merged by GitHub when that one merges,
+      without entering the queue; its bytes are bound through the other
+      judgment.) The guard cannot prove that for
       a group of several entries, so the lock refuses every queue that can
       merge an entry without its own passing check: anything but
       ``ALLGREEN``, and any group size but exactly one. A build concurrency
@@ -686,7 +724,35 @@ def _require_guard_workflow_ruleset(
     experiments X5 and X15], and on the listing showing them as the one
     recorded live queue rule does (axiom-encode, 2026-11-17).
 
+    A repeated key in the response text refuses, at every level
+    (``_github_json_unique_keys``): ``json.loads`` would keep the last value,
+    and which one GitHub's own code reads is not known. This holds for the
+    production reader of this read only. The other reads of this module (the
+    pull request, the reviews, the signing run, the branch record of the App
+    form) go through the shared ``github_json`` of the reviewed lane, which
+    keeps the last value; that reader is not changed here, because it is the
+    reader of the lane that is active today.
+
+    The paging assumption. The listing is read in pages of 100 and ends at
+    the first page with fewer than 100 rules (``_pages``). If GitHub ever
+    returned a short page that is not the last one, the rules after it would
+    not be read: a second ``workflows`` rule or a weak queue rule there would
+    be missed. GitHub documents no such page; nothing here verifies it.
+
     What this read cannot see, and what the lock therefore does not prove:
+    - A merge queue that is set in classic branch protection. This read
+      lists rulesets only. If such a queue exists beside the ruleset's queue
+      rule, which of the two governs a merge is not known, and the classic
+      one's settings are not checked. Precondition for activation: no merge
+      queue in classic branch protection of ``main``.
+    - The age of the answer. GitHub serves this listing, like the branch
+      record, with a cache lifetime of 60 seconds for an anonymous reader
+      (``cache-control: public, max-age=60, s-maxage=60``, read on
+      2026-11-22), so a change of the rules can be up to about a minute old
+      before a read shows it.
+    - The time between the end of the guard's merge-group job and the merge.
+      A dismissal in that window is not judged again; only experiment X15 of
+      the ruleset proposal measures it.
     - The bypass list of the organization ruleset.
       ``GET /repos/{owner}/{repo}/rulesets/{id}`` returns ``bypass_actors``
       only to a caller with write access to the ruleset (same documentation
@@ -723,6 +789,11 @@ def _require_guard_workflow_ruleset(
         or re.fullmatch(r"TheAxiomFoundation/rulespec-[a-z]{2}", repository) is None
     ):
         raise AdmissionError("invalid repository for the merge guard requirement")
+    # The production reader parses the response text itself here, so that a
+    # repeated key refuses. An injected reader (tests) hands over parsed
+    # objects; a repeated key is then already gone and cannot be seen.
+    if fetch is _SHARED_GITHUB_READER:
+        fetch = _github_json_unique_keys
     try:
         rules = _pages(fetch, f"/repos/{repository}/rules/branches/main")
     except AdmissionError:
