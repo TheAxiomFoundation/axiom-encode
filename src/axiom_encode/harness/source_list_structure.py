@@ -254,8 +254,11 @@ def item_is_plain(body: str) -> bool:
     words = re.sub(r"\A(?:when|if)\s+", "", body.strip(), flags=re.IGNORECASE)
     words = re.sub(r"(?:\s*\([^()]*\))+\s*\.?\s*\Z", "", words).rstrip(" .")
     return (
-        re.fullmatch(r"[A-Z0-9$][A-Za-z0-9$ '’-]*(?:, and [A-Za-z0-9$ '’-]+)?", words)
+        re.fullmatch(
+            r"[A-Za-z0-9$][A-Za-z0-9$ '’-]*(?:, and [A-Za-z0-9$ '’-]+)?", words
+        )
         is not None
+        and re.match(r"[A-Z0-9$]", body.strip()) is not None
         and re.search(r"\b(?:and|or|nor)\s*\Z", words, re.IGNORECASE) is None
         and len(re.findall(r"\bor\b", words, re.IGNORECASE)) <= 1
         and _REVERSING_WORD.search(words) is None
