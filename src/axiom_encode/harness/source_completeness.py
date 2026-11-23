@@ -22394,9 +22394,11 @@ def _structural_clause_reading(
     Two rules, both only for a list that ``source_list_structure`` reads as
     alternatives:
 
-    1. A clause whose cue stands inside the list (in an item, a note or an
-       unmarked child) and whose own text ends with a full stop does not run
-       on into the next marked item of the list.
+    1. A clause whose cue and whose proof excerpt stand inside the list (in
+       an item, a note or an unmarked child) and whose own text ends with a
+       full stop does not run on into the next marked item of the list. When
+       the proof quotes the chapeau, the rule is the list's own: the items are
+       then verified as alternatives (rule 2 without chapeau facts).
     2. A clause whose cue is in a chapeau of the form "when|if any of the
        following ...:" has the chapeau's own facts as simultaneous facts and
        the items as alternatives. It ends with the list when a new sentence
@@ -22434,60 +22436,82 @@ def _structural_clause_reading(
             clause.branch_path, start, end, source_text[start:end].strip(" ;,")
         )
 
+    def list_reading(
+        source_list: _list_structure.SourceList, stem: str | None
+    ) -> _StructuralClauseReading | None:
+        """Read the clause as the list's own: chapeau facts and alternatives."""
+
+        boundary = source_list.end
+        if text_end > boundary:
+            if not source_list.tail_starts_sentence(source_text):
+                return None
+            if all(start >= boundary for start, _end in spans):
+                return _StructuralClauseReading(bounded(boundary, clause.end))
+            if any(end > boundary for _start, end in spans):
+                return None
+        if source_list.items_with_children:
+            return None
+        alternatives = []
+        for item in source_list.items:
+            gates = _structural_item_gates(
+                _list_structure.item_body(source_text, item),
+                care_source_text=care_source_text,
+            )
+            if gates is None:
+                return None
+            alternatives.append(gates)
+        return _StructuralClauseReading(
+            bounded(clause.start, min(clause.end, boundary)),
+            alternatives=tuple(alternatives),
+            chapeau_gates=(
+                _source_conjunctive_fact_gates(
+                    stem, care_source_text=care_source_text, minimum_gates=1
+                )
+                if stem is not None
+                else ()
+            ),
+            chapeau_text=source_text[
+                source_list.chapeau.start : source_list.chapeau.end
+            ],
+        )
+
     for source_list in source_lists:
         if source_list.reading != "alternatives":
             continue
+        chapeau = source_list.chapeau
         first_item = source_list.items[0].start
-        if source_list.chapeau.start <= cue_at < source_list.chapeau.end:
+        if chapeau.start <= cue_at < chapeau.end:
             if not source_list.cue_form or text_end <= first_item:
                 return None
-            boundary = source_list.end
-            if text_end > boundary:
-                if not source_list.tail_starts_sentence(source_text):
-                    return None
-                if all(start >= boundary for start, _end in spans):
-                    return _StructuralClauseReading(bounded(boundary, clause.end))
-                if any(end > boundary for _start, end in spans):
-                    return None
-            if source_list.items_with_children:
-                return None
             stem = _list_structure.any_cue_chapeau_prefix(
-                source_text[text_start : source_list.chapeau.end]
+                source_text[text_start : chapeau.end]
             )
-            if stem is None:
-                return None
-            alternatives = []
-            for item in source_list.items:
-                gates = _structural_item_gates(
-                    _list_structure.item_body(source_text, item),
-                    care_source_text=care_source_text,
-                )
-                if gates is None:
-                    return None
-                alternatives.append(gates)
-            return _StructuralClauseReading(
-                bounded(clause.start, min(clause.end, boundary)),
-                alternatives=tuple(alternatives),
-                chapeau_gates=_source_conjunctive_fact_gates(
-                    stem, care_source_text=care_source_text, minimum_gates=1
-                ),
-                chapeau_text=source_text[
-                    source_list.chapeau.start : source_list.chapeau.end
-                ],
-            )
+            return None if stem is None else list_reading(source_list, stem)
         next_item = next(
             (item for item in source_list.items if cue_at < item.start < text_end),
             None,
         )
-        if next_item is None:
+        if cue_at < first_item or (next_item is None and cue_at >= source_list.end):
+            # The cue stands before this list's chapeau, or after the list.
+            if next_item is not None:
+                return None
             continue
+        if any(start < chapeau.end and end > chapeau.start for start, end in spans):
+            # The rule quotes the chapeau: it is the list's own rule. Its
+            # chapeau has no cue (the cue stands in an item), so the items
+            # are verified as alternatives and the list is not cut.
+            if text_start > chapeau.start or source_list.cue_form:
+                return None
+            return list_reading(source_list, None)
         if (
             # The cue stands inside the list (in an item, in a note or in an
-            # unmarked child), never before the list's own chapeau, and the
+            # unmarked child), the proof stands inside the list too, and the
             # text up to the next item is a finished sentence.
-            cue_at >= first_item
+            next_item is not None
             and source_text[: next_item.start].rstrip().endswith(".")
-            and all(end <= next_item.start for _start, end in spans)
+            and all(
+                first_item <= start and end <= next_item.start for start, end in spans
+            )
         ):
             return _StructuralClauseReading(bounded(clause.start, next_item.start))
         return None

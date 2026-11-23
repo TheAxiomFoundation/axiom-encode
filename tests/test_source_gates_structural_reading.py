@@ -626,6 +626,63 @@ def test_a_note_without_a_full_stop_keeps_the_flat_reading(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    ("formula", "inputs"),
+    [
+        ("fee_has_no_due_date_shown", ["fee_has_no_due_date_shown"]),
+        ("True", ["fee_has_no_due_date_shown"]),
+        ("not fee_has_no_due_date_shown", ["fee_has_no_due_date_shown"]),
+        ("fee_is_due", ["fee_is_due"]),
+    ],
+)
+def test_a_note_in_a_list_is_read_as_the_same_note_standing_alone(
+    formula, inputs, monkeypatch
+):
+    """The cut removes the run-on only: nothing else about the note changes."""
+
+    in_list = "Any of the following parking fees are not refundable" + NOTE_TAIL
+    alone = "NOTE " + NOTE_QUOTE
+    content = _candidate(inputs, [("due", formula, [NOTE_QUOTE])])
+    assert _findings(content, in_list, on=True, monkeypatch=monkeypatch) == _findings(
+        content, alone, on=False, monkeypatch=monkeypatch
+    )
+
+
+PROOF_CHAPEAU = "Any of the following can be used to prove residence:"
+PROOF_ITEMS = (
+    "A signed lease.",
+    "A landlord letter when the letter states the monthly rent.",
+    "A utility bill that shows the service address.",
+    "A bank statement when the holder is billed by a relative.",
+)
+PROOF_INPUTS = [
+    "signed_lease_provided",
+    "landlord_letter_states_monthly_rent",
+    "utility_bill_shows_service_address",
+    "bank_statement_provided_and_holder_billed_by_relative",
+]
+
+
+@pytest.mark.parametrize(
+    ("formula", "expected"),
+    [
+        (" or ".join(PROOF_INPUTS), 0),
+        (" or ".join(PROOF_INPUTS[:3]), 1),
+        (" and ".join(PROOF_INPUTS), 1),
+        (f"not ({' or '.join(PROOF_INPUTS)})", 1),
+        ("True", 1),
+    ],
+)
+def test_a_rule_that_quotes_the_chapeau_is_verified_not_cut(
+    formula, expected, monkeypatch
+):
+    """A cue inside an item does not cut the list for the list's own rule."""
+
+    source = _list(PROOF_CHAPEAU, PROOF_ITEMS)
+    rules = [("proved", formula, [PROOF_CHAPEAU, *PROOF_ITEMS])]
+    assert _both(PROOF_INPUTS, rules, source, monkeypatch)[1] == expected
+
+
+@pytest.mark.parametrize(
     "chapeau",
     [
         "The following parking fees are not refundable",
@@ -696,6 +753,8 @@ NON_BINDING_CHAPEAUS = [
     "A parking permit is granted if the holder who owns a second large vehicle "
     "meets all of the following:",
     "A parking permit is granted if the holder fails all of the following:",
+    "A parking permit is granted if all of the following fail:",
+    "A parking permit is granted if all of the following apply to nobody:",
     "A parking permit is granted unless all of the following apply:",
     "The holder must provide all of the following:",
 ]
