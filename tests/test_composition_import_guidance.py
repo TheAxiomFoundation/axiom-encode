@@ -803,6 +803,56 @@ GENERIC_IMPORT_RULES = (
         ", listed with an import target,",
         " that exports the exact scalar needed by this source",
     ),
+    (
+        "- When a copied context file",
+        " listed with an import target",
+        " already exports the operative legal condition that the requested "
+        "source consumes, import and use that canonical output",
+    ),
+    (
+        "- If a copied child-fragment file",
+        " listed with an import target",
+        " encodes a limitation, branch, amount, or predicate needed by the "
+        "requested parent provision, import the child output",
+    ),
+    (
+        "If a copied sibling/context file",
+        " listed with an import target",
+        " already encodes the limitation, import it and compose with it",
+    ),
+    (
+        "If an exact same-path child scalar is available in context",
+        " in a file listed with an import target",
+        ", import it instead of duplicating it locally",
+    ),
+)
+# The complete text of the section after its list of blocked files.
+NOT_IMPORT_TARGETS_RULES = (
+    "Every import rule in this prompt applies only to a copied file that is listed\n"
+    "with an import target. A file in this list is context to read, also where an\n"
+    "inline copy shows its rules: never import from it, even when it is the only\n"
+    "copied file that defines the symbol, cited provision, child output, or child\n"
+    "scalar that a rule in this prompt tells you to import. For every rule in this\n"
+    "prompt, an import from a file in this list is an import that is not available.\n"
+    "When a calculation needs something that only a file in this list provides,\n"
+    "follow the first of these that applies:\n"
+    "1. If `Unavailable cited RuleSpec context detected` lists the file, follow\n"
+    "   that section for what the source cites from it.\n"
+    "2. If another rule in this prompt says what to do when an import or a cited\n"
+    "   definition is not available, for example a source-named local boundary\n"
+    "   input, follow that rule.\n"
+    "3. Otherwise omit or defer only the affected executable surface.\n"
+    "In every case keep encoding the independent rules from this source."
+)
+# Rules on main for an import or a cited definition that is not available.
+# The section must not contradict them: step 2 points at them.
+FALLBACK_RULES = (
+    "keep the result executable by exposing a local boundary input for that "
+    "base instead of deferring",
+    "If they are not available, paragraph-specific local inputs are acceptable",
+    "if no canonical import is available for the cited override, model a "
+    "local override/displacement boolean",
+    "defer only that branch or expose a source-named boundary input for that branch",
 )
 CHILD_SCALAR_RULE = "Import the exact child export and use it"
 RATE_SOURCE = "Multiply the qualifying amount by the exemption rate."
@@ -816,25 +866,22 @@ def _assert_generic_import_rules(prompt: str, *, scoped: bool) -> None:
     assert flat.count(CHILD_SCALAR_RULE) == 1
 
 
-def _assert_defers_to(prompt: str, module: _Module, reason: str) -> None:
-    """The prompt names the module as no import target and asks for deferral."""
+def _blocked_lines(prompt: str) -> list[str]:
+    """Return the list of blocked files; the rest of the section is compared whole."""
     section = _section(prompt, NOT_IMPORT_TARGETS)
-    assert (
-        f"- `context/{module.path}.yaml`: `{module.target}` has {reason}.\n" in section
-    )
-    flat = _flat(section)
-    assert (
-        "Every import rule in this prompt applies only to a copied file that "
-        "is listed with an import target." in flat
-    )
-    assert "never import from it, even when it is the only copied file" in flat
-    assert (
-        "When a calculation needs something that only a file in this list "
-        "provides, omit or defer only the affected executable surface" in flat
-    )
-    assert "Do not add a local input, parameter, or rule that stands in" in flat
+    head, rules = section.split("\nEvery import rule", 1)
+    assert "Every import rule" + rules == NOT_IMPORT_TARGETS_RULES
+    heading, *lines = head.splitlines()
+    assert heading == NOT_IMPORT_TARGETS
     # The scope statement comes before the rules it scopes.
     assert prompt.index(NOT_IMPORT_TARGETS) < prompt.index("Import and context rules:")
+    return lines
+
+
+def _assert_defers_to(prompt: str, module: _Module, reason: str) -> None:
+    """The prompt names the module as no import target, with the complete rules."""
+    line = f"- `context/{module.path}.yaml`: `{module.target}` has {reason}."
+    assert _blocked_lines(prompt).count(line) == 1
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -917,7 +964,7 @@ def test_each_blocked_module_is_named_once_and_no_importable_one(tmp_path):
     prompt = _render(tmp_path, (atomic, composition, nested))
 
     section = _section(prompt, NOT_IMPORT_TARGETS)
-    assert section.count("\n- `context/") == 2
+    assert len(_blocked_lines(prompt)) == 2
     _assert_defers_to(prompt, composition, COMPOSITION_REASON)
     _assert_defers_to(prompt, nested, NESTED_REASON_2)
     assert atomic.target not in section
@@ -1102,6 +1149,379 @@ def test_an_importable_relative_decides_when_no_exact_file_is_copied(tmp_path, r
         "context file for `us:statutes/26/63/a/1` is available" in invalid
     )
     assert DEFER_INPUT not in prompt
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_blocked_import_is_an_unavailable_import_for_the_fallback_rules(
+    tmp_path, backend
+):
+    # The prompt on main has rules for an import or a cited definition that
+    # is not available. The section does not forbid what they allow: it names
+    # the order. The cited-context section decides first, as on main.
+    cited = _Module("152", COMPOSITION)
+    uncited = _Module(
+        "plan", COMPOSITION, "plan_rate", relative="policies/example/plan-composition"
+    )
+
+    prompt = _render(tmp_path, (cited, uncited), runner_backend=backend)
+
+    flat = _flat(prompt)
+    for rule in FALLBACK_RULES:
+        assert flat.count(rule) == 1, rule
+    assert len(_blocked_lines(prompt)) == 2
+    rules = _flat(NOT_IMPORT_TARGETS_RULES)
+    first = rules.index("1. If `Unavailable cited RuleSpec context detected` lists")
+    second = rules.index("2. If another rule in this prompt says what to do when")
+    third = rules.index("3. Otherwise omit or defer only the affected executable")
+    assert rules.index("follow the first of these that applies:") < first < second
+    assert second < third
+    lowered = rules.lower()
+    for forbidden in ("do not add a local", "stands in", "never add", "must defer"):
+        assert forbidden not in lowered
+    # Step 1 names a section of this prompt, which lists only the cited file.
+    unavailable = _section(prompt, UNAVAILABLE)
+    assert f"copied context target `{cited.target}` has" in unavailable
+    assert uncited.target not in unavailable
+    assert "Do not synthesize local facts to stand in for unavailable cited" in _flat(
+        unavailable
+    )
+
+
+def test_a_file_copied_twice_is_named_once_as_no_import_target(tmp_path):
+    path = tmp_path / "152.yaml"
+    path.write_text(_Module("152", COMPOSITION).text())
+    items = [
+        evals.EvalContextFile(
+            source_path=str(path),
+            workspace_path="context/statutes/26/152.yaml",
+            import_path="us:statutes/26/152",
+            kind=kind,
+        )
+        for kind in ("implementation_precedent", "canonical_concept")
+    ]
+    blockers = evals._context_import_blockers(items, composed_target=False)
+
+    section = evals._format_blocked_context_import_guidance(
+        items, import_blockers=blockers
+    )
+
+    assert section.count("- `context/statutes/26/152.yaml`: `us:statutes/26/152`") == 1
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("unrelated_blocker", [False, True])
+def test_no_blocked_covering_file_keeps_the_input_reason_of_the_earlier_prompt(
+    tmp_path, reverse, unrelated_blocker
+):
+    # Atomic 63 and atomic 63(a): the earlier prompt named the first covering
+    # file in context order. The exact-file preference applies only when a
+    # covering file is blocked, so this sentence does not change.
+    modules = (
+        _Module("63", ATOMIC, "taxable_income_total"),
+        _Module("63/a", ATOMIC, "taxable_income"),
+    )
+    if unrelated_blocker:
+        modules += (_Module("152", COMPOSITION),)
+
+    prompt = _render(
+        tmp_path,
+        modules,
+        existing_target=ATOMIC,
+        existing_target_rules=EXISTING_TARGET_WITH_SECTION_63_A_INPUT,
+        source_text=SECTION_63_A_SOURCE,
+        reverse_context=reverse,
+    )
+
+    first = "us:statutes/26/63/a" if reverse else "us:statutes/26/63"
+    assert (
+        f"- {SECTION_63_A_INPUT}: encoded cross-reference placeholder; a context "
+        f"file for `{first}` is available, so do not preserve this local input "
+        "unless the generated file imports an actual exported output for that "
+        "same referenced legal concept\n"
+        in _section(prompt, "Invalid copied local input names:")
+        + "\n"
+    )
+    assert (NOT_IMPORT_TARGETS in prompt) == unrelated_blocker
+
+
+def _render_input_63_a(tmp_path, modules, *, reverse):
+    return _render(
+        tmp_path,
+        modules,
+        existing_target=ATOMIC,
+        existing_target_rules=EXISTING_TARGET_WITH_SECTION_63_A_INPUT,
+        source_text=SECTION_63_A_SOURCE,
+        reverse_context=reverse,
+    )
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_two_blocked_relatives_name_the_nearest_ancestor_in_either_order(
+    tmp_path, reverse
+):
+    modules = (
+        _Module("63", COMPOSITION, "taxable_income_total"),
+        _Module("63/a/1", COMPOSITION, "taxable_income"),
+    )
+
+    prompt = _render_input_63_a(tmp_path, modules, reverse=reverse)
+
+    invalid = _section(prompt, "Invalid copied local input names:")
+    assert (
+        "the copied context file for `us:statutes/26/63` is not an import "
+        f"target, so do not preserve this local input and {DEFER_INPUT}" in invalid
+    )
+    assert "`us:statutes/26/63/a/1` is not an import target" not in invalid
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_blocked_child_of_the_cited_provision_is_not_its_exact_file(
+    tmp_path, reverse
+):
+    # 63(a)(1) is blocked and is not the file of section 63(a), so it does not
+    # decide alone: the importable parent is a covering file as well.
+    modules = (
+        _Module("63", ATOMIC, "taxable_income_total"),
+        _Module("63/a/1", COMPOSITION, "taxable_income"),
+    )
+
+    prompt = _render_input_63_a(tmp_path, modules, reverse=reverse)
+
+    assert "a context file for `us:statutes/26/63` is available" in _section(
+        prompt, "Invalid copied local input names:"
+    )
+    assert DEFER_INPUT not in prompt
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_two_importable_children_name_the_same_one_in_either_order(tmp_path, reverse):
+    modules = (
+        _Module("63", COMPOSITION, "taxable_income_total"),
+        _Module("63/a/2", ATOMIC, "second_amount"),
+        _Module("63/a/1", ATOMIC, "taxable_income"),
+    )
+
+    prompt = _render_input_63_a(tmp_path, modules, reverse=reverse)
+
+    assert "a context file for `us:statutes/26/63/a/1` is available" in _section(
+        prompt, "Invalid copied local input names:"
+    )
+
+
+# How a source can name section 63(a), and whether the text also reads as a
+# citation of section 63 itself. The first matcher of the prompt builder
+# decides both; the provider is resolved from the same matches.
+SECTION_63_A_PHRASINGS = {
+    "An amount is defined in section 63(a).": False,
+    "An amount is defined in section 63(a) of the Social Security Act.": False,
+    "An amount is defined in section 63(a) of this title.": False,
+    "An amount is defined in section 63(a) of the Internal Revenue Code.": False,
+    "An amount is defined in section 63 (a).": False,
+    "An amount is defined in Section 63(a), as amended.": False,
+    "An amount is defined in sections 63(a) and 152.": False,
+    "An amount is defined in § 63(a).": False,
+    "An amount is defined in subsection (a) of section 63.": True,
+    "An amount is defined in section 63(a)(1).": False,
+    "An amount is defined in 26 U.S.C. 63(a).": False,
+    "An amount is defined in section 63(a) or (b).": False,
+    "An amount is defined in section 63(a) of such Code.": False,
+    "An amount is defined in section 63(a) of the Act.": False,
+}
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("source", sorted(SECTION_63_A_PHRASINGS))
+def test_no_phrasing_of_the_citation_requires_the_child_and_defers_the_parent(
+    tmp_path, source, reverse
+):
+    _modules, prompt = _render_section_63(
+        tmp_path, COMPOSITION, ATOMIC, reverse=reverse, source=source
+    )
+
+    # Every phrasing reads as a citation of the importable file of 63(a).
+    assert "`us:statutes/26/63/a#taxable_income`" in _section(prompt, MANDATORY)
+    assert DEFER_INPUT not in prompt
+    parent_unavailable = (
+        f"copied context target `us:statutes/26/63` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+    # The blocked parent is listed only where the words name section 63 alone.
+    assert parent_unavailable == SECTION_63_A_PHRASINGS[source]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Amounts under section 63(a) and section 63(b).",
+        "Amounts under section 63(a), and under section 63 (b).",
+    ],
+)
+def test_one_cited_provision_without_a_provider_keeps_the_parent_unavailable(
+    tmp_path, source
+):
+    _modules, prompt = _render_section_63(
+        tmp_path, COMPOSITION, ATOMIC, reverse=False, source=source
+    )
+
+    assert (
+        f"copied context target `us:statutes/26/63` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+
+
+def test_a_file_of_another_section_does_not_provide_for_a_blocked_file(tmp_path):
+    modules = (
+        _Module("63", COMPOSITION, "taxable_income_total"),
+        _Module("64/a", ATOMIC, "taxable_income"),
+    )
+
+    prompt = _render(
+        tmp_path,
+        modules,
+        source_text="Amounts are defined in section 63(a) and section 64(a).",
+    )
+
+    assert "`us:statutes/26/64/a#taxable_income`" in _section(prompt, MANDATORY)
+    assert (
+        f"copied context target `us:statutes/26/63` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+
+
+def test_a_file_the_prompt_does_not_read_as_cited_is_no_provider(tmp_path):
+    # The words name another act. The prompt builder on main still reads them
+    # as a citation of the copied file of section 63, and does not read them
+    # as a citation of the file of 63(a). The provider follows the same
+    # reading: no importable file is required, so the parent stays listed.
+    _modules, prompt = _render_section_63(
+        tmp_path,
+        COMPOSITION,
+        ATOMIC,
+        reverse=False,
+        source="An amount is defined in section 63(a)(1) of the Social Security Act.",
+    )
+
+    assert MANDATORY not in prompt
+    assert (
+        f"copied context target `us:statutes/26/63` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+
+
+@pytest.mark.parametrize(
+    ("sibling_or_parent", "listed"), [("63/b", True), ("63", False)]
+)
+def test_a_blocked_child_of_the_cited_section_needs_the_file_of_that_section(
+    tmp_path, sibling_or_parent, listed
+):
+    # The source cites section 63. Its blocked child 63(a) stays unavailable
+    # beside an importable sibling, and not beside the file of section 63.
+    modules = (
+        _Module("63/a", COMPOSITION, "taxable_income"),
+        _Module(sibling_or_parent, ATOMIC, "other_amount"),
+    )
+
+    prompt = _render(tmp_path, modules, source_text="See section 63 for the amount.")
+
+    assert (
+        f"copied context target `us:statutes/26/63/a` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    ) == listed
+    assert f"`us:statutes/26/{sibling_or_parent}#other_amount`" in _section(
+        prompt, MANDATORY
+    )
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_two_blocked_ancestors_name_the_nearer_one_in_either_order(tmp_path, reverse):
+    modules = (
+        _Module("63", COMPOSITION, "taxable_income_total"),
+        _Module("63/a", COMPOSITION, "taxable_income"),
+    )
+
+    prompt = _render(
+        tmp_path,
+        modules,
+        existing_target=ATOMIC,
+        existing_target_rules=EXISTING_TARGET_WITH_SECTION_63_INPUT.replace(
+            "taxable_income_under_section_63", "taxable_income_under_section_63_a_1"
+        ),
+        source_text="An amount is defined in section 63(a)(1).",
+        reverse_context=reverse,
+    )
+
+    assert (
+        "the copied context file for `us:statutes/26/63/a` is not an import target"
+        in _section(prompt, "Invalid copied local input names:")
+    )
+
+
+def test_a_file_of_another_title_does_not_provide_for_a_blocked_file(tmp_path):
+    modules = (
+        _Module("63", COMPOSITION, "taxable_income_total"),
+        _Module("other", ATOMIC, "taxable_income", relative="statutes/42/63/a"),
+    )
+
+    prompt = _render(tmp_path, modules, source_text=SECTION_63_A_SOURCE)
+
+    assert (
+        f"copied context target `us:statutes/26/63` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+
+
+def test_the_copied_target_does_not_provide_for_its_blocked_child(tmp_path):
+    # The target is not an import of itself, so a citation of its own section
+    # leaves the blocked child listed.
+    child = _Module("151/a", COMPOSITION, "exemption_part")
+
+    prompt = _render(
+        tmp_path,
+        (child,),
+        existing_target=ATOMIC,
+        existing_target_rules=EXISTING_TARGET_WITH_SECTION_63_INPUT,
+        source_text="The amount under section 151 applies.",
+    )
+
+    assert (
+        f"copied context target `{child.target}` has {COMPOSITION_REASON}."
+        in _section(prompt, UNAVAILABLE)
+    )
+
+
+def test_a_resolved_blocked_parent_without_exports_is_not_listed_at_all(tmp_path):
+    modules = (
+        _Module("63", COMPOSITION, export=None),
+        _Module("63/a", ATOMIC, "taxable_income"),
+    )
+
+    prompt = _render(tmp_path, modules, source_text=SECTION_63_A_SOURCE)
+
+    assert UNAVAILABLE not in prompt
+    _assert_defers_to(prompt, modules[0], COMPOSITION_REASON)
+
+
+@pytest.mark.parametrize(
+    ("source", "target", "cited"),
+    [
+        ("See section 63 (a)(1).", "us:statutes/26/63", [("63", ("a", "1"))] * 2),
+        ("See section 63(a).", "us:statutes/26/63/a", [("63", ("a",))] * 3),
+        ("The amount in 63(a) (2).", "us:statutes/26/63/a", [("63", ("a", "2"))]),
+        ("See sections 63, 64(b) and 65.", "us:statutes/26/64/b", [("64", ("b",))] * 2),
+        ("See section 64 of the Other Act.", "us:statutes/26/64", [("64", ())]),
+        ("See section 631.", "us:statutes/26/63", []),
+    ],
+)
+def test_each_citation_match_yields_the_provision_the_source_names(
+    source, target, cited
+):
+    citation = evals._import_target_to_statute_citation(target)
+
+    matches = list(evals._iter_source_statute_citation_matches(source, citation))
+
+    assert matches == cited
+    # The matcher that lists a copied file as cited is this iterator.
+    assert evals._source_text_cites_statute(source, citation) == bool(cited)
 
 
 def test_an_exact_cited_file_without_exports_is_no_provider(tmp_path):
