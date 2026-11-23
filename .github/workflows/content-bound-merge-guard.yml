@@ -29,21 +29,29 @@ name: content-bound-merge-guard
 # this job ends with success without an evaluation. The launcher takes it
 # only when GITHUB_REPOSITORY is TheAxiomFoundation/axiom-encode AND the
 # event payload agrees: `repository.full_name`, and for a pull request also
-# `pull_request.base.repo.full_name`, name axiom-encode. Any disagreement, or
-# an event that cannot be read, fails the job. No live ruleset run has shown
+# `pull_request.base.repo.full_name`, name axiom-encode, and the payload is a
+# whole event of its kind (a `pull_request` object with its number and head
+# commit, or a `merge_group` object with its commits and refs). Any
+# disagreement, an incomplete event, or an event that cannot be read, fails
+# the job. No live ruleset run has shown
 # what these values are when a ruleset runs this file for a RuleSpec
 # repository. If such a run carried axiom-encode in GITHUB_REPOSITORY and in
 # those payload fields, every pull request of that repository would pass with
-# no evaluation. Activation hold: before the ruleset goes Active, a pull
-# request with no lane must show a FAILED job of this workflow under the
-# ruleset in Evaluate mode (docs/content-bound-merge-guard.md section 8).
+# no evaluation. Activation hold, one canary for each trigger: before the
+# ruleset goes Active, a pull request with no lane AND a merge group of such
+# a pull request must each show a FAILED job of this workflow under the
+# ruleset in Evaluate mode, with a report that names the target repository
+# and is not inert (docs/content-bound-merge-guard.md section 4, "The inert
+# path", and section 8).
 #
 # The job waits for the repository's CI. A pull request whose first verdict
 # is `ci_not_green` waits, for at most 5 hours, until `validate / validate`
 # on its head has completed, and is then judged once more. Merge groups are
 # judged late: for a `merge_group` event the launcher first waits, for at
 # most 5 hours, until the group's own `validate / validate` run has
-# completed, and evaluates after that. A waiting job holds one hosted runner
+# completed, and evaluates after that. After an evaluation that did not fail
+# it reads that run once more and ends with success only when it is still
+# the same successful attempt. A waiting job holds one hosted runner
 # for the time of that CI (about 3 to 4 hours on rulespec-us, measured
 # 2026-11-17). The job timeout below covers the longest run of either event,
 # and it is below the 6 hours a hosted job may run.
@@ -111,7 +119,7 @@ jobs:
 
       - name: Build the bundle and check its digest
         env:
-          BUNDLE_SHA256: 4a30a3e237303a59957b7ef15603a4b1d63e11300bfcaaa2c4a2ee0d20f6ffa1
+          BUNDLE_SHA256: d968e1e886eb9f73ee3d2772c51ca9d2b08ac962cb068d66ccb17f5b76b34f62
         run: |
           set -euo pipefail
           source_root="$GITHUB_WORKSPACE/guard-source"

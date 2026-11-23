@@ -1184,13 +1184,26 @@ def evaluate_merge_group(
     3. The trees of ``G`` and ``H`` are the same Git tree. ``H`` is strictly
        ahead of ``B`` (step 1 of ``evaluate``), so a merge, squash or rebase
        of ``H`` onto ``B`` yields the tree of ``H``. Equal trees therefore
-       bind every byte of the group to the judged pull request. A group of
-       two or more pull requests has another tree, or another base, and is
-       refused.
+       bind every byte of the group to the judged pull request. A group
+       whose further pull requests change the tree, or that is built on
+       another base, is refused.
     4. ``G`` is strictly ahead of ``Bq``.
     5. ``main`` is still at ``B`` after those reads.
 
+    What this binds is the CONTENT of the group, not its membership. The
+    evaluator reads the tree of ``G`` and no parent of it, so it does not
+    know how many pull requests the queue put into the group. A group that
+    also holds a pull request which adds nothing to the tree of ``H`` (its
+    changes are already in ``H``) has the judged base and the judged tree and
+    is not refused; that pull request then merges with no verdict of its
+    own, and with no content of its own. To keep "one group, one judged pull
+    request" true, the merge queue must be configured with a group size of
+    one; activation requires that setting and does not rely on this function
+    for it (review of head 979124f10).
+
     Never raises. Any read error, and any ``fail`` of step 1, gives ``fail``.
+    A ``fail`` from a read that was not whole carries the incomplete-read
+    mark, as for ``evaluate``.
     """
     evidence: dict = {
         "pull_request": pr,
