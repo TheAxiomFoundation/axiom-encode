@@ -64,9 +64,10 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # Change 5c: a SECOND accepted form of locks 2 and 3, for the mechanism that
 # has no guard App (an organization ruleset "Require workflows to pass before
 # merging"; a recommendation, not accepted). Exactly one of ``GUARD_APP_ID``
-# and ``GUARD_WORKFLOW`` may be recorded: with neither, and with both, the
-# lane refuses before any read. Both are ``None`` here. In the ruleset form
-# locks 2 and 3 are:
+# and ``GUARD_WORKFLOW`` may be recorded: with neither, and with both,
+# ``require_guard_enforced`` refuses before any read of its own (admission
+# reads the signing run first, and then makes no guard read). Both are
+# ``None`` here. In the ruleset form locks 2 and 3 are:
 #
 # 2. ``GUARD_WORKFLOW``. ``None`` until a reviewed change records the
 #    repository id, the path and the reviewed commit SHAs of the guard
@@ -78,7 +79,9 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 #    calls it). It refuses unless the listing shows exactly one
 #    ``workflows`` rule, from a ruleset of the organization, that pins the
 #    recorded workflow at a recorded commit, and a ``merge_queue`` rule of
-#    the RuleSpec repository's own ruleset.
+#    the RuleSpec repository's own ruleset that merges every entry alone and
+#    only on its own passing checks (``ALLGREEN``, group size 1, build
+#    concurrency 1).
 #    This read proves LESS than the App form's ("for administrators too"). It
 #    proves that the two rules were in the listing at each read. It does not
 #    show who may bypass them: no read of this module returns a bypass list,
@@ -183,6 +186,32 @@ _WORKFLOWS_PARAMETER_FIELDS: Final = frozenset(
     {"workflows", "do_not_enforce_on_create"}
 )
 _WORKFLOW_ENTRY_FIELDS: Final = frozenset({"path", "repository_id", "ref", "sha"})
+# ``repository-rule-merge-queue`` parameters, all seven of the schema. Any
+# other key of a merge queue rule's parameters refuses.
+_MERGE_QUEUE_PARAMETER_FIELDS: Final = frozenset(
+    {
+        "check_response_timeout_minutes",
+        "grouping_strategy",
+        "max_entries_to_build",
+        "max_entries_to_merge",
+        "merge_method",
+        "min_entries_to_merge",
+        "min_entries_to_merge_wait_minutes",
+    }
+)
+# The one queue configuration the lock accepts: every entry merges alone, and
+# only on its own passing merge-group checks. ``ALLGREEN`` (schema: "the merge
+# commit created by merge queue for each PR in the group must pass all
+# required checks to merge") and a group of exactly one entry each give that;
+# both are required, with a build concurrency of one, which is the
+# configuration the experiment of the ruleset proposal runs (X5, X15). An
+# exact ``str`` and exact ``int`` each: ``True`` is not ``1``.
+_MERGE_QUEUE_REQUIRED: Final = (
+    ("grouping_strategy", "ALLGREEN"),
+    ("max_entries_to_build", 1),
+    ("min_entries_to_merge", 1),
+    ("max_entries_to_merge", 1),
+)
 CANDIDATE_SCHEMA: Final = "axiom-encode/live-candidate-pr-admission/v1"
 CANDIDATE_FIELDS: Final = frozenset(
     {
@@ -447,7 +476,9 @@ def require_guard_enforced(
     above) and ``GUARD_WORKFLOW`` (the organization-ruleset form,
     ``_require_guard_workflow_ruleset``) may be recorded. Neither, or both,
     refuses before any read. The two forms return records with different
-    keys; callers compare the record as a whole and read no key of it.
+    keys. Admission and revalidation compare the record as a whole and read
+    no key of it; the evidence step (``candidate_promotion_evidence``) calls
+    this function for its refusal only and discards the record.
     """
 
     if GUARD_APP_ID is None and GUARD_WORKFLOW is None:
@@ -563,16 +594,24 @@ def _require_guard_workflow_ruleset(
     with no key outside ``_BRANCH_RULE_FIELDS``, from a ruleset of the
     organization ``GUARD_RULESET_ORGANIZATION``, with exactly one workflow
     entry that names the recorded repository id, the recorded path and a
-    ``sha`` of the recorded set, and no ``ref``; and at least one rule of
-    type ``merge_queue``, each of them a well-formed rule of a ruleset of
-    ``repository`` itself. Without the merge queue a pass on the pull request
-    stays green after a dismissed approval; only the merge-group run reads
-    the reviews again at merge time.
+    ``sha`` of the recorded set, and has no ``ref`` key; and at least one rule
+    of type ``merge_queue``, each of them a well-formed rule of a ruleset of
+    ``repository`` itself whose parameters make every entry merge alone and
+    only on its own passing merge-group checks (``_MERGE_QUEUE_REQUIRED``).
+    Without the merge queue a pass on the pull request stays green after a
+    dismissed approval; only the merge-group run reads the reviews again at
+    merge time.
 
     Decisions, each the stricter reading until experiment X14 records a live
     response:
-    - An entry with a ``ref`` that is not null refuses, also next to a good
-      ``sha``: which of the two GitHub follows is not documented.
+    - An entry that HAS a ``ref`` key refuses, whatever its value (``null``,
+      ``""``, ``false``, ``0``, a list, an object, a ref name), also next to
+      a good ``sha``. The schema
+      (``repository-rule-params-workflow-file-reference``) declares ``ref``
+      an optional string that is not nullable, so ``"ref": null`` is outside
+      the schema; and which of ``ref`` and ``sha`` GitHub follows when both
+      are present is not documented. If the live response of X14 carries a
+      ``ref`` key in any form, the lock stays shut until a reviewed change.
     - Unknown keys in the rule's ``parameters`` or in the workflow entry
       refuse.
     - Unknown keys of the ``workflows`` rule itself refuse, in particular
@@ -597,22 +636,54 @@ def _require_guard_workflow_ruleset(
       exactly ``repository`` and a positive integer ``ruleset_id``. A queue
       rule "from another repository's ruleset" is not a state GitHub is
       documented to report, and refuses.
-    The queue's parameters are NOT checked (``merge_method``,
-    ``grouping_strategy``, ``max_entries_to_build``, ``max_entries_to_merge``,
-    ``min_entries_to_merge``, ``min_entries_to_merge_wait_minutes``,
-    ``check_response_timeout_minutes``; all seven of
-    ``repository-rule-merge-queue`` were examined). Reason: the merge-group
-    evaluation of the enforcing guard (``evaluate_merge_group`` of change 3b; on
-    this branch it is a stub that fails) passes only when
-    the group is built on the live ``main`` tip and its tree is the tree of
-    one judged pull request head. A group of two or more pull requests has
-    another tree or another base and fails at the guard, with ``ALLGREEN``
-    and with ``HEADGREEN``, and whatever the merge method, because trees are
-    compared. The size, wait and concurrency parameters only decide whether
-    and when a group forms; a check that does not report within the timeout
-    counts as failed (schema text). So no parameter value lets a merge pass
-    the merge-group check without a judged tree; a wrong value stops merges.
-    This rests on that guard, which this function does not read.
+    The queue's parameters. No key outside the seven of the schema
+    ``repository-rule-merge-queue`` (``_MERGE_QUEUE_PARAMETER_FIELDS``), and
+    four of them are REQUIRED, present and exact (``_MERGE_QUEUE_REQUIRED``):
+    ``grouping_strategy`` ``"ALLGREEN"``, ``max_entries_to_merge`` ``1``,
+    ``min_entries_to_merge`` ``1`` and ``max_entries_to_build`` ``1``. Why
+    (review of ``e2d12f5c2``; an earlier version of this text claimed that no
+    parameter mattered, and that was wrong):
+    - What the merge-group evaluation of the enforcing guard proves
+      (``evaluate_merge_group`` of change 3b; on this branch it is a stub that
+      fails): for the ONE pull request that the group ref names, the tree of
+      the group commit is the tree of that pull request's judged head, and the
+      group's reported base is the judged ``main`` tip. That binds the FINAL
+      TREE to one judgment. It does not prove that the group holds only that
+      pull request: nothing in it reads the other members.
+    - So a group of two pull requests does NOT always fail there. If the
+      second pull request contains the commits of the first, the final tree
+      is the tree of the second head; with a reported base equal to the
+      ``main`` tip, the evaluation passes and has read only the second pull
+      request (reproduced against ``content_merge_guard.py`` of
+      ``claude/merge-guard-enforce`` at ``979124f10``). What
+      ``merge_group.base_sha`` is for an entry behind another is not verified
+      (experiment X5).
+    - With ``HEADGREEN`` GitHub requires only "the commit at the head of the
+      merge group" to pass (schema text), so the first pull request merges
+      although its own merge-group check failed or never judged it. Its
+      bytes are bound through the second pull request's judgment, but that
+      pull request itself merges with no fresh judgment: a dismissed
+      approval or a changes-requested review on it does not stop it.
+    - The admission without the approval before signing needs more than the
+      final-tree binding: EVERY pull request that merges must have its own
+      fresh passing judgment at merge time. The guard cannot prove that for
+      a group of several entries, so the lock refuses every queue that can
+      merge an entry without its own passing check: anything but
+      ``ALLGREEN``, and any group size but exactly one. A build concurrency
+      of one is required with them: an entry behind another is built on the
+      first one's commit, the configuration that the experiment does not
+      run. Each of ``ALLGREEN`` and a group of one would give the property
+      alone; both are required because GitHub's behaviour for either is
+      documented, not observed here.
+    - Not checked: ``merge_method`` (trees are compared, so the method does
+      not matter), ``min_entries_to_merge_wait_minutes`` (with a minimum of
+      one entry nothing waits) and ``check_response_timeout_minutes`` (a
+      check that does not report in time counts as failed; a wrong value
+      stops merges).
+    This rests on that guard, which this function does not read, on GitHub
+    applying these parameters as its schema describes them [not verified:
+    experiments X5 and X15], and on the listing showing them as the one
+    recorded live queue rule does (axiom-encode, 2026-11-17).
 
     What this read cannot see, and what the lock therefore does not prove:
     - The bypass list of the organization ruleset.
@@ -709,9 +780,11 @@ def _require_guard_workflow_ruleset(
             "the required workflow is not the recorded merge guard workflow "
             "(repository id or path differs)"
         )
-    if entry.get("ref") is not None:
+    # Presence, not value: ``"ref": null`` is outside the schema too.
+    if "ref" in entry:
         raise AdmissionError(
-            "the required workflow follows a ref; only a pinned commit SHA is accepted"
+            "the required workflow entry has a ref; only a pinned commit SHA "
+            "with no ref is accepted"
         )
     sha = entry.get("sha")
     if type(sha) is not str or re.fullmatch(r"[0-9a-f]{40}", sha) is None:
@@ -743,6 +816,20 @@ def _require_guard_workflow_ruleset(
                 "a merge queue rule of main is not from a ruleset of the "
                 "RuleSpec repository itself"
             )
+        settings = queue["parameters"]
+        if not set(settings) <= _MERGE_QUEUE_PARAMETER_FIELDS:
+            raise AdmissionError("a merge queue rule of main has an unknown parameter")
+        for name, wanted in _MERGE_QUEUE_REQUIRED:
+            if (
+                name not in settings
+                or type(settings[name]) is not type(wanted)
+                or settings[name] != wanted
+            ):
+                raise AdmissionError(
+                    "a merge queue rule of main can merge a pull request without "
+                    f"its own passing merge-group check: {name} must be "
+                    f"{json.dumps(wanted)}"
+                )
     return {
         "form": GUARD_RULESET_FORM,
         "ruleset_id": ruleset_id,
