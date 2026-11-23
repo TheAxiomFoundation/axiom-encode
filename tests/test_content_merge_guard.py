@@ -2015,6 +2015,9 @@ def test_case_24_merge_group_with_one_unapproved_unit():
 def test_merge_group_stub_fails_closed():
     result = guard.evaluate_merge_group(NAME, "gh-readonly-queue/main/pr-42-" + B)
     assert (result.verdict, result.reason) == (guard.FAIL, guard.R_MERGE_GROUP)
+    # Not a decision about a merge group: nothing was evaluated.
+    assert result.evidence == {guard.EVIDENCE_INCOMPLETE_READ: True}
+    assert guard.R_MERGE_GROUP in guard.INCOMPLETE_READ_REASONS
 
 
 # --- contract with the live encoder -----------------------------------------

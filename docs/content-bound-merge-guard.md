@@ -632,14 +632,32 @@ environment, so the `vars` context of that job can also carry an environment
 variable of the same name; GitHub documents that "the variable at the lowest
 level takes precedence"
 ([variables reference](https://docs.github.com/en/actions/reference/workflows-and-actions/variables),
-read 2026-11-17). The
+read 2026-11-17). The same page adds a note under "Configuration variable
+precedence" (read 2026-11-22): "Environment-level variables are only
+available on the runner after the job starts executing. This means that
+environment-level variables won't overwrite variables in the `env` and `vars`
+contexts." So an environment variable named like the switch does not replace
+a `vars` value that the organization or the repository already supplies, and
+a job-level `if` is evaluated before the job starts. This design does not
+rest on either reading: the gate job has no environment, and the `run` job
+repeats the switch test in a step. The
 retained evidence does not establish actual same-name organization or
 environment variables, or how a rerun resolves a changed variable
 **[check live]**.
 [GitHub variables context](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#vars-context).
 
 The Python CLI accepts `MERGE_GUARD_TOKEN` from its process environment and
-checks its shape. It does not check the workflow ref, switch, App identity or
+treats it as opaque: it does not test a prefix, a dot count or a fixed
+length. GitHub changes the format (40 characters for an earlier installation
+token, about 520 for a stateless one,
+[changelog of 2026-10-02](https://github.blog/changelog/2026-10-02-stateless-github-app-installation-tokens-rolled-out/),
+cited by the review of head `36bab7533`; not read by the author). The CLI
+tests two things only: every character is one of an HTTP `Bearer` credential
+(ASCII letters, digits and `-._~+/=`, RFC 6750 `b64token`), so the value
+cannot split the `Authorization` header, and the length is 20 to 16,384
+characters, a transport bound and not a format rule. An earlier revision
+capped the length at 512 and refused a current token before any request.
+It does not check the workflow ref, switch, App identity or
 credential provenance. The intended workflow supplies an App installation
 token; calling the CLI elsewhere does not inherit the workflow gate.
 
@@ -652,7 +670,7 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
 | App private key | Intended environment secret `MERGE_GUARD_APP_KEY`; the workflow reads the `secrets` context |
 | Token | The `run` job mints one per run, for `rulespec-<country>` only: `checks: read` in `dry-run`, `checks: write` in `shadow`; `pull_requests`, `contents`, `actions`: `read`. The CLI reads it from `MERGE_GUARD_TOKEN` and has no token argument |
 | `dry-run` (default) | Prints one JSON report. Writes nothing |
-| `shadow` | Also creates one check run per judged head, named `content-bound-merge-guard (shadow)`, conclusion always `neutral`, verdict in the title and summary. It skips the write only when the guard App's own newest shadow check on that head (the runner matches the App by its client ID, `MERGE_GUARD_APP_CLIENT_ID`) already carries the same verdict. A check with the shadow name from another publisher never counts, so a pull request workflow cannot suppress its verdict |
+| `shadow` | Also creates one check run per evaluated pull request on its head commit, named `content-bound-merge-guard (shadow)`, conclusion always `neutral`, with the pull request number, the verdict and the reason in the title (`shadow verdict for #<number>: <verdict> (<reason>)`) and the verdict in the summary. It skips the write only when the guard App's own newest shadow check for that pull request on that head (the runner matches the App by its client ID, `MERGE_GUARD_APP_CLIENT_ID`, and the pull request by the check's `external_id`) already carries the same verdict. A check with the shadow name from another publisher never counts, so a pull request workflow cannot suppress its verdict |
 | Enforcing mode | None. This change reserves the name `content-bound-merge-guard` for it and never publishes that name |
 
 - **Never make the shadow check a required check.** `neutral` satisfies a
@@ -664,8 +682,24 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
 - **Startup refusals.** The workflow refuses a missing switch or credential;
   the CLI refuses a missing or malformed token. Each names the missing input. A pull request list that fails, arrives malformed or
   reaches its page bound (10 pages of 100) counts as a run error, never as an
-  empty sweep. A verdict whose reason is a failed read is `fail` and also a run
-  error. The run's exit code reports execution errors; the report carries verdicts.
+  empty sweep. A verdict whose evaluation could not read everything it needed
+  is `fail` and also a run error: the report says `complete: false` and the
+  command exits 1. That covers a failed request, a tree GitHub truncates, a
+  review, commit or file listing at the evaluator's page bound, a blob that
+  cannot be read whole, a required-check listing that does not add up, and a
+  response that is not the object or list its read asked for. The evaluator
+  marks such a verdict with `incomplete_read: true` in its evidence
+  (`INCOMPLETE_READ_REASONS` for the reasons that always mean it, the mark
+  alone for a mixed reason such as `ci_not_green`). The runner counts an
+  evaluation as completed only when its verdict and reason are on a closed
+  list of decisions and the mark is absent, so a reason the evaluator gains
+  later is a run error until a reviewed change classifies it. An earlier
+  revision treated only `github_read_failed` and `evaluation_error` as
+  unread, and a truncated tree gave exit 0 with `complete: true`. Two choices
+  to know: `changed_during_evaluation` stays a decision (the state moved; the
+  next run judges the new state), and a pull request whose fork was deleted
+  (`head.repo` is null) stays a decision.
+  The run's exit code reports execution errors; the report carries verdicts.
   Response JSON nested deeper than the interpreter's recursion limit raises
   `RecursionError`, not `ValueError`; `_request` converts both to the same
   failed read, so the command prints its JSON report and exits 1
@@ -734,8 +768,18 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
   run reports the error and exits 1. The runner holds the App's client ID,
   not its numeric `app_id`; whether the `app_id` filter would bound the
   listing to the guard App's own checks needs a live App **[check live]**.
-  The identity of a shadow check is the digest of verdict, reason and
-  detail. The evidence is not hashed: it names the `main` tip, so hashing it
+  The identity of a shadow check (`external_id`) is
+  `pr-<number>:<digest>`, where the digest covers the pull request number,
+  the verdict, the reason and the detail. A verdict is for a pull request,
+  not for a commit: the evaluator reads the reviews and the CI run of one
+  pull request. Two pull requests can have the same head commit and
+  different verdicts, and a check run attaches to the commit; an earlier
+  revision left the number out, and two such pull requests replaced each
+  other's check on every sweep. A check of the App for another pull request
+  on the same commit is set aside when the runner looks for "its newest
+  check"; a check of the App whose `external_id` has any other form stays in
+  the comparison, so it can cause a new write and can never suppress one.
+  The evidence is not hashed: it names the `main` tip, so hashing it
   would write a new check on every open pull request each time `main` moves.
   When only the evidence changes on one head (another approving owner, a
   rerun of CI), the runner skips the write and the newest shadow check's
@@ -745,7 +789,10 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
   the list by page number. A pull request that opens or closes during the read shifts
   the pages, so one sweep can miss a pull request or see one twice (twice is
   a run error). A missed pull request has no shadow check until the next
-  sweep. An enforcing check would leave that pull request without its
+  sweep. `complete: true` in the report therefore means "every pull request
+  of the work list this run obtained was evaluated from complete reads and
+  every intended check was written". It does not mean that the list held
+  every open pull request; a sweep is not a census. An enforcing check would leave that pull request without its
   required check, so change 3b must read from a stable snapshot or trigger per
   head.
 

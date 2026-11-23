@@ -51,6 +51,8 @@ RECORDED = json.loads(
 TOKEN = "ghs_" + "x" * 36
 CLIENT = "Iv23liGuardAppClient"
 OUR_APP = {"id": 987654, "slug": "axiom-merge-guard", "client_id": CLIENT}
+# The evidence every verdict of the evaluator carries: the judged pull request.
+FOR_42 = {"pull_request": 42}
 
 
 def sweep(*args, **kwargs):
@@ -86,6 +88,7 @@ class Writer:
             "name": body["name"],
             "head_sha": body["head_sha"],
             "conclusion": body["conclusion"],
+            "external_id": body["external_id"],
         } | self.changes
 
 
@@ -105,11 +108,11 @@ def test_shadow_check_is_not_the_enforcing_check_and_is_always_neutral():
     assert runner.SHADOW_CONCLUSION == "neutral"
     assert runner.MODES == ("dry-run", "shadow")
     for verdict in (
-        guard.Verdict(guard.PASS, guard.R_PASS),
-        guard.Verdict(guard.FAIL, guard.R_NO_LANE),
-        guard.Verdict(guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT),
+        guard.Verdict(guard.PASS, guard.R_PASS, "", FOR_42),
+        guard.Verdict(guard.FAIL, guard.R_NO_LANE, "", FOR_42),
+        guard.Verdict(guard.NOT_APPLICABLE, guard.R_NO_GUARDED_CONTENT, "", FOR_42),
     ):
-        body = runner.shadow_check_body(verdict, H)
+        body = runner.shadow_check_body(verdict, H, 42)
         assert body["name"] == runner.SHADOW_CHECK_NAME
         assert body["conclusion"] == "neutral"
         assert body["status"] == "completed"
@@ -127,12 +130,12 @@ def test_the_enforcing_check_name_is_never_written():
 
 
 def test_shadow_body_refuses_a_missing_head_and_bounds_the_summary():
-    verdict = guard.Verdict(guard.FAIL, guard.R_NO_LANE, "d" * 20000)
+    verdict = guard.Verdict(guard.FAIL, guard.R_NO_LANE, "d" * 20000, FOR_42)
     with pytest.raises(runner.RunnerError):
-        runner.shadow_check_body(verdict, "not-a-sha")
+        runner.shadow_check_body(verdict, "not-a-sha", 42)
     with pytest.raises(runner.RunnerError):
-        runner.shadow_check_body(verdict, None)
-    summary = runner.shadow_check_body(verdict, H)["output"]["summary"]
+        runner.shadow_check_body(verdict, None, 42)
+    summary = runner.shadow_check_body(verdict, H, 42)["output"]["summary"]
     assert len(summary) < runner.MAX_SUMMARY_CHARS + 500
     assert "truncated" in summary
 
@@ -287,9 +290,14 @@ def test_truncated_tree_fails_closed_and_is_reported_as_fail():
     world.tree(H, {"README.md": b"x\n"}, truncated=True)
     world = shadow_world(world)
     writer = Writer()
-    report, _code = sweep(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
+    report, code = sweep(NAME, [42], runner.SHADOW, fetch=world.fetch, post=writer)
     (entry,) = report["results"]
     assert entry["verdict"]["verdict"] == "fail"
+    assert entry["verdict"]["reason"] == guard.R_DELTA_INCOMPLETE
+    # Review of head 36bab7533: the verdict stays ``fail`` AND the run is an
+    # error. A truncated tree is not a completed evaluation.
+    assert code == runner.EXIT_RUN_ERROR and report["complete"] is False
+    assert report["error"] == "an evaluation could not read GitHub"
     ((_path, body),) = writer.calls
     assert body["conclusion"] == "neutral"
     assert "fail" in body["output"]["title"]
@@ -301,13 +309,15 @@ def test_truncated_file_list_fails_closed():
     world.api[ROOT + "/pulls/42/files?per_page=100&page=1"] = world.api[
         ROOT + "/pulls/42/files?per_page=100&page=1"
     ][:-1]
-    report, _code = sweep(NAME, [42], runner.DRY_RUN, fetch=world.fetch)
+    report, code = sweep(NAME, [42], runner.DRY_RUN, fetch=world.fetch)
     assert report["results"][0]["verdict"]["verdict"] == "fail"
+    assert report["results"][0]["verdict"]["reason"] == guard.R_DELTA_DISAGREES
+    assert code == runner.EXIT_RUN_ERROR and report["complete"] is False
 
 
 def test_shadow_does_not_repeat_an_unchanged_verdict():
     world = plain({"README.md": b"x\n"})
-    digest = runner.shadow_check_body(world.evaluate(), H)["external_id"]
+    digest = runner.shadow_check_body(world.evaluate(), H, 42)["external_id"]
     older = {
         "id": 5,
         "name": runner.SHADOW_CHECK_NAME,
@@ -336,7 +346,7 @@ def test_shadow_does_not_repeat_an_unchanged_verdict():
 
 def test_shadow_reports_again_when_the_newest_check_differs():
     world = plain({"README.md": b"x\n"})
-    digest = runner.shadow_check_body(world.evaluate(), H)["external_id"]
+    digest = runner.shadow_check_body(world.evaluate(), H, 42)["external_id"]
     same_but_older = {
         "id": 5,
         "name": runner.SHADOW_CHECK_NAME,
@@ -616,6 +626,7 @@ class ReadWriteOpener:
                 "name": body["name"],
                 "head_sha": body["head_sha"],
                 "conclusion": body["conclusion"],
+                "external_id": body["external_id"],
             }
             return Response(201, json.dumps(created).encode())
         assert request.get_method() == "GET" and request.data is None
@@ -740,7 +751,9 @@ def test_default_opener_refuses_redirects_and_ignores_proxies(monkeypatch):
 def test_writer_posts_check_runs_only_and_requires_created():
     opener = Opener(status=201, raw=b'{"id": 1}')
     post = runner.check_writer(TOKEN, opener=opener)
-    body = runner.shadow_check_body(guard.Verdict(guard.FAIL, guard.R_NO_LANE), H)
+    body = runner.shadow_check_body(
+        guard.Verdict(guard.FAIL, guard.R_NO_LANE, "", FOR_42), H, 42
+    )
     assert post(ROOT + "/check-runs", body) == {"id": 1}
     (request,) = opener.requests
     assert request.get_method() == "POST"
@@ -1036,7 +1049,7 @@ def test_fixture_tree_and_modules_are_what_the_tests_assume():
 
 def _digest_world():
     world = plain({"README.md": b"x\n"})
-    return world, runner.shadow_check_body(world.evaluate(), H)["external_id"]
+    return world, runner.shadow_check_body(world.evaluate(), H, 42)["external_id"]
 
 
 def _check(digest, **changes):
@@ -1076,14 +1089,14 @@ def test_a_changed_detail_on_the_same_head_is_reported_again():
     earlier = guard.Verdict(
         verdict.verdict, verdict.reason, verdict.detail + " (earlier)", verdict.evidence
     )
-    earlier_digest = runner.shadow_check_body(earlier, H)["external_id"]
-    assert earlier_digest != runner.shadow_check_body(verdict, H)["external_id"]
+    earlier_digest = runner.shadow_check_body(earlier, H, 42)["external_id"]
+    assert earlier_digest != runner.shadow_check_body(verdict, H, 42)["external_id"]
     publication, calls = _publication(world, [_check(earlier_digest)])
     assert publication == "created" and len(calls) == 1
     # No detail against an empty detail is a change as well.
     bare = guard.Verdict(verdict.verdict, verdict.reason, "", verdict.evidence)
     publication, calls = _publication(
-        world, [_check(runner.shadow_check_body(bare, H)["external_id"])]
+        world, [_check(runner.shadow_check_body(bare, H, 42)["external_id"])]
     )
     assert publication == "created" and len(calls) == 1
 
@@ -1101,7 +1114,7 @@ def test_changed_evidence_alone_is_not_reported_again():
     )
     assert earlier.evidence != verdict.evidence
     publication, calls = _publication(
-        world, [_check(runner.shadow_check_body(earlier, H)["external_id"])]
+        world, [_check(runner.shadow_check_body(earlier, H, 42)["external_id"])]
     )
     assert publication == "unchanged" and calls == []
 
@@ -1183,8 +1196,8 @@ def test_an_unforeseen_evaluation_error_is_a_run_error(monkeypatch):
 
 
 def _body(**changes):
-    verdict = guard.Verdict(guard.FAIL, guard.R_NO_LANE)
-    return runner.shadow_check_body(verdict, H) | changes
+    verdict = guard.Verdict(guard.FAIL, guard.R_NO_LANE, "", FOR_42)
+    return runner.shadow_check_body(verdict, H, 42) | changes
 
 
 @pytest.mark.parametrize(
