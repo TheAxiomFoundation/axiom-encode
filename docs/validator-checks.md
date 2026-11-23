@@ -114,7 +114,6 @@ Where an advisory finding goes:
 | Reviewer prompt | `## Review Context` | a "Validator warnings to examine" block: check id, title, requirement, reason, and the validator message. Without a finding the prompt is unchanged |
 | `validate` session events | `validation_ci_end.advisory_issues` | the same records |
 | `run_log.v1` export | `gate.ci` | findings with the check id as `code`, severity `info`, message prefix `[advisory]`; `attrs.advisory_finding_count`, `attrs.advisory_checks` |
-| Trace span | `axiom_encode.advisory_issue_count` | count |
 | Replay benchmark | report `advisory`, snapshot `advisory_findings` | messages; they do not decide clean or refused |
 
 Not covered: the per-try `issue_document` of the local run database and of
