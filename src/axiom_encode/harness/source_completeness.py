@@ -27,7 +27,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
-from datetime import date
+from datetime import date, timedelta
 from decimal import (
     ROUND_CEILING,
     ROUND_FLOOR,
@@ -22443,7 +22443,7 @@ def _source_gates_without_distinct_terminal(
     )
 
 
-_STRUCTURAL_NAME_LIMIT = 16
+_STRUCTURAL_NAME_LIMIT = 10
 _STRUCTURAL_FREE_NAME_LIMIT = 6
 _STRUCTURAL_OPTION_LIMIT = 256
 _STRUCTURAL_BINDING_LIST_LIMIT = 8
@@ -22557,6 +22557,10 @@ def _structural_clause_reading(
         """Read the clause as the list's own: chapeau facts and alternatives."""
 
         boundary = source_list.end
+        if not source_list.verifiable:
+            # A chapeau that is not a plain affirmative, or text after the
+            # list that may continue its condition: nothing is relaxed.
+            return None
         if text_end > boundary:
             if not source_list.tail_starts_sentence(source_text):
                 return None
@@ -22568,10 +22572,12 @@ def _structural_clause_reading(
             return None
         alternatives = []
         for item in source_list.items:
-            gates = _structural_item_gates(
-                _list_structure.item_body(source_text, item),
-                care_source_text=care_source_text,
-            )
+            body = _list_structure.item_body(source_text, item)
+            if not _list_structure.item_is_plain(body):
+                # A qualifier, a nested condition or a negation in an item:
+                # it is not one plain alternative, so nothing is relaxed.
+                return None
+            gates = _structural_item_gates(body, care_source_text=care_source_text)
             if gates is None:
                 return None
             alternatives.append(gates)
@@ -22660,8 +22666,6 @@ def _alternative_list_defect(
     """
 
     alternatives = reading.alternatives or ()
-    if any(fact.relation != "boolean" for path in paths for fact in path.facts):
-        return None
     names = frozenset(fact.name for path in paths for fact in path.facts)
     if len(names) > _STRUCTURAL_NAME_LIMIT:
         return None
@@ -22716,6 +22720,13 @@ def _alternative_list_defect(
         return "a formula path does not state every fact of the list's chapeau"
     if any(holds(context) for context in contexts):
         return "the formula can be true while no listed alternative holds"
+    # Every value of the other item inputs: an alternative that holds grants
+    # the rule whatever else holds (a plain `or`, not "exactly one").
+    other_values = [
+        frozenset(chosen)
+        for size in range(len(item_names) + 1)
+        for chosen in itertools.combinations(sorted(item_names), size)
+    ]
     options: list[list[frozenset[str]]] = []
     for index, gate_candidates in enumerate(item_candidates, start=1):
         item_options: list[frozenset[str]] = []
@@ -22725,7 +22736,11 @@ def _alternative_list_defect(
             chosen = frozenset(combination)
             if len(chosen) != len(combination) or chosen in item_options:
                 continue
-            if all(holds(context | chosen) for context in contexts) and not any(
+            if all(
+                holds(context | chosen | others)
+                for context in contexts
+                for others in other_values
+            ) and not any(
                 holds(context | (chosen - {name}))
                 for name in chosen
                 for context in contexts
@@ -22734,7 +22749,7 @@ def _alternative_list_defect(
         if not item_options:
             return (
                 f"alternative {index} of the list has no input of its own that "
-                "makes the rule true while every other alternative is false"
+                "makes the rule true whatever the other alternatives are"
             )
         options.append(item_options[:8])
 
@@ -23279,6 +23294,22 @@ def _opaque_same_source_condition_input_issues(
     ):
         structural_lists = _list_structure.parse_source_lists(source_text)
 
+    def structural_literals(expression: ast.expr) -> ast.expr:
+        """Read RuleSpec `true` and `false` as constants, as the engine does."""
+
+        class Literals(ast.NodeTransformer):
+            def visit_Name(self, node: ast.Name) -> ast.AST:
+                if (
+                    node.id in {"true", "false"}
+                    and node.id not in named_rules
+                    and node.id not in physical_inputs
+                    and node.id not in imported_names
+                ):
+                    return ast.copy_location(ast.Constant(node.id == "true"), node)
+                return node
+
+        return Literals().visit(copy.deepcopy(expression))
+
     def structural_resolve(name, lo, hi):
         if name in named_rules:
             dependency = named_rules[name]
@@ -23295,7 +23326,10 @@ def _opaque_same_source_condition_input_issues(
             )
             if any(expression is None for expression, _lo, _hi in versions):
                 raise ValueError("unread alternative-list dependency formula")
-            return versions
+            return tuple(
+                (structural_literals(expression), lo_, hi_)
+                for expression, lo_, hi_ in versions
+            )
         if name in imported_names and name not in physical_inputs:
             return None
         if (
@@ -23310,6 +23344,37 @@ def _opaque_same_source_condition_input_issues(
         ):
             return None
         raise ValueError("unread alternative-list terminal")
+
+    def positive_path_names(
+        rule: Mapping[str, Any], formula: str, start: str | None, end: str | None
+    ) -> tuple[frozenset[str], ...] | None:
+        """The positive inputs of each true path of a Boolean rule, if readable."""
+
+        if str(rule.get("dtype") or "").strip().lower() not in {
+            "judgment",
+            "boolean",
+            "bool",
+        }:
+            return None
+        expression = _parse_formula_expression(formula)
+        if expression is None:
+            return None
+        paths = signed_granting_paths(
+            structural_literals(expression),
+            start=start,
+            end=end,
+            resolve=structural_resolve,
+            intersect=_formula_interval_intersection,
+            limit=_SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT,
+            depth_limit=_SOURCE_EXPLICIT_CONDITION_DEPENDENCY_DEPTH_LIMIT,
+            numeric_names=frozenset(),
+        )
+        if paths is None:
+            return None
+        return tuple(
+            frozenset(fact.name for fact in path.facts if fact.positive)
+            for path in paths
+        )
 
     def alternative_list_defect(
         reading: _StructuralClauseReading,
@@ -23328,7 +23393,7 @@ def _opaque_same_source_condition_input_issues(
         if expression is None:
             return None
         paths = signed_granting_paths(
-            expression,
+            structural_literals(expression),
             start=start,
             end=end,
             resolve=structural_resolve,
@@ -23337,16 +23402,37 @@ def _opaque_same_source_condition_input_issues(
             depth_limit=_SOURCE_EXPLICIT_CONDITION_DEPENDENCY_DEPTH_LIMIT,
             numeric_names=frozenset(),
         )
-        if paths is None or any(
-            (path.start, path.end) != (start, end) for path in paths
-        ):
+        if paths is None:
             return None
-        return _alternative_list_defect(
-            paths,
-            reading,
-            terminal_evidence=terminal_evidence,
-            neutral_polarity_imports=frozenset(imported_names),
-        )
+        # A dependency can change inside the period. The list must be encoded
+        # at every date: read the paths that hold at each date where a path
+        # starts, and on the day after each path ends.
+        dates = {start or ""}
+        for path in paths:
+            dates.add(path.start or "")
+            if path.end is not None:
+                dates.add(
+                    (date.fromisoformat(path.end) + timedelta(days=1)).isoformat()
+                )
+        verdict: str | None = ""
+        for day in sorted(dates):
+            if (start is not None and day < start) or (end is not None and day > end):
+                continue
+            defect = _alternative_list_defect(
+                tuple(
+                    path
+                    for path in paths
+                    if (path.start or "") <= day
+                    and (path.end is None or path.end >= day)
+                ),
+                reading,
+                terminal_evidence=terminal_evidence,
+                neutral_polarity_imports=frozenset(imported_names),
+            )
+            if defect is None:
+                return None
+            verdict = verdict or defect
+        return verdict
 
     def physical_resolve(name, lo, hi, *, entity, period):
         if name in physical_inputs:
@@ -23443,6 +23529,7 @@ def _opaque_same_source_condition_input_issues(
             ] = {}
             ambiguous_ownership = False
             structural_defects: list[tuple[int, str]] = []
+            single_fact_cut = False
             for excerpt in excerpts:
                 owned_clauses, ambiguous = _source_condition_clauses_owned_by_excerpt(
                     excerpt,
@@ -23593,6 +23680,7 @@ def _opaque_same_source_condition_input_issues(
                         )
                     ):
                         continue
+                    cut_clause = False
                     if structural_lists and not ambiguous:
                         structural = _structural_clause_reading(
                             clause,
@@ -23603,6 +23691,7 @@ def _opaque_same_source_condition_input_issues(
                         )
                         if structural is not None and structural.alternatives is None:
                             clause = structural.clause
+                            cut_clause = True
                         elif structural is not None:
                             defect = alternative_list_defect(
                                 structural, rule, formula, start, end
@@ -23635,7 +23724,39 @@ def _opaque_same_source_condition_input_issues(
                             (frozenset(), frozenset({name}))
                             for name in sorted(schedule_roles)
                         )
-                    if len(gates) < 2:
+                    if cut_clause and len(gates) < 2:
+                        # The cut took the run-on facts away. The one fact
+                        # that the sentence itself states is still demanded:
+                        # a constant or an unrelated input does not pass.
+                        gates = _source_conjunctive_fact_gates(
+                            clause.text,
+                            care_source_text=care_source_text,
+                            minimum_gates=1,
+                        )
+                        if len(gates) == 1:
+                            single_fact_cut = True
+                            positive = positive_path_names(rule, formula, start, end)
+                            if positive is not None and any(
+                                not _terminal_names_corroborate_source_gates(
+                                    names,
+                                    gates,
+                                    terminal_evidence=terminal_evidence,
+                                    neutral_polarity_imports=frozenset(imported_names),
+                                )
+                                for names in positive
+                            ):
+                                structural_defects.append(
+                                    (
+                                        1,
+                                        ' [source clause "'
+                                        + _bounded_source_feedback_excerpt(
+                                            clause.text, limit=200
+                                        )
+                                        + '" states 1 fact: a formula path is '
+                                        "true without a positive input for it]",
+                                    )
+                                )
+                    if len(gates) < (1 if cut_clause else 2):
                         continue
                     excerpt_has_gates = True
                     clause_key = (clause.branch_path, clause.start, clause.end)
@@ -23650,7 +23771,7 @@ def _opaque_same_source_condition_input_issues(
                         reversed_negative_gate_keys.add(clause_key)
                 ambiguous_ownership |= ambiguous and excerpt_has_gates
             gate_count = max((len(gates) for gates in gate_sets.values()), default=0)
-            if gate_count < 2 and not structural_defects:
+            if gate_count < (1 if single_fact_cut else 2) and not structural_defects:
                 continue
             reviewed_care_formula_failure = False
             if reviewed_care_source:

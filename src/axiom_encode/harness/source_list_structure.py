@@ -60,20 +60,51 @@ _ALL_CHAPEAU = re.compile(
     re.IGNORECASE,
 )
 # The chapeau forms that put the list's items under a condition cue of the
-# chapeau itself: the cue stands directly before "all|each of the following",
-# or before a short subject and "meets|satisfies <how many> of the following".
-# Only these forms, and the cue form of alternatives, bind a rule that quotes
-# an item to the whole list. In "When X, all of the following apply:" the
-# items are consequences of X, not its conditions, so that form binds nothing.
+# chapeau itself, as joint conditions. Only these forms, and the cue form of
+# alternatives, bind a rule that quotes items to the whole list. A missed
+# form leaves the flat behaviour. In "When X, all of the following apply:"
+# the items are consequences of X, so that form binds nothing; a count form
+# ("at least 2 of the following") binds nothing, because no single rule path
+# holds every item.
 _CONDITION_LIST_CHAPEAU = re.compile(
-    r"\b(?:when|if)\s+(?:"
+    r"\b(?:when|if|provided\s+that)\s+(?:"
+    r"(?:all|each|both|every\s+one|all\s+(?:two|three|four|five|six))"
+    r"(?:\s+of)?\s+the\s+following" + _ANY_TAIL + r"|"
+    r"the\s+following\s+(?:conditions|requirements|criteria)\s+"
+    r"(?:are\s+met|are\s+satisfied|apply|are\s+true)"
+    r"|(?:[A-Za-z]+\s+){1,4}?(?:meets?|satisfy|satisfies)\s+"
     r"(?:all|each)\s+of\s+the\s+following"
-    + _ANY_TAIL
-    + r"|(?:[A-Za-z]+\s+){1,4}?(?:meets?|satisfy|satisfies)\s+"
-    r"(?:all|each|at\s+least\s+[A-Za-z0-9]+|[A-Za-z0-9]+\s+or\s+more)"
-    r"\s+of\s+the\s+following"
-    r"(?:\s+(?:conditions?|requirements?|criteria))?"
-    r")\s*:\s*\Z",
+    r"(?:\s+(?:conditions|requirements|criteria))?"
+    r")\s*:\s*\Z|\bif\s*:\s*\Z",
+    re.IGNORECASE,
+)
+# Wording that can turn the sense of a chapeau or of an item around, or that
+# adds a qualifier. It is a second layer: the positive requirements are the
+# closed forms. A chapeau or an item that holds one of these words is not
+# verified as alternatives; the flat reading stays.
+_REVERSING_WORD = re.compile(
+    r"(?:\b(?:not|no|never|none|neither|nor|except\w*|unless|without|but|cannot|"
+    r"fail\w*|den(?:y|ied|ies|ial)|refus\w*|prohibit\w*|exclud\w*|ineligib\w*|"
+    r"invalid\w*|disallow\w*|disqualif\w*|barred|void\w*|ceas\w*|los[et]s?|"
+    r"terminat\w*|suspend\w*|revok\w*|cancel\w*|reject\w*|non\w*|longer|"
+    r"instead|rather|other\s+than)\b|n['’]t\b)",
+    re.IGNORECASE,
+)
+_QUALIFYING_WORD = re.compile(
+    r"\b(?:if|when|whenever|where|while|until|once|provided|providing|only|both|"
+    r"either|as|who|whom|whose|that|which|also|plus|together|additionally|"
+    r"including|includes?|whether|because|since|after|before|during|then)\b",
+    re.IGNORECASE,
+)
+# A cue-form chapeau states an affirmative main clause before its cue.
+_AFFIRMATIVE_VERB = re.compile(r"\b(?:must|may|is|are|can|shall|will)\b", re.IGNORECASE)
+# The first words of a paragraph after a list that continue the list's
+# condition or add to it. Such a paragraph, or one that is a chapeau itself,
+# means the clause is not only the list.
+_CONTINUATION_START = re.compile(
+    r"(?:provided|providing|unless|except|and|but|or|nor|also|only|in\s+addition|"
+    r"additionally|further|furthermore|moreover|however|otherwise|either|both|"
+    r"plus|as\s+well|this|these|those|such|if|then|all|each|any|none|neither)\b",
     re.IGNORECASE,
 )
 # The flat reader ends a proposition after sentence punctuation only before
@@ -108,6 +139,9 @@ class SourceList:
     cue_form: bool
     # A rule that quotes an item is read against the whole list.
     binds_items: bool
+    # The chapeau is affirmative and the text after the list is a plain new
+    # paragraph (or the end): the list can be verified as alternatives.
+    verifiable: bool = False
 
     def tail_starts_sentence(self, text: str) -> bool:
         """Say whether the text after the list starts a new proposition."""
@@ -176,6 +210,37 @@ def _items_end_alike(text: str, items: list[SourceBlock]) -> bool:
     endings = [text[item.start : item.end].rstrip()[-1] for item in items]
     return all(ending == "." for ending in endings) or all(
         ending.isalnum() or ending == ")" for ending in endings
+    )
+
+
+def chapeau_is_affirmative(chapeau_text: str, *, cue_form: bool) -> bool:
+    """Say whether a chapeau of alternatives states a plain affirmative."""
+
+    collapsed = " ".join(chapeau_text.split())
+    cue = _ANY_CUE_CHAPEAU.search(collapsed)
+    stem = collapsed[: cue.start()] if cue_form and cue is not None else collapsed
+    if cue_form and (cue is None or _AFFIRMATIVE_VERB.search(stem) is None):
+        return False
+    return _REVERSING_WORD.search(stem) is None
+
+
+def item_is_plain(body: str) -> bool:
+    """Say whether an item is one plain alternative that can be verified.
+
+    After an optional leading "When" or "If" and without trailing
+    parentheticals, the item holds words, at most one ", and" joint, no word
+    that reverses its sense and no word that opens a qualifier.
+    """
+
+    words = re.sub(r"\A(?:when|if)\s+", "", body.strip(), flags=re.IGNORECASE)
+    words = re.sub(r"(?:\s*\([^()]*\))+\s*\.?\s*\Z", "", words).rstrip(" .")
+    return (
+        re.fullmatch(
+            r"[A-Za-z0-9$][A-Za-z0-9$ '’-]*(?:, and [A-Za-z0-9$ '’-]+)?", words
+        )
+        is not None
+        and _REVERSING_WORD.search(words) is None
+        and _QUALIFYING_WORD.search(words) is None
     )
 
 
@@ -270,6 +335,17 @@ def parse_source_lists(text: str) -> tuple[SourceList, ...]:
             # The items cannot be told apart from nested ones: flat reading,
             # and no rule is bound to a list whose members are not known.
             reading, cue_form, binds_items = "unrecognised", False, False
+        following = blocks[cursor] if cursor < len(blocks) else None
+        following_text = (
+            text[following.start : following.end] if following is not None else ""
+        )
+        end_is_clean = following is None or (
+            following.kind == "paragraph"
+            and re.match(r"[A-Z]", following_text) is not None
+            and following_text.rstrip().endswith(".")
+            and _CONTINUATION_START.match(following_text) is None
+            and "following" not in following_text.lower()
+        )
         lists.append(
             SourceList(
                 chapeau=chapeau,
@@ -288,10 +364,20 @@ def parse_source_lists(text: str) -> tuple[SourceList, ...]:
                 reading=reading,
                 cue_form=cue_form,
                 binds_items=binds_items,
+                verifiable=reading == "alternatives"
+                and end_is_clean
+                and chapeau_is_affirmative(
+                    text[chapeau.start : chapeau.end], cue_form=cue_form
+                ),
             )
         )
         # The next chapeau can only be a paragraph after this list.
         index = cursor
+    owned = {item.start for found in lists for item in found.items}
+    if any(block.kind == "item" and block.start not in owned for block in blocks):
+        # A marked item outside every list: the list it belongs to was
+        # interrupted (a page line, a heading), so no list here is whole.
+        return ()
     return tuple(lists)
 
 
