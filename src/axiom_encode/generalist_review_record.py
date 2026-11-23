@@ -304,6 +304,10 @@ _VALUE_TAG = "tag:yaml.org,2002:value"
 _FLOAT_TAG = "tag:yaml.org,2002:float"
 
 
+# The spellings of infinity and NaN that every modeled reader types.
+_EXPLICIT_NON_FINITE = re.compile(r"[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN)")
+
+
 def _agreed_plain_float(text: str) -> float | None:
     """The float that every modeled reader gives a plain scalar, or None.
 
@@ -311,6 +315,7 @@ def _agreed_plain_float(text: str) -> float | None:
     float, and the same one (the reader that mixes their typed forms then
     reads it too). ``0.20``, ``0.2`` and ``.2`` are such a scalar; ``1_0.5``,
     ``1:30.5`` and ``1.5e3`` are not, because one dialect reads a string.
+    A spelling that overflows to infinity is not either.
     """
 
     if not is_yaml12_core_non_string(text):
@@ -326,8 +331,15 @@ def _agreed_plain_float(text: str) -> float | None:
         return None
     if type(yaml11) is not float or type(yaml12) is not float:
         return None
-    if math.isnan(yaml11) and math.isnan(yaml12):
-        return yaml11
+    if not (math.isfinite(yaml11) and math.isfinite(yaml12)):
+        # Infinity and NaN are one value only in their own spellings. A
+        # number that overflows (`1.0e+999`) is infinity here, but a reader
+        # that accepts only finite parses reads a string: its text stays
+        # exact, so it never equals `.inf`.
+        if _EXPLICIT_NON_FINITE.fullmatch(text) is None:
+            return None
+        if math.isnan(yaml11) and math.isnan(yaml12):
+            return yaml11
     if yaml11 != yaml12 or math.copysign(1.0, yaml11) != math.copysign(1.0, yaml12):
         return None
     return yaml11

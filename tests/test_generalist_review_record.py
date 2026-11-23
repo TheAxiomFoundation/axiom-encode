@@ -5214,7 +5214,12 @@ _ONE_FLOAT_VALUE = [
     ("+.INF", ".inf"),
     ("-.Inf", "-.inf"),
     (".NaN", ".nan"),
-    ("1.0e+400", ".inf"),
+    (".NAN", ".nan"),
+    (".INF", ".inf"),
+    ("-.INF", "-.inf"),
+    # Underflow: every modeled reader gives a finite zero.
+    ("1.0e-999", "0.0"),
+    ("-1.0e-999", "-0.0"),
 ]
 
 
@@ -5331,6 +5336,8 @@ _FLOAT_TEXT = st.one_of(
         [".inf", "-.inf", "+.Inf", ".nan", ".NaN", "-0.0", "0.0", "0.", "-0."]
     ),
     st.floats(allow_nan=False).map(repr),
+    st.from_regex(r"[-+]?[0-9]\.[0-9]e\+(30[0-9]|[4-9][0-9]{2})", fullmatch=True),
+    st.from_regex(r"[-+]?[0-9]\.[0-9]e-(3[0-9]{2}|[4-9][0-9]{2})", fullmatch=True),
 )
 
 
@@ -5385,3 +5392,54 @@ def test_guide_limit_of_the_reader_other_bytes_under_the_reviewed_content_digest
     assert _issues(
         forged, [(RULE_PATH, PAIR.rulespec_sha256), (TEST_PATH, PAIR.test_sha256)]
     ) == ["generalist_review does not list exactly the applied file digests"]
+
+
+@pytest.mark.parametrize(
+    ("overflow", "infinity"),
+    [
+        ("1.0e+999", ".inf"),
+        ("1.8e+308", ".inf"),
+        ("9.9e+999", ".inf"),
+        ("-1.0e+999", "-.inf"),
+        ("+1.0e+999", ".inf"),
+        ("1.0e+400", ".Inf"),
+    ],
+)
+def test_an_overflowing_float_never_has_the_content_of_infinity(overflow, infinity):
+    # PyYAML and YAML 1.2 core read infinity for both, but a reader that
+    # accepts only finite parses reads the overflowing spelling as a string.
+    assert _loaded(_rule(overflow)) == _loaded(_rule(infinity))
+    assert record_module._agreed_plain_float(overflow) is None
+    assert record_module._agreed_plain_float(infinity) is not None
+    for template in ("a: {}\n", "- output: {{x: {}}}\n", "{}: 1\n", "- {{{}: 1}}\n"):
+        for rulespec in (True, False):
+            digests = [
+                review_content_sha256(template.format(text).encode(), rulespec=rulespec)
+                for text in (overflow, infinity)
+            ]
+            assert None not in digests
+            assert digests[0] != digests[1]
+    # Both ways, and across the apply dump, which writes `.inf`.
+    dumped = _as_apply_rewrites(_rule(overflow))
+    assert b"value: " + infinity.lower().encode() + b"\n" in dumped
+    assert dumped_review_content_sha256(_rule(overflow)) is None
+    for seen, written in (
+        (_rule(overflow), _rule(infinity)),
+        (_rule(infinity), _rule(overflow)),
+        (_rule(overflow), dumped),
+    ):
+        record = _build(
+            applied=[applied_pair(written, TEST_BYTES)],
+            evidence=_evidence(rulespec=seen),
+            required=True,
+        )
+        assert (record["status"], record["reason"]) == (
+            "unavailable",
+            "reviewed_content_not_applied",
+        )
+    # The same overflowing text on both sides is the same content.
+    same = _build(
+        applied=[applied_pair(_rule(overflow), TEST_BYTES)],
+        evidence=_evidence(rulespec=_rule(overflow)),
+    )
+    assert same["status"] == "passed"

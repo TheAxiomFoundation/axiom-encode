@@ -167,7 +167,9 @@ does not cover the other. A plain float that every modeled reader
 reads as one value is bound by that value, because the apply dump respells
 it: `0.20` and `0.2` are one content. A quoted number, a tagged number, an
 integer, `-0.0` against `0.0`, and a spelling that one dialect reads another
-way (`1_000.0`, `1.5e3`) keep their exact text.
+way (`1_000.0`, `1.5e3`) keep their exact text. So does a number that
+overflows to infinity (`1.0e+999`): only `.inf`, `-.inf` and `.nan`, in their
+three letter cases, are one infinity or NaN for every reader.
 
 The record binds review coverage to each manifest path. Its `files` list has
 one entry per applied path, with that path's byte digest. The verdict covers
