@@ -63,6 +63,7 @@ from axiom_encode.checks import (
     IssueSubject,
     ValidationIssue,
     advisory_issue_records,
+    advisory_log_line,
     advisory_review_context,
     declare_check,
     map_issue_text,
@@ -37761,8 +37762,11 @@ class ValidatorPipeline:
             },
         )
         # Advisory CI findings go to every reviewer as warnings to examine.
-        # With none, the reviewer prompts are byte-identical to before.
-        advisory_context = advisory_review_context(ci_advisory_records) or None
+        # With none, the reviewer prompts are byte-identical to before. These
+        # four prompts hold no source text, so the warning says so.
+        advisory_context = (
+            advisory_review_context(ci_advisory_records, source_in_prompt=False) or None
+        )
 
         # Tier 2: Oracles (parallel, fast, generates comparison context)
         oracle_context = {}
@@ -40328,6 +40332,13 @@ class ValidatorPipeline:
         # blocking ones: it does not decide `passed` and is not the `error`.
         # Every issue that is not positively advisory stays blocking.
         issues, advisory_issues = partition_by_enforcement(issues)
+        # The one default operator surface: a WARNING line per advisory
+        # finding, in every lane that runs this step (validate, encode, the
+        # overlay validation of an apply).
+        for advisory_issue in advisory_issues:
+            line = advisory_log_line(advisory_issue, unit=self.source_citation_path)
+            if line is not None:
+                logger.warning("%s", line)
 
         duration = int((time.time() - start) * 1000)
         try:

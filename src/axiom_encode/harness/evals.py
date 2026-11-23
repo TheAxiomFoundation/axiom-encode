@@ -9084,7 +9084,10 @@ def _evaluate_artifact_in_scope(
         ci_advisory_records = advisory_issue_records(
             getattr(ci_result, "advisory_issues", None) or ()
         )
-        advisory_context = advisory_review_context(ci_advisory_records)
+        # The generalist review context above holds the source excerpt.
+        advisory_context = advisory_review_context(
+            ci_advisory_records, source_in_prompt=True
+        )
         if advisory_context:
             review_context += "\n\n" + advisory_context
         # The encode retry loop feeds only compile/CI findings back to the
