@@ -867,3 +867,31 @@ def test_us_locator_numbers_leave_the_view(window):
 )
 def test_a_same_value_elsewhere_does_not_cover_a_recall_demand(citation, window, value):
     assert _recall_values(window, citation).count(value) == 2
+
+
+def test_lost_positions_keep_source_and_recall_demands():
+    # The fallback demands the union: every source occurrence and every number
+    # numeric recall demands. Here the source reading has one 18 (the age) and
+    # the recall reading demands two (the age and the U.S.C. title number).
+    window = (
+        "A person under age 18 who is licensed pursuant to 18 U.S.C. sec. 921 "
+        "et seq. is exempt."
+    )
+    citation = "us-co/statute/39/39-37-103"
+    original = sc.authoritative_numeric_recall_text
+
+    def untracked_suffix(text, **kwargs):
+        return original(text, **kwargs) + " untracked"
+
+    assert [occurrence.value for occurrence in _legacy(window)].count(18.0) == 1
+    with patch.object(sc, "authoritative_numeric_recall_text", untracked_suffix):
+        view = sc.complete_source_numeric_recall_occurrences(
+            window, corpus_citation_path=citation, extract_numeric_occurrences=_legacy
+        )
+    assert [occurrence.value for occurrence in view].count(18.0) == 3
+
+
+def test_four_digit_parenthetical_does_not_lead_a_preface():
+    # Mid-line, after a sentence end, so the line-marker mask does not take it.
+    window = "The credit is allowed. (1234) for calendar year 2016, the amount is $5."
+    assert _recall_values(window, "us/statute/26/1") == [1234.0, 5.0]
