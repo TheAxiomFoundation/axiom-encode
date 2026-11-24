@@ -114,7 +114,22 @@ jurisdiction, and the parse of each file. A waiver's decision is then a walk
 over a shared dependency graph, and the walk's cost follows the waiver's own
 closure.
 
-@@MEASUREMENTS@@
+Measured on `rulespec-us` main at `25ddba37` (1,930 waivers, 4,888 atomic
+modules), one process, on a loaded workstation:
+
+| Selector run | Before | After |
+|---|---|---|
+| One Colorado waiver, one changed Arizona module | not finished after 240 s | part of the rows below |
+| Whole ledger, signed Arizona change (module, companion, manifest) | not finished after 1,500 s | 77 to 88 s |
+| One of 52 partitions (37 or 38 waivers), same change | not measured | 3.0 to 4.9 s (12 partitions measured) |
+| Whole ledger, companion-only change (needs the country-wide walk of rule 5) | not measured | 120 s |
+
+Before, each target resolution re-audited the whole checkout for symlinks
+(about 3,100 directories, 25 ms) and re-validated the routing caches. One
+Colorado composition names several thousand targets, each resolved four times,
+and no parse or resolution was shared between waivers. In a 240 s profile of
+one waiver, 188 s were 7,631 checkout symlink audits (25 million `lstat`
+calls), and only 333 files had been parsed.
 
 ## Evidence that unselected waivers do not change
 
@@ -127,7 +142,21 @@ the country checkout and builds a name index over all modules before it
 composes one program. So the encoder cannot prove that a module outside a
 program's scope leaves the composed program unchanged.
 
-@@COMPOSITION@@
+On `rulespec-us` main at `25ddba37`, 109 of the 1,930 waivers are
+compositions: 100 generated tariff chapters, 6 state SNAP benefit
+calculations and 3 federal compositions. By the per-module audit times of one
+hosted run they are 2,164 of 5,524 worker-minutes (39%). A signed Arizona
+change therefore selects 141 waivers: 30 Arizona waivers (108 worker-minutes),
+108 compositions outside Arizona (2,145 worker-minutes) and 3 waivers of
+rule 6. That is 41% of the full audit's worker time, not 2%.
+
+Removing that cost needs a change outside this selector. Two options:
+
+- The composer reports the files a composition used, and the validator
+  records them, so the selector can use a real read set for a composition.
+- The audit keeps a digest of each composed program. A composition whose
+  program composes to the same bytes, with the same owner, needs no
+  re-validation.
 
 ## Adoption in a RuleSpec repository
 

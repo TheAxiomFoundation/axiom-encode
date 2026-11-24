@@ -297,6 +297,7 @@ class _ReadSets:
         self._keys: dict[Path, _AliasKey | None] = {}
         self._country_keys: dict[Path, frozenset[_AliasKey]] = {}
         self._country_module_keys: frozenset[_AliasKey] | None = None
+        self._country_failures: dict[Path, Exception] = {}
 
     def relative(self, path: Path) -> str | None:
         # Do not resolve an absent target through a different path. The same
@@ -681,16 +682,24 @@ class _ReadSets:
         conservatively cover those discovered scope targets.
         """
 
+        if content_root in self._country_failures:
+            # The walk is the same for every composition of this root. Do not
+            # repeat a walk that cannot be classified for each of them.
+            raise self._country_failures[content_root]
         if content_root not in self._country_keys:
             keys: set[_AliasKey] = set()
             program_root = self.root / RULESPEC_COMPOSITION_SPEC_ROOT
             for program in program_root.rglob("*.yaml"):
                 if (key := self.key(program)) is not None:
                     keys.add(key)
-            for current, _node in self.reachable(
-                sorted(self.country_modules()), content_root
-            ):
-                keys.update(self.node_keys(current, content_root))
+            try:
+                for current, _node in self.reachable(
+                    sorted(self.country_modules()), content_root
+                ):
+                    keys.update(self.node_keys(current, content_root))
+            except (ValueError, yaml.YAMLError) as exc:
+                self._country_failures[content_root] = exc
+                raise
             self._country_keys[content_root] = frozenset(keys)
         return self._country_keys[content_root]
 
@@ -812,7 +821,9 @@ def select_validation_waiver_scope(
     ``paths`` may be one partition of the ledger: each waiver is decided from
     its own read set and the changed paths, never from another waiver, so a
     partition's selection equals its share of the whole ledger's selection.
-    A read set that cannot be established falls back to every path given.
+    A waiver whose own read set cannot be classified is selected. A failure
+    that is not one waiver's (the checkout, Git, the filesystem) falls back to
+    every path given.
     """
 
     ordered = tuple(sorted(set(paths)))

@@ -981,3 +981,46 @@ def test_full_fallback_returns_the_given_paths_once_and_sorted(tmp_path: Path):
         "us/statutes/c.yaml",
     )
     assert list(selection.reasons) == list(selection.paths)
+
+
+def test_unclassifiable_country_walk_selects_each_composition_and_runs_once(
+    tmp_path: Path, monkeypatch
+):
+    root = tmp_path / "rulespec-us"
+    compositions = [
+        "us/policies/tariff/ch01.yaml",
+        "us/policies/tariff/ch02.yaml",
+        "us/policies/tariff/ch03.yaml",
+    ]
+    for path in compositions:
+        _composition(root, path)
+    atomic = "us/policies/tariff/atomic.yaml"
+    _module(root, atomic)
+    _module(root, "us-tx/statutes/odd.yaml", imports=("data/terminal#value",))
+    module = "us-az/policies/des/block-7.yaml"
+    _module(root, module)
+    companion = _companion(root, module)
+    walks: list[Path] = []
+    original = _ReadSets.country_modules
+
+    def country_modules(self):
+        walks.append(self.root)
+        return original(self)
+
+    monkeypatch.setattr(_ReadSets, "country_modules", country_modules)
+
+    selection = select_validation_waiver_scope(
+        [*compositions, atomic], root=root, changed_paths={companion}
+    )
+
+    # A companion-only change needs the country-wide walk for a composition.
+    # One module of the country cannot be classified, so every composition is
+    # audited, the atomic waiver is not, and the walk is attempted once.
+    assert selection.scope == "incremental"
+    assert selection.paths == tuple(compositions)
+    for path in compositions:
+        assert selection.reasons[path] == [
+            "validation read set could not be established: "
+            "unclassifiable import 'data/terminal#value' in us-tx/statutes/odd.yaml"
+        ]
+    assert len(walks) == 1
