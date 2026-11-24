@@ -133,7 +133,43 @@ calls), and only 333 files had been parsed.
 
 ## Evidence that unselected waivers do not change
 
-@@REPLAY@@
+Three kinds of evidence support the statement above.
+
+**Real-engine invariant tests** (`tests/test_validation_waiver_incremental_invariant.py`,
+CI job `real-engine`). They build small repositories, run the full audit
+before and after an edit, and require every waiver whose verdict changed to be
+selected. The edits include an applied manifest alone, and a new module with
+its companion and manifest in a state, in a sibling state and in the federal
+jurisdiction.
+
+**A resolver comparison** (`tests/test_validation_waiver_scope_signed_pr.py`).
+The shared graph's closure is compared with a closure built from the
+validator's own resolver functions, and its import candidates with the
+validator's candidates for prefixed, unprefixed, absent and refused spellings.
+
+**A fingerprint replay on `rulespec-us`.** The replay computes fingerprints
+without the audit's ledger comparison, with the module-level entry point the
+audit's workers use, and compares two trees.
+
+The head tree is `rulespec-us` main at `25ddba37`. A base tree is that tree
+with the module, companion and manifest files of past pull requests put back to
+their state before each pull request: a file the pull request added is removed,
+a file it changed is restored. 80 merged pull requests with one to five changed
+module files are used, in 44 states, each with files that main still holds
+unchanged. They are split by state into two groups. One base tree reverts
+group A, one reverts group B and one reverts both.
+
+For each base tree the selector runs on the head tree with the reverted paths
+as the changed paths. Every replayed waiver outside that selection must have
+the same fingerprint in both trees. The waivers of a group's own states are
+inside its selection, so they are replayed against the other group's tree.
+
+Two more base trees test one class of change each: main with no applied
+manifest at all, and main with only the companions of the 80 pull requests
+reverted.
+
+The fingerprints use encoder main, the engine and corpus release that
+`rulespec-us` pins, and no composer.
 
 ## Limit: composition waivers
 
