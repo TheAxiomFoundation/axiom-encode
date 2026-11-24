@@ -238,8 +238,8 @@ citation of every unit of the candidate.
 ```
 
 - The `citation` and `replace_rulespec_path` inputs name one of the units. Any
-  one; they do not order or select anything. The commit message and the
-  title of the lane pull request show that one citation.
+  one; they do not order or select anything. The commit message, the lane
+  pull request and the run's artifact name every unit.
 - The preflight maps each citation to its canonical path and writes a batch
   selector with the units in path order.
 - The admission reads the live change set of the pull request at the exact
@@ -355,15 +355,19 @@ From the independent review of this lane. Each item is necessary; the state is
 of this document's commit.
 
 1. **Import refusal through the real resolver.** Done (above).
-2. **Workflow packaging.** Not done here. `targeted-signed-reencode.yml`
-   records one of the `k` manifests: it expects the citation of the `citation`
-   input only, skips manifests of other citations, requires exactly one
-   manifest for that citation, and runs the tool and exact-ref check and
-   writes `context-manifest.json` for it alone. The commit message, the title
-   and body of the lane pull request and `metadata.json` name that one
-   citation. The packaging must expect, check and record all `k` manifests, or
-   fail closed on a manifest of an unexpected citation. It is a separate
-   change to the workflow.
+2. **Workflow packaging.** Done in `targeted-signed-reencode.yml`. For a run
+   that names its units, the packaging step expects one changed manifest per
+   unit at the unit's canonical position and nothing else: a manifest of an
+   unnamed unit, a missing manifest, a deleted manifest, or a manifest whose
+   citation is not its unit's fails the run. Every unit gets the tool and
+   exact-ref check and the check that its manifest covers exactly its own
+   pair. `apply-manifests.json` lists every manifest in path order. The unit
+   of the `citation` input keeps `context-manifest.json`; each other unit
+   gets `promotion-unit-NN-context-manifest.json`. The one commit, the title
+   and body of the lane pull request and `metadata.json` (`promotion_units`)
+   name every unit. A run without a unit list packages as before; it still
+   ignores a manifest of another citation. Tested by running the workflow's
+   embedded code; not yet run on a hosted runner (item 3).
 3. **A hosted canary batch** on a real candidate. No hosted run of a batch has
    been made.
 4. **An engine-level check** that the other, still unsigned, units in the
