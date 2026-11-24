@@ -246,13 +246,53 @@ def shadow_summary_line(record: Mapping[str, Any]) -> str:
     return "; ".join(parts)
 
 
+def _same_file(first: Path, second: Path) -> bool:
+    """Whether two existing paths are one file (device and inode)."""
+
+    try:
+        return os.path.samefile(first, second)
+    except (OSError, ValueError):
+        return False
+
+
+def path_is_within(path: Path, container: Path) -> bool:
+    """Whether ``path`` is ``container`` or lies inside it, by file identity.
+
+    Names are not compared, so a case-insensitive filesystem or another
+    spelling of the same directory cannot hide the containment. A path that
+    does not exist yet is judged by its existing ancestors. The resolved path
+    is walked (links followed, `link/..` taken physically, as a write would).
+    """
+
+    candidate = Path(path).absolute().resolve()
+    for ancestor in (candidate, *candidate.parents):
+        if _same_file(ancestor, container):
+            return True
+    return False
+
+
+def same_output_path(first: Path, second: Path) -> bool:
+    """Whether two output paths name one file.
+
+    Two existing paths are compared by identity; otherwise the resolved
+    paths are compared without case, which is conservative on a
+    case-sensitive filesystem.
+    """
+
+    first, second = Path(first), Path(second)
+    if first.exists() and second.exists():
+        return _same_file(first, second)
+    return str(first.resolve()).casefold() == str(second.resolve()).casefold()
+
+
 def shadow_output_path_issue(
     path: Path, *, root: Path | None, inputs: Iterable[Path] = ()
 ) -> str | None:
     """Return why the shadow may not write to ``path``, or None.
 
-    The shadow must never overwrite a file of the checked repository or one of
-    the audit's own inputs, and never follow a symbolic link.
+    The shadow must never overwrite a file of the checked repository or of
+    any input of the audit (files or directories), and never follow a
+    symbolic link.
     """
 
     path = Path(path)
@@ -261,15 +301,12 @@ def shadow_output_path_issue(
             return f"{path} is a symbolic link"
         if path.exists() and not path.is_file():
             return f"{path} exists and is not a regular file"
-        resolved = path.resolve()
-        if root is not None:
-            resolved_root = Path(root).resolve()
-            if resolved == resolved_root or resolved_root in resolved.parents:
-                return f"{path} is inside the checked repository"
+        if root is not None and path_is_within(path, Path(root)):
+            return f"{path} is inside the checked repository"
         for value in inputs:
-            if resolved == Path(value).resolve():
-                return f"{path} is an input of the audit"
-    except OSError as error:
+            if path_is_within(path, Path(value)):
+                return f"{path} is, or is inside, an input of the audit: {value}"
+    except (OSError, ValueError) as error:
         return f"{path} cannot be checked: {error}"
     return None
 

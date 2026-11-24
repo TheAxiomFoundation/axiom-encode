@@ -362,7 +362,8 @@ selection's scope, size, fallback reason and time in seconds. Every record,
 also an `inconclusive` one written after the audit raised, holds `partition`
 (`key` and `count`; `{"key": null, "count": 1}` for an unpartitioned audit) and
 `binding`: the encoder version, the head commit of the `--root` checkout when
-`git` can read it, `GITHUB_SHA` when set, and the SHA-256 of the protected base
+`git` can read it (run with no `GIT_*` variable, and only when the checkout's
+top level is `--root` itself; otherwise `null`), `GITHUB_SHA` when set, and the SHA-256 of the protected base
 ledger and of the changed-path file.
 
 A run that is interrupted or killed (for example by a step timeout) writes no
@@ -370,16 +371,22 @@ record, and the option does not catch an interrupt to change the exit code. So
 a collector must require exactly one record per partition, with the expected
 binding, and treat a missing, duplicate or unbound record as unsafe.
 
-The option refuses an output path inside the `--root` checkout, equal to the
-protected base ledger or the changed-path file, or that exists as a symbolic
-link or as anything but a regular file. Then it writes no file, and the
+The option refuses an output path that is, or is inside, the `--root`
+checkout or any other path input of the audit (protected base ledger,
+changed-path file, `--corpus-path`, `--axiom-rules-engine-path`,
+`--axiom-compose-path`, every `--rulespec-dependency-root`), or that exists as
+a symbolic link or as anything but a regular file. Containment and equality are
+decided by file identity (device and inode) over the resolved path and its
+existing ancestors, not by names, so another spelling on a case-insensitive
+filesystem, a hard link or `link/..` cannot pass. Then it writes no file, and the
 `inconclusive` record goes only to standard error. The record is written to a
 temporary file created exclusively in the same directory, then renamed. When
 the write fails, a record of this schema left at the path by an earlier run
 is removed, and no other file. A workflow should still use a fresh path per
 run, for example under `$RUNNER_TEMP`.
 `--incremental-shadow-summary` requires `--incremental-shadow-report` and a
-different path.
+different file (by identity when both exist, otherwise by resolved path
+without case).
 `--incremental-shadow-summary <file>` appends one Markdown line to a file, for
 example `$GITHUB_STEP_SUMMARY` (the signing supervisor does not pass that
 variable to the audit, so the workflow passes the path). The same summary line

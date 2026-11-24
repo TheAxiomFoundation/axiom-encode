@@ -606,6 +606,7 @@ from .validation_waiver_shadow import (
     append_shadow_summary,
     compare_incremental_shadow,
     remove_stale_shadow_record,
+    same_output_path,
     shadow_output_path_issue,
     shadow_summary_line,
     write_shadow_record,
@@ -4582,9 +4583,8 @@ def main():
             parser.error(
                 "--incremental-shadow-summary requires --incremental-shadow-report"
             )
-        if (
-            shadow_summary is not None
-            and Path(shadow_summary).resolve() == Path(shadow_report).resolve()
+        if shadow_summary is not None and same_output_path(
+            Path(shadow_summary), Path(shadow_report)
         ):
             parser.error(
                 "--incremental-shadow-summary and --incremental-shadow-report "
@@ -6294,6 +6294,18 @@ def _cmd_validation_waivers_audit(args) -> int:
     return 0 if report["success"] else 1
 
 
+# Every path-typed input of `validation-waivers audit` besides `--root` and the
+# shadow outputs. The shadow never writes to, or inside, any of them.
+_VALIDATION_WAIVER_AUDIT_PATH_INPUTS = (
+    "protected_base",
+    "changed_paths",
+    "corpus_path",
+    "axiom_rules_path",
+    "axiom_compose_path",
+    "rulespec_dependency_root",
+)
+
+
 def _validation_waiver_shadow_partition(args) -> dict[str, Any]:
     """The partition a shadow record belongs to, from the arguments alone."""
 
@@ -6325,23 +6337,26 @@ def _validation_waiver_shadow_binding(args) -> dict[str, Any]:
     root = getattr(args, "root", None)
     if root is not None:
         try:
+            # No GIT_* variable (GIT_DIR, GIT_WORK_TREE, ...) may point the
+            # probe at another repository.
             completed = subprocess.run(
                 ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"],
                 capture_output=True,
-                text=True,
                 timeout=30,
                 check=False,
+                env={"PATH": os.environ.get("PATH", os.defpath)},
             )
-            lines = completed.stdout.splitlines()
+            lines = completed.stdout.decode("utf-8").splitlines()
             # Only the root's own checkout counts, never an enclosing one.
             if (
                 completed.returncode == 0
                 and len(lines) == 2
-                and Path(lines[0]).resolve() == Path(root).resolve()
+                and os.path.samefile(lines[0], root)
                 and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", lines[1])
             ):
                 head_commit = lines[1]
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # UnicodeDecodeError is a ValueError. Only head_commit is lost.
             head_commit = None
     return {
         "encoder_version": __version__,
@@ -6415,14 +6430,11 @@ def _validation_waiver_incremental_shadow(
     # Never write into the checked repository, over an input of the audit,
     # or through a symbolic link. A refused path leaves the record in the log.
     root = getattr(args, "root", None)
-    inputs = [
-        Path(value)
-        for value in (
-            getattr(args, "protected_base", None),
-            getattr(args, "changed_paths", None),
-        )
-        if value is not None
-    ]
+    inputs: list[Path] = []
+    for name in _VALIDATION_WAIVER_AUDIT_PATH_INPUTS:
+        value = getattr(args, name, None)
+        values = value if isinstance(value, (list, tuple)) else [value]
+        inputs.extend(Path(item) for item in values if item is not None)
     refused: list[str] = []
     try:
         for target in (record_path, summary_path):

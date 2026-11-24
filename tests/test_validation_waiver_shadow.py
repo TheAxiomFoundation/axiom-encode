@@ -626,13 +626,13 @@ def _parsed_audit_args(monkeypatch, tmp_path, *extra):
         "--root",
         str(tmp_path / "absent"),
         "--corpus-path",
-        str(tmp_path),
+        str(tmp_path / "corpus"),
         "--protected-base",
         str(tmp_path / "base.yaml"),
         "--changed-paths",
         str(tmp_path / "changed.txt"),
         "--axiom-rules-engine-path",
-        str(tmp_path),
+        str(tmp_path / "engine"),
         *extra,
     ]
     monkeypatch.setattr(sys, "argv", argv)
@@ -999,6 +999,15 @@ def test_failed_write_removes_only_an_earlier_record(audit_repo, capsys, tmp_pat
             ],
             "different files",
         ),
+        (
+            [
+                "--incremental-shadow-report",
+                "R.json",
+                "--incremental-shadow-summary",
+                "r.json",
+            ],
+            "different files",
+        ),
     ],
 )
 def test_shadow_argument_misuse_is_an_argument_error(
@@ -1010,3 +1019,235 @@ def test_shadow_argument_misuse_is_an_argument_error(
 
     assert exit_info.value.code == 2
     assert message in capsys.readouterr().err
+
+
+# Review round 2: identity instead of names, every path input, the Git probe.
+
+
+def _case_insensitive(directory: Path) -> bool:
+    probe = directory / "case-probe"
+    probe.write_text("")
+    try:
+        return (directory / "CASE-PROBE").exists()
+    finally:
+        probe.unlink()
+
+
+def test_other_spellings_of_the_root_and_inputs_are_refused(
+    audit_repo, capsys, tmp_path
+):
+    ledger = audit_repo.root / "known-validation-gaps.yaml"
+    before = (ledger.read_bytes(), audit_repo.base_file.read_bytes())
+    alias = tmp_path / "alias"
+    alias.symlink_to(audit_repo.root, target_is_directory=True)
+    hard_link = tmp_path / "hard-link-to-base.json"
+    os.link(audit_repo.base_file, hard_link)
+
+    _assert_refused(
+        audit_repo, capsys, alias / "record.json", reason="inside the checked"
+    )
+    _assert_refused(audit_repo, capsys, hard_link, reason="input of the audit")
+    if _case_insensitive(tmp_path):
+        upper_root = Path(str(audit_repo.root).upper())
+        _assert_refused(
+            audit_repo,
+            capsys,
+            upper_root / "known-validation-gaps.yaml",
+            reason="inside the checked",
+        )
+        _assert_refused(
+            audit_repo,
+            capsys,
+            audit_repo.base_file.with_name(audit_repo.base_file.name.upper()),
+            reason="input of the audit",
+        )
+
+    assert (ledger.read_bytes(), audit_repo.base_file.read_bytes()) == before
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "corpus_path",
+        "axiom_rules_path",
+        "axiom_compose_path",
+        "rulespec_dependency_root",
+    ],
+)
+def test_paths_inside_any_audit_input_are_refused(audit_repo, capsys, tmp_path, name):
+    directory = tmp_path / name
+    directory.mkdir()
+    original = cli._cmd_validation_waivers_audit
+
+    def audit_with_input(args):
+        setattr(
+            args,
+            name,
+            [directory] if name == "rulespec_dependency_root" else directory,
+        )
+        return original(args)
+
+    with (
+        patch.object(cli, "_cmd_validation_waivers_audit", audit_with_input),
+        patch.object(cli, "_resolve_optional_axiom_compose_path", return_value=None),
+        patch.object(cli, "_rulespec_dependency_roots_from_args", return_value=()),
+    ):
+        _assert_refused(
+            audit_repo, capsys, directory / "record.json", reason="input of the audit"
+        )
+    assert list(directory.iterdir()) == []
+
+
+def test_every_path_argument_of_the_audit_is_protected(tmp_path, monkeypatch):
+    """A new path-typed audit argument must be added to the protected inputs."""
+
+    import argparse
+
+    captured = []
+    original = argparse.ArgumentParser.parse_args
+
+    def capture(self, *args, **kwargs):
+        captured.append(self)
+        return original(self, *args, **kwargs)
+
+    with patch.object(argparse.ArgumentParser, "parse_args", capture):
+        _parsed_audit_args(monkeypatch, tmp_path)
+
+    def subparser(parser, name):
+        for action in parser._actions:
+            if (
+                isinstance(action, argparse._SubParsersAction)
+                and name in action.choices
+            ):
+                return action.choices[name]
+        raise AssertionError(name)
+
+    audit = subparser(subparser(captured[0], "validation-waivers"), "audit")
+    path_arguments = {action.dest for action in audit._actions if action.type is Path}
+    shadow_outputs = {"incremental_shadow_report", "incremental_shadow_summary"}
+    assert path_arguments - shadow_outputs - {"root"} == set(
+        cli._VALIDATION_WAIVER_AUDIT_PATH_INPUTS
+    )
+
+
+def _git(cwd: Path, *arguments: str) -> str:
+    import subprocess
+
+    environment = {
+        "PATH": os.environ.get("PATH", os.defpath),
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.invalid",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.invalid",
+    }
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=cwd,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _repository(path: Path) -> str:
+    path.mkdir(parents=True, exist_ok=True)
+    _git(path, "init", "-q")
+    _git(path, "commit", "-q", "--allow-empty", "-m", path.name)
+    return _git(path, "rev-parse", "HEAD")
+
+
+def _binding(root: Path, tmp_path: Path):
+    from types import SimpleNamespace
+
+    return cli._validation_waiver_shadow_binding(
+        SimpleNamespace(
+            root=root,
+            protected_base=tmp_path / "absent-base",
+            changed_paths=tmp_path / "absent-changed",
+        )
+    )
+
+
+def test_head_commit_is_the_roots_own_checkout_only(tmp_path, monkeypatch):
+    own = tmp_path / "own"
+    own_head = _repository(own)
+    other_head = _repository(tmp_path / "other")
+    outer = tmp_path / "outer"
+    _repository(outer)
+    nested = outer / "rulespec-us"
+    nested.mkdir()
+
+    assert _binding(own, tmp_path)["head_commit"] == own_head
+    # A root inside another checkout has no commit of its own.
+    assert _binding(nested, tmp_path)["head_commit"] is None
+
+    # GIT_DIR and GIT_WORK_TREE must not redirect the probe.
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "other" / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(tmp_path / "other"))
+    assert _binding(own, tmp_path)["head_commit"] == own_head
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert _binding(plain, tmp_path)["head_commit"] is None
+    assert other_head != own_head
+
+
+def test_undecodable_git_output_loses_only_the_head_commit(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("GITHUB_SHA", "f" * 40)
+    with patch.object(
+        cli.subprocess,
+        "run",
+        return_value=SimpleNamespace(returncode=0, stdout=b"\xff\xfe\n" + b"a" * 40),
+    ):
+        binding = _binding(tmp_path, tmp_path)
+
+    assert binding["head_commit"] is None
+    assert binding["encoder_version"] == cli.__version__
+
+
+def test_record_carries_github_sha(audit_repo, capsys, tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_SHA", "a" * 40)
+    _run_with_paths(
+        audit_repo, capsys, tmp_path / "record.json", changed=[audit_repo.paths[0]]
+    )
+
+    record = json.loads((tmp_path / "record.json").read_text())
+    assert record["binding"]["github_sha"] == "a" * 40
+
+
+def test_dot_dot_through_a_link_is_judged_by_the_filesystem(
+    audit_repo, capsys, tmp_path
+):
+    """`link/..` names the link target's parent, not the link's directory."""
+
+    statutes = audit_repo.root / "us-ca" / "statutes"
+    link = tmp_path / "statutes-link"
+    link.symlink_to(statutes, target_is_directory=True)
+    sneaky = link / ".." / "record.json"
+
+    _assert_refused(audit_repo, capsys, sneaky, reason="inside the checked")
+    assert not (audit_repo.root / "us-ca" / "record.json").exists()
+
+
+def test_two_names_of_one_file_are_the_same_output(tmp_path, capsys, monkeypatch):
+    report = tmp_path / "report.json"
+    report.write_text("")
+    summary = tmp_path / "summary.md"
+    os.link(report, summary)
+
+    with pytest.raises(SystemExit) as exit_info:
+        _parsed_audit_args(
+            monkeypatch,
+            tmp_path,
+            "--incremental-shadow-report",
+            str(report),
+            "--incremental-shadow-summary",
+            str(summary),
+        )
+
+    assert exit_info.value.code == 2
+    assert "different files" in capsys.readouterr().err
