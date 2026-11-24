@@ -1,3 +1,8 @@
+## 0.2.2392
+
+- Make the incremental waiver audit usable for signed encoder pull requests (#2322)
+- Record the generalist review of each model apply and add opt-in --require-review (#2229)
+
 ## 0.2.2391
 
 - Admit signed promotions on enrolled-owner dispatch, without a per-candidate owner approval (#2301) (#2317)
