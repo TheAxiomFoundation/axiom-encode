@@ -61,6 +61,34 @@ def unit_files(units) -> list[str]:
     return [p for _c, path in units for p in (path, companion(path))]
 
 
+# A promotable primary carries its citation and a 64-hex source pin in the
+# plain block form (#2323); every unit's primary is checked for its own pin.
+PIN = "d" * 64
+
+
+def pinned_primary(citation: str) -> bytes:
+    return (
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {citation}\n"
+        f"    source_sha256: {PIN}\n"
+        "rules: []\n"
+    ).encode()
+
+
+def fixture_bytes(path: str) -> bytes:
+    """The bytes of a candidate file: a pinned primary, else fixture text."""
+    if path.endswith(".yaml") and not path.endswith(".test.yaml"):
+        prefix = "us-az/policies/des/faa5/medical/"
+        if path.startswith(prefix):
+            return pinned_primary(
+                "us-az/manual/des/faa5/medical/"
+                + path.removeprefix(prefix).removesuffix(".yaml")
+            )
+    return ("fixture " + path).encode()
+
+
 def blob_sha(path: str) -> str:
     return hashlib.sha1(path.encode()).hexdigest()
 
@@ -147,8 +175,9 @@ def make_api(units, *, extra=()) -> dict:
             ],
         },
     }
+    pinned = {path: pinned_primary(cited) for cited, path in units}
     for path in unit_files(units):
-        raw = ("fixture " + path).encode()
+        raw = pinned.get(path) or fixture_bytes(path)
         api[f"{ROOT}/contents/{path}?ref={HEAD}"] = {
             "type": "file",
             "path": path,
@@ -313,7 +342,7 @@ def test_the_switch_does_not_change_a_single_unit_admission(monkeypatch, name):
 def test_single_unit_admission_keeps_its_exact_shape(approval_required):
     result = verify_reviewed_pr(single(unit(1)), fetch=Reads(make_api([unit(1)])))
     assert result["record"]["binding"]["companion_sha256"] == (
-        hashlib.sha256(("fixture " + companion(unit(1)[1])).encode()).hexdigest()
+        hashlib.sha256(fixture_bytes(companion(unit(1)[1]))).hexdigest()
     )
     evidence = "approvals" if approval_required else "dispatcher"
     assert list(result) == [
@@ -365,10 +394,10 @@ def test_a_batch_admits_one_record_per_unit_equal_to_a_single_admission(on, coun
         assert record == alone["record"]
         assert json.dumps(record) == json.dumps(alone["record"])
         assert record["binding"]["rulespec_sha256"] == (
-            hashlib.sha256(("fixture " + target[1]).encode()).hexdigest()
+            hashlib.sha256(fixture_bytes(target[1])).hexdigest()
         )
         assert record["binding"]["companion_sha256"] == (
-            hashlib.sha256(("fixture " + companion(target[1])).encode()).hexdigest()
+            hashlib.sha256(fixture_bytes(companion(target[1]))).hexdigest()
         )
         for field in ("workflow_commit", "admission_basis"):
             assert result[field] == alone[field]

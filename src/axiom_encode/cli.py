@@ -10855,6 +10855,16 @@ def cmd_promote_reviewed_candidate(args):
             raise ValueError(
                 "run-scoped reviewed PR admission does not match this operation"
             )
+        if batch and review_record_target is not None and len(selector.units) > 1:
+            # The record file holds the record of one unit (schema
+            # PROMOTION_REVIEW_RECORD_SCHEMA). A batch of several units needs
+            # a list form that does not exist yet: refuse it before any
+            # validation, review or signature.
+            raise ValueError(
+                "promote-reviewed-candidate --review-record-file: the review "
+                "record file holds one record; a batch needs the list form, "
+                f"see issue #2319 (this batch names {len(selector.units)} units)"
+            )
         revalidate_admission(live_admission)
         if batch:
             unit_targets = list(selector.units)
@@ -11029,6 +11039,7 @@ def cmd_promote_reviewed_candidate(args):
                     (
                         unit["source_attestation"],
                         unit["validation_execution"],
+                        unit["normalized_source"],
                     ) = _validate_reviewed_candidate_unit(
                         repo_path=repo_path,
                         citation=unit["citation"],
@@ -11053,36 +11064,41 @@ def cmd_promote_reviewed_candidate(args):
                         ),
                     )
 
-            # Validation is complete. The reviewer runs after it and before
-            # the admission is revalidated and any signature is requested.
+            # Validation of every unit is complete. The reviewer runs after it
+            # and before the admission is revalidated and any signature is
+            # requested: one review per unit, in unit order, each on the exact
+            # bytes that unit's manifest signs. The first unit without a
+            # passed review stops the batch; no unit is signed.
             if _promotion_requires_review(args):
-                review_record = _promotion_generalist_review_record(
-                    source_text=normalized_source,
-                    cwd=content_root,
-                    applied=before,
-                    rulespec_relative=rulespec_relative,
-                )
-                print(
-                    "reviewed candidate generalist review: "
-                    + json.dumps(review_record, sort_keys=True)
-                )
-                if review_record_target is not None:
-                    _write_promotion_review_record(
-                        review_record_target,
-                        args=args,
-                        reviewed_ref=reviewed_ref,
-                        review_record=review_record,
-                    )
-                if review_requirement_refusal(review_record) is not None:
-                    reason = review_record.get("reason")
-                    raise RuntimeError(
-                        "reviewed candidate promotion requires a passed "
-                        "generalist review of every promoted file "
-                        "(--require-review) and has none: status "
-                        f"{review_record.get('status')}"
-                        + (f" ({reason})" if reason else "")
-                        + ". Nothing was signed."
-                    )
+                for unit in units:
+                    with unit_scope(unit["target"]):
+                        review_record = _promotion_generalist_review_record(
+                            source_text=unit["normalized_source"],
+                            cwd=repo_path / unit["rulespec_relative"].parts[0],
+                            applied=unit["before"],
+                            rulespec_relative=unit["rulespec_relative"],
+                        )
+                        print(
+                            "reviewed candidate generalist review: "
+                            + json.dumps(review_record, sort_keys=True)
+                        )
+                        if review_record_target is not None:
+                            _write_promotion_review_record(
+                                review_record_target,
+                                args=args,
+                                reviewed_ref=reviewed_ref,
+                                review_record=review_record,
+                            )
+                        if review_requirement_refusal(review_record) is not None:
+                            reason = review_record.get("reason")
+                            raise RuntimeError(
+                                "reviewed candidate promotion requires a passed "
+                                "generalist review of every promoted file "
+                                "(--require-review) and has none: status "
+                                f"{review_record.get('status')}"
+                                + (f" ({reason})" if reason else "")
+                                + ". Nothing was signed."
+                            )
             axiom_encode_git = _require_clean_axiom_encode_git_provenance()
             for unit in units:
                 before = unit["before"]
@@ -11231,11 +11247,13 @@ def _validate_reviewed_candidate_unit(
     axiom_compose_path: Path | None,
     dependency_roots,
     isolate_from: Sequence[Path] = (),
-) -> tuple[dict, dict]:
+) -> tuple[dict, dict, str]:
     """Rerun complete-source validation of one reviewed unit's exact bytes.
 
     Returns the unit's source attestation and validation execution: what its
-    signed manifest records. It writes nothing to the checkout.
+    signed manifest records. It also returns the normalized source text that
+    the validation read, for the generalist review of the unit
+    (``--require-review``). It writes nothing to the checkout.
 
     ``isolate_from`` names the checkout-relative files of the other units of
     a multi-unit promotion. They are removed from the temporary validation
@@ -11368,7 +11386,7 @@ def _validate_reviewed_candidate_unit(
             raise RuntimeError(
                 "reviewed candidate validation lacks execution provenance"
             )
-    return source_attestation, validation_execution
+    return source_attestation, validation_execution, normalized_source
 
 
 def cmd_signed_import_inventory(args):

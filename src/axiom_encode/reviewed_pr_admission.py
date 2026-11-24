@@ -1124,7 +1124,24 @@ def verify_reviewed_pr(
     # Under both admission bases: a candidate without the source pin fails the
     # protected binding check after the signing approval (signing run
     # 45328443323). Refuse it here, before the admission exists.
-    require_candidate_source_pin(contents[selector.rulespec_path], selector.citation)
+    if batch:
+        # Every unit of a batch carries its own pin, checked against its own
+        # citation, in unit order; the refusal names the unit.
+        for unit in units:
+            try:
+                require_candidate_source_pin(
+                    contents[unit.rulespec_path], unit.citation
+                )
+            except AdmissionError as exc:
+                error = AdmissionError(
+                    f"unit {unit.citation} ({unit.rulespec_path}): {exc}"
+                )
+                error.detail = getattr(exc, "detail", str(exc))  # type: ignore[attr-defined]
+                raise error from exc
+    else:
+        require_candidate_source_pin(
+            contents[selector.rulespec_path], selector.citation
+        )
 
     # Refuse changes during the API sequence rather than carrying an old
     # approval across a new head/base. Before signing and publication, recheck

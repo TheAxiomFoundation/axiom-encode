@@ -10,6 +10,15 @@ reviewed-candidate promotion it reads the candidate primary at the exact
 ``rulespec_ref`` and refuses when the pin is missing or malformed. Every other
 dispatch passes untouched.
 
+A multi-unit promotion (docs/reviewed-pr-promotion.md, "Several units in one
+candidate") names its units in the ``units`` list of the wrapper. The list is
+read only while ``MULTI_UNIT_PROMOTION_ENABLED`` is on, as the wrapper's own
+parser reads it; with the switch off a wrapper with ``units`` is refused here,
+as the protected job refuses it. Each unit's primary sits at the canonical path
+of its citation (the resolver of ``axiom_encode.rulespec_citation_paths``, read
+from this checkout) and is read and checked as the one primary of a single-unit
+promotion is; the first unit without its pin refuses the whole dispatch.
+
 It is an early refusal, not the binding check. The read is the strict line read
 of ``axiom_encode.reviewed_pr_admission`` (plain block form only; any other
 shape refuses), and it knows neither the corpus nor the right digest. The
@@ -37,7 +46,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 PROMOTION_SCHEMA = "axiom-encode/reviewed-pr-promotion/v1"
 MAX_MODULE_BYTES = 10 * 1024 * 1024
@@ -48,20 +57,94 @@ class CandidateReadError(Exception):
     """The candidate primary could not be read at the exact ref."""
 
 
-def _admission_module():
-    path = (
-        Path(__file__).resolve().parents[1]
-        / "src"
-        / "axiom_encode"
-        / "reviewed_pr_admission.py"
-    )
-    spec = importlib.util.spec_from_file_location("_source_pin_admission", path)
+def _load_source_module(name: str, module_name: str):
+    path = Path(__file__).resolve().parents[1] / "src" / "axiom_encode" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
-        raise RuntimeError("could not load axiom_encode.reviewed_pr_admission")
+        raise RuntimeError(f"could not load axiom_encode.{name}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _admission_module():
+    return _load_source_module("reviewed_pr_admission", "_source_pin_admission")
+
+
+def _citation_paths_module():
+    """``axiom_encode.rulespec_citation_paths`` without the package.
+
+    Both it and the one module it imports, ``axiom_encode.statute``, import
+    only the standard library. ``statute`` is registered under its package
+    name, so the absolute import of ``rulespec_citation_paths`` finds it and
+    the package itself is never imported.
+    """
+    statute = sys.modules.get("axiom_encode.statute")
+    if statute is None:
+        _load_source_module("statute", "axiom_encode.statute")
+    return _load_source_module(
+        "rulespec_citation_paths", "_source_pin_rulespec_citation_paths"
+    )
+
+
+def unit_primary_path(citation: str, paths=None) -> str:
+    """The canonical primary path of one unit, or refuse.
+
+    The rule of ``prepare_signed_backfill.citation_rulespec_path``, which the
+    protected job applies to every unit: the jurisdiction, then the
+    resolver's path under one of the atomic RuleSpec roots.
+    """
+    paths = paths or _citation_paths_module()
+    jurisdiction, separator, _remainder = citation.partition("/")
+    try:
+        if not separator:
+            raise ValueError("no jurisdiction")
+        relative = PurePosixPath(paths._resolve_eval_output_path(citation).as_posix())
+    except ValueError as exc:
+        raise CandidateReadError(
+            f"unit {citation} does not resolve to a canonical RuleSpec path"
+        ) from exc
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or len(relative.parts) < 2
+        or relative.parts[0] not in paths.RULESPEC_ATOMIC_ROOTS
+        or relative.suffix != ".yaml"
+    ):
+        raise CandidateReadError(
+            f"unit {citation} does not resolve to a canonical RuleSpec path"
+        )
+    return (PurePosixPath(jurisdiction) / relative).as_posix()
+
+
+def promotion_units(source_bundle_json: str, admission) -> list[str]:
+    """The unit citations of a promotion wrapper that carries ``units``.
+
+    Mirrors the wrapper's parser: the ``units`` key exists only while the
+    multi-unit switch is on, so with it off the key refuses. The list must be
+    the distinct exact citations the admission could accept.
+    """
+    outer = json.loads(source_bundle_json)
+    if admission.MULTI_UNIT_PROMOTION_ENABLED is not True:
+        raise CandidateReadError(
+            "the dispatch names promotion units, but multi-unit promotion is "
+            "switched off"
+        )
+    units = outer["units"]
+    limit = admission.MAX_PROMOTION_UNITS
+    if (
+        not isinstance(units, list)
+        or type(limit) is not int
+        or not 1 <= len(units) <= limit
+        or any(not isinstance(unit, str) or not _exact_path(unit) for unit in units)
+        or len(set(units)) != len(units)
+    ):
+        raise CandidateReadError(
+            "the promotion units are not a list of at most "
+            f"{limit} distinct exact citations"
+        )
+    return units
 
 
 def is_promotion_request(source_bundle_json: str) -> bool:
@@ -155,11 +238,16 @@ def evaluate(
     *,
     fetch: Callable[[str, str, str, str], bytes] = fetch_candidate_primary,
     admission=None,
+    paths=None,
 ) -> tuple[int, str]:
     """``(exit status, message)`` for one dispatch. Status 0 lets the run go on."""
     if not is_promotion_request(environment.get("SOURCE_BUNDLE_JSON", "")):
         return 0, "source-pin: not a reviewed-candidate promotion; nothing to check."
     admission = admission or _admission_module()
+    if _names_units(environment["SOURCE_BUNDLE_JSON"]):
+        return _evaluate_units(
+            environment, fetch=fetch, admission=admission, paths=paths
+        )
     try:
         repository, ref, path, citation = candidate_selector(environment)
         raw = fetch(repository, ref, path, environment.get("GH_TOKEN", ""))
@@ -180,6 +268,62 @@ def evaluate(
     return 0, (
         f"source-pin: {path} at {ref} names the promotion citation and carries a "
         "source_sha256. The protected job still binds it to the corpus."
+    )
+
+
+def _names_units(source_bundle_json: str) -> bool:
+    """Whether a promotion wrapper carries the ``units`` key of a batch."""
+    return "units" in json.loads(source_bundle_json)
+
+
+def _evaluate_units(
+    environment: Mapping[str, str],
+    *,
+    fetch: Callable[[str, str, str, str], bytes],
+    admission,
+    paths,
+) -> tuple[int, str]:
+    """Check the primary of every unit of a multi-unit promotion."""
+    try:
+        repository, ref, path, citation = candidate_selector(environment)
+        units = promotion_units(environment["SOURCE_BUNDLE_JSON"], admission)
+        primaries = {unit: unit_primary_path(unit, paths) for unit in units}
+        if citation not in primaries or primaries[citation] != path:
+            raise CandidateReadError(
+                "the citation input must be one of the promotion units, with "
+                "its canonical path as replace_rulespec_path"
+            )
+    except CandidateReadError as exc:
+        return 1, (
+            "source-pin: REFUSED before the signing approval: could not read the "
+            f"candidate primaries at the exact rulespec_ref: {exc}. Nothing was "
+            "approved or signed. Check the promotion units, rulespec_ref and "
+            "replace_rulespec_path, then dispatch again."
+        )
+    # The admission's unit order: ascending primary path.
+    ordered = sorted(primaries.items(), key=lambda item: item[1])
+    for unit, unit_path in ordered:
+        label = f"unit {unit} ({unit_path})"
+        try:
+            raw = fetch(repository, ref, unit_path, environment.get("GH_TOKEN", ""))
+        except CandidateReadError as exc:
+            return 1, (
+                "source-pin: REFUSED before the signing approval: could not read "
+                f"the candidate primary of {label} at the exact rulespec_ref: "
+                f"{exc}. Nothing was approved or signed. Check the promotion "
+                "units and rulespec_ref, then dispatch again."
+            )
+        try:
+            admission.require_candidate_source_pin(raw, unit)
+        except admission.AdmissionError as exc:
+            return 1, (
+                f"source-pin: REFUSED before the signing approval: {label}: {exc}. "
+                "Nothing was approved or signed."
+            )
+    return 0, (
+        f"source-pin: the primaries of all {len(ordered)} promotion units at "
+        f"{ref} name their citations and carry a source_sha256. The protected "
+        "job still binds each to the corpus."
     )
 
 
