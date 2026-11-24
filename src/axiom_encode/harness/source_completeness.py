@@ -1440,8 +1440,14 @@ _FORMULA_APPLICABILITY_YEAR_SERIES = (
     rf"(?:from\s+)?{_FORMULA_APPLICABILITY_YEAR_SPAN}"
     rf"(?:\s*,?\s*(?:inclusive|and\s+(?:thereafter|later|onward)))?"
 )
+# An outline label that may lead a preface: the parenthesized enumerator
+# shape of `_PARENTHESIZED_OUTLINE_MARKER` (a number of at most three digits,
+# one letter or a roman numeral). A parenthetical amount such as `($9,500)` or
+# `($79)` is never a label: a currency sign, thousands separator or decimal
+# does not fit the shape.
+_FORMULA_APPLICABILITY_OUTLINE_LABEL = r"\((?:\d{1,3}[a-z]?|[a-z]|[ivxlcdm]{2,15})\)"
 _FORMULA_APPLICABILITY_PREFACE = re.compile(
-    rf"^\s*(?:(?:\([^)]+\)|[A-Z]\.)\s*)*(?:"
+    rf"^\s*(?:(?:{_FORMULA_APPLICABILITY_OUTLINE_LABEL}|[A-Z]\.)\s*)*(?:"
     rf"(?:effective\s+)?(?:for|during)\s+(?:the\s+)?"
     rf"(?:tax(?:able)?|calendar|fiscal|assessment)\s+years?\s+"
     rf"{_FORMULA_APPLICABILITY_START}\s+"

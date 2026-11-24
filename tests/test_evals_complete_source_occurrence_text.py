@@ -699,3 +699,165 @@ SWEEP_REAL_VALUES = (
 @pytest.mark.parametrize(("citation", "window", "value"), SWEEP_REAL_VALUES)
 def test_sweep_real_value_stays_demanded(citation, window, value):
     assert value in _recall_values(window, citation)
+
+
+# --- A parenthetical amount is not an outline label of a preface ---------------
+#
+# A page break can leave an amount in parentheses at a line start. The preface
+# recognizer read `($9,500)` as an outline label before `for calendar year
+# 2016`, so neither gate demanded the amount.
+PARENTHETICAL_AMOUNTS = (
+    (
+        "us-pa/guidance/dli/uc-law/page-37",
+        "the amount shall be\n($9,500) for calendar year 2016, nine thousand",
+        9500.0,
+    ),
+    (
+        "us-co/regulation/9-ccr-2503-5/3.543",
+        "maximum shall be seventy nine dollars\n($79) effective October 1, 2016.",
+        79.0,
+    ),
+)
+
+
+@pytest.mark.parametrize(("citation", "window", "value"), PARENTHETICAL_AMOUNTS)
+def test_parenthetical_amount_is_demanded_by_both_gates(citation, window, value):
+    assert value in _recall_values(window, citation)
+    assert value in _typed_unnamed(_scalar_module(citation, None), window, citation)
+    assert value not in _typed_unnamed(
+        _scalar_module(citation, value), window, citation
+    )
+
+
+@pytest.mark.parametrize(
+    ("window", "demanded"),
+    (
+        # Real outline labels still lead a preface; its start year is exempt.
+        ("(a) For taxable years beginning after 2025, the credit is $500.", [500.0]),
+        ("(iv) For taxable years beginning after 2025, the credit is $500.", [500.0]),
+        ("(12) For taxable years beginning after 2025, the credit is $500.", [500.0]),
+        # Not a label: a decimal, a thousands separator, a currency sign. The
+        # preface then does not start at the line, so its start year stays
+        # demanded as well.
+        (
+            "(1.5) For taxable years beginning after 2025, the credit is $500.",
+            [2025.0, 500.0],
+        ),
+        (
+            "(9,500) For taxable years beginning after 2025, the credit is $500.",
+            [9500.0, 2025.0, 500.0],
+        ),
+        (
+            "($79) For taxable years beginning after 2025, the credit is $500.",
+            [79.0, 2025.0, 500.0],
+        ),
+    ),
+)
+def test_preface_outline_label_shape(window, demanded):
+    assert _recall_values(window, "us/statute/26/1") == demanded
+
+
+# --- Positional bookkeeping ------------------------------------------------------
+
+
+def _legacy(text):
+    return extract_typed_numeric_inventory_occurrences_from_text(text, profile="legacy")
+
+
+def test_lost_positions_fail_closed():
+    # A step that changes the text length without the position map: the view
+    # removes nothing and demands every source number, page number included.
+    original = sc.authoritative_numeric_recall_text
+
+    def untracked_suffix(text, **kwargs):
+        return original(text, **kwargs) + " untracked"
+
+    with patch.object(sc, "authoritative_numeric_recall_text", untracked_suffix):
+        view = sc.complete_source_numeric_recall_occurrences(
+            TABLE_PAGE,
+            corpus_citation_path=GUIDANCE,
+            extract_numeric_occurrences=_legacy,
+        )
+    assert Counter(occurrence.value for occurrence in view) >= Counter(
+        occurrence.value for occurrence in _legacy(TABLE_PAGE)
+    )
+
+
+def test_untracked_in_place_mask_removes_the_number():
+    # A mask that blanks characters in place without updating the position map
+    # still removes them: positions are compared character by character.
+    original = sc._without_us_manual_locators
+
+    def blank_amount(text, **kwargs):
+        return original(text, **kwargs).replace("$1,330", "      ")
+
+    with patch.object(sc, "_without_us_manual_locators", blank_amount):
+        values = _recall_values(TABLE_PAGE)
+    assert 1330.0 not in values
+    assert 1663.0 in values
+
+
+def test_recall_demand_at_a_place_with_another_value_is_added():
+    # Where the recall reading finds a different value at the same place, the
+    # source number stays and the recall number is added.
+    import dataclasses
+
+    def shifted_recall(text):
+        occurrences = _legacy(text)
+        if text == TABLE_PAGE:
+            return occurrences
+        return [
+            dataclasses.replace(occurrence, value=occurrence.value + 0.5)
+            for occurrence in occurrences
+        ]
+
+    values = [
+        occurrence.value
+        for occurrence in sc.complete_source_numeric_recall_occurrences(
+            TABLE_PAGE,
+            corpus_citation_path=GUIDANCE,
+            extract_numeric_occurrences=shifted_recall,
+        )
+    ]
+    assert 1330.0 in values
+    assert 1330.5 in values
+
+
+@pytest.mark.parametrize(
+    "window",
+    (
+        "The rule was published at 62 FR 61344. The fee is $25.",
+        "As amended by Pub. L. No. 92-603, the fee is $25.",
+    ),
+)
+def test_us_locator_numbers_leave_the_view(window):
+    assert _recall_values(window, "us/regulation/7/273/4") == [25.0]
+
+
+@pytest.mark.parametrize(
+    ("citation", "window", "value"),
+    (
+        # The source reading drops the title number of a U.S.C./C.F.R.
+        # citation that the recall reading demands; the same value elsewhere
+        # (an age, a period, an amount) does not cover it.
+        (
+            "us-co/statute/39/39-37-103",
+            "A person under age 18 who is licensed pursuant to 18 U.S.C. sec. 921 "
+            "et seq. is exempt.",
+            18.0,
+        ),
+        (
+            "us-nc/manual/dhhs/fns/fns-260-able-bodied-adults-without-dependents/page-7",
+            "Verify within 7 days as required by 7 C.F.R. § 273.24(k).",
+            7.0,
+        ),
+        (
+            "us-nc/statute/105/105-153.5",
+            "Subtract 10 dollars; the term has the same meaning as in 10 U.S.C. "
+            "§ 101(a)(5).",
+            10.0,
+        ),
+    ),
+)
+def test_a_same_value_elsewhere_does_not_cover_a_recall_demand(citation, window, value):
+    assert _recall_values(window, citation).count(value) == 2
