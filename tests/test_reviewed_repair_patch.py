@@ -1466,12 +1466,21 @@ def test_official_origin_does_not_normalize_foreign_identity(origin):
     assert not patch._official_origin(origin, "rulespec-us")
 
 
-def _archive_fixture(tmp_path, *, metadata_change=None, duplicate=None, shell=False):
+def _archive_fixture(
+    tmp_path,
+    *,
+    metadata_change=None,
+    duplicate=None,
+    shell=False,
+    seed_change=None,
+):
     import io
     import tarfile
     from types import SimpleNamespace
 
     value = manifest()
+    if seed_change:
+        seed_change(value["seed"])
     prefix = "generated/target/final-rejected-candidate/"
     target = value["rulespec_path"].split("/", 1)[1]
     metadata = {
@@ -1650,3 +1659,49 @@ def test_invalid_repair_binding_emits_declared_issue_without_losing_refusal():
         issue_record(refused[0], gate="manifest")["check"]
         == "manifest:reviewed-repair/binding"
     )
+
+
+def test_manifest_accepts_an_executed_encoder_commit():
+    value = manifest()
+    value["seed"]["executed_encoder_commit"] = "e" * 40
+    assert patch.validate_manifest(patch.canonical_json(value), "fixture") == value
+    for bad in ("E" * 40, "e" * 39, None):
+        value["seed"]["executed_encoder_commit"] = bad
+        with pytest.raises(ValueError):
+            patch.validate_manifest(patch.canonical_json(value), "fixture")
+
+
+@pytest.mark.parametrize(
+    "seed_executed,metadata_executed,accepted",
+    [
+        # A run that signed from an older versioned commit records both.
+        ("e" * 40, "e" * 40, True),
+        # Older records name only the run head, which then is the encoder.
+        (None, None, True),
+        (None, "e" * 40, False),
+        ("e" * 40, None, False),
+        ("e" * 40, "f" * 40, False),
+    ],
+)
+def test_archive_binds_the_executed_encoder_commit(
+    tmp_path, seed_executed, metadata_executed, accepted
+):
+    def seed_change(seed):
+        if seed_executed is not None:
+            seed["executed_encoder_commit"] = seed_executed
+
+    def metadata_change(metadata):
+        if metadata_executed is not None:
+            metadata["executed_encoder_commit"] = metadata_executed
+
+    raw, package, _ = _archive_fixture(
+        tmp_path, seed_change=seed_change, metadata_change=metadata_change
+    )
+    if accepted:
+        assert (
+            patch.verify_archive_seed(raw, package, rulespec=b"rules", tests=b"tests")
+            == package.manifest["seed"]
+        )
+    else:
+        with pytest.raises(ValueError, match="metadata identity"):
+            patch.verify_archive_seed(raw, package, rulespec=b"rules", tests=b"tests")

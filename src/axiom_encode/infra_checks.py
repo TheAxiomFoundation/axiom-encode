@@ -224,10 +224,12 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
     (
         "Refuse an encoder head that no version bump covers",
         "The encoder head is not covered by a version bump",
-        "The dispatched head, or a recent commit of main's first-parent "
-        "history that carries the same signing workflow, has every encoder "
-        "change at or before the latest automatic version bump. A head-only "
-        "run (`AXIOM_SIGNING_HEAD_ONLY`) needs the head itself.",
+        "The dispatched head has every encoder change at or before the latest "
+        "automatic version bump, or the newest versioned main commit is at "
+        "most 5 merges and 4 hours behind it, every commit between is a merge, "
+        "and only versioned source, tests, docs and changelog files differ. "
+        "`AXIOM_SIGNING_HEAD_ONLY` set to anything but `false` needs the head "
+        "itself.",
         "The encoder version is assigned after merge. A run signs from the "
         "newest versioned main commit; without one it would be refused inside "
         "the protected job, after the signing approval.",
@@ -237,10 +239,9 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
     (
         "Select the versioned encoder commit",
         "No versioned encoder commit can sign this run",
-        "The dispatched head, or a recent commit of main's first-parent "
-        "history that carries the same signing workflow, has every encoder "
-        "change at or before the latest automatic version bump. A queue run "
-        "or a head-only run (`AXIOM_SIGNING_HEAD_ONLY`) needs the head itself.",
+        "The attempt-budget job's rule holds here too and selects the same "
+        "commit. A queue run, or `AXIOM_SIGNING_HEAD_ONLY` set to anything but "
+        "`false`, needs the dispatched head itself.",
         "The encoder version is assigned after merge. The run executes the "
         "newest versioned main commit, so every signed manifest names one "
         "versioned encoder state.",

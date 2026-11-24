@@ -775,7 +775,7 @@
       "fix": "Wait for the automatic encoder version bump to merge, then dispatch again from the new main head.",
       "gate": "workflow",
       "id": "infra:refuse-an-encoder-head-that-no-version-bump-covers",
-      "requires": "The dispatched head, or a recent commit of main's first-parent history that carries the same signing workflow, has every encoder change at or before the latest automatic version bump. A head-only run (`AXIOM_SIGNING_HEAD_ONLY`) needs the head itself.",
+      "requires": "The dispatched head has every encoder change at or before the latest automatic version bump, or the newest versioned main commit is at most 5 merges and 4 hours behind it, every commit between is a merge, and only versioned source, tests, docs and changelog files differ. `AXIOM_SIGNING_HEAD_ONLY` set to anything but `false` needs the head itself.",
       "severity": "important",
       "site": ".github/workflows/targeted-signed-reencode.yml:Refuse an encoder head that no version bump covers",
       "title": "The encoder head is not covered by a version bump",
@@ -847,7 +847,7 @@
       "fix": "Wait for the automatic encoder version bump to merge, then dispatch again from the new main head.",
       "gate": "workflow",
       "id": "infra:select-the-versioned-encoder-commit",
-      "requires": "The dispatched head, or a recent commit of main's first-parent history that carries the same signing workflow, has every encoder change at or before the latest automatic version bump. A queue run or a head-only run (`AXIOM_SIGNING_HEAD_ONLY`) needs the head itself.",
+      "requires": "The attempt-budget job's rule holds here too and selects the same commit. A queue run, or `AXIOM_SIGNING_HEAD_ONLY` set to anything but `false`, needs the dispatched head itself.",
       "severity": "important",
       "site": ".github/workflows/targeted-signed-reencode.yml:Select the versioned encoder commit",
       "title": "No versioned encoder commit can sign this run",
@@ -1262,6 +1262,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "2f6c646e0abf092981fb27fda02bc486adea2620f66f86c35404b35287c91f6a",
+  "registry_sha256": "b45c44f704c8293cdadbf95c9022caad6bff4647d068cfb0da2062a82c89c4f9",
   "schema": "axiom-encode/check-registry/v1"
 }

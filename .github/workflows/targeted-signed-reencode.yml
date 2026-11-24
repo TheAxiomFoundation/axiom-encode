@@ -139,6 +139,12 @@ jobs:
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The encode job reads the head-only decision and the selected encoder
+    # commit from here, never from vars itself: an environment-level variable
+    # on production-signing must not change the decision after this job.
+    outputs:
+      head_only: ${{ steps.encoder_head.outputs.head_only }}
+      encoder_commit: ${{ steps.encoder_head.outputs.encoder_commit }}
     steps:
       - name: Checkout axiom-encode
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -157,18 +163,26 @@ jobs:
       # count the run. Refusing it here skips the encode job instead: no
       # approval is used and enforce_attempt_budget.py treats the run as
       # neutral. The same rule as the encode job's selection step.
+      # AXIOM_SIGNING_HEAD_ONLY fails closed: unset, empty or exactly `false`
+      # allow the newest versioned commit; any other value forces the head.
       - name: Refuse an encoder head that no version bump covers
+        id: encoder_head
         env:
-          HEAD_ONLY: ${{ vars.AXIOM_SIGNING_HEAD_ONLY == 'true' }}
+          HEAD_ONLY_SETTING: ${{ vars.AXIOM_SIGNING_HEAD_ONLY }}
         run: |
           set -euo pipefail
           head_only=()
-          if [ "$HEAD_ONLY" = "true" ]; then
+          if [ -n "$HEAD_ONLY_SETTING" ] && [ "$HEAD_ONLY_SETTING" != "false" ]; then
             head_only+=(--head-only)
+            echo "head_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "head_only=false" >> "$GITHUB_OUTPUT"
           fi
-          python3 -I "$GITHUB_WORKSPACE/axiom-encode/src/axiom_encode/version_provenance.py" \
+          encoder_commit="$(python3 -I "$GITHUB_WORKSPACE/axiom-encode/src/axiom_encode/version_provenance.py" \
             signing-commit --repo "$GITHUB_WORKSPACE/axiom-encode" --ref "$GITHUB_SHA" \
-            ${head_only[@]+"${head_only[@]}"}
+            ${head_only[@]+"${head_only[@]}"})"
+          echo "encoder_commit=$encoder_commit" >> "$GITHUB_OUTPUT"
+          echo "Encoder commit for this run: $encoder_commit (head $GITHUB_SHA)"
 
       # A reviewed-candidate promotion signs the candidate bytes as they are.
       # A primary without the source pin fails the protected binding check,
@@ -312,17 +326,20 @@ jobs:
       # run is exactly a run of that commit; every later step uses its code,
       # and the provisioner proves the choice again from root-owned history
       # (--workflow-commit). A queue run keeps the old rule: its finalizer
-      # binds the signed artifact to the run head. AXIOM_SIGNING_HEAD_ONLY=true
+      # binds the signed artifact to the run head. A set AXIOM_SIGNING_HEAD_ONLY
       # restores the old rule for every run, for example while a security fix
-      # waits for its bump.
+      # waits for its bump; the attempt_budget job reads it once, and this job
+      # uses that decision and must reach the same commit. A skipped budget
+      # job (queue run) leaves no decision, which means head-only.
       - name: Select the versioned encoder commit
         env:
-          HEAD_ONLY: ${{ inputs.queue_id != '' || vars.AXIOM_SIGNING_HEAD_ONLY == 'true' }}
+          HEAD_ONLY: ${{ inputs.queue_id != '' || needs.attempt_budget.outputs.head_only != 'false' }}
+          BUDGET_ENCODER_COMMIT: ${{ needs.attempt_budget.outputs.encoder_commit }}
         run: |
           set -euo pipefail
           test "$(git -C axiom-encode rev-parse HEAD)" = "$GITHUB_SHA"
           head_only=()
-          if [ "$HEAD_ONLY" = "true" ]; then
+          if [ "$HEAD_ONLY" != "false" ]; then
             head_only+=(--head-only)
           fi
           encoder_commit="$(python3 -I axiom-encode/src/axiom_encode/version_provenance.py \
@@ -333,11 +350,18 @@ jobs:
             python axiom-encode/scripts/infra_issue.py record infra:select-the-versioned-encoder-commit "selected encoder commit is not a full lowercase commit SHA" || true
             exit 1
           fi
+          if [ -n "$BUDGET_ENCODER_COMMIT" ] && [ "$BUDGET_ENCODER_COMMIT" != "$encoder_commit" ]; then
+            echo "Budget job encoder commit: $BUDGET_ENCODER_COMMIT; this job: $encoder_commit"
+            echo "the attempt-budget job selected another encoder commit" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:select-the-versioned-encoder-commit "the attempt-budget job selected another encoder commit" || true
+            exit 1
+          fi
           git -C axiom-encode merge-base --is-ancestor "$encoder_commit" "$GITHUB_SHA"
           git -C axiom-encode -c advice.detachedHead=false checkout --quiet --detach "$encoder_commit"
           test "$(git -C axiom-encode rev-parse HEAD)" = "$encoder_commit"
-          test -z "$(git -C axiom-encode status --porcelain --untracked-files=all)"
+          test -z "$(git -C axiom-encode status --porcelain --ignored --untracked-files=all)"
           echo "AXIOM_ENCODER_COMMIT=$encoder_commit" >> "$GITHUB_ENV"
+          echo "Encoder commit for this run: $encoder_commit (head $GITHUB_SHA)"
           if [ "$encoder_commit" != "$GITHUB_SHA" ]; then
             echo "::notice::Signing from versioned encoder commit $encoder_commit; main head $GITHUB_SHA waits for its version bump."
           fi
@@ -3654,7 +3678,8 @@ jobs:
             --slurpfile changes "$artifact/retired-source-metadata-changes.json" \
             --arg rulespec_base "$RULESPEC_REF" \
             --arg rulespec_generated_head "$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)" \
-            --arg encoder_commit "$(git -C axiom-encode rev-parse HEAD)" \
+            --arg encoder_commit "$GITHUB_SHA" \
+            --arg executed_encoder_commit "$(git -C axiom-encode rev-parse HEAD)" \
             --arg corpus_commit "$(git -C axiom-corpus rev-parse HEAD)" \
             --arg rules_engine_commit "$(git -C axiom-rules-engine rev-parse HEAD)" \
             --arg workflow_run_id "$GITHUB_RUN_ID" \
@@ -3668,6 +3693,7 @@ jobs:
               rulespec_base: $rulespec_base,
               rulespec_generated_head: $rulespec_generated_head,
               encoder_commit: $encoder_commit,
+              executed_encoder_commit: $executed_encoder_commit,
               corpus_commit: $corpus_commit,
               rules_engine_commit: $rules_engine_commit,
               workflow_run_id: $workflow_run_id,
@@ -5300,7 +5326,10 @@ jobs:
               ),
               "rulespec_base": os.environ["RULESPEC_REF"],
               "rulespec_generated_head": rev(os.environ["RULESPEC_CHECKOUT"]),
-              "encoder_commit": rev("axiom-encode"),
+              # The run head (the queue finalizer binds it to head_sha), and
+              # the versioned encoder commit that ran.
+              "encoder_commit": os.environ["GITHUB_SHA"],
+              "executed_encoder_commit": rev("axiom-encode"),
               "corpus_commit": rev("axiom-corpus"),
               "rules_engine_commit": rev("axiom-rules-engine"),
               "workflow_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
@@ -6213,9 +6242,13 @@ jobs:
               "country": os.environ["COUNTRY"],
               "dependent_citation": os.environ.get("DEPENDENT_CITATION") or None,
               # The run head, which extract_repair_candidate.py binds to the
-              # repair run's head_sha; the executed encoder may be an older
-              # versioned commit (AXIOM_ENCODER_COMMIT).
+              # repair run's head_sha. The encoder that ran is
+              # executed_encoder_commit: an older versioned main commit while
+              # the head waits for its bump, else the head; absent when the
+              # run failed before it chose one.
               "encoder_commit": os.environ["GITHUB_SHA"],
+              "executed_encoder_commit": os.environ.get("AXIOM_ENCODER_COMMIT")
+              or None,
               "existing_signed_imports_input": os.environ.get(
                   "EXISTING_SIGNED_IMPORTS_JSON", "[]"
               ),

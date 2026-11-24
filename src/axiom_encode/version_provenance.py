@@ -27,6 +27,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 VERSION_FILES = (
@@ -48,11 +49,23 @@ _BUMP_BRANCH = "automation/encoder-version-"
 # The bump workflow's GitHub App, as a pull request's author login.
 BUMP_APP_LOGIN = "axiom-encoder-version-bump[bot]"
 BUMP_WORKFLOW = ".github/workflows/encoder-version-bump.yml"
-# The signed re-encode workflow, and how far back on main's first-parent
-# history a run may look for its versioned encoder commit. The provisioner
-# keeps its own copy of both values; a test keeps them equal.
+# Signing from the newest versioned main commit C below an unversioned head H
+# (``signing_commit``). The provisioner keeps its own copy of every value
+# here; a test keeps them equal.
 SIGNING_WORKFLOW = ".github/workflows/targeted-signed-reencode.yml"
-SIGNING_SEARCH_DEPTH = 30
+# At most this many first-parent merges may lie between C and H, and the
+# oldest of them may be at most this old: a bump that stalls closes signing
+# again, as before, so the stall is noticed. The measured bump lag over
+# 2026-11-10..24 was 62 min median and 179 min at most.
+SIGNING_MAX_BEHIND = 5
+SIGNING_MAX_AGE_SECONDS = 4 * 3600
+# What may differ between C and H besides the versioned paths: files that no
+# step of the signed re-encode job reads from the encoder checkout. Anything
+# else (scripts/, cmd/, go.mod, data/, review-guidance/, .github/, agent
+# instruction files, any new path) means the run would execute stale
+# non-versioned code or data, so signing waits for the bump, as before.
+SIGNING_INERT_PREFIXES = ("tests/", "docs/", "changelog.d/")
+SIGNING_INERT_FILES = frozenset({"CHANGELOG.md", "README.md", "PROGRESS.md"})
 _PR_MERGE = re.compile(r"^Merge pull request #(\d+) from \S+?/(\S+)$")
 
 
@@ -295,67 +308,129 @@ def signing_commit(
     ref: str = "HEAD",
     *,
     head_only: bool = False,
-    max_depth: int = SIGNING_SEARCH_DEPTH,
+    max_behind: int = SIGNING_MAX_BEHIND,
+    max_age_seconds: int = SIGNING_MAX_AGE_SECONDS,
+    now: float | None = None,
     workflow: str = SIGNING_WORKFLOW,
 ) -> str:
     """The encoder commit that a signed run dispatched at ``ref`` executes.
 
-    The newest commit on ``ref``'s first-parent history (``ref`` itself first,
-    at most ``max_depth`` commits) at which ``unversioned_changes`` is empty.
-    A merge to main that no bump covers yet therefore leaves signing on the
-    latest versioned main state, instead of closing it until the bump merges.
+    ``ref`` (H) itself when ``unversioned_changes`` is empty there. Otherwise
+    the newest commit C on H's first-parent history at which it is empty,
+    provided that
 
-    Fail-closed:
+    - ``head_only`` is off;
+    - C and every first-parent commit after it up to H is a two-parent merge,
+      so each of them was a main head (no rebase-merged intermediate commit);
+    - at most ``max_behind`` such merges lie after C;
+    - the oldest of them was committed at most ``max_age_seconds`` before
+      ``now``;
+    - H differs from C only in versioned paths and in
+      ``SIGNING_INERT_PREFIXES`` / ``SIGNING_INERT_FILES``, so every
+      non-versioned file the run reads (scripts, Go sources, data, workflows)
+      is H's own; in particular ``workflow`` is byte for byte H's.
 
-    - the chosen commit must carry ``workflow`` byte for byte as ``ref`` does.
-      GitHub runs the workflow file of ``ref``, so the run executes exactly the
-      chosen commit's workflow and code;
-    - ``head_only`` refuses every commit but ``ref`` itself (the old rule);
-    - no versioned commit within ``max_depth`` refuses;
-    - only the newest versioned commit is chosen, never an older one.
-
-    Raises ``ValueError`` with the reason.
+    Only the newest versioned commit is ever a candidate; when it fails one of
+    the conditions the run refuses, as it did before. A commit whose version
+    files disagree counts as unversioned. Raises ``ValueError`` with the reason.
     """
     if _git(repo, "rev-parse", "--is-shallow-repository").strip() == "true":
         raise ValueError(f"{repo} is a shallow clone; the check needs full history")
-    if max_depth < 1:
-        raise ValueError("the signing search depth must be at least 1")
+    if max_behind < 0:
+        raise ValueError("the signing lag bound must not be negative")
     try:
         head = _git(
             repo, "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"
         ).strip()
     except subprocess.CalledProcessError:
         raise ValueError(f"{ref} does not name a commit in {repo}") from None
-    expected = _blob(repo, head, workflow)
-    if expected is None:
+    if _blob(repo, head, workflow) is None:
         raise ValueError(f"{workflow} is absent at {head[:12]}")
-    candidates = _git(
-        repo, "rev-list", "--first-parent", f"--max-count={max_depth}", head
+    chain = _git(
+        repo, "rev-list", "--first-parent", f"--max-count={max_behind + 1}", head
     ).split()
-    for commit in candidates:
+    wait = "re-dispatch once the version bump has landed"
+    for index, commit in enumerate(chain):
         try:
             versioned = not unversioned_changes(repo, commit)
         except ValueError:
             versioned = False
         if versioned:
-            if _blob(repo, commit, workflow) != expected:
-                raise ValueError(
-                    f"the newest versioned commit {commit[:12]} has another "
-                    f"{workflow} than {head[:12]}; re-dispatch once the version "
-                    "bump has landed"
-                )
-            return commit
+            break
         if head_only:
             raise ValueError(
                 f"encoder-affecting files changed at {head[:12]} after the "
                 "latest encoder version bump, and this run signs only from the "
-                "dispatched head; re-dispatch once the version bump has landed"
+                f"dispatched head; {wait}"
             )
-    raise ValueError(
-        f"no versioned encoder commit among the {len(candidates)} newest "
-        f"first-parent commits of {head[:12]}; re-dispatch once the version "
-        "bump has landed"
+    else:
+        raise ValueError(
+            f"no versioned encoder commit among the {len(chain)} newest "
+            f"first-parent commits of {head[:12]} (at most {max_behind} merges "
+            f"may wait for a bump); {wait}"
+        )
+    if index == 0:
+        return head
+    refusal = _signing_lag_refusal(
+        repo,
+        commit,
+        head,
+        chain[: index + 1],
+        max_age_seconds=max_age_seconds,
+        now=time.time() if now is None else now,
+        workflow=workflow,
     )
+    if refusal:
+        raise ValueError(
+            f"the newest versioned commit {commit[:12]} cannot sign for "
+            f"{head[:12]}: {refusal}; {wait}"
+        )
+    return commit
+
+
+def is_signing_inert_path(path: str) -> bool:
+    """A path that no step of the signed re-encode job reads from the encoder."""
+    return path in SIGNING_INERT_FILES or path.startswith(SIGNING_INERT_PREFIXES)
+
+
+def _signing_lag_refusal(
+    repo: Path,
+    commit: str,
+    head: str,
+    span: list[str],
+    *,
+    max_age_seconds: int,
+    now: float,
+    workflow: str,
+) -> str | None:
+    """Why ``commit`` may not sign for ``head``, or None. ``span`` is the
+    first-parent history from ``head`` down to ``commit``, both included."""
+    for member in span:
+        parents = _git(repo, "rev-list", "--parents", "-n", "1", member).split()
+        if len(parents) != 3:
+            return f"{member[:12]} is not a two-parent merge"
+    oldest_after = span[-2]
+    committed = int(_git(repo, "show", "-s", "--format=%ct", oldest_after).strip())
+    if now - committed > max_age_seconds:
+        return (
+            f"its first unversioned merge {oldest_after[:12]} is older than "
+            f"{max_age_seconds // 3600} h; the version bump looks stalled"
+        )
+    changed = _git(
+        repo, "diff", "--name-only", "--no-renames", "-z", commit, head
+    ).split("\0")
+    outside = sorted(
+        path
+        for path in changed
+        if path and not is_versioned_path(path) and not is_signing_inert_path(path)
+    )
+    if outside:
+        shown = ", ".join(outside[:8])
+        more = f", and {len(outside) - 8} more" if len(outside) > 8 else ""
+        return f"non-versioned files changed after it: {shown}{more}"
+    if _blob(repo, commit, workflow) != _blob(repo, head, workflow):
+        return f"{workflow} differs"
+    return None
 
 
 def _blob(repo: Path, commit: str, path: str) -> str | None:

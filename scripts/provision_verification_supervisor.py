@@ -1218,12 +1218,13 @@ _ENCODER_VERSION_FILES = (
 )
 _ENCODER_VERSIONED_PREFIXES = ("src/axiom_encode/",)
 _ENCODER_VERSIONED_FILES = frozenset({"pyproject.toml", "uv.lock"})
-# The workflow a signed run executes, and how far back on main's first-parent
-# history its versioned encoder commit may lie. The same values as
-# version_provenance.SIGNING_WORKFLOW and SIGNING_SEARCH_DEPTH; a test keeps
-# them equal.
+# Signing from the newest versioned main commit below an unversioned head.
+# The same values as version_provenance.SIGNING_*; a test keeps them equal.
 _SIGNING_WORKFLOW = ".github/workflows/targeted-signed-reencode.yml"
-_SIGNING_SEARCH_DEPTH = 30
+_SIGNING_MAX_BEHIND = 5
+_SIGNING_MAX_AGE_SECONDS = 4 * 3600
+_SIGNING_INERT_PREFIXES = ("tests/", "docs/", "changelog.d/")
+_SIGNING_INERT_FILES = frozenset({"CHANGELOG.md", "README.md", "PROGRESS.md"})
 _GITHUB_REMOTE_PATTERNS = (
     r"https://github\.com/(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$",
     r"git@github\.com:(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?$",
@@ -1555,22 +1556,38 @@ def _require_snapshot_version_bump(
     return version_commit
 
 
+def _snapshot_is_versioned(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str
+) -> bool:
+    """Whether ``commit`` declares one consistent version and passes the
+    version-bump rule (version_provenance.unversioned_changes is empty)."""
+    try:
+        _snapshot_declared_version(trusted_git, git_dir, home, commit)
+        _require_snapshot_version_bump(trusted_git, git_dir, home, commit)
+    except SystemExit:
+        return False
+    return True
+
+
 def _require_newest_versioned_commit(
     trusted_git: Path,
     git_dir: Path,
     home: Path,
     workflow_commit: str,
     encoder_commit: str,
+    now: float | None = None,
 ) -> None:
-    """Refuse unless ``encoder_commit`` is the commit that a signed run of
-    ``workflow_commit`` (the run's GITHUB_SHA) must execute.
+    """Refuse unless ``encoder_commit`` (C) is the commit that a signed run of
+    ``workflow_commit`` (H, the run's GITHUB_SHA) must execute.
 
-    The same choice as version_provenance.signing_commit, read again here from
-    the root-owned history: the newest commit on ``workflow_commit``'s
-    first-parent history (at most ``_SIGNING_SEARCH_DEPTH`` commits) that passes
-    the version-bump rule, with the signing workflow byte for byte as at
-    ``workflow_commit``. An older versioned commit is refused, so neither a
-    caller nor a bug can pick stale encoder code.
+    The same rule as version_provenance.signing_commit, read again here from
+    the root-owned history: C is H when H is versioned. Otherwise C is the
+    newest versioned commit of H's first-parent history, at most
+    ``_SIGNING_MAX_BEHIND`` merges back; C and every first-parent commit after
+    it are two-parent merges; the oldest merge after C is at most
+    ``_SIGNING_MAX_AGE_SECONDS`` old; and H differs from C only in versioned
+    paths and inert paths, so every script, Go source, data file and workflow
+    that the run reads is H's own.
     """
 
     if re.fullmatch(r"[0-9a-f]{40}", workflow_commit) is None:
@@ -1578,15 +1595,12 @@ def _require_newest_versioned_commit(
             "refusing to provision: --workflow-commit is not a full 40-hex SHA: "
             f"{workflow_commit}"
         )
+
+    def git(*args: str) -> str:
+        return _hardened_git_text(trusted_git, git_dir, home, *args)
+
     try:
-        resolved = _hardened_git_text(
-            trusted_git,
-            git_dir,
-            home,
-            "rev-parse",
-            "--verify",
-            f"{workflow_commit}^{{commit}}",
-        )
+        resolved = git("rev-parse", "--verify", f"{workflow_commit}^{{commit}}")
     except SystemExit as exc:
         raise SystemExit(
             f"refusing to provision: {workflow_commit} is not a commit object in "
@@ -1597,42 +1611,76 @@ def _require_newest_versioned_commit(
             f"refusing to provision: {workflow_commit} is not a commit object in "
             "--encoder-git-root"
         )
-    chain = _hardened_git_text(
-        trusted_git,
-        git_dir,
-        home,
+    if not _snapshot_is_versioned(trusted_git, git_dir, home, encoder_commit):
+        raise SystemExit(
+            f"refusing to provision: encoder commit {encoder_commit[:12]} is not "
+            "versioned"
+        )
+    if encoder_commit == workflow_commit:
+        return
+    chain = git(
         "rev-list",
         "--first-parent",
-        f"--max-count={_SIGNING_SEARCH_DEPTH}",
+        f"--max-count={_SIGNING_MAX_BEHIND + 1}",
         workflow_commit,
     ).split()
     if encoder_commit not in chain:
         raise SystemExit(
             f"refusing to provision: encoder commit {encoder_commit[:12]} is not "
-            f"among the {_SIGNING_SEARCH_DEPTH} newest first-parent commits of "
-            f"the workflow commit {workflow_commit[:12]}"
+            f"within {_SIGNING_MAX_BEHIND} first-parent merges of the workflow "
+            f"commit {workflow_commit[:12]}"
         )
-    _require_snapshot_version_bump(trusted_git, git_dir, home, encoder_commit)
-    for newer in chain[: chain.index(encoder_commit)]:
-        try:
-            _require_snapshot_version_bump(trusted_git, git_dir, home, newer)
-        except SystemExit:
-            continue
+    span = chain[: chain.index(encoder_commit) + 1]
+    for newer in span[:-1]:
+        if _snapshot_is_versioned(trusted_git, git_dir, home, newer):
+            raise SystemExit(
+                f"refusing to provision: {newer[:12]} is a newer versioned commit "
+                f"than the encoder commit {encoder_commit[:12]}"
+            )
+    for member in span:
+        if len(git("rev-list", "--parents", "-n", "1", member).split()) != 3:
+            raise SystemExit(
+                f"refusing to provision: {member[:12]} between the encoder and "
+                "workflow commits is not a two-parent merge"
+            )
+    oldest_after = span[-2]
+    committed = int(git("show", "-s", "--format=%ct", oldest_after))
+    current = datetime.now(timezone.utc).timestamp() if now is None else now
+    if current - committed > _SIGNING_MAX_AGE_SECONDS:
         raise SystemExit(
-            f"refusing to provision: {newer[:12]} is a newer versioned commit "
-            f"than the encoder commit {encoder_commit[:12]}"
+            f"refusing to provision: the first merge after the encoder commit "
+            f"({oldest_after[:12]}) is older than "
+            f"{_SIGNING_MAX_AGE_SECONDS // 3600} h; the version bump looks stalled"
+        )
+    changed = _hardened_git(
+        trusted_git,
+        git_dir,
+        home,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "-z",
+        encoder_commit,
+        workflow_commit,
+    ).decode("utf-8")
+    outside = sorted(
+        path
+        for path in changed.split("\0")
+        if path
+        and not _is_encoder_versioned_path(path)
+        and path not in _SIGNING_INERT_FILES
+        and not path.startswith(_SIGNING_INERT_PREFIXES)
+    )
+    if outside:
+        raise SystemExit(
+            "refusing to provision: non-versioned files changed between the "
+            f"encoder commit {encoder_commit[:12]} and the workflow commit "
+            f"{workflow_commit[:12]}: {', '.join(outside[:8])}"
         )
 
     def workflow_blob(commit: str) -> str:
         try:
-            return _hardened_git_text(
-                trusted_git,
-                git_dir,
-                home,
-                "rev-parse",
-                "--verify",
-                f"{commit}:{_SIGNING_WORKFLOW}",
-            )
+            return git("rev-parse", "--verify", f"{commit}:{_SIGNING_WORKFLOW}")
         except SystemExit as exc:
             raise SystemExit(
                 f"refusing to provision: {_SIGNING_WORKFLOW} is absent at {commit[:12]}"

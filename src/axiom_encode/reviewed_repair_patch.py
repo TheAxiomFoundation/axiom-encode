@@ -394,19 +394,20 @@ def validate_manifest(raw: bytes, patch_id: str) -> dict:
     _digest(predecessor["blob"], _COMMIT)
     for field in ("sha256", "rulespec_sha256", "tests_sha256"):
         _digest(predecessor[field])
-    seed = _fields(
-        value["seed"],
-        {
-            "run_id",
-            "run_attempt",
-            "encoder_commit",
-            "archive_sha256",
-            "rulespec_sha256",
-            "tests_sha256",
-            "issues_sha256",
-        },
-        "seed",
-    )
+    seed_fields = {
+        "run_id",
+        "run_attempt",
+        "encoder_commit",
+        "archive_sha256",
+        "rulespec_sha256",
+        "tests_sha256",
+        "issues_sha256",
+    }
+    # A seed from a run that signed from an older versioned encoder commit
+    # names that commit as well; encoder_commit stays the run head.
+    if isinstance(value["seed"], dict) and "executed_encoder_commit" in value["seed"]:
+        seed_fields.add("executed_encoder_commit")
+    seed = _fields(value["seed"], seed_fields, "seed")
     for field in ("run_id", "run_attempt"):
         if not isinstance(seed[field], str) or not re.fullmatch(
             r"[1-9][0-9]*", seed[field]
@@ -415,6 +416,8 @@ def validate_manifest(raw: bytes, patch_id: str) -> dict:
     for field in ("archive_sha256", "rulespec_sha256", "tests_sha256", "issues_sha256"):
         _digest(seed[field])
     _digest(seed["encoder_commit"], _COMMIT)
+    if "executed_encoder_commit" in seed:
+        _digest(seed["executed_encoder_commit"], _COMMIT)
     source = _fields(
         value["source"],
         {
@@ -1104,6 +1107,11 @@ def verify_archive_seed(
     if (
         metadata.get("schema") != "axiom-encode/failed-reencode-diagnostics/v1"
         or metadata.get("encoder_commit") != seed["encoder_commit"]
+        # The encoder that produced the seed: recorded since runs may sign
+        # from an older versioned commit than the run head. Older metadata and
+        # seeds lack it, and then the run head is the encoder that ran.
+        or (metadata.get("executed_encoder_commit") or metadata.get("encoder_commit"))
+        != seed.get("executed_encoder_commit", seed["encoder_commit"])
         or metadata.get("workflow_run_id") != seed["run_id"]
         or type(metadata.get("workflow_run_attempt")) is not int
         or metadata["workflow_run_attempt"] != 1
