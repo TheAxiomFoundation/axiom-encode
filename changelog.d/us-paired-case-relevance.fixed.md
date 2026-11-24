@@ -1,0 +1,1 @@
+Paired-case evidence now witnesses a source exception only when the toggled input matches the exception's own controlling condition, not words in its consequence (7 CFR 273.4(c)(5) same-sponsor clause).
