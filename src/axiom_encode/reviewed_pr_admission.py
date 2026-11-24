@@ -298,15 +298,19 @@ def read_candidate_source_pin(raw: bytes) -> tuple[str | None, str | None]:
     ]
     if len(top_level) != 1 or lines[top_level[0]].rstrip(" ") != "module:":
         raise _pin_refusal("the file has no single plain block `module:` mapping")
+    if any(line.startswith("\t") for line in lines):
+        raise _pin_refusal("a line of the file is indented with tabs")
     module = _block_after(lines, top_level[0], 0)
-    if not module or any("\t" in line[: _indent(line) + 1] for line in module):
-        raise _pin_refusal("`module` is empty or indented with tabs")
+    if not module:
+        raise _pin_refusal("`module` is empty")
     key_indent = _indent(module[0])
     if any(_indent(line) < key_indent for line in module):
         raise _pin_refusal("`module` keys are not indented evenly")
     keys = [line[key_indent:] for line in module if _indent(line) == key_indent]
-    if any(key.startswith(("<<", "?", "&", "*", "!", "{", "[")) for key in keys):
-        raise _pin_refusal("`module` uses a merge key, anchor, tag or flow style")
+    if any(key.startswith(("<<", "?", "&", "*", "!", "{", "[", "\t")) for key in keys):
+        raise _pin_refusal(
+            "`module` uses a merge key, anchor, tag, flow style or tab indentation"
+        )
     headers = [
         key for key in keys if re.match(r"""["']?source_verification["']?\s*:""", key)
     ]

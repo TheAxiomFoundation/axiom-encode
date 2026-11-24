@@ -1132,3 +1132,166 @@ def test_malformed_review_refuses_at_revalidation(api):
     api[REVIEWS].append({"state": "COMMENTED", "user": {"id": 555, "login": "x"}})
     with pytest.raises(AdmissionError, match="identity is malformed"):
         revalidate_admission(admission, fetch=api.__getitem__)
+
+
+# --- the candidate source pin (signing run 45328443323) ---
+
+
+def _primary(block: str, *, head: str = "format: rulespec/v1\nmodule:\n") -> bytes:
+    return (head + block + "rules: []\n").encode()
+
+
+BOUND_BLOCK = (
+    "  source_verification:\n"
+    f"    corpus_citation_path: {SELECTOR.citation}\n"
+    f"    source_sha256: {PIN}\n"
+)
+
+
+def test_admission_refuses_a_candidate_without_the_pin_and_names_the_command(api):
+    _set_primary(
+        api,
+        _primary(
+            f"  source_verification:\n    corpus_citation_path: {SELECTOR.citation}\n"
+        ),
+    )
+    with pytest.raises(AdmissionError) as caught:
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    message = str(caught.value)
+    assert "source_sha256` is missing" in message
+    assert "axiom-encode bind-source-verification" in message
+    assert admission_module.SOURCE_PIN_COMMAND in message
+
+
+@pytest.mark.parametrize(
+    "block, detail",
+    [
+        ("  summary: x\n", "no `module.source_verification` block"),
+        (
+            f"  source_verification:\n    source_sha256: {PIN}\n",
+            "corpus_citation_path` is missing",
+        ),
+        (
+            "  source_verification:\n"
+            f"    corpus_citation_path: us-az/manual/other\n    source_sha256: {PIN}\n",
+            "not the promotion citation",
+        ),
+        (
+            BOUND_BLOCK.replace(PIN, PIN[:-1]),
+            "not 64 lowercase hex",
+        ),
+        (BOUND_BLOCK.replace(PIN, PIN.upper()), "not 64 lowercase hex"),
+        (BOUND_BLOCK.replace(PIN, "1" * 64), "not a plain string"),
+        (BOUND_BLOCK.replace(PIN, PIN + " extra"), "plain block form"),
+        (BOUND_BLOCK + f"    source_sha256: {PIN}\n", "no duplicate key"),
+        (BOUND_BLOCK + "    nested:\n      key: value\n", "plain block form"),
+        (BOUND_BLOCK.replace(PIN, "&a " + PIN), "plain block form"),
+        (BOUND_BLOCK.replace(PIN, "!!str " + PIN), "plain block form"),
+        (BOUND_BLOCK.replace(PIN, "|\n      " + PIN), "not a plain string"),
+        (BOUND_BLOCK.replace("    source", "\tsource"), "indented with tabs"),
+        (BOUND_BLOCK.replace("    source", "    \tsource"), "plain block form"),
+        ("  \tsummary: x\n" + BOUND_BLOCK, "tab indentation"),
+        (
+            "  source_verification: {corpus_citation_path: "
+            f"{SELECTOR.citation}, source_sha256: {PIN}}}\n",
+            "not a single plain block mapping",
+        ),
+        (BOUND_BLOCK + BOUND_BLOCK, "not a single plain block mapping"),
+        (
+            BOUND_BLOCK.replace("source_verification:", "source_verification: &a"),
+            "not a single plain block mapping",
+        ),
+        (
+            BOUND_BLOCK.replace("source_verification:", '"source_verification":'),
+            "not a single plain block mapping",
+        ),
+        ("  source_verification:\n  summary: x\n", "is empty"),
+        ("  <<: *base\n" + BOUND_BLOCK, "merge key"),
+        (" odd: 1\n".join(["  summary: x\n", BOUND_BLOCK]), "indented evenly"),
+    ],
+)
+def test_admission_refuses_a_missing_or_malformed_pin(api, block, detail):
+    _set_primary(api, _primary(block))
+    with pytest.raises(AdmissionError) as caught:
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    assert detail in str(caught.value)
+    assert "bind-source-verification" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "raw, detail",
+    [
+        (b"\xff\xfe", "not UTF-8"),
+        (_primary(BOUND_BLOCK).replace(b"\n", b"\r"), "line break"),
+        (b"---\n" + _primary(BOUND_BLOCK), "document marker"),
+        (b"\xef\xbb\xbf" + _primary(BOUND_BLOCK), "byte order mark"),
+        (_primary(BOUND_BLOCK, head="format: rulespec/v1\n"), "no single plain"),
+        (_primary(BOUND_BLOCK) + _primary(BOUND_BLOCK), "no single plain"),
+        (
+            _primary("", head="module: {source_verification: {}}\n"),
+            "no single plain",
+        ),
+        (_primary("", head="module:\n"), "`module` is empty"),
+        (_primary("\tsummary: x\n" + BOUND_BLOCK, head="module:\n  a: 1\n"), "tabs"),
+    ],
+)
+def test_the_strict_reader_refuses_every_other_file_shape(raw, detail):
+    with pytest.raises(AdmissionError) as caught:
+        admission_module.require_candidate_source_pin(raw, SELECTOR.citation)
+    assert detail in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        BOUND_BLOCK,
+        BOUND_BLOCK.replace("\n", "\r\n"),
+        BOUND_BLOCK.replace(PIN, f"'{PIN}'  # pinned"),
+        BOUND_BLOCK.replace(SELECTOR.citation, f'"{SELECTOR.citation}"'),
+        "  summary: |-\n    source_verification: not a key\n\n  # note\n" + BOUND_BLOCK,
+        "      source_verification:\n"
+        f"          # lead\n          source_sha256:   {PIN}\n"
+        f"          corpus_citation_path: {SELECTOR.citation}\n",
+    ],
+)
+def test_the_strict_reader_accepts_the_plain_block_form(block):
+    raw = _primary(block, head="format: rulespec/v1\n# c\nmodule:\n")
+    assert admission_module.read_candidate_source_pin(raw) == (SELECTOR.citation, PIN)
+    admission_module.require_candidate_source_pin(raw, SELECTOR.citation)
+
+
+def test_the_pin_check_is_the_only_change_to_admission_for_a_pinned_candidate(
+    api, monkeypatch
+):
+    """Differential: with the check switched off the admission is the same."""
+    with_check = verify_reviewed_pr(SELECTOR, fetch=copy.deepcopy(api).__getitem__)
+    monkeypatch.setattr(
+        admission_module, "require_candidate_source_pin", lambda raw, citation: None
+    )
+    without_check = verify_reviewed_pr(SELECTOR, fetch=copy.deepcopy(api).__getitem__)
+    assert with_check == without_check
+    assert with_check["record"]["binding"] == {
+        "citation": SELECTOR.citation,
+        "rulespec_path": PATH,
+        "rulespec_sha256": hashlib.sha256(PRIMARY).hexdigest(),
+        "companion_sha256": hashlib.sha256(
+            _fixture_bytes(SELECTOR.companion)
+        ).hexdigest(),
+    }
+
+
+def test_the_pin_check_reads_the_primary_and_not_the_companion(api, monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        admission_module,
+        "require_candidate_source_pin",
+        lambda raw, citation: seen.append((raw, citation)),
+    )
+    verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    assert seen == [(PRIMARY, SELECTOR.citation)]
+
+
+def test_the_admission_module_stays_standard_library_only():
+    source = inspect.getsource(admission_module)
+    assert "import yaml" not in source
+    assert "from axiom_encode" not in source and "from ." not in source
