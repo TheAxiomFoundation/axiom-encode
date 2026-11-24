@@ -85,9 +85,17 @@ def _module(citation: str, amounts, *, sizes=(1, 2)) -> str:
     )
 
 
-def _metrics(tmp_path: Path, source_text: str, content: str, *, complete=True):
+def _metrics(
+    tmp_path: Path,
+    source_text: str,
+    content: str,
+    *,
+    complete=True,
+    citation=GUIDANCE,
+    caller_source_text=None,
+):
     corpus_release = _write_test_corpus_provision(
-        tmp_path, citation_path=GUIDANCE, body=source_text
+        tmp_path, citation_path=citation, body=source_text
     )
     rulespec_file = tmp_path / "policies" / "agency" / "program" / "page-3.yaml"
     rulespec_file.parent.mkdir(parents=True)
@@ -103,11 +111,15 @@ def _metrics(tmp_path: Path, source_text: str, content: str, *, complete=True):
     ):
         return evaluate_artifact(
             rulespec_file=rulespec_file,
-            policy_repo_root=_canonical_rulespec_content_root(tmp_path, "us"),
+            policy_repo_root=_canonical_rulespec_content_root(
+                tmp_path, citation.split("/", 1)[0]
+            ),
             axiom_rules_path=Path("/tmp/axiom-rules-engine"),
-            source_text=source_text,
+            source_text=(
+                source_text if caller_source_text is None else caller_source_text
+            ),
             local_corpus_release=corpus_release,
-            source_citation_path=GUIDANCE,
+            source_citation_path=citation,
             require_complete_source_unit=complete,
             skip_reviewers=True,
         )
@@ -194,7 +206,12 @@ def test_default_mode_still_counts_the_module_scope(tmp_path):
     )
 
 
-def test_eval_passes_the_recall_view_its_corpus_text_path_and_profile(tmp_path):
+@pytest.mark.parametrize(
+    "citation", (GUIDANCE, "de/statute/estg/32a"), ids=("us-legacy", "de-DE")
+)
+def test_eval_passes_the_recall_view_its_corpus_text_path_and_profile(
+    tmp_path, citation
+):
     calls = []
     original = sc.complete_source_numeric_recall_occurrences
 
@@ -205,17 +222,25 @@ def test_eval_passes_the_recall_view_its_corpus_text_path_and_profile(tmp_path):
     with patch.object(
         evals, "complete_source_numeric_recall_occurrences", side_effect=recording
     ):
-        _metrics(tmp_path, SOURCE_WITH_REFERENCE, _module(GUIDANCE, TABLE_AMOUNTS))
+        _metrics(
+            tmp_path,
+            SOURCE_WITH_REFERENCE,
+            _module(citation, TABLE_AMOUNTS),
+            citation=citation,
+            # The caller's operating-slice text differs from the corpus body;
+            # complete mode counts the corpus body.
+            caller_source_text="Household Size 1 $1,330",
+        )
 
     assert len(calls) == 1
     text, kwargs = calls[0]
     # The unmasked corpus body, as numeric recall receives it.
     assert text == SOURCE_WITH_REFERENCE
-    assert kwargs["corpus_citation_path"] == GUIDANCE
+    assert kwargs["corpus_citation_path"] == citation
     extractor = kwargs["extract_numeric_occurrences"]
     assert extractor.func is extract_typed_numeric_inventory_occurrences_from_text
     assert extractor.keywords == {
-        "profile": _numeric_profile_for_citation_path(GUIDANCE)
+        "profile": _numeric_profile_for_citation_path(citation)
     }
     assert kwargs["normalize_recall_text"] is None
 
@@ -368,4 +393,194 @@ def test_recall_view_is_the_numeric_recall_source_view(fixture):
         str(issue).startswith(_EARLY_REFUSALS) for issue in analysis.issues
     ):
         pytest.skip("numeric recall did not run: the candidate is refused earlier")
+    assert view == list(analysis.source_numeric_occurrence_values)
     assert len(view) == analysis.source_numeric_occurrence_count
+
+
+# --- A quantity after a citation keyword is not a locator --------------------
+#
+# Short excerpts of real US provisions (MN, CA, NJ) and two constructed ones.
+# `_ENGLISH_LEGAL_CITATION` took the rate as part of the citation, so numeric
+# recall did not demand it and the raw occurrence count was its only gate.
+RATE_AFTER_CITATION = (
+    (
+        "us-mn/statute/290.06/block-58",
+        "the credit equals, for expenses under section 290.9725 , 25 percent of "
+        "the expenses paid.",
+        0.25,
+    ),
+    (
+        "us-ca/statute/rtc/18501",
+        "the amount of the credit under paragraph (2) of Section 17054, 3 percent "
+        "for the first dependent credit.",
+        0.03,
+    ),
+    (
+        "us-nj/statute/43:13-9",
+        "each employer benefited by this article 3% of the amount paid.",
+        0.03,
+    ),
+    (
+        "us-zz/statute/1/1",
+        "Rent is limited under section 8 and 50 percent of area median income.",
+        0.5,
+    ),
+    (
+        "us-zz/statute/1/2",
+        "Rent is limited under section 8, 30 percent of monthly adjusted income.",
+        0.3,
+    ),
+)
+
+
+def _scalar_module(citation: str, value: float | None) -> str:
+    rules = (
+        f"""  - name: stated_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: {value}
+"""
+        if value is not None
+        else ""
+    )
+    return (
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        f"    corpus_citation_path: {citation}\nrules:\n" + (rules or "  []\n")
+    )
+
+
+def _typed_unnamed(content: str, source_text: str, citation: str) -> set[float]:
+    profile = _numeric_profile_for_citation_path(citation)
+    analysis = sc.analyze_complete_source_unit(
+        content,
+        source_text,
+        corpus_citation_path=citation,
+        test_cases=[],
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile=profile
+        ),
+        extract_numeric_grounding_occurrences=functools.partial(
+            extract_typed_numeric_occurrences_from_text, profile=profile
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+    prefix = "[complete-source-unit:numeric-recall] Authoritative corpus numeric value "
+    return {
+        float(str(issue)[len(prefix) :].split(" ", 1)[0])
+        for issue in analysis.issues
+        if str(issue).startswith(prefix)
+    }
+
+
+@pytest.mark.parametrize(("citation", "source_text", "rate"), RATE_AFTER_CITATION)
+def test_rate_after_a_citation_is_demanded_by_both_gates(citation, source_text, rate):
+    assert rate in _recall_values(source_text, citation)
+    assert rate in _typed_unnamed(_scalar_module(citation, None), source_text, citation)
+    assert rate not in _typed_unnamed(
+        _scalar_module(citation, rate), source_text, citation
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_text", "recall_text"),
+    (
+        ("Apply section 290.9725 to it.", "Apply  to it."),
+        ("Apply sections 3, 4 and 5 to it.", "Apply  to it."),
+        ("Apply section 3 and 25 percent to it.", "Apply  and 25 percent to it."),
+        ("Apply section 3, 12 per cent to it.", "Apply , 12 per cent to it."),
+        ("Apply section 3, 30 days after it.", "Apply , 30 days after it."),
+        # Read whole: never `section 2` with `5 percent` left behind.
+        ("Apply section 25 percent to it.", "Apply section 25 percent to it."),
+        ("Apply article 3% to it.", "Apply article 3% to it."),
+    ),
+)
+def test_citation_numbers_stay_masked_and_quantities_stay_whole(
+    source_text, recall_text
+):
+    assert (
+        sc.authoritative_numeric_recall_text(
+            source_text, corpus_citation_path="us-zz/statute/1/3"
+        )
+        == recall_text
+    )
+
+
+def test_rate_after_a_citation_is_counted_by_the_occurrence_check(tmp_path):
+    citation, source_text, rate = RATE_AFTER_CITATION[0]
+    metrics = _metrics(
+        tmp_path,
+        source_text,
+        _scalar_module(citation, None),
+        citation=citation,
+    )
+    assert any(
+        issue.startswith(f"Source numeric value {rate:g} appears 1 time(s)")
+        for issue in metrics.numeric_occurrence_issues
+    )
+    assert not metrics.ci_pass
+
+
+# --- The end of an applicability range stays demanded -------------------------
+
+
+@pytest.mark.parametrize(
+    ("source_text", "demanded"),
+    (
+        (
+            "For taxable years beginning after 2025 and before 2030, the credit "
+            "is $500.",
+            [2030.0, 500.0],
+        ),
+        (
+            "For taxable years beginning after December 31, 2025, the credit is $500.",
+            [500.0],
+        ),
+    ),
+)
+def test_range_end_year_is_demanded_and_start_year_is_not(source_text, demanded):
+    citation = "us/statute/26/1"
+    assert _recall_values(source_text, citation) == demanded
+    assert set(demanded) <= _typed_unnamed(
+        _scalar_module(citation, None), source_text, citation
+    )
+
+
+# --- Documented fail-closed gaps -----------------------------------------------
+
+
+def test_unnormalized_module_path_reads_fewer_masks_never_more():
+    # With no `source_citation_path`, the eval passes the module's path as
+    # written. A path that is not canonical (here: surrounding space) does not
+    # select the US-only masks, so the view demands more, never less.
+    canonical = _recall_values(TABLE_PAGE + " P.L. 119-21", GUIDANCE)
+    unnormalized = _recall_values(TABLE_PAGE + " P.L. 119-21", f" {GUIDANCE} ")
+    assert sorted(canonical) == sorted([1.0, 2.0, *map(float, TABLE_AMOUNTS)])
+    remaining = list(unnormalized)
+    for value in canonical:
+        remaining.remove(value)
+
+
+# --- Half-up increment: only a whole `1` -------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("instruction", "spelled"),
+    (
+        ("If the 3rd digit is 5 or more, increase the 2nd digit by 1", True),
+        ("If the 3rd digit is 5 or more, the 2nd digit shall be increased by 1.", True),
+        ("If the 3rd digit is 5 or more, increase the 2nd digit by 1,000", False),
+        ("If the 3rd digit is 5 or more, increase the 2nd digit by 1.5 percent", False),
+    ),
+)
+def test_half_up_rewrite_spells_only_a_whole_one(instruction, spelled):
+    from axiom_encode.harness.validator_pipeline import (
+        normalize_source_backed_half_up_rounding_occurrence_text,
+    )
+
+    rewritten = normalize_source_backed_half_up_rounding_occurrence_text(instruction)
+    assert ("by one" in rewritten) is spelled
+    if not spelled:
+        assert rewritten == instruction

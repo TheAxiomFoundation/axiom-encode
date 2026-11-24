@@ -261,6 +261,9 @@ class CompleteSourceUnitAnalysis:
     covered_source_numeric_occurrence_count: int
     missing_source_numeric_occurrence_count: int
     companion_test_obligations: tuple[CompanionTestObligation, ...] = ()
+    # Values of the source occurrences numeric recall demanded, in source
+    # order (the source view, before represented spans are credited).
+    source_numeric_occurrence_values: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -2405,9 +2408,25 @@ _EXPLICIT_LEGAL_SECTION_REFERENCE = re.compile(
     r"(?P<section>\d+[a-z]?)",
     flags=re.IGNORECASE,
 )
+# A number that a percent sign or a unit word follows (`25 percent`, `3%`,
+# `30 days`) states a quantity, not a locator. Locator readers that take a
+# number or a list of numbers after a keyword use this to stop before it.
+_RECALL_UNIT_FOLLOWS = (
+    rf"[ \t]*(?:%|-?(?:[A-Za-z]+[ \t-]+){{0,2}}{_RECALL_UNIT_WORD}\b)"
+)
+_RECALL_QUANTITY_FOLLOWS = (
+    rf"(?:{_RECALL_UNIT_FOLLOWS}|[ \t]*(?i:per[ \t\u00a0\u202f]+cent)\b)"
+)
+# The number is read whole (atomic), so a refused `25 percent` cannot be
+# shortened to a locator `2` that leaves `5 percent` behind.
+_ENGLISH_LEGAL_CITATION_NUMBER = rf"(?>\d+(?:\.\d+)*)(?!{_RECALL_QUANTITY_FOLLOWS})"
+# `section 290.9725 , 25 percent of`, `this article 3% of the amount` and
+# `under section 8 and 50 percent of` keep their rate: neither the number
+# after the keyword nor a list continuation is taken when it states a quantity.
 _ENGLISH_LEGAL_CITATION = re.compile(
     r"\b(?:articles?|sections?|secs?\.?|regulations?|paragraphs?)\s+"
-    r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
+    rf"{_ENGLISH_LEGAL_CITATION_NUMBER}"
+    rf"(?:\s*(?:through|to|[-–—]|and|,)\s*{_ENGLISH_LEGAL_CITATION_NUMBER})*",
     flags=re.IGNORECASE,
 )
 # A coordinated list of titled references, as UK instruments print them:
@@ -3020,7 +3039,7 @@ def complete_source_numeric_recall_occurrences(
         return tuple(
             occurrence
             for occurrence in occurrences
-            if not _temporal_occurrence_is_formula_applicability_preface(
+            if not _temporal_occurrence_is_recall_exempt_preface(
                 occurrence, recall_text
             )
         )
@@ -3045,9 +3064,6 @@ _BRACKETED_USC_ET_SEQ_CITATION_LIST = re.compile(
 # continuations keep the identifier's hyphenated shape and never take a range
 # that a unit word follows, so `policy 254, 3 members`, `policy 254, 10-15
 # days` and `policy 10-day notice` keep their values.
-_RECALL_UNIT_FOLLOWS = (
-    rf"[ \t]*(?:%|-?(?:[A-Za-z]+[ \t-]+){{0,2}}{_RECALL_UNIT_WORD}\b)"
-)
 # Scan labels first, then prove their reference boundary. Arbitrary connectives
 # and quantity words cannot prove that a bare coordinated number is a locator.
 _NUMERIC_RECALL_IDENTIFIER_TRANSLATION = str.maketrans(
@@ -7756,7 +7772,7 @@ def _analyze_rulespec_payload(
         for occurrence in (
             source_inventory.kept if drop_us_locators else source_inventory.occurrences
         )
-        if not _temporal_occurrence_is_formula_applicability_preface(
+        if not _temporal_occurrence_is_recall_exempt_preface(
             occurrence,
             numeric_recall_text,
         )
@@ -7774,7 +7790,7 @@ def _analyze_rulespec_payload(
                 if drop_us_locators
                 else unrepresented_inventory.occurrences
             )
-            if not _temporal_occurrence_is_formula_applicability_preface(
+            if not _temporal_occurrence_is_recall_exempt_preface(
                 occurrence,
                 unrepresented_recall_text,
             )
@@ -7878,6 +7894,7 @@ def _analyze_rulespec_payload(
         covered_source_values,
         len(missing_source_values),
         tuple(dict.fromkeys(companion_obligations)),
+        tuple(float(occurrence.value) for occurrence in source_occurrences),
     )
 
 
@@ -31121,6 +31138,36 @@ def _temporal_occurrence_is_formula_applicability_preface(
             source_text
         )
     )
+
+
+# The end of an applicability range (`... and before 2030`, `through 2030`,
+# `2026-2030`). A version's `effective_from` states where the preface starts;
+# no check binds a version's end to the source, so numeric recall keeps the
+# end year demanded.
+_FORMULA_APPLICABILITY_RANGE_END_PATTERN = re.compile(
+    rf"{_FORMULA_APPLICABILITY_RANGE_END}|"
+    rf"(?:\s+(?:through|to)\s+|\s*[-–]\s*){_FORMULA_APPLICABILITY_YEAR}",
+    flags=re.IGNORECASE,
+)
+
+
+def _temporal_occurrence_is_recall_exempt_preface(
+    occurrence: NumericOccurrenceLike,
+    source_text: str,
+) -> bool:
+    """Exempt a preface's start from numeric recall, never its range end."""
+
+    for preface_start, preface_end in _formula_applicability_preface_spans(source_text):
+        if not (occurrence.start >= preface_start and occurrence.end <= preface_end):
+            continue
+        return not any(
+            occurrence.start >= preface_start + end.start()
+            and occurrence.end <= preface_start + end.end()
+            for end in _FORMULA_APPLICABILITY_RANGE_END_PATTERN.finditer(
+                source_text[preface_start:preface_end]
+            )
+        )
+    return False
 
 
 def _formula_operation_kinds(text: str) -> set[str]:

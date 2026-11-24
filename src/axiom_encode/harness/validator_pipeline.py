@@ -12110,6 +12110,11 @@ def _half_up_rounding_supported_line_flags(
     return tuple(flags)
 
 
+# A source-backed half-up increment `by 1`; a `1` that starts a longer number
+# (`1,000`, `1.5`) is not one.
+_HALF_UP_WHOLE_ONE_INCREMENT = re.compile(r"(\bby\s+)1\b(?![.,]?\d)", re.IGNORECASE)
+
+
 def normalize_source_backed_half_up_rounding_occurrence_text(
     source_text: str,
 ) -> str:
@@ -12121,20 +12126,25 @@ def normalize_source_backed_half_up_rounding_occurrence_text(
         re.compile(pattern.pattern, re.IGNORECASE) for pattern in instruction_patterns
     )
 
-    def normalize_instruction_units(text: str) -> str:
+    def normalize_instruction_units(text: str, following: str = "") -> str:
         spans = _half_up_rounding_clause_instruction_spans(
             text, case_insensitive_patterns, negated_or_excepted
         )
         if not spans:
             return text
         for start, end in sorted(spans, reverse=True):
-            instruction = re.sub(
-                r"(\bby\s+)1\b",
-                r"\g<1>one",
-                text[start:end],
-                flags=re.IGNORECASE,
-            )
-            text = text[:start] + instruction + text[end:]
+            # Read the increment against the source that follows, so the
+            # whole number is seen across a split at `.`: `by 1,000` and
+            # `by 1.5 percent` keep their number; only a whole `1` is spelled.
+            increments = [
+                match
+                for match in _HALF_UP_WHOLE_ONE_INCREMENT.finditer(
+                    text[:end] + text[end:] + following
+                )
+                if match.start() >= start and match.end() <= end
+            ]
+            for match in reversed(increments):
+                text = text[: match.end(1)] + "one" + text[match.end() :]
         return text
 
     parts = re.split(r"([.!?;]+)", source_text)
@@ -12153,15 +12163,18 @@ def normalize_source_backed_half_up_rounding_occurrence_text(
         supported_line_flags = _half_up_rounding_supported_line_flags(
             lines, instruction_patterns, negated_or_excepted
         )
+        following = "".join(parts[part_index + 1 : part_index + 3])
         if any(supported_line_flags):
             parts[part_index] = "".join(
-                normalize_instruction_units(line)
+                normalize_instruction_units(
+                    line, "".join(lines[index + 1 :]) + following
+                )
                 if supported_line_flags[index]
                 else line
                 for index, line in enumerate(lines)
             )
         else:
-            parts[part_index] = normalize_instruction_units(clause)
+            parts[part_index] = normalize_instruction_units(clause, following)
     return "".join(parts)
 
 
