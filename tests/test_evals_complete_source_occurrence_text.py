@@ -523,6 +523,11 @@ def test_rate_after_a_citation_is_demanded_by_both_gates(citation, source_text, 
     (
         ("Apply section 290.9725 to it.", "Apply  to it."),
         ("Apply sections 3, 4 and 5 to it.", "Apply  to it."),
+        # A unit word later in the prose does not make a locator a quantity.
+        (
+            "Appeal under section 39-2-125 within thirty days.",
+            "Appeal under  within thirty days.",
+        ),
         ("Apply section 3 and 25 percent to it.", "Apply  and 25 percent to it."),
         ("Apply section 3, 12 per cent to it.", "Apply , 12 per cent to it."),
         ("Apply section 3, 30 days after it.", "Apply , 30 days after it."),

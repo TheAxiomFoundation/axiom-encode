@@ -2408,18 +2408,18 @@ _EXPLICIT_LEGAL_SECTION_REFERENCE = re.compile(
     r"(?P<section>\d+[a-z]?)",
     flags=re.IGNORECASE,
 )
-# A number that a percent sign or a unit word follows (`25 percent`, `3%`,
-# `30 days`) states a quantity, not a locator. Locator readers that take a
-# number or a list of numbers after a keyword use this to stop before it.
-_RECALL_UNIT_FOLLOWS = (
-    rf"[ \t]*(?:%|-?(?:[A-Za-z]+[ \t-]+){{0,2}}{_RECALL_UNIT_WORD}\b)"
-)
-_RECALL_QUANTITY_FOLLOWS = (
-    rf"(?:{_RECALL_UNIT_FOLLOWS}|[ \t]*(?i:per[ \t\u00a0\u202f]+cent)\b)"
+# A number that a percent sign, `per cent` or a recall unit word directly
+# follows (`25 percent`, `3%`, `30 days`) states a quantity, not a locator.
+# Only an adjacent unit counts: `section 39-2-125 within thirty days` is a
+# locator followed by prose.
+_ENGLISH_LEGAL_CITATION_QUANTITY_FOLLOWS = (
+    rf"[ \t]*(?:%|-?{_RECALL_UNIT_WORD}\b|(?i:per[ \t\u00a0\u202f]+cent)\b)"
 )
 # The number is read whole (atomic), so a refused `25 percent` cannot be
 # shortened to a locator `2` that leaves `5 percent` behind.
-_ENGLISH_LEGAL_CITATION_NUMBER = rf"(?>\d+(?:\.\d+)*)(?!{_RECALL_QUANTITY_FOLLOWS})"
+_ENGLISH_LEGAL_CITATION_NUMBER = (
+    rf"(?>\d+(?:\.\d+)*)(?!{_ENGLISH_LEGAL_CITATION_QUANTITY_FOLLOWS})"
+)
 # `section 290.9725 , 25 percent of`, `this article 3% of the amount` and
 # `under section 8 and 50 percent of` keep their rate: neither the number
 # after the keyword nor a list continuation is taken when it states a quantity.
@@ -3129,6 +3129,9 @@ _BRACKETED_USC_ET_SEQ_CITATION_LIST = re.compile(
 # continuations keep the identifier's hyphenated shape and never take a range
 # that a unit word follows, so `policy 254, 3 members`, `policy 254, 10-15
 # days` and `policy 10-day notice` keep their values.
+_RECALL_UNIT_FOLLOWS = (
+    rf"[ \t]*(?:%|-?(?:[A-Za-z]+[ \t-]+){{0,2}}{_RECALL_UNIT_WORD}\b)"
+)
 # Scan labels first, then prove their reference boundary. Arbitrary connectives
 # and quantity words cannot prove that a bare coordinated number is a locator.
 _NUMERIC_RECALL_IDENTIFIER_TRANSLATION = str.maketrans(
