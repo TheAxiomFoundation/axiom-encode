@@ -827,9 +827,9 @@ def _claude_reviewer_reply(result: "_SubprocessRunResult") -> str:
     """Return the text that the reviewer reads from one Claude CLI run.
 
     The reply of a run that exits 0 is its stdout alone: a warning on stderr
-    is not part of the reply, and it is logged. A run that exits non-zero has
-    no reply: the caller refuses it, and gets stdout and stderr together for
-    its error message.
+    is not part of the reply, and only its length is logged. A run that exits
+    non-zero has no reply: the caller refuses it, and gets stdout and stderr
+    together for its error message.
     """
     # A result built without stdout (a test double) keeps the joined output.
     stdout = getattr(result, "stdout", None)
@@ -1106,6 +1106,7 @@ def _extract_codex_text_output(output: str) -> str:
     assistant_messages: list[str] = []
     errors: list[str] = []
     malformed = False
+    non_string_text = False
 
     # A JSONL line ends at a line feed. `str.splitlines` would also break at
     # U+0085, U+2028 and U+2029, which JSON allows raw inside a string.
@@ -1127,7 +1128,7 @@ def _extract_codex_text_output(output: str) -> str:
             if isinstance(item, dict) and item.get("type") == "agent_message":
                 text = item.get("text")
                 if not isinstance(text, str):
-                    malformed = True
+                    non_string_text = True
                 elif text.strip():
                     assistant_messages.append(text)
         elif payload_type in ("error", "turn.failed"):
@@ -1140,6 +1141,10 @@ def _extract_codex_text_output(output: str) -> str:
         )
     if malformed:
         return _unreadable_codex_stream("a line is not a JSON object", output)
+    if non_string_text:
+        return _unreadable_codex_stream(
+            "an agent message whose text is not a string", output
+        )
     if len(assistant_messages) != 1:
         return _unreadable_codex_stream(
             f"{len(assistant_messages)} agent messages with text, not one", output
