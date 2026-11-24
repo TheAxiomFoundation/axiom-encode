@@ -557,7 +557,7 @@ def test_typed_completeness_retry_feedback_has_one_repair_order():
     # Other checks keep their declared fix, and every subject line stays.
     numeric_fix = checks.get_check("complete-source-unit:numeric-recall/value-unnamed")
     assert f"  Fix: {numeric_fix.fix}" in check_fixes
-    assert "us/statute/7/2020(a) [provision (a)] chars 0:141; expected encoded" in (
+    assert "provision (a) of us/statute/7/2020 chars 0:141; expected encoded" in (
         check_fixes
     )
     assert "field:module.deferred_outputs[0].reason; expected reason naming" in (
@@ -655,3 +655,17 @@ def test_issue_fix_feedback_override_replaces_only_named_fix():
     )
     assert replaced[1] == "  Fix: Do Z."
     assert replaced[0] == lines[0] and replaced[2:] == lines[2:]
+
+
+def test_branch_unencoded_fix_names_source_locator_not_a_path():
+    for fix in (
+        evals._COMPLETENESS_ENCODE_FIRST_FIXES[
+            "complete-source-unit:structure/branch-unencoded"
+        ],
+        checks.get_check("complete-source-unit:structure/branch-unencoded").fix,
+    ):
+        assert (
+            "a rule that cites it (its rule-level `source:` locator or a proof "
+            "excerpt from its own text; `corpus_citation_path` stays the unit path)"
+        ) in fix
+        assert "source path or proof excerpt" not in fix
