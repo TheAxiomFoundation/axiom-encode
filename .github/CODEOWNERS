@@ -41,10 +41,16 @@
 /src/axiom_encode/applied_manifest_v6.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/cli.py @PavelMakarchuk @MaxGhenis
 /scripts/prepare_reviewed_pr_promotion.py @PavelMakarchuk @MaxGhenis
+/scripts/check_candidate_source_pin.py @PavelMakarchuk @MaxGhenis
 /tests/test_reviewed_pr_admission.py @PavelMakarchuk @MaxGhenis
 /tests/test_content_merge_guard.py @PavelMakarchuk @MaxGhenis
 /tests/test_applied_manifest_v6.py @PavelMakarchuk @MaxGhenis
 /tests/test_prepare_reviewed_pr_promotion.py @PavelMakarchuk @MaxGhenis
+/tests/test_multi_unit_promotion_admission.py @PavelMakarchuk @MaxGhenis
+/tests/test_multi_unit_promotion_cli.py @PavelMakarchuk @MaxGhenis
+/tests/test_multi_unit_promotion_isolation.py @PavelMakarchuk @MaxGhenis
+/tests/test_multi_unit_promotion_review.py @PavelMakarchuk @MaxGhenis
+/tests/test_multi_unit_promotion_workflow.py @PavelMakarchuk @MaxGhenis
 /tests/test_content_merge_guard_infrastructure.py @PavelMakarchuk @MaxGhenis
 /data/reviewed-rulespec-refs/ @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/corpus_artifact_transport.py @PavelMakarchuk @MaxGhenis
