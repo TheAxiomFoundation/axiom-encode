@@ -6245,7 +6245,7 @@ _CODEX_PASS_EVENT = _codex_stream(_GENERALIST_PASS)
                     }
                 )
             ],
-            "not a JSON object",
+            "text is not a string",
         ),
         # No agent message: a bare verdict is not a Codex event stream, and a
         # verdict in another item or another event is not the reply.

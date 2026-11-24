@@ -255,8 +255,12 @@ reply is stdout alone when the run exits 0; the length of stderr is logged,
 and stderr is not part of the reply. For the Codex CLI the event stream is stdout alone when the run exits 0, and the reply is the text of the
 one agent message in it. The stream is unreadable, and the record says
 `unavailable`, when it holds more than one agent message with text, no agent
-message, an `error` or `turn.failed` event, or a line that is not a JSON
-object. A line ends at a line feed. An object with no `type` or an unknown
+message, an `error` or `turn.failed` event, a line that is not a JSON
+object, or an agent message whose `text` is not a string. A line ends at a
+line feed, and only JSON whitespace (space, tab, line feed, carriage return)
+is stripped from it: a stream whose events are separated by a lone carriage
+return, or a line that holds or is padded with another whitespace character
+(for example a form feed, U+00A0 or U+2028 outside a string), is unreadable. An object with no `type` or an unknown
 `type`, and an `item.completed` whose `item` is not an object, are ignored:
 the CLI writes these lines, not the reviewer. A reviewer run with a preamble message before its verdict is therefore
 unreadable by design: the reader cannot tell a harmless preamble from an
