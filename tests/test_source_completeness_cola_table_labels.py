@@ -99,6 +99,8 @@ def test_range_header_plus_label_is_not_arithmetic(source_text):
         "Add 6+ 48 to the total.",
         "The amount equals income + 48.",
         "Area 1-2 3 equals 6 + 48 dollars.",
+        # Words between the caption and `6+`: not a header row of range labels.
+        "Household size 3 members add 6+ 48 dollars.",
     ),
 )
 def test_real_addition_stays_arithmetic(source_text):
