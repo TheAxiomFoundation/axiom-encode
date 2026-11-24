@@ -810,3 +810,17 @@ def test_the_admission_sends_no_credential():
     assert "Authorization" not in source and "token" not in source.split(
         "def github_json"
     )[1].split("\n\n\n")[0].replace("no repository token", "")
+
+
+def test_the_document_states_the_shipped_switch_and_limit():
+    text = (
+        Path(__file__).resolve().parents[1] / "docs/reviewed-pr-promotion.md"
+    ).read_text()
+    section = text.split("## Several units in one candidate")[1].split("\n## ")[0]
+    assert ("**Switched off.**" in section) is (
+        admission.MULTI_UNIT_PROMOTION_ENABLED is False
+    )
+    limit = admission.MAX_PROMOTION_UNITS
+    assert f"`MAX_PROMOTION_UNITS` is {limit}." in section
+    assert f"so `k <= {limit}` ({34 + 4 * limit} reads)" in section
+    assert admission.BATCH_SCHEMA in section

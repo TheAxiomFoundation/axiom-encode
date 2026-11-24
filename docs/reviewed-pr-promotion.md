@@ -182,6 +182,169 @@ head; an API error requires investigating the API state, not disabling the check
 The signed RuleSpec PR still requires green exact-head CI before merge. This
 feature does not automatically merge it.
 
+## Several units in one candidate
+
+**Switched off.** `MULTI_UNIT_PROMOTION_ENABLED` in
+`src/axiom_encode/reviewed_pr_admission.py` is `False`. While it is not exactly
+`True`, everything in this section is refused and every single-unit read,
+record and error is the same as before the switch existed. The switch is a
+constant on encoder main, read at call time. There is no environment variable,
+CLI flag, dispatch input or repository setting, and a change to it needs a
+code-owner review.
+
+Why: per-unit owner approval is gone (#2301). The limit that remains is
+RuleSpec CI: one head takes 3 to 4 hours, and each landing needs the newest
+`main`. With one unit per candidate, each unit pays for one CI run and one
+merge. With the switch on, one candidate pull request carries several new
+units, and they share one signing run, one CI run and one merge.
+
+### Rules
+
+With the switch on, a dispatch that names its units (below) admits a candidate
+whose change set is exactly `k` units, `1 <= k <= MAX_PROMOTION_UNITS`:
+
+- Each unit is a complete pair: its new primary and its new companion. A unit
+  without its companion, or a companion without its primary, is refused.
+- Every path is new on `main` and has status `added`.
+- No other file is changed, added, deleted or renamed. The one exception is the
+  derived reverse index (`.axiom/index/provisions_to_rules.json`), which is
+  permitted as for a single unit. It is one file for the repository, not one
+  per unit.
+- No primary and no citation is named twice, so no path belongs to two units.
+- Every unit is checked as the selector of a single-unit promotion is
+  (country, canonical path, primary YAML).
+- Every other rule of this lane is unchanged and is checked once for the
+  batch: exact head, base `main` at its current head, same repository, the
+  live central signing run, the admission basis (enrolled owner dispatch, or
+  owner approval), the veto, and the complete tree delta.
+
+A dispatch without a unit list is a single-unit promotion. It refuses a
+candidate that holds a second unit, with the error it gave before
+(`candidate PR changes files outside its new module scope`), with the switch
+on or off.
+
+### How the batch is named
+
+The `source_bundle_json` wrapper takes one more optional key, `units`: the
+citation of every unit of the candidate.
+
+```json
+{
+  "schema": "axiom-encode/reviewed-pr-promotion/v1",
+  "rulespec_pr": 2044,
+  "units": ["us/statute/7/2015/a", "us/statute/7/2015/b"],
+  "transaction": { "...": "as for a single unit" }
+}
+```
+
+- The `citation` and `replace_rulespec_path` inputs name one of the units. Any
+  one; they do not order or select anything. The commit message and the
+  title of the lane pull request show that one citation.
+- The preflight maps each citation to its canonical path and writes a batch
+  selector with the units in path order.
+- The admission reads the live change set of the pull request at the exact
+  head and requires it to equal the named units. A list that names fewer units
+  than the candidate holds is refused (the other files belong to no named
+  unit). A list that names more is refused (a named unit is missing). So the
+  input cannot select a part of a candidate.
+- The list is needed because a citation cannot be computed back from a path.
+  The paths are never trusted from the input: they must equal the pull
+  request's own.
+- `units` with one citation is a batch of one. Its record and its manifest
+  equal those of a single-unit promotion of that unit.
+
+### One signing run
+
+`promote-reviewed-candidate` reads the units from the root-provisioned
+admission, not from its arguments, and processes them in path order:
+
+1. Every unit: binding, canonical path, no existing manifest, exact bytes at
+   `HEAD` against the admission record.
+2. No unit may import another unit of the same batch (below).
+3. Every unit: complete-source validation of its exact bytes, the same call as
+   for a single unit.
+4. The admission is read live again, once.
+5. Every unit: the signature.
+6. One transaction installs every manifest, then verifies every installed
+   manifest.
+
+The result is one signed manifest per unit, at the unit's own canonical
+manifest path, in the form of a single-unit promotion: the same schema
+(`axiom-encode/applied-rulespec/v5`), tool, fields and signature form. With
+the clock held, each manifest is byte-identical to the manifest of a
+single-unit promotion of that unit. A verifier reads each manifest by itself,
+so it needs no change. The units of one batch share `run_id` and
+`reviewed_rulespec_ref`. The admission record in the runtime attestation is a
+separate form (`axiom-encode/live-reviewed-pr-batch-admission/v1`) with one
+record per unit; each record equals the record of a single-unit admission.
+
+### All or nothing
+
+- A unit that fails step 1, 2 or 3 stops the run before any signature is
+  requested, also for units that already passed.
+- A refused live admission (step 4) stops the run before any signature.
+- A failed signature (step 5) stops the run before any manifest is written.
+  Signatures of earlier units then exist only in the memory of the stopped
+  process.
+- A manifest that fails verification after the install (step 6) removes every
+  manifest of the transaction.
+- The error names the unit: `unit <citation> (<path>): <reason>`.
+
+A failed batch is repaired in the candidate (fix or remove the unit) and
+dispatched again on the new head. There is no partial result to keep.
+
+### Imports between units of one batch
+
+Refused. A unit whose primary imports another unit of the same batch stops
+the run before validation, and the error names both files. Reason: each unit
+is validated and signed as a single-unit promotion of it would be, against
+modules that are already signed. The single-unit lane cannot express such an
+import at all (its candidate holds one new module), so this keeps each batch
+manifest equal to a single-unit one. Promote the imported unit first, then the
+importer in a later candidate. The check reads the `imports` list of each
+primary, as the guard does for direct importers.
+
+### Limits
+
+- `MAX_PROMOTION_UNITS` is 6. The bound is the anonymous GitHub API budget of
+  one signing run: 60 requests an hour for one address, and the signing
+  runtime holds no token. One admission of `k` units reads `11 + 2k` times; a
+  revalidation reads 4 times. One run admits twice (preflight and root
+  provisioner) and revalidates three times:
+  `2 x (11 + 2k) + 3 x 4 = 34 + 4k <= 60`, so `k <= 6` (58 reads). A
+  single-unit run costs 38. Ten units need 74 reads: that needs fewer or
+  authenticated reads first, in a reviewed change.
+- The budget is per address and per hour. A second dispatch from the same
+  address in the same hour can exhaust it; the run then fails closed.
+- The selector file is at most 4096 bytes (the root provisioner's bound). A
+  batch whose selector is larger is refused.
+- Other bounds are far away: 100 changed files in one page of the pull request
+  (a batch of 6 has 12 or 13), 1,024 files in one install transaction.
+
+### What one batch costs
+
+| | One unit per candidate, `k` units | One batch of `k` units |
+|---|---|---|
+| Dispatches | `k` | 1 |
+| `production-signing` approvals | `k` | 1 |
+| Signing runs | `k` | 1 (validation time grows with `k`) |
+| RuleSpec CI runs on a signed head | `k` | 1 |
+| Merges, each on the newest `main` | `k` | 1 |
+
+### What is not built, and what is not verified
+
+- The workflow file is unchanged. Its packaged artifact inventory
+  (`apply-manifests.json`), the commit message and the title of the lane pull
+  request name only the unit of the `citation` input. The checkpoint guard and
+  the staging step are not limited to one manifest.
+- No hosted run of a batch has been made. Before the switch is turned on, a
+  canary batch on a real candidate is required. Two points need that run:
+  that the hosted steps after the promotion command accept several manifests,
+  and that complete-source validation of one unit is not disturbed by the
+  other, still unsigned, units in the same checkout.
+- Nothing dispatches a batch automatically, nothing merges it, and there is no
+  evidence gate (reviewer verdict, oracle result) in this lane.
+
 ## Rollout
 
 Merge this one reusable encoder implementation only after independent review,
