@@ -209,6 +209,167 @@ def _require_immutable_delta(
     return head_entries
 
 
+# The command that binds an existing candidate (docs/reviewed-pr-promotion.md).
+SOURCE_PIN_COMMAND: Final = (
+    "axiom-encode bind-source-verification --repo <rulespec checkout> "
+    "--citation <citation> --corpus-path <corpus checkout>"
+)
+_PIN_KEY_LINE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*):(?: +(.*))?")
+_PIN_PLAIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@+-]*")
+_PIN_NUMBER_LIKE = re.compile(r"[-+]?[0-9][0-9_]*(?:[eE][-+]?[0-9]+)?")
+_PIN_VALUE = re.compile(
+    r"""(?:(?P<plain>[^\s'"#][^\s#]*)|'(?P<single>[^'\\]*)'|"(?P<double>[^"\\]*)")"""
+    r"""(?:\s+#.*)?"""
+)
+
+
+def _pin_refusal(detail: str) -> AdmissionError:
+    return AdmissionError(
+        f"candidate module is not bound to its source: {detail}. Run "
+        f"`{SOURCE_PIN_COMMAND}` on the candidate branch, push the change and "
+        "dispatch the new head"
+    )
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _is_content(line: str) -> bool:
+    stripped = line.strip(" ")
+    return bool(stripped) and not stripped.startswith("#")
+
+
+def _block_after(lines: list[str], header: int, parent_indent: int) -> list[str]:
+    """The content lines that belong to the block mapping under ``lines[header]``."""
+    block = []
+    for line in lines[header + 1 :]:
+        if not _is_content(line):
+            continue
+        if _indent(line) <= parent_indent:
+            break
+        block.append(line)
+    return block
+
+
+def read_candidate_source_pin(raw: bytes) -> tuple[str | None, str | None]:
+    """Read ``module.source_verification`` by a strict line read; no YAML parser.
+
+    Returns ``(corpus_citation_path, source_sha256)``; a missing key is
+    ``None``. Standard library only: this module also runs where the encoder
+    package and PyYAML are absent. It accepts one shape, the plain block form
+    that the encoder and ``bind-source-verification`` write::
+
+        module:
+          source_verification:
+            corpus_citation_path: <path>
+            source_sha256: <64 hex>
+
+    one ``module:`` line at column 0, one ``source_verification:`` line among
+    its keys, and one ``key: value`` line per entry with a one-line plain or
+    quoted value. Every other shape refuses (flow style, anchor, alias, tag,
+    merge key, duplicate key, tab indentation, multi-line value, document
+    marker). A refusal is not a claim that the YAML is wrong; it means this
+    reader will not vouch for it.
+
+    This is an early refusal, not the binding proof. It does not prove that a
+    YAML parser reads the same values (a multi-line quoted scalar elsewhere can
+    hide these lines), and it does not know the corpus. The protected job
+    still parses the module and compares the pin with the resolver's
+    attestation before it signs.
+    """
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise _pin_refusal("the module is not UTF-8") from None
+    lines = [line.removesuffix("\r") for line in text.split("\n")]
+    if any(mark in line for line in lines for mark in "\r\x85\u2028\u2029"):
+        raise _pin_refusal("the module uses a line break other than LF or CRLF")
+    if text.startswith("\ufeff") or any(
+        line.startswith(("---", "...", "%")) for line in lines
+    ):
+        raise _pin_refusal(
+            "the module has a byte order mark, a directive or a document marker"
+        )
+    top_level = [
+        index
+        for index, line in enumerate(lines)
+        if re.match(r"""["']?module["']?\s*:""", line)
+    ]
+    if len(top_level) != 1 or lines[top_level[0]].rstrip(" ") != "module:":
+        raise _pin_refusal("the file has no single plain block `module:` mapping")
+    module = _block_after(lines, top_level[0], 0)
+    if not module or any("\t" in line[: _indent(line) + 1] for line in module):
+        raise _pin_refusal("`module` is empty or indented with tabs")
+    key_indent = _indent(module[0])
+    if any(_indent(line) < key_indent for line in module):
+        raise _pin_refusal("`module` keys are not indented evenly")
+    keys = [line[key_indent:] for line in module if _indent(line) == key_indent]
+    if any(key.startswith(("<<", "?", "&", "*", "!", "{", "[")) for key in keys):
+        raise _pin_refusal("`module` uses a merge key, anchor, tag or flow style")
+    headers = [
+        key for key in keys if re.match(r"""["']?source_verification["']?\s*:""", key)
+    ]
+    if not headers:
+        raise _pin_refusal("the module has no `module.source_verification` block")
+    if len(headers) != 1 or headers[0].rstrip(" ") != "source_verification:":
+        raise _pin_refusal(
+            "`module.source_verification` is not a single plain block mapping"
+        )
+    header = lines.index(" " * key_indent + headers[0], top_level[0])
+    entries = _block_after(lines, header, key_indent)
+    if not entries:
+        raise _pin_refusal("`module.source_verification` is empty")
+    entry_indent = _indent(entries[0])
+    values: dict[str, str] = {}
+    for line in entries:
+        match = (
+            _PIN_KEY_LINE.fullmatch(line[entry_indent:].rstrip(" "))
+            if _indent(line) == entry_indent and "\t" not in line
+            else None
+        )
+        value = _PIN_VALUE.fullmatch(match.group(2) or "") if match else None
+        if match is None or value is None or match.group(1) in values:
+            raise _pin_refusal(
+                "`module.source_verification` is not in the plain block form "
+                "(one `key: value` line per entry, no duplicate key)"
+            )
+        plain = value.group("plain")
+        if plain is not None and (
+            _PIN_PLAIN.fullmatch(plain) is None
+            or _PIN_NUMBER_LIKE.fullmatch(plain) is not None
+        ):
+            raise _pin_refusal(
+                "a `module.source_verification` value is not a plain string"
+            )
+        values[match.group(1)] = next(
+            group
+            for group in value.group("plain", "single", "double")
+            if group is not None
+        )
+    return values.get("corpus_citation_path"), values.get("source_sha256")
+
+
+def require_candidate_source_pin(raw: bytes, citation: str) -> None:
+    """Refuse a candidate primary that a promotion could not bind to its source.
+
+    The module must name the promotion's citation and carry a 64-character
+    lowercase hex ``source_sha256``. Whether that pin is the right one is
+    decided later, by the protected binding check against the corpus.
+    """
+    path, pin = read_candidate_source_pin(raw)
+    if path != citation:
+        raise _pin_refusal(
+            "`module.source_verification.corpus_citation_path` is missing or is "
+            "not the promotion citation"
+        )
+    if pin is None or re.fullmatch(r"[0-9a-f]{64}", pin) is None:
+        raise _pin_refusal(
+            "`module.source_verification.source_sha256` is missing or is not 64 "
+            "lowercase hex characters"
+        )
+
+
 def selector_from_payload(value: object) -> PromotionSelector:
     payload = _object(value, "promotion selector")
     if set(payload) != set(PromotionSelector.__dataclass_fields__):
@@ -517,6 +678,7 @@ def verify_reviewed_pr(
         purpose = "Live exact-head independent signing-owner approval on the RuleSpec PR; new-module promotion only."
 
     digests = {}
+    contents = {}
     tree = _object(
         fetch(f"{root}/git/trees/{selector.head}?recursive=1"), "candidate tree"
     )
@@ -547,6 +709,11 @@ def verify_reviewed_pr(
         if len(raw) != blob.get("size") or len(raw) > 10 * 1024 * 1024:
             raise AdmissionError("candidate content size differs")
         digests[path] = hashlib.sha256(raw).hexdigest()
+        contents[path] = raw
+    # Under both admission bases: a candidate without the source pin fails the
+    # protected binding check after the signing approval (signing run
+    # 45328443323). Refuse it here, before the admission exists.
+    require_candidate_source_pin(contents[selector.rulespec_path], selector.citation)
 
     # Refuse changes during the API sequence rather than carrying an old
     # approval across a new head/base. Before signing and publication, recheck

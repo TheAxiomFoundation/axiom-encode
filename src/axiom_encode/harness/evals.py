@@ -1842,6 +1842,7 @@ def run_model_eval(
     codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
     axiom_rules_engine_ref: str | None = None,
     producer_review_guidance: ProducerReviewGuidance | None = None,
+    bind_source_verification: bool = False,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
     if producer_review_guidance is not None:
@@ -1951,6 +1952,7 @@ def run_model_eval(
                         required_import_targets=required_import_targets,
                         legacy_replacement=legacy_replacement,
                         replacement_overlay_scope=replacement_overlay_scope,
+                        bind_source_verification=bind_source_verification,
                     )
                 )
 
@@ -10592,6 +10594,7 @@ def _run_single_eval(
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
     producer_review_guidance: ProducerReviewGuidance | None = None,
+    bind_source_verification: bool = False,
 ) -> EvalResult:
     if (
         accept_valid_retry_candidate
@@ -10728,6 +10731,16 @@ def _run_single_eval(
             workspace,
             protected_paths=protected_paths,
         )
+        retained_binding_issue = (
+            _bind_generated_source_verification(
+                output_file,
+                artifact_root=artifact_root,
+                attestation=_source_metadata_attestation(source_metadata_payload),
+                read_only=False,
+            )
+            if bind_source_verification
+            else None
+        )
         mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
@@ -10806,7 +10819,8 @@ def _run_single_eval(
             )
             mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         retained_candidate_accepted = (
-            retained_candidate_metrics is not None
+            retained_binding_issue is None
+            and retained_candidate_metrics is not None
             and _eval_artifact_validation_error(
                 retained_candidate_metrics,
                 require_policyengine=oracle == "policyengine",
@@ -10953,7 +10967,18 @@ def _run_single_eval(
 
     metrics = retained_candidate_metrics if retained_candidate_accepted else None
     eval_repairs: list[str] = []
+    source_binding_issue: str | None = None
     if wrote_artifact and not retained_candidate_accepted:
+        if bind_source_verification:
+            # Before validation and review: the bytes they see are the bytes a
+            # promotion can sign. A tests-only repair keeps its RuleSpec
+            # immutable, so it only checks the pin.
+            source_binding_issue = _bind_generated_source_verification(
+                output_file,
+                artifact_root=artifact_root,
+                attestation=_source_metadata_attestation(source_metadata_payload),
+                read_only=repair_candidate_tests_only,
+            )
         mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
@@ -10989,15 +11014,21 @@ def _run_single_eval(
         )
     quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     mark_encode_phase(PHASE_RECORD_RESULT)
-    if overlay_validation_issue is not None and metrics is not None:
+    forced_ci_issues = [
+        issue
+        for issue in (overlay_validation_issue, source_binding_issue)
+        if issue is not None
+    ]
+    if forced_ci_issues and metrics is not None:
         metrics.ci_pass = False
-        if overlay_validation_issue not in metrics.ci_issues:
-            metrics.ci_issues.append(overlay_validation_issue)
+        for forced_issue in forced_ci_issues:
+            if forced_issue not in metrics.ci_issues:
+                metrics.ci_issues.append(forced_issue)
     validation_error = _eval_artifact_validation_error(
         metrics,
         require_policyengine=oracle == "policyengine",
     )
-    if overlay_validation_issue is not None and validation_error is None:
+    if forced_ci_issues and validation_error is None:
         validation_error = "Generated RuleSpec failed CI validation"
     outcome = _eval_result_outcome(
         response,
@@ -11066,6 +11097,73 @@ def _run_single_eval(
     )
     emit_eval_result(result, response.trace)
     return result
+
+
+SOURCE_BINDING_ISSUE_PREFIX = "[source-binding:"
+
+
+def _bind_generated_source_verification(
+    output_file: Path,
+    *,
+    artifact_root: Path,
+    attestation: Mapping[str, object] | None,
+    read_only: bool,
+) -> str | None:
+    """Bind the staged candidate to the resolver's source; return an issue or None.
+
+    The binder sets ``module.source_verification.corpus_citation_path`` and
+    ``source_sha256`` to the attested values by a minimal text edit, and keeps
+    every other byte. It never re-dumps the YAML. A candidate it cannot bind is
+    left as the model wrote it and gets a blocking issue, so a non-apply encode
+    never reports an unbound candidate as clean. ``read_only`` checks the pin
+    and writes nothing.
+    """
+
+    from axiom_encode.source_verification_binding import (
+        SourceBindingError,
+        check_source_verification,
+    )
+    from axiom_encode.source_verification_binding import (
+        bind_source_verification as bind_module_source_verification,
+    )
+
+    try:
+        if attestation is None:
+            raise SourceBindingError("the encode has no resolver source attestation")
+        raw = _corpus_resolver.read_bounded_regular_file(
+            Path(os.path.abspath(artifact_root)),
+            Path(os.path.abspath(output_file)),
+            label="generated eval RuleSpec",
+            max_bytes=32 * 1024 * 1024,
+        )
+        if read_only:
+            check_source_verification(raw, attestation)
+            print("  source_binding=already_bound")
+            return None
+        binding = bind_module_source_verification(raw, attestation)
+    except SourceBindingError as exc:
+        print(f"  source_binding=unbound:{exc.kind}")
+        repair = (
+            "The retained RuleSpec is immutable in a tests-only repair; bind it "
+            "first with `axiom-encode bind-source-verification`."
+            if read_only
+            else "Write `module.source_verification` as a plain block mapping "
+            "with exactly `corpus_citation_path` and `source_sha256`, each on its "
+            "own line, copied exactly from `source_attestation` in "
+            "`./source-metadata.json` (`requested_corpus_citation_path` and "
+            "`source_sha256`)."
+        )
+        return (
+            f"{SOURCE_BINDING_ISSUE_PREFIX}{exc.kind}] Generated RuleSpec is not "
+            f"bound to its resolver-attested source: {exc}. {repair}"
+        )
+    if binding.changed:
+        root, relative = _eval_artifact_write_location(output_file, artifact_root)
+        _secure_atomic_eval_write(root, relative, binding.content)
+        print("  source_binding=bound:" + ",".join(binding.edits))
+    else:
+        print("  source_binding=already_bound")
+    return None
 
 
 def _eval_artifact_validation_error(
@@ -12809,6 +12907,18 @@ Preferred principal output:
 {subparagraph_coverage_checklist}"""
     corpus_source_section = ""
     corpus_rulespec_requirement = ""
+    # Without a resolver attestation in the workspace the pin stays optional
+    # and this line is the earlier wording, byte for byte.
+    source_pin_requirement = "`corpus_citation_path` and optional `source_sha256` pin."
+    if _workspace_source_attestation_has_pin(workspace):
+        source_pin_requirement = (
+            "`corpus_citation_path` and the `source_sha256` pin. Write both, each\n"
+            "  on its own line in plain block form, copied exactly from\n"
+            "  `source_attestation` in `./source-metadata.json`:\n"
+            "  `corpus_citation_path` is its `requested_corpus_citation_path` and\n"
+            "  `source_sha256` is its `source_sha256`. The encoder refuses a module\n"
+            "  that names another value."
+        )
     if corpus_citation_path:
         corpus_source_section = f"""
 - This source text was read from `corpus.provisions` at `{corpus_citation_path}`.
@@ -13008,7 +13118,7 @@ RuleSpec requirements:
   another source is needed, encode it as its own corpus-bound atomic module and
   import that module, or emit a typed deferral. Do not add source-audit metadata
   to `module.source_verification`; its only fields are the singular
-  `corpus_citation_path` and optional `source_sha256` pin.
+  {source_pin_requirement}
 - Include `module.proof_validation.required: true` and add
   `metadata.proof.atoms` to every `parameter`, `derived`, and
   `derived_relation` rule. Each atom must point to release-bound corpus source
@@ -13859,6 +13969,23 @@ Do not respond with summaries, markdown prose, or file-write confirmations.
     return _PromptWithCacheBoundary(
         stable_prefix + dynamic_suffix,
         cache_prefix_length=len(stable_prefix),
+    )
+
+
+def _workspace_source_attestation_has_pin(workspace: EvalWorkspace) -> bool:
+    """Whether ``./source-metadata.json`` gives the model both pin values."""
+
+    source_metadata = workspace.source_metadata
+    attestation = (
+        source_metadata.get("source_attestation")
+        if isinstance(source_metadata, dict)
+        else None
+    )
+    return (
+        isinstance(attestation, dict)
+        and isinstance(attestation.get("requested_corpus_citation_path"), str)
+        and isinstance(attestation.get("source_sha256"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", attestation["source_sha256"]) is not None
     )
 
 
