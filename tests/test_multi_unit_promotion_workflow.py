@@ -357,8 +357,8 @@ def test_every_manifest_covers_exactly_the_pair_of_its_unit(tmp_path, name, file
     completed = packaging.run(ALL)
     assert completed.returncode != 0
     assert (
-        "replacement apply manifest primary path does not match" in completed.stderr
-        or "does not cover exactly the pair of its unit" in completed.stderr
+        f"does not cover exactly the pair of its unit {citation(name)}"
+        in completed.stderr
         or "malformed applied_files" in completed.stderr
     ), completed.stderr
     assert not (packaging.artifact / "apply-manifests.json").exists()
@@ -648,6 +648,15 @@ def test_a_run_without_units_publishes_no_unit_list(tmp_path, source):
 
 
 @needs_shell
+@pytest.mark.parametrize("unit", ["x`id`", "a b", "a, b", "$(id)", "a'b", 'a"b'])
+def test_a_unit_that_is_not_a_plain_citation_stops_the_publication(tmp_path, unit):
+    """The title and body take the units only as plain citation text."""
+    completed = prepare_units(tmp_path, wrapper([citation("a"), unit]), switch_on=True)
+    assert completed.returncode != 0
+    assert "|" not in completed.stdout
+
+
+@needs_shell
 def test_a_unit_list_with_the_switch_off_stops_the_publication(tmp_path):
     completed = prepare_units(tmp_path, wrapper(ALL), switch_on=False)
     assert completed.returncode != 0
@@ -697,6 +706,11 @@ def test_the_single_unit_pull_request_title_and_body_are_unchanged():
         "Add signed encoding manifest for us/statute/7/2015/a",
         "existing body",
     ]
+    # The text a single-unit run always had, still in the step.
+    assert (
+        'title="Add signed encoding manifest for ${CITATION}"'
+        in step("Push lane branch and open draft pull request")["run"]
+    )
     publication = step("Push lane branch and open draft pull request")["run"]
     assert '-f title="$title" \\' in publication
     assert publication.count("gh api --method POST") == 1

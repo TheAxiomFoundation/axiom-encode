@@ -4051,10 +4051,6 @@ jobs:
                           Path(".axiom/encoding-manifests") / unit_primary
                       ).with_suffix(".json"),
                   )
-              if len({paths for paths in promotion_units.values()}) != len(
-                  promotion_unit_citations
-              ):
-                  raise SystemExit("multi-unit promotion names a module twice")
               expected_citations.update(promotion_units)
 
           matches = {}
@@ -4931,33 +4927,34 @@ jobs:
                       and item["path"].endswith(".yaml")
                       and not item["path"].endswith(".test.yaml")
                   )
-                  if primary_paths != [
-                      expected_primary_path
-                      if promotion_units
-                      else normalized_replacement_path
-                  ]:
+                  if promotion_units:
+                      # Each unit's manifest sits at the unit's canonical
+                      # position and covers exactly the unit's own pair.
+                      if (
+                          primary_paths != [expected_primary_path]
+                          or relative_path.as_posix() != expected_manifest_path
+                          or len(applied_files) != 2
+                          or sorted(
+                              str(item.get("path"))
+                              for item in applied_files
+                              if isinstance(item, dict)
+                          )
+                          != sorted(
+                              [
+                                  expected_primary_path,
+                                  expected_primary_path.removesuffix(".yaml")
+                                  + ".test.yaml",
+                              ]
+                          )
+                      ):
+                          raise SystemExit(
+                              "multi-unit promotion manifest does not cover "
+                              f"exactly the pair of its unit {citation}"
+                          )
+                  elif primary_paths != [normalized_replacement_path]:
                       raise SystemExit(
                           "replacement apply manifest primary path does not "
                           "match the requested RuleSpec target"
-                      )
-                  if promotion_units and (
-                      relative_path.as_posix() != expected_manifest_path
-                      or sorted(
-                          item.get("path")
-                          for item in applied_files
-                          if isinstance(item, dict)
-                      )
-                      != sorted(
-                          [
-                              expected_primary_path,
-                              expected_primary_path.removesuffix(".yaml")
-                              + ".test.yaml",
-                          ]
-                      )
-                  ):
-                      raise SystemExit(
-                          "multi-unit promotion manifest does not cover "
-                          f"exactly the pair of its unit {citation}"
                       )
               if reviewed_repair_patch_id is not None:
                   from axiom_encode.reviewed_repair_patch import verify_manifest_reconstruction
@@ -5467,7 +5464,10 @@ jobs:
               axiom-encode/scripts/prepare_signed_backfill.py \
               split-atomic-source-input "$ATOMIC_SOURCE_JSON" \
               | jq -er '.promotion_units | join(", ")')"
-            [[ "$promotion_units" =~ ^[A-Za-z0-9._/-]+(,\ [A-Za-z0-9._/-]+)*$ ]]
+            if ! [[ "$promotion_units" =~ ^[A-Za-z0-9._/-]+(,\ [A-Za-z0-9._/-]+)*$ ]]; then
+              echo "multi-unit promotion names a unit that is not a plain citation" >&2
+              exit 1
+            fi
           fi
           promotion_unit_count="$(jq -rn --arg units "$promotion_units" \
             '$units | if . == "" then 0 else split(", ") | length end')"
@@ -5576,7 +5576,7 @@ jobs:
             '' \
             'This draft PR was produced by the protected country-general signed-apply workflow. Review all RuleSpec and manifest changes before marking it ready.')"
           title="Add signed encoding manifest for ${CITATION}"
-          if [ -n "${PROMOTION_UNITS:-}" ]; then
+          if [ -n "$PROMOTION_UNITS" ]; then
             # A multi-unit promotion: one signed manifest per unit.
             title="Add signed encoding manifests for ${PROMOTION_UNIT_COUNT} units (${CITATION} and others)"
             body="$(printf '%s\n' "$body" '' "Units (${PROMOTION_UNIT_COUNT}): \`${PROMOTION_UNITS}\`")"
