@@ -418,17 +418,17 @@ WITH_SOURCE = (
     "For each warning, read the quoted source words and the named rule, and "
     "decide from the source text whether the RuleSpec does what the check "
     "requires. If the RuleSpec merges, drops or weakens something the source "
-    "states, report it as a blocking issue and fail the review. If the "
-    "RuleSpec is faithful to the source, say so in one non-blocking note "
-    "that names the warning."
+    "states, list it in `blocking_issues` and set `passed` to false. If the "
+    "RuleSpec is faithful to the source, say so in one entry of "
+    "`non_blocking_issues` that names the warning."
 )
 WITHOUT_SOURCE = (
     "This prompt does not hold the source text. For each warning, judge only "
     "from the source words that the message quotes and from the structure of "
     "the named rule and its tests. If they show that the RuleSpec merges, "
-    "drops or weakens something the source states, report it as a blocking "
-    "issue and fail the review. If the quoted words are not enough to "
-    "decide, list an issue that names the warning and says that you could "
+    "drops or weakens something the source states, list it in `issues` and "
+    "set `passed` to false. If the quoted words are not enough to decide, "
+    "add an entry to `issues` that names the warning and says that you could "
     "not verify it against the source. Do not state that the RuleSpec is "
     "faithful to the source on this point."
 )
@@ -470,8 +470,13 @@ def test_review_context_is_exactly_the_instruction_the_check_and_the_finding(
 
 def test_the_two_instructions_differ_only_in_what_the_reviewer_can_judge():
     for text in (WITH_SOURCE, WITHOUT_SOURCE):
-        assert "report it as a blocking issue and fail the review" in text
+        assert "and set `passed` to false" in text
         assert "do not fail" not in text.lower()
+    # Each text names only keys of the reply schema of its reviewers.
+    assert "list it in `blocking_issues`" in WITH_SOURCE
+    assert "`non_blocking_issues`" in WITH_SOURCE
+    assert "list it in `issues`" in WITHOUT_SOURCE
+    assert "blocking" not in WITHOUT_SOURCE
     assert "decide from the source text" in WITH_SOURCE
     assert "decide from the source text" not in WITHOUT_SOURCE
     assert "could not verify it against the source" in WITHOUT_SOURCE
@@ -997,7 +1002,8 @@ def _evaluate(tmp_path, monkeypatch, ci_result, *, prompts=None, **kwargs):
     def fake_reviewer_cli(prompt, **_kwargs):
         if prompts is not None:
             prompts.append(prompt)
-        return json.dumps({"score": 9, "passed": True, "issues": []}), 0
+        # Keys that every reviewer prompt asks for: one fake serves all types.
+        return json.dumps({"score": 9, "passed": True}), 0
 
     monkeypatch.setattr(validator_pipeline, "run_claude_code", fake_reviewer_cli)
     kwargs.setdefault("skip_reviewers", prompts is None)
@@ -1286,7 +1292,8 @@ def _rendered_validate_prompts(tmp_path, monkeypatch, ci_result):
 
         def fake_cli(prompt, **_kwargs):
             captured.append(prompt)
-            return json.dumps({"score": 9, "passed": True, "issues": []}), 0
+            # Keys that every reviewer prompt asks for: one fake serves all types.
+            return json.dumps({"score": 9, "passed": True}), 0
 
         with monkeypatch.context() as patch:
             patch.setattr(validator_pipeline, "run_claude_code", fake_cli)

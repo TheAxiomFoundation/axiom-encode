@@ -758,6 +758,18 @@
       "why": "The step publishes verified changes. The encode itself finished; a failure here means no pull request or no signed artifact for this run."
     },
     {
+      "category": "infra:refuse-a-reviewed-candidate-without-a-source-pin",
+      "cause": "infra",
+      "fix": "Run `axiom-encode bind-source-verification` on the candidate branch, push the one-line change and dispatch the new head. If the candidate could not be read, check `rulespec_ref` and `replace_rulespec_path` and dispatch again.",
+      "gate": "workflow",
+      "id": "infra:refuse-a-reviewed-candidate-without-a-source-pin",
+      "requires": "For a reviewed-candidate promotion, the candidate primary at the exact `rulespec_ref` names the promotion citation in `module.source_verification.corpus_citation_path` and carries a 64-character `source_sha256`, in the plain block form.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Refuse a reviewed candidate without a source pin",
+      "title": "The reviewed candidate has no source pin",
+      "why": "A promotion signs the candidate bytes as they are. A primary without the pin would be refused by the protected binding check, after the signing approval."
+    },
+    {
       "category": "infra:refuse-an-encoder-head-that-no-version-bump-covers",
       "cause": "infra",
       "fix": "Wait for the automatic encoder version bump to merge, then dispatch again from the new main head.",
@@ -1034,6 +1046,42 @@
       "why": "The step publishes verified changes. The encode itself finished; a failure here means no pull request or no signed artifact for this run."
     },
     {
+      "category": "manifest:generalist-review",
+      "cause": "encoder_output",
+      "fix": "Do not edit a signed manifest. Run encode --apply again so the encoder writes and signs the record itself.",
+      "gate": "manifest",
+      "id": "manifest:generalist-review/binding",
+      "requires": "The record lists exactly the files the manifest applies, each by path and digest; a passed record marks every one of them reviewed in full, with chunk ranges that cover each reviewed text exactly once; a scored record has equal reviewed and applied content digests and marks as reviewed only the reviewed module path and its companion test path.",
+      "severity": "important",
+      "site": "axiom_encode/generalist_review_record.py:generalist_review_record_issues",
+      "title": "Generalist review verdict is not bound to the applied files",
+      "why": "The record is the only statement in a signed manifest about whether a model reviewed the applied module; a wrong record reads as a review."
+    },
+    {
+      "category": "manifest:generalist-review",
+      "cause": "encoder_output",
+      "fix": "Do not edit a signed manifest. Run encode --apply again so the encoder writes and signs the record itself.",
+      "gate": "manifest",
+      "id": "manifest:generalist-review/shape",
+      "requires": "The record has the exact v2 fields, a supported status and reason, and well-formed reviewer, verdict, digest, coverage and file values.",
+      "severity": "important",
+      "site": "axiom_encode/generalist_review_record.py:generalist_review_record_issues",
+      "title": "Generalist review record is malformed",
+      "why": "The record is the only statement in a signed manifest about whether a model reviewed the applied module; a wrong record reads as a review."
+    },
+    {
+      "category": "manifest:generalist-review",
+      "cause": "encoder_output",
+      "fix": "Do not edit a signed manifest. Run encode --apply again so the encoder writes and signs the record itself.",
+      "gate": "manifest",
+      "id": "manifest:generalist-review/verdict",
+      "requires": "A passed, partial or failed status carries the matching verdict, a pass is at or above the threshold, an unscored status carries no verdict, and a required review is passed.",
+      "severity": "important",
+      "site": "axiom_encode/generalist_review_record.py:generalist_review_record_issues",
+      "title": "Generalist review status contradicts its verdict",
+      "why": "The record is the only statement in a signed manifest about whether a model reviewed the applied module; a wrong record reads as a review."
+    },
+    {
       "category": "manifest:reviewed-repair",
       "cause": "encoder_output",
       "fix": "Use the reviewed package registration and its exact binding; do not edit signed artifacts.",
@@ -1118,6 +1166,18 @@
       "why": "A proof repair must not silently weaken the reviewed calculation coverage."
     },
     {
+      "category": "source-binding",
+      "cause": "encoder_output",
+      "fix": "Write `module.source_verification` as a plain block mapping with the one line `corpus_citation_path: <the requested citation path>`. Leave `source_sha256` out: the encoder writes it. Do not use flow style, anchors, tags, merge keys, quoted keys or a multi-line value there, and no `---` line. For an existing candidate run `axiom-encode bind-source-verification`.",
+      "gate": "ci",
+      "id": "source-binding/unbound",
+      "requires": "`module.source_verification` is a plain block mapping whose `corpus_citation_path` and `source_sha256` are the resolver's attested values, or a module the encoder can bind by inserting those two lines.",
+      "severity": "important",
+      "site": "axiom_encode/harness/evals.py:_bind_generated_source_verification",
+      "title": "Generated RuleSpec is not bound to its resolver-attested source",
+      "why": "A candidate is promoted and signed as the bytes it is. Without the attested source pin the protected binding check refuses it, after the signing approval, and a pin that names another source would bind the rule to text it was not encoded from."
+    },
+    {
       "category": "tests:scoped-execution",
       "cause": "encoder_output",
       "fix": "Correct the companion's factual cases and matching positive/refusal pairs, then rerun the whole module with the authenticated source and pinned engine. Keep failed records instead of borrowing older results.",
@@ -1190,6 +1250,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "38ab8170e8620b3b10892560880b507fc7fbf532adb4c8737603daf09ec2f7a0",
+  "registry_sha256": "b3d7795a8315b15830c7ce71b3b0bb867dd3065c340d2937edcb931db7a5fa66",
   "schema": "axiom-encode/check-registry/v1"
 }

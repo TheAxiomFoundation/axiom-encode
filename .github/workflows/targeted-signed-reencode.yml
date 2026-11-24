@@ -159,6 +159,26 @@ jobs:
           python3 -I "$GITHUB_WORKSPACE/axiom-encode/src/axiom_encode/version_provenance.py" \
             check --repo "$GITHUB_WORKSPACE/axiom-encode" --ref HEAD
 
+      # A reviewed-candidate promotion signs the candidate bytes as they are.
+      # A primary without the source pin fails the protected binding check,
+      # after the production-signing approval (run 45328443323). For a
+      # promotion dispatch, read the candidate primary at the exact
+      # rulespec_ref here and refuse first: no approval is used, and
+      # enforce_attempt_budget.py treats the run as neutral. Every other
+      # dispatch passes. This is a strict shape read without the corpus; the
+      # protected job still binds the pin to the resolver's attestation. The
+      # token is the read-scoped workflow token, used for one public read.
+      - name: Refuse a reviewed candidate without a source pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CITATION: ${{ inputs.citation }}
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          SOURCE_BUNDLE_JSON: ${{ inputs.source_bundle_json }}
+        run: |
+          python3 -I "$GITHUB_WORKSPACE/axiom-encode/scripts/check_candidate_source_pin.py"
+
       # Before the production-signing gate: a run that cannot fetch its pinned
       # corpus would fail after approval and waste the signing review. Only the
       # presence of the secrets is evaluated here; no step's environment or log
