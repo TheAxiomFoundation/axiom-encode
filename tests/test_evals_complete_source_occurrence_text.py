@@ -311,6 +311,30 @@ def test_exempt_source_spans_remove_only_their_characters():
     assert sorted(occurrence.value for occurrence in view) == [1.0, 5.0]
 
 
+def test_a_number_is_removed_only_when_all_its_characters_are():
+    # Removing one digit of `15` (here by an exempt span) does not remove the
+    # number: only an occurrence whose every character is gone leaves the view.
+    # The extractor reads only the source, so no recall demand is added back.
+    source_text = "Page 2 Pay 15 dollars."
+    start = source_text.index("15")
+    profile = _numeric_profile_for_citation_path(GUIDANCE)
+
+    def source_only(text):
+        if text != source_text:
+            return []
+        return extract_typed_numeric_inventory_occurrences_from_text(
+            text, profile=profile
+        )
+
+    view = sc.complete_source_numeric_recall_occurrences(
+        source_text,
+        corpus_citation_path=GUIDANCE,
+        extract_numeric_occurrences=source_only,
+        exempt_source_spans=((start, start + 1),),
+    )
+    assert [occurrence.value for occurrence in view] == [15.0]
+
+
 def test_a_number_numeric_recall_demands_is_added_when_the_source_reads_it_otherwise():
     # The source inventory reads `62 FR 61344` and the deleted public-law
     # numbers differently from the recall text; every number numeric recall
