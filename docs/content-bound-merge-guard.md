@@ -28,7 +28,11 @@ Verified against `main` at `eb98f8d7` (after #2194).
   - Complete tree delta: `_leaf_entries` and `_require_immutable_delta`.
   - Effective reviews: `_approved_reviews`. It requires an approval on the exact
     head, excludes the PR author by id and the dispatcher by login, and refuses
-    on a `CHANGES_REQUESTED` from any account.
+    on a `CHANGES_REQUESTED` from any account. Since #2301 this approval is
+    required only while `OWNER_APPROVAL_REQUIRED` is `True`. It is `False`:
+    admission rests on an enrolled owner's dispatch, and only the
+    `CHANGES_REQUESTED` refusal still applies
+    (`docs/reviewed-pr-promotion.md`, "Admission basis").
 - **Approvals are checked at three points**: twice in
   `cmd_promote_reviewed_candidate` (`revalidate_admission` before validation and
   before signing), and in `scripts/prepare_reviewed_pr_promotion.py

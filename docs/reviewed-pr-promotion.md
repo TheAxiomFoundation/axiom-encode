@@ -33,17 +33,24 @@ under both values.
 unit.
 
 - No `APPROVED` review is required.
-- The accountable act is the dispatch. The live run's triggering actor must be
-  an enrolled identity of the main-owned signing policy (currently MaxGhenis,
-  ID 6076111, or PavelMakarchuk, ID 110687043): the numeric ID, the login and
-  the account type `User` are read from the live run and must all match. An
-  account that only has write access cannot promote, although it can still
-  start the workflow. A re-run by another account makes that account the
-  triggering actor. If the identity cannot be read, admission is refused.
+- The accountable act is the dispatch. Two accounts are read from the live run
+  and must be the same enrolled identity of the main-owned signing policy
+  (currently MaxGhenis, ID 6076111, or PavelMakarchuk, ID 110687043): the
+  run's `actor`, who dispatched it and chose its inputs, and its
+  `triggering_actor`, who started this attempt. For each, the numeric ID, the
+  login and the account type `User` must match. An account that only has write
+  access cannot promote, although it can still start the workflow. If either
+  identity cannot be read, admission is refused.
+- Re-runs, in both directions. Another account's re-run of an owner's dispatch
+  is refused: the triggering actor is not the owner. An owner's re-run of
+  another account's dispatch is refused: the actor that chose the inputs is
+  not the owner. This also holds when the two accounts are the two enrolled
+  owners. Only the owner who dispatched a run can re-run it.
 - The dispatching owner may be the author of the candidate PR.
-- The veto stays. An outstanding changes-requested review refuses admission,
-  from any account (it is not limited to enrolled owners), until that reviewer
-  approves or the review is dismissed.
+- The veto stays in the code. An outstanding changes-requested review refuses
+  admission, from any account (it is not limited to enrolled owners), until
+  that reviewer approves or the review is dismissed. A review whose ID or
+  reviewer ID is not a positive integer refuses.
 - The queue path (`github-actions[bot]`) cannot promote: promotion refuses
   queue inputs, and a bot is not an enrolled `User`.
 
@@ -51,12 +58,53 @@ What is lost: no second person sees a candidate before it is signed, and none
 is required before it merges (RuleSpec `main` requires no approving review).
 A wrong rule that every machine check accepts lands on `main`.
 
-What remains: the validator checks of complete-source validation, the executed
-companion tests, the model reviewer, the oracle comparison where one exists,
-the signature by the protected key, the enrolled-owner dispatch, the
-`production-signing` environment approval (a repository setting; it permits
-the dispatcher to approve their own run), CI on the signed head, and the veto
-above.
+What this lane enforces after the change: the scope checks above, complete-source
+validation of the exact bytes (validator checks, the executed companion tests,
+policy proofs), the signature by the protected key, the enrolled-owner
+dispatch, the `production-signing` environment approval, and CI on the signed
+head.
+
+What this lane does not enforce, before or after the change: the model
+reviewer and the oracle comparison. Promotion validates with reviewers skipped
+and oracles off, and RuleSpec CI validates with `--skip-reviewers`. A reviewer
+verdict or an oracle result exists only if the local encode that produced the
+candidate ran them, and the lane does not check that it did.
+
+### What the remaining controls do not prove
+
+Stated plainly, because the approval was the only control that needed a second
+account:
+
+1. **Type `User` is an account type, not a person.** Any tool or agent session
+   that holds an enrolled owner's token is that `User`: it can dispatch, and
+   the admission cannot tell it from the owner at a keyboard.
+2. **The `production-signing` approval is not a separate human act by
+   construction.** The environment's required reviewers are the two enrolled
+   owners and `prevent_self_review` is off (read from the environment's
+   settings). The approval is an API call that the dispatching login can make
+   for its own run. (Not tested by making the call.)
+3. **The veto does not bind the dispatching owner.** RuleSpec `main` has no
+   review-dismissal restriction (read from the branch protection of
+   `rulespec-us`; organization rulesets could not be read). An account with
+   write access can dismiss a changes-requested review, and a dismissed review
+   no longer refuses. The veto stops a dispatch only while nobody with write
+   access dismisses it. (Not tested by dismissing a review.)
+4. **Therefore:** between a session that holds an enrolled owner's GitHub
+   login and a signed landing on `main` stand only machine controls (the scope
+   checks, complete-source validation, CI on the signed head), plus whatever
+   discipline the owner applies to the environment approval.
+
+### Known limit: switching back to `True` does not reach older runs
+
+A signing run executes the encoder commit it was started on. A run started
+while `main` had `False` can be re-run after `main` is back on `True`, and the
+re-run still admits by owner dispatch: admission requires the run's branch to
+be `main`, not its commit to be the current head of `main`. The window is
+narrow: only the enrolled owner who dispatched that run can re-run it, only
+while GitHub still offers the re-run, the environment approval is asked again,
+and every scope check runs again against the current candidate head and the
+current head of RuleSpec `main`. A switch back to `True` should be followed by
+a look at the recent runs of the workflow.
 
 **`True`: owner approval.** The rule in force before #2301, kept as a switch.
 One effective `APPROVED` review must be on the exact candidate head, from an
@@ -71,7 +119,7 @@ CODEOWNERS file. Revocation of this policy is an encoder-main policy change;
 changing org membership alone does not change this identity allowlist.
 
 The admission names its basis: `"admission_basis": "owner_dispatch"` with a
-`dispatcher` (`id`, `login`), or `"admission_basis": "owner_approval"` with the
+`dispatcher` (`login`, `actor_id`, `triggering_actor_id`), or `"admission_basis": "owner_approval"` with the
 `approvals`. It never carries an empty approvals list. A reader refuses an
 unknown basis, a basis that is not the policy in force, and a record whose
 evidence field does not match its basis. The signed manifest is unchanged: it
