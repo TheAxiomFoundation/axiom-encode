@@ -2954,8 +2954,18 @@ jobs:
                 /opt/axiom-compose-verification/axiom-compose)
             fi
             queue_operation command "${promotion_args[@]}"
+            # A multi-unit promotion (docs/reviewed-pr-promotion.md, "Several
+            # units in one candidate") names every unit in its one commit.
+            promotion_units_label="$(jq -r \
+              '(.promotion_units // []) | join(", ")' \
+              <<< "$atomic_source_payload")"
+            if [ -n "$promotion_units_label" ]; then
+              queue_operation checkpoint \
+                "Promote reviewed candidates for ${promotion_units_label} without regeneration"
+            else
             queue_operation checkpoint \
               "Promote reviewed candidate for ${CITATION} without regeneration"
+            fi
             queue_operation copy-guard "$RUNNER_TEMP/target-guard-generated.json"
           elif [ "$canonical_refresh_enabled" = "true" ]; then
             refresh_index=0
@@ -3809,7 +3819,14 @@ jobs:
           )
           replacement_path = os.environ.get("REPLACE_RULESPEC_PATH") or ""
           atomic_source_raw = json.loads(os.environ.get("ATOMIC_SOURCE_JSON") or "[]")
+          # The citations of a multi-unit promotion, or None. The wrapper's
+          # own parser reads them, so a list it refuses stops the step.
+          promotion_unit_citations = None
           if isinstance(atomic_source_raw, dict) and atomic_source_raw.get("schema") == "axiom-encode/reviewed-pr-promotion/v1":
+              if "units" in atomic_source_raw:
+                  promotion_unit_citations = split_atomic_source_input(
+                      os.environ["ATOMIC_SOURCE_JSON"]
+                  )["promotion_units"]
               atomic_source_raw = atomic_source_raw["transaction"]
           atomic_source = immutable_atomic_source_contract(
               os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
@@ -4009,6 +4026,37 @@ jobs:
           if second_dependent_citation:
               expected_citations.add(second_dependent_citation)
 
+          # Multi-unit promotion: every unit is expected, checked and
+          # recorded. ``promotion_units`` maps each citation to its canonical
+          # primary and manifest paths; it is empty for every other run.
+          promotion_units = {}
+          if promotion_unit_citations is not None:
+              if (
+                  not reviewed_candidate_promotion
+                  or os.environ["CITATION"] not in promotion_unit_citations
+                  or canonical_refresh_items
+                  or source_bundle_citations
+                  or dependent_citation
+                  or second_dependent_citation
+              ):
+                  raise SystemExit(
+                      "multi-unit promotion cannot mix with other lanes and "
+                      "must name the citation input as one of its units"
+                  )
+              for unit_citation in promotion_unit_citations:
+                  unit_primary = citation_rulespec_path(unit_citation)
+                  promotion_units[unit_citation] = (
+                      unit_primary.as_posix(),
+                      (
+                          Path(".axiom/encoding-manifests") / unit_primary
+                      ).with_suffix(".json"),
+                  )
+              if len({paths for paths in promotion_units.values()}) != len(
+                  promotion_unit_citations
+              ):
+                  raise SystemExit("multi-unit promotion names a module twice")
+              expected_citations.update(promotion_units)
+
           matches = {}
           initial_manifest_digests = {}
           captured_manifests = {}
@@ -4039,6 +4087,17 @@ jobs:
               ):
                   matches.setdefault(citation, []).append(
                       (relative_path, payload, effective)
+                  )
+
+          if promotion_units:
+              # Fail closed: the changed manifests are exactly one per unit,
+              # each at its unit's canonical position, and none is deleted.
+              if deleted_manifest_paths or manifest_paths != {
+                  unit_manifest for _primary, unit_manifest in promotion_units.values()
+              }:
+                  raise SystemExit(
+                      "multi-unit promotion changed a manifest that belongs to "
+                      "no named unit, or lacks the manifest of a named unit"
                   )
 
           if canonical_refresh_items:
@@ -4125,6 +4184,30 @@ jobs:
                           refresh_item["companion_path"],
                           refresh_item["manifest_path"],
                           normalized_review_contract(refresh_item),
+                      )
+                  )
+          elif promotion_units:
+              # One entry per unit, in path order. The unit of the citation
+              # input keeps the single-unit evidence file name.
+              for unit_index, unit_citation in enumerate(
+                  sorted(promotion_units, key=lambda key: promotion_units[key][0])
+              ):
+                  expected.append(
+                      (
+                          unit_citation,
+                          os.environ["REVIEW_FINDING"] or None,
+                          (
+                              Path(sys.argv[1])
+                              if unit_citation == os.environ["CITATION"]
+                              else Path(sys.argv[1]).with_name(
+                                  f"promotion-unit-{unit_index:02d}-context-manifest.json"
+                              )
+                          ),
+                          "target",
+                          promotion_units[unit_citation][0],
+                          None,
+                          promotion_units[unit_citation][1].as_posix(),
+                          primary_review_contract(),
                       )
                   )
           else:
@@ -4848,10 +4931,33 @@ jobs:
                       and item["path"].endswith(".yaml")
                       and not item["path"].endswith(".test.yaml")
                   )
-                  if primary_paths != [normalized_replacement_path]:
+                  if primary_paths != [
+                      expected_primary_path
+                      if promotion_units
+                      else normalized_replacement_path
+                  ]:
                       raise SystemExit(
                           "replacement apply manifest primary path does not "
                           "match the requested RuleSpec target"
+                      )
+                  if promotion_units and (
+                      relative_path.as_posix() != expected_manifest_path
+                      or sorted(
+                          item.get("path")
+                          for item in applied_files
+                          if isinstance(item, dict)
+                      )
+                      != sorted(
+                          [
+                              expected_primary_path,
+                              expected_primary_path.removesuffix(".yaml")
+                              + ".test.yaml",
+                          ]
+                      )
+                  ):
+                      raise SystemExit(
+                          "multi-unit promotion manifest does not cover "
+                          f"exactly the pair of its unit {citation}"
                       )
               if reviewed_repair_patch_id is not None:
                   from axiom_encode.reviewed_repair_patch import verify_manifest_reconstruction
@@ -4898,7 +5004,11 @@ jobs:
                                   else "axiom-encode/manifest-only-refresh-evidence/v1"
                               ),
                               "citation": citation,
-                              "rulespec_path": normalized_replacement_path,
+                              "rulespec_path": (
+                                  expected_primary_path
+                                  if promotion_units
+                                  else normalized_replacement_path
+                              ),
                           },
                           indent=2,
                           sort_keys=True,
@@ -5090,7 +5200,10 @@ jobs:
           import subprocess
           import sys
           from pathlib import Path
-          from axiom_encode.prepare_signed_backfill import repair_execution_metadata
+          from axiom_encode.prepare_signed_backfill import (
+              repair_execution_metadata,
+              split_atomic_source_input,
+          )
 
           def rev(path):
               return subprocess.check_output(
@@ -5236,6 +5349,20 @@ jobs:
               "workflow_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
               "workflow_run_id": os.environ["GITHUB_RUN_ID"],
           }
+          # A multi-unit promotion names every unit; other runs keep the
+          # exact keys they had.
+          atomic_source_outer = json.loads(
+              os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
+          )
+          if (
+              isinstance(atomic_source_outer, dict)
+              and atomic_source_outer.get("schema")
+              == "axiom-encode/reviewed-pr-promotion/v1"
+              and "units" in atomic_source_outer
+          ):
+              payload["promotion_units"] = split_atomic_source_input(
+                  os.environ["ATOMIC_SOURCE_JSON"]
+              )["promotion_units"]
           with open(sys.argv[1], "w", encoding="utf-8") as stream:
               json.dump(payload, stream, indent=2, sort_keys=True)
               stream.write("\n")
@@ -5323,12 +5450,27 @@ jobs:
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
         run: |
           set -euo pipefail
           workflow_python=(/opt/axiom-verification/python/bin/python -I)
           if [ ! -x "${workflow_python[0]}" ]; then
             workflow_python=("${AXIOM_TEST_PYTHON:-python}")
           fi
+          # The units of a multi-unit promotion, for the pull request title
+          # and body; empty for every other run. Read with the wrapper's own
+          # parser, here, where no repository token is present.
+          promotion_units=""
+          if jq -e 'type == "object" and .schema == "axiom-encode/reviewed-pr-promotion/v1" and has("units")' \
+            <<<"${ATOMIC_SOURCE_JSON:-[]}" > /dev/null; then
+            promotion_units="$("${workflow_python[@]}" \
+              axiom-encode/scripts/prepare_signed_backfill.py \
+              split-atomic-source-input "$ATOMIC_SOURCE_JSON" \
+              | jq -er '.promotion_units | join(", ")')"
+            [[ "$promotion_units" =~ ^[A-Za-z0-9._/-]+(,\ [A-Za-z0-9._/-]+)*$ ]]
+          fi
+          promotion_unit_count="$(jq -rn --arg units "$promotion_units" \
+            '$units | if . == "" then 0 else split(", ") | length end')"
           # An exact tip publishes the signed lane unchanged. A main tip that
           # advanced only through plumbing the run neither read nor bound
           # (CI, repository tests/tools, docs, non-encode workflow pins) gets
@@ -5365,6 +5507,8 @@ jobs:
             echo "published_head=$published_head"
             echo "base_advance_count=$base_advance_count"
             echo "publication_base_sha256=$publication_base_sha256"
+            echo "promotion_units=$promotion_units"
+            echo "promotion_unit_count=$promotion_unit_count"
           } >> "$GITHUB_OUTPUT"
 
       - name: Push lane branch and open draft pull request
@@ -5393,6 +5537,8 @@ jobs:
           PUBLISHED_HEAD: ${{ steps.reviewed_lane_pull_request_branch.outputs.published_head }}
           BASE_ADVANCE_COUNT: ${{ steps.reviewed_lane_pull_request_branch.outputs.base_advance_count }}
           PUBLICATION_BASE_SHA256: ${{ steps.reviewed_lane_pull_request_branch.outputs.publication_base_sha256 }}
+          PROMOTION_UNITS: ${{ steps.reviewed_lane_pull_request_branch.outputs.promotion_units }}
+          PROMOTION_UNIT_COUNT: ${{ steps.reviewed_lane_pull_request_branch.outputs.promotion_unit_count }}
         run: |
           set -euo pipefail
           test "$PRIOR_STATUS" = success
@@ -5429,11 +5575,17 @@ jobs:
             "Axiom Encode run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             '' \
             'This draft PR was produced by the protected country-general signed-apply workflow. Review all RuleSpec and manifest changes before marking it ready.')"
+          title="Add signed encoding manifest for ${CITATION}"
+          if [ -n "${PROMOTION_UNITS:-}" ]; then
+            # A multi-unit promotion: one signed manifest per unit.
+            title="Add signed encoding manifests for ${PROMOTION_UNIT_COUNT} units (${CITATION} and others)"
+            body="$(printf '%s\n' "$body" '' "Units (${PROMOTION_UNIT_COUNT}): \`${PROMOTION_UNITS}\`")"
+          fi
           gh auth setup-git
           git -C "$RULESPEC_CHECKOUT" -c core.hooksPath=/dev/null push \
             "https://github.com/${repo}.git" "HEAD:refs/heads/${branch}"
           gh api --method POST "repos/${repo}/pulls" \
-            -f title="Add signed encoding manifest for ${CITATION}" \
+            -f title="$title" \
             -f head="TheAxiomFoundation:${branch}" \
             -f base="$PR_BASE_BRANCH" \
             -f body="$body" \
