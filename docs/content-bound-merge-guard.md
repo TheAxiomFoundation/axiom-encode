@@ -612,9 +612,12 @@ waiver checks are those of the v5 promotion contract.
 So the writer and admission change (change 5), not the reader, is what waits
 for the required check. With the reader on, `validate / validate` treats an
 exact signed v6 manifest like a reviewed v5 one: it proves validation and
-nothing about review. `owner_review_state` (`none` for v6, `before-signing`
+nothing about review. `owner_review_state` (`none` for v6, `not-recorded`
 for the earlier lane) exists for callers to tell the two apart (D1), and it
-has no production caller yet. This was chosen over wiring a refusal into
+has no production caller yet. Since #2301 the earlier lane admits on an
+enrolled owner's dispatch with no approval
+(`docs/reviewed-pr-promotion.md`, "Admission basis"), so a v5 promotion
+manifest no longer implies a review before signing. This was chosen over wiring a refusal into
 `validate` now: activation would have to remove it again, and the guard, not
 `validate`, is the control proposed in D2.
 

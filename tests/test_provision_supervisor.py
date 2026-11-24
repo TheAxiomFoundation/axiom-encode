@@ -2739,7 +2739,9 @@ class TestEncoderSnapshotProvisioning:
         runtime = tmp_path / "python"
         runtime.mkdir()
         admission = {
-            "schema": "axiom-encode/live-reviewed-pr-admission/v1",
+            "schema": "axiom-encode/live-reviewed-pr-admission/v2",
+            "admission_basis": "owner_dispatch",
+            "dispatcher": {"id": 110687043, "login": "PavelMakarchuk"},
             "selector": {"run_id": "123"},
         }
         out = provisioner._publish_runtime_attestation(
