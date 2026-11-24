@@ -340,10 +340,14 @@ ledger that differs from the protected base), and compares the two. The option
 is off by default. It never changes the report on standard output or the exit
 code.
 
-The comparison is per partition. A selected waiver is flagged by the
-incremental audit exactly when the full audit flags it, because both would
-fingerprint the same tree with the same verifier; so the full audit's results
-are reused and nothing runs twice. The record (schema
+The comparison is per partition. For a deterministic verifier, a selected
+waiver is flagged by the incremental audit when and only when the full audit
+flags it, because both would fingerprint the same tree with the same verifier;
+so the full audit's results are reused and nothing runs twice. This derived
+verdict has a limit: the isolated-recheck budget of an unpartitioned audit
+depends on how many modules ran, so it differs between the scopes, and a flaky
+result is not replayed. A flake that the full audit's recheck did not absorb
+shows as a difference in the record, not as a second run. The record (schema
 `axiom-encode/validation-waiver-incremental-shadow/v1`) has one verdict:
 
 | Verdict | Meaning | `unsafe` |
@@ -353,8 +357,29 @@ are reused and nothing runs twice. The record (schema
 | `incremental_extra` | The incremental audit flags a waiver that the full audit does not (only possible with a separate incremental report) | false |
 | `inconclusive` | No comparison: the selection raised, the full audit did not finish or failed before its results (ledger transition, systemic discrepancy), the run used `--scope incremental` or `--verifier-restate`, or an input was malformed | true |
 
-The record also holds the partition, the full audit's checked and flagged
-counts, the selection's scope, size, fallback reason and time in seconds.
+The record also holds the full audit's checked and flagged counts, and the
+selection's scope, size, fallback reason and time in seconds. Every record,
+also an `inconclusive` one written after the audit raised, holds `partition`
+(`key` and `count`; `{"key": null, "count": 1}` for an unpartitioned audit) and
+`binding`: the encoder version, the head commit of the `--root` checkout when
+`git` can read it, `GITHUB_SHA` when set, and the SHA-256 of the protected base
+ledger and of the changed-path file.
+
+A run that is interrupted or killed (for example by a step timeout) writes no
+record, and the option does not catch an interrupt to change the exit code. So
+a collector must require exactly one record per partition, with the expected
+binding, and treat a missing, duplicate or unbound record as unsafe.
+
+The option refuses an output path inside the `--root` checkout, equal to the
+protected base ledger or the changed-path file, or that exists as a symbolic
+link or as anything but a regular file. Then it writes no file, and the
+`inconclusive` record goes only to standard error. The record is written to a
+temporary file created exclusively in the same directory, then renamed. When
+the write fails, a record of this schema left at the path by an earlier run
+is removed, and no other file. A workflow should still use a fresh path per
+run, for example under `$RUNNER_TEMP`.
+`--incremental-shadow-summary` requires `--incremental-shadow-report` and a
+different path.
 `--incremental-shadow-summary <file>` appends one Markdown line to a file, for
 example `$GITHUB_STEP_SUMMARY` (the signing supervisor does not pass that
 variable to the audit, so the workflow passes the path). The same summary line

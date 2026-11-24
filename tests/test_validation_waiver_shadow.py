@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -686,3 +687,326 @@ def test_args_reused_from_an_earlier_run_still_write_a_record(
 
     assert record is not None
     assert record["verdict"] == "agree"
+
+
+# Review round 1: partition in every record, output path safety, fail-closed
+# branches, run binding, argument checks.
+
+RECORD_PREFIX = "validation-waivers incremental shadow record: "
+
+
+def _run_with_paths(
+    repo,
+    capsys,
+    record_path,
+    *,
+    summary_path=None,
+    select=None,
+    audit_line=None,
+    **kwargs,
+):
+    """Run the audit with shadow outputs; return its result and the logged record."""
+
+    original = cli._cmd_validation_waivers_audit
+    lines: list[str] = []
+
+    def audit_with_flags(args):
+        args.incremental_shadow_report = record_path
+        args.incremental_shadow_summary = summary_path
+        return original(args)
+
+    def write_line(line):
+        if audit_line is not None:
+            audit_line(line)
+        lines.append(line)
+
+    with (
+        patch.object(cli, "_cmd_validation_waivers_audit", audit_with_flags),
+        patch.object(
+            cli,
+            "select_validation_waiver_scope",
+            side_effect=select or _selector(set()),
+        ),
+        patch.object(cli._waiver_partition, "write_audit_line", side_effect=write_line),
+    ):
+        result = _run_audit(repo, capsys, **kwargs)
+    logged = [
+        json.loads(line.removeprefix(RECORD_PREFIX))
+        for line in lines
+        if line.startswith(RECORD_PREFIX)
+    ]
+    return result, lines, logged
+
+
+def test_every_record_names_its_partition(audit_repo, capsys, tmp_path):
+    whole, _lines, _logged = _run_with_paths(
+        audit_repo, capsys, tmp_path / "whole.json", changed=[audit_repo.paths[0]]
+    )
+    assert whole[0] == 0
+    record = json.loads((tmp_path / "whole.json").read_text())
+    assert record["partition"] == {"key": None, "count": 1}
+
+    _result, _lines, _logged = _run_with_paths(
+        audit_repo,
+        capsys,
+        tmp_path / "transition.json",
+        changed=[audit_repo.paths[0]],
+        partition_key="shard-a",
+        transition_issues=["active waiver removed without a fix"],
+    )
+    record = json.loads((tmp_path / "transition.json").read_text())
+    assert record["verdict"] == "inconclusive"
+    assert record["partition"] == {"key": "shard-a", "count": 2}
+
+
+def test_audit_exception_record_names_its_partition(tmp_path, capsys, monkeypatch):
+    record_path = tmp_path / "record.json"
+    args = _parsed_audit_args(
+        monkeypatch,
+        tmp_path,
+        "--incremental-shadow-report",
+        str(record_path),
+        "--partition-key",
+        "us-ny",
+        "--partition-keys-json",
+        '["us-ca", "us-ny", "us-tx"]',
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.cmd_validation_waivers(args)
+
+    assert exit_info.value.code == 2
+    record = json.loads(record_path.read_text())
+    assert record["verdict"] == "inconclusive"
+    assert record["partition"] == {"key": "us-ny", "count": 3}
+
+
+def test_a_failing_comparison_still_writes_an_unsafe_record(
+    audit_repo, capsys, tmp_path
+):
+    plain = _plain_report(audit_repo, capsys, changed=[audit_repo.paths[0]])
+    with patch.object(
+        cli, "compare_incremental_shadow", side_effect=RuntimeError("compare broke")
+    ):
+        result, _lines, logged = _run_with_paths(
+            audit_repo,
+            capsys,
+            tmp_path / "record.json",
+            changed=[audit_repo.paths[0]],
+            partition_key="shard-b",
+        )
+    plain_partitioned = _plain_report(
+        audit_repo, capsys, changed=[audit_repo.paths[0]], partition_key="shard-b"
+    )
+
+    assert plain[0] == 0
+    assert result == plain_partitioned
+    record = json.loads((tmp_path / "record.json").read_text())
+    assert record["schema"] == SHADOW_SCHEMA
+    assert record["verdict"] == "inconclusive"
+    assert record["unsafe"] is True
+    assert record["partition"] == {"key": "shard-b", "count": 2}
+    assert record["errors"] == ["shadow comparison failed: RuntimeError: compare broke"]
+    assert logged == [record]
+
+
+def test_a_failing_summary_append_keeps_the_exit_code(audit_repo, capsys, tmp_path):
+    plain = _plain_report(audit_repo, capsys, changed=[audit_repo.paths[0]])
+    with patch.object(cli, "append_shadow_summary", side_effect=OSError("disk full")):
+        result, lines, _logged = _run_with_paths(
+            audit_repo,
+            capsys,
+            tmp_path / "record.json",
+            summary_path=tmp_path / "summary.md",
+            changed=[audit_repo.paths[0]],
+        )
+
+    assert result == plain
+    summary = [line for line in lines if "audit shadow (report only)" in line]
+    assert summary and "summary not written: disk full" in summary[0]
+    assert json.loads((tmp_path / "record.json").read_text())["verdict"] == "agree"
+
+
+def test_a_broken_stderr_keeps_the_exit_code(audit_repo, capsys, tmp_path):
+    def broken_pipe(line):
+        if "shadow" in line:
+            raise BrokenPipeError("stderr closed")
+
+    plain = _plain_report(audit_repo, capsys, changed=[audit_repo.paths[0]])
+    result, _lines, _logged = _run_with_paths(
+        audit_repo,
+        capsys,
+        tmp_path / "record.json",
+        audit_line=broken_pipe,
+        changed=[audit_repo.paths[0]],
+    )
+
+    assert result == plain
+    assert json.loads((tmp_path / "record.json").read_text())["verdict"] == "agree"
+
+
+def _assert_refused(repo, capsys, record_path, *, summary_path=None, reason):
+    plain = _plain_report(repo, capsys, changed=[repo.paths[0]])
+    result, lines, logged = _run_with_paths(
+        repo,
+        capsys,
+        record_path,
+        summary_path=summary_path,
+        changed=[repo.paths[0]],
+    )
+    assert result == plain
+    assert len(logged) == 1
+    assert logged[0]["verdict"] == "inconclusive"
+    assert logged[0]["unsafe"] is True
+    assert any(reason in error for error in logged[0]["errors"])
+    assert any("output path refused" in line for line in lines)
+
+
+def test_record_path_inside_the_repository_is_refused(audit_repo, capsys):
+    ledger = audit_repo.root / "known-validation-gaps.yaml"
+    module = audit_repo.root / audit_repo.paths[0]
+    before = {path: path.read_bytes() for path in (ledger, module)}
+
+    _assert_refused(audit_repo, capsys, ledger, reason="inside the checked")
+    _assert_refused(audit_repo, capsys, module, reason="inside the checked")
+
+    assert {path: path.read_bytes() for path in before} == before
+    assert not [path for path in audit_repo.root.rglob(".*.tmp") if path.is_file()]
+
+
+def test_audit_inputs_are_never_overwritten(audit_repo, capsys):
+    before = audit_repo.base_file.read_bytes()
+
+    _assert_refused(
+        audit_repo, capsys, audit_repo.base_file, reason="input of the audit"
+    )
+    _assert_refused(
+        audit_repo,
+        capsys,
+        audit_repo.base_file.parent / "record.json",
+        summary_path=audit_repo.changed_file,
+        reason="input of the audit",
+    )
+
+    assert audit_repo.base_file.read_bytes() == before
+    assert not (audit_repo.base_file.parent / "record.json").exists()
+
+
+def test_symlink_and_directory_paths_are_refused(audit_repo, capsys, tmp_path):
+    target = tmp_path / "elsewhere.txt"
+    target.write_text("keep\n")
+    link = tmp_path / "link.json"
+    link.symlink_to(target)
+    directory = tmp_path / "a-directory"
+    directory.mkdir()
+
+    _assert_refused(audit_repo, capsys, link, reason="symbolic link")
+    _assert_refused(audit_repo, capsys, directory, reason="not a regular file")
+    _assert_refused(
+        audit_repo,
+        capsys,
+        tmp_path / "record.json",
+        summary_path=link,
+        reason="symbolic link",
+    )
+
+    assert target.read_text() == "keep\n"
+    assert link.is_symlink()
+    assert list(directory.iterdir()) == []
+    assert not (tmp_path / "record.json").exists()
+
+
+def test_write_failure_leaves_no_temporary_file(tmp_path):
+    target = tmp_path / "record.json"
+    with (
+        patch(
+            "axiom_encode.validation_waiver_shadow.os.replace",
+            side_effect=OSError("rename failed"),
+        ),
+        pytest.raises(OSError, match="rename failed"),
+    ):
+        write_shadow_record(target, {"schema": SHADOW_SCHEMA})
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_temporary_file_does_not_follow_a_planted_link(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep\n")
+    target_dir = tmp_path / "out"
+    target_dir.mkdir()
+    # The name the first version predicted from the process id.
+    (target_dir / f".record.json.{os.getpid()}.tmp").symlink_to(outside)
+
+    write_shadow_record(target_dir / "record.json", {"schema": SHADOW_SCHEMA})
+
+    assert outside.read_text() == "keep\n"
+    assert json.loads((target_dir / "record.json").read_text()) == {
+        "schema": SHADOW_SCHEMA
+    }
+
+
+def test_record_binds_the_run(audit_repo, capsys, tmp_path):
+    import hashlib
+
+    _result, _lines, _logged = _run_with_paths(
+        audit_repo, capsys, tmp_path / "record.json", changed=[audit_repo.paths[0]]
+    )
+    record = json.loads((tmp_path / "record.json").read_text())
+
+    binding = record["binding"]
+    assert binding["encoder_version"] == cli.__version__
+    assert binding["protected_base_sha256"] == (
+        "sha256:" + hashlib.sha256(audit_repo.base_file.read_bytes()).hexdigest()
+    )
+    assert binding["changed_paths_sha256"] == (
+        "sha256:" + hashlib.sha256(audit_repo.changed_file.read_bytes()).hexdigest()
+    )
+    # The fixture repository is not a Git checkout of its own.
+    assert binding["head_commit"] is None
+
+
+def test_failed_write_removes_only_an_earlier_record(audit_repo, capsys, tmp_path):
+    earlier = tmp_path / "earlier.json"
+    earlier.write_text(json.dumps({"schema": SHADOW_SCHEMA, "verdict": "agree"}))
+    foreign = tmp_path / "foreign.json"
+    foreign.write_text(json.dumps({"schema": "something-else"}))
+
+    for path in (earlier, foreign):
+        with patch.object(
+            cli, "write_shadow_record", side_effect=OSError("write failed")
+        ):
+            result, lines, _logged = _run_with_paths(
+                audit_repo, capsys, path, changed=[audit_repo.paths[0]]
+            )
+        assert result[0] == 0
+        assert any("record not written: write failed" in line for line in lines)
+
+    assert not earlier.exists()
+    assert foreign.exists()
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        (["--incremental-shadow-summary", "s.md"], "requires"),
+        (
+            [
+                "--incremental-shadow-report",
+                "same.json",
+                "--incremental-shadow-summary",
+                "same.json",
+            ],
+            "different files",
+        ),
+    ],
+)
+def test_shadow_argument_misuse_is_an_argument_error(
+    tmp_path, capsys, monkeypatch, extra, message
+):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exit_info:
+        _parsed_audit_args(monkeypatch, tmp_path, *extra)
+
+    assert exit_info.value.code == 2
+    assert message in capsys.readouterr().err

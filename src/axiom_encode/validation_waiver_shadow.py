@@ -13,9 +13,11 @@ gives the verdict ``inconclusive``, which counts as unsafe in the record.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
-from collections.abc import Mapping
+import tempfile
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -119,6 +121,8 @@ def compare_incremental_shadow(
     incremental_report: object | None = None,
     selection_error: str | None = None,
     selection_seconds: float | None = None,
+    partition: Mapping[str, Any] | None = None,
+    binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compare one partition's full audit with its incremental selection.
 
@@ -138,10 +142,18 @@ def compare_incremental_shadow(
         "extra": [],
         "errors": [],
     }
+    # Every record names its partition, so a collector can require exactly
+    # one record per partition. A run without partitions owns the whole ledger.
     if isinstance(full_report, Mapping) and isinstance(
         full_report.get("partition"), Mapping
     ):
         record["partition"] = dict(full_report["partition"])
+    elif partition is not None:
+        record["partition"] = dict(partition)
+    else:
+        record["partition"] = {"key": None, "count": 1}
+    if binding is not None:
+        record["binding"] = dict(binding)
     if selection_seconds is not None:
         record["selection_seconds"] = round(float(selection_seconds), 3)
     try:
@@ -234,15 +246,73 @@ def shadow_summary_line(record: Mapping[str, Any]) -> str:
     return "; ".join(parts)
 
 
-def write_shadow_record(path: Path, record: Mapping[str, Any]) -> None:
-    """Write the record atomically as deterministic JSON."""
+def shadow_output_path_issue(
+    path: Path, *, root: Path | None, inputs: Iterable[Path] = ()
+) -> str | None:
+    """Return why the shadow may not write to ``path``, or None.
+
+    The shadow must never overwrite a file of the checked repository or one of
+    the audit's own inputs, and never follow a symbolic link.
+    """
 
     path = Path(path)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(
-        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    try:
+        if path.is_symlink():
+            return f"{path} is a symbolic link"
+        if path.exists() and not path.is_file():
+            return f"{path} exists and is not a regular file"
+        resolved = path.resolve()
+        if root is not None:
+            resolved_root = Path(root).resolve()
+            if resolved == resolved_root or resolved_root in resolved.parents:
+                return f"{path} is inside the checked repository"
+        for value in inputs:
+            if resolved == Path(value).resolve():
+                return f"{path} is an input of the audit"
+    except OSError as error:
+        return f"{path} cannot be checked: {error}"
+    return None
+
+
+def write_shadow_record(path: Path, record: Mapping[str, Any]) -> None:
+    """Write the record atomically as deterministic JSON.
+
+    The temporary file is created exclusively next to the target and removed
+    when the write fails.
+    """
+
+    path = Path(path)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
     )
-    temporary.replace(path)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
+        os.replace(temporary, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+        raise
+
+
+def remove_stale_shadow_record(path: Path) -> bool:
+    """Remove a record of an earlier run at ``path``, and nothing else.
+
+    Only a regular file (not a link) whose content is a record of this schema
+    is removed, so a failed write never leaves an older verdict behind.
+    """
+
+    path = Path(path)
+    try:
+        if path.is_symlink() or not path.is_file():
+            return False
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, Mapping) or payload.get("schema") != SHADOW_SCHEMA:
+            return False
+        path.unlink()
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def append_shadow_summary(path: Path, record: Mapping[str, Any]) -> None:
