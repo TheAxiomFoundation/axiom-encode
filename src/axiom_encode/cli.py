@@ -601,6 +601,16 @@ from .toolchain import (
     verify_rulespec_validation_waiver_set,
 )
 from .validation_waiver_scope import WaiverAuditScope, select_validation_waiver_scope
+from .validation_waiver_shadow import (
+    SHADOW_SCHEMA,
+    append_shadow_summary,
+    compare_incremental_shadow,
+    remove_stale_shadow_record,
+    same_output_path,
+    shadow_output_path_issue,
+    shadow_summary_line,
+    write_shadow_record,
+)
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
@@ -2272,6 +2282,23 @@ def main():
         choices=("full", "incremental"),
         default="full",
         help="Audit all waivers (default) or conservatively select changed read sets",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--incremental-shadow-report",
+        type=Path,
+        help=(
+            "Report only, with --scope full: after the full audit, compute the "
+            "incremental selection of the same partition and write a JSON "
+            "comparison here; never changes the exit code"
+        ),
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--incremental-shadow-summary",
+        type=Path,
+        help=(
+            "With --incremental-shadow-report: also append one Markdown line "
+            "here, for example $GITHUB_STEP_SUMMARY"
+        ),
     )
     validation_waivers_audit_parser.add_argument(
         "--verifier-restate",
@@ -4610,6 +4637,23 @@ def main():
     _judge_cli.register_judge_subparsers(subparsers)
 
     args = parser.parse_args()
+    if (
+        args.command == "validation-waivers"
+        and getattr(args, "validation_waivers_command", None) == "audit"
+    ):
+        shadow_report = getattr(args, "incremental_shadow_report", None)
+        shadow_summary = getattr(args, "incremental_shadow_summary", None)
+        if shadow_summary is not None and shadow_report is None:
+            parser.error(
+                "--incremental-shadow-summary requires --incremental-shadow-report"
+            )
+        if shadow_summary is not None and same_output_path(
+            Path(shadow_summary), Path(shadow_report)
+        ):
+            parser.error(
+                "--incremental-shadow-summary and --incremental-shadow-report "
+                "must be different files"
+            )
     _apply_encoder_producer_floor_argument(args)
     if args.command == "encode" and args.escalation_model is None:
         args.escalation_model = (
@@ -5926,6 +5970,8 @@ def _validation_waiver_ledger_differs(
 def _cmd_validation_waivers_audit(args) -> int:
     if hasattr(args, "_validation_waiver_audit_selection"):
         del args._validation_waiver_audit_selection
+    if hasattr(args, "_validation_waiver_shadow_done"):
+        del args._validation_waiver_shadow_done
     root = Path(args.root).resolve()
     requested_scope = getattr(args, "scope", "full")
     if requested_scope not in {"full", "incremental"}:
@@ -5992,6 +6038,11 @@ def _cmd_validation_waivers_audit(args) -> int:
                 fallback_reason="protected base transition checks failed",
             )
         _print_validation_waiver_audit_report(report, as_json=args.json)
+        _validation_waiver_incremental_shadow(
+            args,
+            full_report=report,
+            unavailable="protected base transition checks failed",
+        )
         return 1
 
     active_paths = set(head.active_paths)
@@ -6036,15 +6087,12 @@ def _cmd_validation_waivers_audit(args) -> int:
             # Without a table the report keeps its legacy bytes.
             partition["cost_table_sha256"] = costs.sha256
 
-    scope = "full"
-    selection_reasons: dict[str, list[str]] = {}
-    fallback_reason = None
-    if requested_scope == "incremental":
+    def _select_incremental(owned: Sequence[str]) -> WaiverAuditScope:
         # Select within this job's own partition only. Each waiver is decided
         # from its own read set, so the partition's selection is its share of
         # the whole ledger's selection, at a cost that follows the partition.
         selection = select_validation_waiver_scope(
-            list(classified),
+            list(owned),
             root=root,
             changed_paths=changed_paths,
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
@@ -6072,10 +6120,17 @@ def _cmd_validation_waivers_audit(args) -> int:
             )
             selection = WaiverAuditScope(
                 "full",
-                tuple(classified),
-                {path: [f"full audit fallback: {reason}"] for path in classified},
+                tuple(owned),
+                {path: [f"full audit fallback: {reason}"] for path in owned},
                 reason,
             )
+        return selection
+
+    scope = "full"
+    selection_reasons: dict[str, list[str]] = {}
+    fallback_reason = None
+    if requested_scope == "incremental":
+        selection = _select_incremental(list(classified))
         scope = selection.scope
         selection_reasons = selection.reasons
         fallback_reason = selection.fallback_reason
@@ -6288,7 +6343,212 @@ def _cmd_validation_waivers_audit(args) -> int:
     if partition is not None:
         report["partition"] = partition
     _print_validation_waiver_audit_report(report, as_json=args.json)
+    # Report-only: the selection runs after the full audit has finished and
+    # printed, so it cannot change the audit's results, report or exit code.
+    if requested_scope != "full":
+        shadow_unavailable = "the shadow compares a --scope full audit"
+    elif verifier_restate:
+        shadow_unavailable = "a verifier restate requires the full audit"
+    else:
+        shadow_unavailable = None
+    _validation_waiver_incremental_shadow(
+        args,
+        full_report=report,
+        select=lambda: _select_incremental(list(classified)),
+        unavailable=shadow_unavailable,
+    )
     return 0 if report["success"] else 1
+
+
+# Every path-typed input of `validation-waivers audit` besides `--root` and the
+# shadow outputs. The shadow never writes to, or inside, any of them.
+_VALIDATION_WAIVER_AUDIT_PATH_INPUTS = (
+    "protected_base",
+    "changed_paths",
+    "corpus_path",
+    "axiom_rules_path",
+    "axiom_compose_path",
+    "rulespec_dependency_root",
+)
+
+
+def _validation_waiver_shadow_partition(args) -> dict[str, Any]:
+    """The partition a shadow record belongs to, from the arguments alone."""
+
+    key = getattr(args, "partition_key", None)
+    if key is None:
+        return {"key": None, "count": 1}
+    count: int | None = None
+    try:
+        keys = json.loads(getattr(args, "partition_keys_json", None) or "null")
+        if isinstance(keys, list):
+            count = len(keys)
+    except ValueError:
+        count = None
+    return {"key": key, "count": count}
+
+
+def _validation_waiver_shadow_binding(args) -> dict[str, Any]:
+    """What ties a shadow record to one run: revision, inputs and verifier."""
+
+    def digest(value: object) -> str | None:
+        if value is None:
+            return None
+        try:
+            return "sha256:" + hashlib.sha256(Path(value).read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    head_commit: str | None = None
+    root = getattr(args, "root", None)
+    if root is not None:
+        try:
+            # No GIT_* variable (GIT_DIR, GIT_WORK_TREE, ...) may point the
+            # probe at another repository.
+            completed = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"],
+                capture_output=True,
+                timeout=30,
+                check=False,
+                env={"PATH": os.environ.get("PATH", os.defpath)},
+            )
+            lines = completed.stdout.decode("utf-8").splitlines()
+            # Only the root's own checkout counts, never an enclosing one.
+            if (
+                completed.returncode == 0
+                and len(lines) == 2
+                and os.path.samefile(lines[0], root)
+                and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", lines[1])
+            ):
+                head_commit = lines[1]
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # UnicodeDecodeError is a ValueError. Only head_commit is lost.
+            head_commit = None
+    return {
+        "encoder_version": __version__,
+        "head_commit": head_commit,
+        "github_sha": os.environ.get("GITHUB_SHA"),
+        "protected_base_sha256": digest(getattr(args, "protected_base", None)),
+        "changed_paths_sha256": digest(getattr(args, "changed_paths", None)),
+    }
+
+
+def _validation_waiver_incremental_shadow(
+    args,
+    *,
+    full_report: dict[str, Any] | None,
+    select: Callable[[], WaiverAuditScope] | None = None,
+    unavailable: str | None = None,
+) -> None:
+    """Write the report-only comparison of the incremental selection.
+
+    It runs only when `--incremental-shadow-report` is given. It never raises
+    an `Exception` and never changes the audit's exit code: every failure
+    becomes an `inconclusive` record, or, if the record cannot be written,
+    diagnostic lines. An interrupt or a kill leaves no record; a collector
+    must treat a missing record as unsafe.
+    """
+
+    record_path = getattr(args, "incremental_shadow_report", None)
+    if record_path is None or getattr(args, "_validation_waiver_shadow_done", False):
+        return
+    args._validation_waiver_shadow_done = True
+    record_path = Path(record_path)
+    summary_path = getattr(args, "incremental_shadow_summary", None)
+    try:
+        selection: dict[str, Any] | None = None
+        selection_error = unavailable
+        seconds: float | None = None
+        if selection_error is None and select is None:
+            selection_error = "incremental selection was not computed"
+        if selection_error is None and select is not None:
+            started = time.monotonic()
+            try:
+                chosen = select()
+                selection = {"scope": chosen.scope, "paths": list(chosen.paths)}
+                if chosen.fallback_reason is not None:
+                    selection["fallback_reason"] = chosen.fallback_reason
+            except Exception as error:
+                selection_error = f"{type(error).__name__}: {error}"
+            seconds = time.monotonic() - started
+        record = compare_incremental_shadow(
+            full_report=full_report,
+            selection=selection,
+            selection_error=selection_error,
+            selection_seconds=seconds,
+            partition=_validation_waiver_shadow_partition(args),
+            binding=_validation_waiver_shadow_binding(args),
+        )
+        if unavailable is not None and not any(
+            unavailable in error for error in record["errors"]
+        ):
+            record["errors"].append(unavailable)
+    except Exception as error:
+        record = {
+            "schema": SHADOW_SCHEMA,
+            "verdict": "inconclusive",
+            "unsafe": True,
+            "report_only": True,
+            "partition": _validation_waiver_shadow_partition(args),
+            "errors": [f"shadow comparison failed: {type(error).__name__}: {error}"],
+        }
+
+    # Never write into the checked repository, over an input of the audit,
+    # or through a symbolic link. A refused path leaves the record in the log.
+    root = getattr(args, "root", None)
+    inputs: list[Path] = []
+    for name in _VALIDATION_WAIVER_AUDIT_PATH_INPUTS:
+        value = getattr(args, name, None)
+        values = value if isinstance(value, (list, tuple)) else [value]
+        inputs.extend(Path(item) for item in values if item is not None)
+    refused: list[str] = []
+    try:
+        for target in (record_path, summary_path):
+            if target is None:
+                continue
+            issue = shadow_output_path_issue(
+                Path(target), root=None if root is None else Path(root), inputs=inputs
+            )
+            if issue is not None:
+                refused.append(issue)
+    except Exception as error:
+        refused.append(f"output paths cannot be checked: {error}")
+    if refused:
+        record = {
+            **record,
+            "verdict": "inconclusive",
+            "unsafe": True,
+            "errors": [*record.get("errors", []), *refused],
+        }
+
+    line = "validation-waivers " + shadow_summary_line(record)
+    if refused:
+        line += "; record and summary not written: output path refused"
+    else:
+        try:
+            write_shadow_record(record_path, record)
+        except Exception as error:
+            line += f"; record not written: {error}"
+            try:
+                if remove_stale_shadow_record(record_path):
+                    line += "; the record of an earlier run at that path was removed"
+            except Exception:
+                pass
+        if summary_path is not None:
+            try:
+                append_shadow_summary(Path(summary_path), record)
+            except Exception as error:
+                line += f"; summary not written: {error}"
+    try:
+        _waiver_partition.write_audit_line(line)
+        # The same record in the log, for a run whose record file cannot be
+        # written or collected.
+        _waiver_partition.write_audit_line(
+            "validation-waivers incremental shadow record: "
+            + json.dumps(record, sort_keys=True, separators=(",", ":"))
+        )
+    except Exception:
+        pass
 
 
 def _print_validation_waiver_audit_report(
@@ -6341,6 +6601,12 @@ def cmd_validation_waivers(args) -> None:
     except Exception as error:
         _emit_validation_waiver_error(args, error)
         exit_code = 2
+        if getattr(args, "validation_waivers_command", None) == "audit":
+            _validation_waiver_incremental_shadow(
+                args,
+                full_report=None,
+                unavailable=f"the full audit did not complete: {error}",
+            )
     sys.exit(exit_code)
 
 
