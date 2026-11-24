@@ -10318,8 +10318,78 @@ def _promotion_reviewed_rulespec_record_root() -> Path | None:
     return _checkout_reviewed_rulespec_record_root()
 
 
+@contextlib.contextmanager
+def _promotion_unit_scope(label: str | None):
+    """Name the unit of a multi-unit promotion in an error raised under it.
+
+    ``label`` is ``None`` for a single-unit promotion: its errors are unchanged.
+    """
+
+    try:
+        yield
+    except Exception as exc:
+        if label is None:
+            raise
+        kind = type(exc) if type(exc) in (ValueError, RuntimeError) else RuntimeError
+        raise kind(f"{label}: {exc}") from exc
+
+
+def _promotion_batch_import_issue(
+    repo_path: Path, primaries: Mapping[Path, bytes]
+) -> str | None:
+    """Name a unit of a batch that imports another unit of the same batch.
+
+    A unit is validated and signed as a single-unit promotion of it would be:
+    against modules that are already signed. Another unit of the batch has no
+    manifest until the whole batch is signed, so such an import is refused
+    before any validation. The import targets are read as
+    ``_unchanged_direct_importer_of_changed_rulespec`` reads them.
+    """
+
+    anchors = {
+        relative: _rulespec_anchor_base_for_output(repo_path, relative)
+        for relative in primaries
+    }
+    for relative, raw in primaries.items():
+        try:
+            payload = yaml.safe_load(raw)
+        except (UnicodeDecodeError, yaml.YAMLError, ValueError, RecursionError):
+            return f"{relative.as_posix()} cannot be read for its imports"
+        raw_imports = payload.get("imports") if isinstance(payload, dict) else None
+        if raw_imports is None:
+            continue
+        if not isinstance(raw_imports, list):
+            return f"{relative.as_posix()} has a malformed imports list"
+        imports = {
+            item.split("#", 1)[0].strip().strip("/")
+            for item in raw_imports
+            if isinstance(item, str)
+        }
+        jurisdiction = anchors[relative].split(":", 1)[0]
+        for other, anchor in anchors.items():
+            if other == relative:
+                continue
+            other_jurisdiction, _separator, target = anchor.partition(":")
+            if anchor in imports or (
+                other_jurisdiction == jurisdiction and target in imports
+            ):
+                return (
+                    f"{relative.as_posix()} imports {other.as_posix()}, another "
+                    "unit of the same batch; promote the imported unit first"
+                )
+    return None
+
+
 def cmd_promote_reviewed_candidate(args):
-    """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
+    """Validate and sign one exact allowlisted reviewed RuleSpec commit.
+
+    With a run-scoped multi-unit admission
+    (``reviewed_pr_admission.MULTI_UNIT_PROMOTION_ENABLED``) it validates and
+    signs every unit of the candidate: one manifest per unit, each in the form
+    of a single-unit promotion, installed in one transaction. Every unit is
+    validated before the first signature is requested, and every signature is
+    made before the first manifest is written.
+    """
 
     from .prepare_signed_backfill import (
         UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS,
@@ -10378,65 +10448,122 @@ def cmd_promote_reviewed_candidate(args):
         live_admission = json.loads(Path(runtime["path"]).read_text()).get(
             "reviewed_pr_admission"
         )
+    # The units of this operation as (citation, path). A multi-unit admission
+    # names its own; the arguments then name one of them.
+    unit_targets: list[tuple[str, str]] = [
+        (str(args.citation), str(args.rulespec_path))
+    ]
+    admissions: list[object] = [admission]
+    batch = False
     if live_admission is not None:
-        from .reviewed_pr_admission import revalidate_admission, selector_from_payload
+        from .reviewed_pr_admission import (
+            BatchPromotionSelector,
+            revalidate_admission,
+            selector_from_payload,
+        )
 
         selector = selector_from_payload(live_admission.get("selector"))
+        batch = isinstance(selector, BatchPromotionSelector)
         if (
             live_admission.get("workflow_commit") != runtime["commit"]
             or selector.country != country
             or selector.head != reviewed_ref
-            or selector.citation != str(args.citation)
-            or selector.rulespec_path != str(args.rulespec_path)
+            or (
+                unit_targets[0] not in selector.units
+                if batch
+                else selector.citation != str(args.citation)
+                or selector.rulespec_path != str(args.rulespec_path)
+            )
             or selector.run_id != str(args.run_id)
         ):
             raise ValueError(
                 "run-scoped reviewed PR admission does not match this operation"
             )
         revalidate_admission(live_admission)
-        record = live_admission["record"]
-        issue = _reviewed_rulespec_record_issue(
-            record, country=country, rulespec_ref=reviewed_ref
-        )
-        if issue:
-            raise ValueError(issue)
-        admission = ReviewedRulespecRecord(country, reviewed_ref, record)
-    if admission is None:
-        raise ValueError("reviewed candidate ref is not explicitly allowlisted")
-    # A record's binding names the one module, and the exact primary and
-    # companion bytes, that its code-owner review admitted. Only the frozen
-    # pre-record admissions, which never recorded a module, may promote unbound
-    # (their behaviour is unchanged: any eligible module at that commit).
-    binding = admission.payload["binding"]
-    if binding is None:
-        if (country, reviewed_ref) not in UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS:
-            raise ValueError(
-                "reviewed candidate admission record has no promotion binding"
+        if batch:
+            unit_targets = list(selector.units)
+            records = live_admission["records"]
+        else:
+            records = [live_admission["record"]]
+        admissions = []
+        for record in records:
+            issue = _reviewed_rulespec_record_issue(
+                record, country=country, rulespec_ref=reviewed_ref
             )
-    elif not isinstance(binding, dict) or (
-        str(args.citation) != binding["citation"]
-        or str(args.rulespec_path) != binding["rulespec_path"]
-    ):
-        raise ValueError(
-            "reviewed candidate citation or path differs from its admission record"
+            if issue:
+                raise ValueError(issue)
+            admissions.append(ReviewedRulespecRecord(country, reviewed_ref, record))
+        if len(admissions) != len(unit_targets):
+            raise ValueError(
+                "run-scoped reviewed PR admission does not match this operation"
+            )
+
+    def unit_scope(target: tuple[str, str]):
+        return _promotion_unit_scope(
+            f"unit {target[0]} ({target[1]})" if batch else None
         )
 
-    rulespec_relative = Path(args.rulespec_path)
-    expected_relative = Path(citation_rulespec_path(str(args.citation)))
-    if rulespec_relative != expected_relative:
-        raise ValueError(
-            "reviewed candidate path does not match the citation's canonical path"
+    # One entry per unit: its relative paths, exact bytes and binding.
+    units: list[dict[str, object]] = []
+    for target, admission in zip(unit_targets, admissions):
+        citation, rulespec_path = target
+        with unit_scope(target):
+            if admission is None:
+                raise ValueError("reviewed candidate ref is not explicitly allowlisted")
+            # A record's binding names the one module, and the exact primary
+            # and companion bytes, that its code-owner review admitted. Only
+            # the frozen pre-record admissions, which never recorded a module,
+            # may promote unbound (their behaviour is unchanged: any eligible
+            # module at that commit).
+            binding = admission.payload["binding"]
+            if binding is None:
+                if (
+                    batch
+                    or (country, reviewed_ref)
+                    not in UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS
+                ):
+                    raise ValueError(
+                        "reviewed candidate admission record has no promotion binding"
+                    )
+            elif not isinstance(binding, dict) or (
+                citation != binding["citation"]
+                or rulespec_path != binding["rulespec_path"]
+            ):
+                raise ValueError(
+                    "reviewed candidate citation or path differs from its admission record"
+                )
+
+            rulespec_relative = Path(rulespec_path)
+            expected_relative = Path(citation_rulespec_path(citation))
+            if rulespec_relative != expected_relative:
+                raise ValueError(
+                    "reviewed candidate path does not match the citation's canonical path"
+                )
+            if (
+                rulespec_relative.is_absolute()
+                or rulespec_relative.as_posix() != rulespec_path
+                or any(part in {"", ".", ".."} for part in rulespec_relative.parts)
+                or not _is_protected_rulespec_yaml_path(
+                    rulespec_relative,
+                    roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+                )
+            ):
+                raise ValueError(
+                    "reviewed candidate path is not a protected RuleSpec module"
+                )
+        units.append(
+            {
+                "target": target,
+                "citation": citation,
+                "binding": binding,
+                "rulespec_relative": rulespec_relative,
+                "companion_relative": _rulespec_test_path(rulespec_relative),
+                "manifest_path": repo_path
+                / _applied_encoding_manifest_path(rulespec_relative),
+            }
         )
-    if (
-        rulespec_relative.is_absolute()
-        or rulespec_relative.as_posix() != str(args.rulespec_path)
-        or any(part in {"", ".", ".."} for part in rulespec_relative.parts)
-        or not _is_protected_rulespec_yaml_path(
-            rulespec_relative,
-            roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
-        )
-    ):
-        raise ValueError("reviewed candidate path is not a protected RuleSpec module")
+    if len({unit["rulespec_relative"] for unit in units}) != len(units):
+        raise ValueError("reviewed candidate promotion names a module twice")
 
     # GIT_OPTIONAL_LOCKS=0 keeps this preflight read-only: a plain status may
     # refresh stat data and rewrite .git/index before a binding refusal. It is
@@ -10458,12 +10585,6 @@ def cmd_promote_reviewed_candidate(args):
     )
     if status:
         raise ValueError("reviewed candidate promotion requires a clean checkout")
-    rulespec_file = repo_path / rulespec_relative
-    companion_relative = _rulespec_test_path(rulespec_relative)
-    companion_file = repo_path / companion_relative
-    manifest_path = repo_path / _applied_encoding_manifest_path(rulespec_relative)
-    if manifest_path.exists() or manifest_path.is_symlink():
-        raise ValueError("reviewed candidate already has an apply manifest")
 
     def exact_head_bytes(relative: Path, *, label: str) -> bytes:
         try:
@@ -10482,25 +10603,44 @@ def cmd_promote_reviewed_candidate(args):
             raise ValueError(f"{label} differs from the reviewed HEAD")
         return raw
 
-    before = {
-        rulespec_relative: exact_head_bytes(
-            rulespec_relative,
-            label="reviewed candidate RuleSpec",
-        ),
-        companion_relative: exact_head_bytes(
-            companion_relative,
-            label="reviewed candidate companion",
-        ),
-    }
-    if binding is not None and (
-        hashlib.sha256(before[rulespec_relative]).hexdigest()
-        != binding["rulespec_sha256"]
-        or hashlib.sha256(before[companion_relative]).hexdigest()
-        != binding["companion_sha256"]
-    ):
-        raise ValueError(
-            "reviewed candidate bytes differ from its admission record binding"
+    for unit in units:
+        rulespec_relative = unit["rulespec_relative"]
+        companion_relative = unit["companion_relative"]
+        manifest_path = unit["manifest_path"]
+        binding = unit["binding"]
+        with unit_scope(unit["target"]):
+            if manifest_path.exists() or manifest_path.is_symlink():
+                raise ValueError("reviewed candidate already has an apply manifest")
+            before = {
+                rulespec_relative: exact_head_bytes(
+                    rulespec_relative,
+                    label="reviewed candidate RuleSpec",
+                ),
+                companion_relative: exact_head_bytes(
+                    companion_relative,
+                    label="reviewed candidate companion",
+                ),
+            }
+            if binding is not None and (
+                hashlib.sha256(before[rulespec_relative]).hexdigest()
+                != binding["rulespec_sha256"]
+                or hashlib.sha256(before[companion_relative]).hexdigest()
+                != binding["companion_sha256"]
+            ):
+                raise ValueError(
+                    "reviewed candidate bytes differ from its admission record binding"
+                )
+        unit["before"] = before
+    if batch:
+        import_issue = _promotion_batch_import_issue(
+            repo_path,
+            {
+                unit["rulespec_relative"]: unit["before"][unit["rulespec_relative"]]
+                for unit in units
+            },
         )
+        if import_issue:
+            raise ValueError(import_issue)
     _recover_apply_transaction(repo_path)
     with _authoritative_rulespec_dependency_scope(dependency_roots):
         with _isolated_apply_manifest_signer(preflight=True) as signing_broker:
@@ -10508,217 +10648,126 @@ def cmd_promote_reviewed_candidate(args):
                 repo_path,
                 corpus_path,
             )
-            _verifications, rulespec_root = _manifest_primary_source_verifications(
-                manifest_root=repo_path,
-                applied_files=[rulespec_file, companion_file],
-            )
-            source_unit = resolve_corpus_source_unit(
-                str(args.citation),
-                local_corpus_release,
-            )
-            normalized_source = source_unit.body.replace("\r\n", "\n").replace(
-                "\r", "\n"
-            )
-            source_attestation = {
-                **source_unit.source_attestation,
-                "generation_input_sha256": hashlib.sha256(
-                    normalized_source.encode("utf-8")
-                ).hexdigest(),
-                "rulespec_root": rulespec_root,
-            }
-            content_root = repo_path / rulespec_relative.parts[0]
-            relative_output = Path(*rulespec_relative.parts[1:])
-            with tempfile.TemporaryDirectory() as temporary:
-                output_root = Path(temporary)
-                context_root = output_root / "reviewed-candidate-context"
-                context_root.mkdir()
-                source_text_file = context_root / "source.txt"
-                source_text_file.write_text(
-                    normalized_source,
-                    encoding="utf-8",
-                    newline="",
-                )
-                context_manifest = context_root / "context-manifest.json"
-                context_manifest.write_text(
-                    json.dumps(
-                        {
-                            "source_text_file": source_text_file.name,
-                            "source_metadata": {
-                                "source_attestation": source_attestation,
-                            },
-                        },
-                        indent=2,
-                        sort_keys=True,
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
-                generated_file = output_root / "reviewed-candidate" / relative_output
-                generated_file.parent.mkdir(parents=True)
-                shutil.copyfile(rulespec_file, generated_file)
-                generated_companion = _rulespec_test_path(generated_file)
-                shutil.copyfile(companion_file, generated_companion)
-                result = argparse.Namespace(
-                    output_file=str(generated_file),
-                    runner="reviewed-candidate",
-                    backend="openai",
-                    model="reviewed-candidate-promotion-v1",
-                    tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
-                    citation=str(args.citation),
-                    generation_prompt_sha256=None,
-                    trace_file=None,
-                    context_manifest_file=str(context_manifest),
-                    source_attestation=source_attestation,
-                )
-                setattr(
-                    result,
-                    _IMMUTABLE_RULESPEC_SHA256_ATTR,
-                    hashlib.sha256(before[rulespec_relative]).hexdigest(),
-                )
-                setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
-                valid, validation_issues, supplemental_files = (
-                    _run_generated_encoding_overlay_validation(
-                        result,
-                        output_root=output_root,
-                        policy_repo_path=content_root,
+            # Every unit is validated before any payload is built or signed.
+            for unit in units:
+                with unit_scope(unit["target"]):
+                    (
+                        unit["source_attestation"],
+                        unit["validation_execution"],
+                    ) = _validate_reviewed_candidate_unit(
+                        repo_path=repo_path,
+                        citation=unit["citation"],
+                        rulespec_relative=unit["rulespec_relative"],
+                        companion_relative=unit["companion_relative"],
+                        before=unit["before"],
+                        local_corpus_release=local_corpus_release,
                         axiom_rules_path=axiom_rules_path,
                         axiom_compose_path=axiom_compose_path,
-                        local_corpus_release=local_corpus_release,
-                        rulespec_dependency_roots=dependency_roots,
-                        amendment_documents=source_unit.amendment_documents,
-                        amendment_source_texts={
-                            document.citation_path: document.body
-                            for document in source_unit.amendment_documents
-                        },
-                        require_complete_source_unit=True,
-                    )
-                )
-                if not valid:
-                    raise RuntimeError(
-                        "reviewed candidate failed current overlay validation: "
-                        + "; ".join(validation_issues)
-                    )
-                reviewed_artifact_bytes = {
-                    relative_output: generated_file.read_bytes(),
-                    _rulespec_test_path(relative_output): (
-                        generated_companion.read_bytes()
-                    ),
-                }
-                supplemental_files = {
-                    path: content
-                    for path, content in supplemental_files.items()
-                    if reviewed_artifact_bytes.get(path) != content.encode("utf-8")
-                }
-                if supplemental_files:
-                    raise RuntimeError(
-                        "reviewed candidate validation produced supplemental changes"
-                    )
-                generated_after = {
-                    rulespec_relative: generated_file.read_bytes(),
-                    companion_relative: generated_companion.read_bytes(),
-                }
-                if generated_after != before:
-                    raise RuntimeError(
-                        "reviewed candidate validation changed RuleSpec bytes"
-                    )
-                snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
-                validation_execution = (
-                    snapshot.get("manifest_validation_execution")
-                    if isinstance(snapshot, dict)
-                    else None
-                )
-                if not isinstance(validation_execution, dict):
-                    raise RuntimeError(
-                        "reviewed candidate validation lacks execution provenance"
+                        dependency_roots=dependency_roots,
                     )
 
             axiom_encode_git = _require_clean_axiom_encode_git_provenance()
-            payload: dict[str, object] = {
-                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "tool": APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
-                "axiom_encode_version": __version__,
-                "axiom_encode_git": axiom_encode_git,
-                "run_id": args.run_id,
-                "citation": str(args.citation),
-                "reviewed_rulespec_ref": reviewed_ref,
-                "applied_files": [
-                    {
-                        "path": relative.as_posix(),
-                        "sha256": hashlib.sha256(raw).hexdigest(),
+            for unit in units:
+                before = unit["before"]
+                validation_execution = unit["validation_execution"]
+                with unit_scope(unit["target"]):
+                    payload: dict[str, object] = {
+                        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                        "generated_at": datetime.now(timezone.utc).isoformat(),
+                        "tool": APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                        "axiom_encode_version": __version__,
+                        "axiom_encode_git": axiom_encode_git,
+                        "run_id": args.run_id,
+                        "citation": unit["citation"],
+                        "reviewed_rulespec_ref": reviewed_ref,
+                        "applied_files": [
+                            {
+                                "path": relative.as_posix(),
+                                "sha256": hashlib.sha256(raw).hexdigest(),
+                            }
+                            for relative, raw in before.items()
+                        ],
+                        "source_attestation": unit["source_attestation"],
+                        "validation_execution": validation_execution,
                     }
-                    for relative, raw in before.items()
-                ],
-                "source_attestation": source_attestation,
-                "validation_execution": validation_execution,
-            }
-            validated_policy = validation_execution.get("policy_pre_apply")
-            validated_waiver_set_sha256 = (
-                validated_policy.get("validation_waiver_set_sha256")
-                if isinstance(validated_policy, dict)
-                else None
-            )
-            if _target_uses_per_file_waiver_bindings(repo_path):
-                payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
-                    _build_applied_manifest_file_waiver_bindings(
-                        repo_path,
-                        covered_paths={relative.as_posix() for relative in before},
-                        validated_waiver_set_sha256=validated_waiver_set_sha256,
+                    validated_policy = validation_execution.get("policy_pre_apply")
+                    validated_waiver_set_sha256 = (
+                        validated_policy.get("validation_waiver_set_sha256")
+                        if isinstance(validated_policy, dict)
+                        else None
                     )
-                )
-            else:
-                # A pinned verifier admits only the repository waiver-set
-                # digest.
-                payload[VALIDATION_WAIVER_SET_SHA256_FIELD] = (
-                    verify_rulespec_validation_waiver_set(repo_path)
-                )
+                    if _target_uses_per_file_waiver_bindings(repo_path):
+                        payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
+                            _build_applied_manifest_file_waiver_bindings(
+                                repo_path,
+                                covered_paths={
+                                    relative.as_posix() for relative in before
+                                },
+                                validated_waiver_set_sha256=validated_waiver_set_sha256,
+                            )
+                        )
+                    else:
+                        # A pinned verifier admits only the repository waiver-set
+                        # digest.
+                        payload[VALIDATION_WAIVER_SET_SHA256_FIELD] = (
+                            verify_rulespec_validation_waiver_set(repo_path)
+                        )
+                unit["payload"] = payload
+                unit["validated_waiver_set_sha256"] = validated_waiver_set_sha256
             if live_admission is not None:
                 # Validation may take time. A dismissed approval, moved head,
                 # or changed main base must fail before any signature request.
                 revalidate_admission(live_admission)
-            _sign_applied_encoding_manifest(payload, signing_broker)
-            manifest_bytes = (
-                json.dumps(payload, indent=2, sort_keys=True) + "\n"
-            ).encode("utf-8")
+            # Every unit is signed before any manifest is written.
+            for unit in units:
+                with unit_scope(unit["target"]):
+                    _sign_applied_encoding_manifest(unit["payload"], signing_broker)
+                    unit["manifest_bytes"] = (
+                        json.dumps(unit["payload"], indent=2, sort_keys=True) + "\n"
+                    ).encode("utf-8")
 
             def require_unchanged_reviewed_head() -> None:
-                for relative, expected in before.items():
-                    if (
-                        exact_head_bytes(relative, label="reviewed candidate file")
-                        != expected
-                    ):
-                        raise RuntimeError(
-                            "reviewed candidate changed after successful validation"
-                        )
+                for unit in units:
+                    for relative, expected in unit["before"].items():
+                        if (
+                            exact_head_bytes(relative, label="reviewed candidate file")
+                            != expected
+                        ):
+                            raise RuntimeError(
+                                "reviewed candidate changed after successful validation"
+                            )
 
             def verify_installed_manifest() -> None:
                 require_unchanged_reviewed_head()
-                verified, _prefix, _digest, issues = (
-                    _load_verified_applied_encoding_manifest_payload(
-                        repo_path,
-                        manifest_path.relative_to(repo_path).as_posix(),
-                        roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
-                        signing_broker=signing_broker,
-                        expected_waiver_set_sha256=payload.get(
-                            VALIDATION_WAIVER_SET_SHA256_FIELD,
-                            validated_waiver_set_sha256,
-                        ),
-                        local_corpus_release=local_corpus_release,
-                        expected_encoder_identity=(
-                            _current_guard_encoder_execution_identity()
-                        ),
+                for unit in units:
+                    verified, _prefix, _digest, issues = (
+                        _load_verified_applied_encoding_manifest_payload(
+                            repo_path,
+                            unit["manifest_path"].relative_to(repo_path).as_posix(),
+                            roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+                            signing_broker=signing_broker,
+                            expected_waiver_set_sha256=unit["payload"].get(
+                                VALIDATION_WAIVER_SET_SHA256_FIELD,
+                                unit["validated_waiver_set_sha256"],
+                            ),
+                            local_corpus_release=local_corpus_release,
+                            expected_encoder_identity=(
+                                _current_guard_encoder_execution_identity()
+                            ),
+                        )
                     )
-                )
-                if verified is None or issues:
-                    raise RuntimeError(
-                        "installed reviewed candidate manifest failed verification: "
-                        + "; ".join(issues)
-                    )
+                    if verified is None or issues:
+                        with unit_scope(unit["target"]):
+                            raise RuntimeError(
+                                "installed reviewed candidate manifest failed "
+                                "verification: " + "; ".join(issues)
+                            )
 
+            # One transaction for every manifest: all are installed or none is.
             _install_apply_transaction(
-                [(manifest_path, manifest_bytes)],
+                [(unit["manifest_path"], unit["manifest_bytes"]) for unit in units],
                 checkout_root=repo_path,
-                expected_originals={manifest_path: None},
+                expected_originals={unit["manifest_path"]: None for unit in units},
                 pre_install_check=require_unchanged_reviewed_head,
                 post_install_check=verify_installed_manifest,
             )
@@ -10739,12 +10788,158 @@ def cmd_promote_reviewed_candidate(args):
         ).split(b"\0")
         if record
     }
-    expected_manifest = manifest_path.relative_to(repo_path).as_posix()
-    if changed_records != {b"?? " + os.fsencode(expected_manifest)}:
+    expected_manifests = [
+        unit["manifest_path"].relative_to(repo_path).as_posix() for unit in units
+    ]
+    if changed_records != {
+        b"?? " + os.fsencode(expected_manifest)
+        for expected_manifest in expected_manifests
+    }:
         raise RuntimeError(
             "reviewed candidate promotion changed paths other than its manifest"
         )
-    print(f"promoted reviewed candidate {expected_manifest}")
+    for expected_manifest in expected_manifests:
+        print(f"promoted reviewed candidate {expected_manifest}")
+
+
+def _validate_reviewed_candidate_unit(
+    *,
+    repo_path: Path,
+    citation: str,
+    rulespec_relative: Path,
+    companion_relative: Path,
+    before: Mapping[Path, bytes],
+    local_corpus_release,
+    axiom_rules_path: Path,
+    axiom_compose_path: Path | None,
+    dependency_roots,
+) -> tuple[dict, dict]:
+    """Rerun complete-source validation of one reviewed unit's exact bytes.
+
+    Returns the unit's source attestation and validation execution: what its
+    signed manifest records. It writes nothing to the checkout.
+    """
+
+    rulespec_file = repo_path / rulespec_relative
+    companion_file = repo_path / companion_relative
+    _verifications, rulespec_root = _manifest_primary_source_verifications(
+        manifest_root=repo_path,
+        applied_files=[rulespec_file, companion_file],
+    )
+    source_unit = resolve_corpus_source_unit(
+        citation,
+        local_corpus_release,
+    )
+    normalized_source = source_unit.body.replace("\r\n", "\n").replace("\r", "\n")
+    source_attestation = {
+        **source_unit.source_attestation,
+        "generation_input_sha256": hashlib.sha256(
+            normalized_source.encode("utf-8")
+        ).hexdigest(),
+        "rulespec_root": rulespec_root,
+    }
+    content_root = repo_path / rulespec_relative.parts[0]
+    relative_output = Path(*rulespec_relative.parts[1:])
+    with tempfile.TemporaryDirectory() as temporary:
+        output_root = Path(temporary)
+        context_root = output_root / "reviewed-candidate-context"
+        context_root.mkdir()
+        source_text_file = context_root / "source.txt"
+        source_text_file.write_text(
+            normalized_source,
+            encoding="utf-8",
+            newline="",
+        )
+        context_manifest = context_root / "context-manifest.json"
+        context_manifest.write_text(
+            json.dumps(
+                {
+                    "source_text_file": source_text_file.name,
+                    "source_metadata": {
+                        "source_attestation": source_attestation,
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        generated_file = output_root / "reviewed-candidate" / relative_output
+        generated_file.parent.mkdir(parents=True)
+        shutil.copyfile(rulespec_file, generated_file)
+        generated_companion = _rulespec_test_path(generated_file)
+        shutil.copyfile(companion_file, generated_companion)
+        result = argparse.Namespace(
+            output_file=str(generated_file),
+            runner="reviewed-candidate",
+            backend="openai",
+            model="reviewed-candidate-promotion-v1",
+            tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            citation=citation,
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=str(context_manifest),
+            source_attestation=source_attestation,
+        )
+        setattr(
+            result,
+            _IMMUTABLE_RULESPEC_SHA256_ATTR,
+            hashlib.sha256(before[rulespec_relative]).hexdigest(),
+        )
+        setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
+        valid, validation_issues, supplemental_files = (
+            _run_generated_encoding_overlay_validation(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                axiom_rules_path=axiom_rules_path,
+                axiom_compose_path=axiom_compose_path,
+                local_corpus_release=local_corpus_release,
+                rulespec_dependency_roots=dependency_roots,
+                amendment_documents=source_unit.amendment_documents,
+                amendment_source_texts={
+                    document.citation_path: document.body
+                    for document in source_unit.amendment_documents
+                },
+                require_complete_source_unit=True,
+            )
+        )
+        if not valid:
+            raise RuntimeError(
+                "reviewed candidate failed current overlay validation: "
+                + "; ".join(validation_issues)
+            )
+        reviewed_artifact_bytes = {
+            relative_output: generated_file.read_bytes(),
+            _rulespec_test_path(relative_output): (generated_companion.read_bytes()),
+        }
+        supplemental_files = {
+            path: content
+            for path, content in supplemental_files.items()
+            if reviewed_artifact_bytes.get(path) != content.encode("utf-8")
+        }
+        if supplemental_files:
+            raise RuntimeError(
+                "reviewed candidate validation produced supplemental changes"
+            )
+        generated_after = {
+            rulespec_relative: generated_file.read_bytes(),
+            companion_relative: generated_companion.read_bytes(),
+        }
+        if generated_after != before:
+            raise RuntimeError("reviewed candidate validation changed RuleSpec bytes")
+        snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
+        validation_execution = (
+            snapshot.get("manifest_validation_execution")
+            if isinstance(snapshot, dict)
+            else None
+        )
+        if not isinstance(validation_execution, dict):
+            raise RuntimeError(
+                "reviewed candidate validation lacks execution provenance"
+            )
+    return source_attestation, validation_execution
 
 
 def cmd_signed_import_inventory(args):

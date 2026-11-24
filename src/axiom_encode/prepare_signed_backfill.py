@@ -1314,9 +1314,26 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/reviewed-pr-promotion/v1"
     ):
-        if set(payload) != {"schema", "transaction", "rulespec_pr"}:
+        # ``units`` is optional: the citations of every unit of a multi-unit
+        # candidate (docs/reviewed-pr-promotion.md, "Several units in one
+        # candidate"). This is the shape only; the admission decides whether
+        # a batch is in force and whether the list equals the candidate.
+        if set(payload) - {"units"} != {"schema", "transaction", "rulespec_pr"}:
             raise ValueError(
                 "reviewed PR promotion requires exactly transaction and rulespec_pr"
+            )
+        units = payload.get("units")
+        if "units" in payload and (
+            not isinstance(units, list)
+            or not 1 <= len(units) <= 64
+            or any(
+                not isinstance(unit, str) or not unit or len(unit) > 512
+                for unit in units
+            )
+            or len(set(units)) != len(units)
+        ):
+            raise ValueError(
+                "reviewed PR promotion units must be a list of distinct citations"
             )
         number = payload["rulespec_pr"]
         inner = payload["transaction"]
@@ -1330,6 +1347,8 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
         if normalized.get("reviewed_candidate_promotion") is not True:
             raise ValueError("reviewed PR promotion requires promotion mode")
+        if units is not None:
+            return {**normalized, "rulespec_pr": number, "promotion_units": units}
         return {**normalized, "rulespec_pr": number}
     if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/corpus-artifact-transport/v1"

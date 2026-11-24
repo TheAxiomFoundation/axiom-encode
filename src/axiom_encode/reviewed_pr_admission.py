@@ -203,8 +203,7 @@ class BatchPromotionSelector:
         paths = [unit.rulespec_path for unit in selectors]
         if any(left >= right for left, right in zip(paths, paths[1:])):
             raise AdmissionError(
-                "batch units must be in ascending path order and name no "
-                "primary twice"
+                "batch units must be in ascending path order and name no primary twice"
             )
         citations = [unit.citation for unit in selectors]
         if len(set(citations)) != len(citations):
@@ -263,9 +262,7 @@ def _require_batch_in_force(selector: BatchPromotionSelector) -> None:
 
 
 def _batch_selector_from_payload(payload: dict) -> BatchPromotionSelector:
-    if set(payload) != _BATCH_SELECTOR_FIELDS or not isinstance(
-        payload["units"], list
-    ):
+    if set(payload) != _BATCH_SELECTOR_FIELDS or not isinstance(payload["units"], list):
         raise AdmissionError("batch promotion selector has unexpected fields")
     units = []
     for unit in payload["units"]:
@@ -423,18 +420,14 @@ def revalidate_admission(
         raise AdmissionError("unknown admission basis")
     # The batch form exists only while its switch is on.
     batch = MULTI_UNIT_PROMOTION_ENABLED is True and "records" in payload
-    if (
-        set(payload)
-        != {
-            "schema",
-            "selector",
-            "records" if batch else "record",
-            "workflow_commit",
-            "admission_basis",
-            _BASIS_EVIDENCE_FIELD[basis],
-        }
-        or payload.get("schema") != (BATCH_SCHEMA if batch else SCHEMA)
-    ):
+    if set(payload) != {
+        "schema",
+        "selector",
+        "records" if batch else "record",
+        "workflow_commit",
+        "admission_basis",
+        _BASIS_EVIDENCE_FIELD[basis],
+    } or payload.get("schema") != (BATCH_SCHEMA if batch else SCHEMA):
         raise AdmissionError("invalid provisioned admission")
     if basis != _admission_basis():
         raise AdmissionError("admission basis is not the policy in force")
