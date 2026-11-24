@@ -173,7 +173,8 @@ file, as before. The record is then `partial` (`review_saw_truncated_file`, or
 `review_saw_truncated_source` when only the source excerpt was cut), and the
 flag refuses it. Of the 65 replay-benchmark candidates in this repository, 62
 are reviewed in full under these caps (4 in the one unchanged call), with a
-median of 1 call, a mean of 2.4 and a maximum of 11. The other 3 have a companion test file above 180,000 characters.
+median of 1 call, a mean of 2.4 and a maximum of 11. The other 3 have a
+companion test file above 180,000 characters.
 
 The record (`axiom-encode/generalist-review/v2`) has a `coverage` block for
 this. It holds the number of planned and made calls and, for the module, the
