@@ -171,6 +171,50 @@ reverted.
 The fingerprints use encoder main, the engine and corpus release that
 `rulespec-us` pins, and no composer.
 
+Results (fingerprints computed, not argued):
+
+| Base tree | Changed paths | Replayed waivers outside the selection | Changed |
+|---|---|---|---|
+| Both groups reverted (80 pull requests, 264 files) | 264 | 386, federal and states with no pull request | 0 |
+| Group A reverted | 119 | 193, in 20 states of group B | 0 |
+| Group B reverted | 145 | 170, in 21 states of group A | 0 |
+| No applied manifest (1,319 files removed) | not a selection test | 206, in 48 jurisdictions | 0 |
+| Companions only reverted (93 files) | 93 | 240 | 0 |
+
+No replayed waiver outside a selection changed. The replay does detect a
+change where the rules expect one: in the companion-only tree 28 of the 32
+replayed waivers that the rule selects have a different fingerprint, and all
+28 are selected. In the group B tree 28 replayed Arizona waivers are inside
+the selection (a 29th is a module that one of the pull requests added, so the
+base tree has no fingerprint for it), and none of them changed. The search
+rule selects them because the validator indexes the new Arizona modules, not
+because their result must change.
+
+The tree with no applied manifest shows that validation reads no manifest for
+any of the replayed modules. Classifying a manifest as a change of its module
+is therefore a superset of what validation reads.
+
+Not replayed, argued from the rules:
+
+- **Federal pull requests.** A federal module is in a search root of every
+  jurisdiction, so every waiver is selected and nothing is left unselected.
+  The selector returns all 1,930 waivers for each of 8 past federal pull
+  requests.
+- **Composition waivers.** They are selected by any changed module (rule 4),
+  so they are never outside a selection of these trees. The replay ran with no
+  composer and does not exercise them.
+- **Waivers not in the sample.** The three pull-request trees replayed 749 of
+  the 1,821 waivers that are not compositions: those with an audit time of
+  100 s or less in one hosted run and 40 costlier ones drawn at random, with a
+  cap of 90 for one state in one tree. The others follow the same rules.
+- **A pull request and a waiver of two different states in the same group.**
+  Each group's pull requests are tested against the other group's states, the
+  federal jurisdiction and the states with no pull request. Two states of one
+  group are the same case.
+- **The direction.** The base tree is main without a pull request's files and
+  the head tree is main with them. A pull request's own base and head commits
+  were not checked out.
+
 ## Limit: composition waivers
 
 Rule 4 is necessary with the composer as it is. It reads every YAML file under
