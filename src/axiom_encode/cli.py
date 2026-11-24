@@ -2960,6 +2960,17 @@ def main():
         help="dry-run writes nothing (default); shadow writes a neutral check run",
     )
 
+    # No argument: every input comes from the Actions runner environment.
+    subparsers.add_parser(
+        "merge-guard-enforce",
+        help=(
+            "Judge the pull request or merge group of the Actions event that "
+            "started this job (reads only; exit 0 only for a pass or "
+            "not_applicable verdict; required nowhere until an organization "
+            "ruleset names its workflow)"
+        ),
+    )
+
     admission_registry_parser = subparsers.add_parser(
         "admission-registry",
         help=(
@@ -4574,6 +4585,10 @@ def main():
         from axiom_encode.merge_guard_runner import command as merge_guard_run_command
 
         raise SystemExit(merge_guard_run_command(args))
+    elif args.command == "merge-guard-enforce":
+        from axiom_encode.merge_guard_runner import enforce_command
+
+        raise SystemExit(enforce_command())
     elif args.command == "migrate-retired-source-metadata":
         cmd_migrate_retired_source_metadata(args)
     elif args.command == "guard-generated":

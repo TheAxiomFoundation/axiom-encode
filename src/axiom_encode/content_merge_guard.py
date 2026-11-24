@@ -37,8 +37,10 @@ while the key remains valid. One token's requested scope, one-hour lifetime
 or revocation does not constrain independently minted tokens.
 
 The v6 reader in ``applied_manifest_v6`` stays off behind
-``V6_READER_ENABLED = False``. The production manifest writer emits v5, and
-the runner offers no enforcing mode. See
+``V6_READER_ENABLED = False``. The production manifest writer emits v5. The
+runner's enforcing mode (``merge_guard_runner.enforce``, change 3b) calls
+``evaluate`` for a ``pull_request`` event and ``evaluate_merge_group`` for a
+``merge_group`` event; no ruleset requires its workflow. See
 ``docs/content-bound-merge-guard.md`` for the design and activation holds.
 
 The evaluator returns ``not_applicable`` in two cases:
@@ -286,7 +288,9 @@ R_NOT_CONTENT_BOUND = "approval_not_content_bound"
 R_NO_COUNTING_APPROVAL = "no_independent_content_bound_approval"
 R_CI = "ci_not_green"
 R_CHANGED = "changed_during_evaluation"
-R_MERGE_GROUP = "merge_group_not_implemented"
+R_MERGE_GROUP_BASE = "merge_group_base_not_main"
+R_MERGE_GROUP_TREE = "merge_group_tree_differs"
+R_MERGE_GROUP_ANCESTRY = "merge_group_not_on_base"
 
 # Reasons that always mean "a read was incomplete or unreadable", whatever
 # raised them: a truncated tree, a listing past its page bound, a blob that
@@ -311,7 +315,6 @@ INCOMPLETE_READ_REASONS = frozenset(
         R_BLOB_UNREADABLE,
         R_REVIEWS,
         R_COMMITS,
-        R_MERGE_GROUP,
     }
 )
 # Evidence key of a verdict whose evaluation did not read everything it
@@ -1219,14 +1222,114 @@ def evaluate(
         return Verdict(FAIL, R_EVALUATION_ERROR, type(exc).__name__, evidence)
 
 
-def evaluate_merge_group(*_args, **_kwargs) -> Verdict:
-    """STUB. Merge-group evaluation (design section 6) is not implemented."""
-    return Verdict(
-        FAIL,
-        R_MERGE_GROUP,
-        "merge-group evaluation is not implemented",
-        {EVIDENCE_INCOMPLETE_READ: True},
-    )
+def _commit_tree(read: Callable[[str], object], root: str, sha: str) -> str:
+    """The tree id of one commit, from the commit object GitHub returns."""
+    commit = _fields(read(f"{root}/git/commits/{sha}"), "commit", "sha", "tree")
+    tree = _fields(commit["tree"], "commit tree", "sha")["sha"]
+    if (
+        commit.get("sha") != sha
+        or not isinstance(tree, str)
+        or not _SHA.fullmatch(tree)
+    ):
+        raise _Unread("commit object does not name itself and one tree")
+    return tree
+
+
+def evaluate_merge_group(
+    repository: str,
+    group_head: str,
+    group_base: str,
+    pr: int,
+    *,
+    fetch: Callable[[str], object] = github_json,
+) -> Verdict:
+    """Evaluate a merge group that holds exactly the pull request ``pr``.
+
+    ``group_head`` is the commit the merge queue built (``G``) and
+    ``group_base`` the commit it built it on (``Bq``), both from the
+    ``merge_group`` event. The verdict is the verdict of ``evaluate`` for
+    ``pr``, and it is ``pass`` or ``not_applicable`` only when that verdict
+    covers the whole content of the group:
+
+    1. ``evaluate(repository, pr)`` judges head ``H`` against the live
+       ``main`` tip ``B`` and does not fail.
+    2. ``Bq`` equals ``B``: the group was built on the base that was judged.
+    3. The trees of ``G`` and ``H`` are the same Git tree. ``H`` is strictly
+       ahead of ``B`` (step 1 of ``evaluate``), so a merge, squash or rebase
+       of ``H`` onto ``B`` yields the tree of ``H``. Equal trees therefore
+       bind every byte of the group to the judged pull request. A group
+       whose further pull requests change the tree, or that is built on
+       another base, is refused.
+    4. ``G`` is strictly ahead of ``Bq``.
+    5. ``main`` is still at ``B`` after those reads.
+
+    What this binds is the CONTENT of the group, not its membership. The
+    evaluator reads the tree of ``G`` and no parent of it, so it does not
+    know how many pull requests the queue put into the group. A group that
+    also holds a pull request which adds nothing to the tree of ``H`` (its
+    changes are already in ``H``) has the judged base and the judged tree and
+    is not refused; that pull request then merges with no verdict of its
+    own, and with no content of its own. To keep "one group, one judged pull
+    request" true, the merge queue must be configured with a group size of
+    one; activation requires that setting and does not rely on this function
+    for it (review of head 979124f10).
+
+    Never raises. Any read error, and any ``fail`` of step 1, gives ``fail``.
+    A ``fail`` from a read that was not whole carries the incomplete-read
+    mark, as for ``evaluate``.
+    """
+    evidence: dict = {
+        "pull_request": pr,
+        "merge_group": {"head": group_head, "base": group_base},
+    }
+    try:
+        return _evaluate_merge_group(
+            repository, group_head, group_base, pr, fetch, evidence
+        )
+    except _Refusal as refusal:
+        if refusal.unread:
+            evidence[EVIDENCE_INCOMPLETE_READ] = True
+        return Verdict(FAIL, refusal.reason, refusal.detail, evidence)
+    except Exception as exc:  # fail closed on anything unforeseen
+        evidence[EVIDENCE_INCOMPLETE_READ] = True
+        return Verdict(FAIL, R_EVALUATION_ERROR, type(exc).__name__, evidence)
+
+
+def _evaluate_merge_group(name, group_head, group_base, number, fetch, evidence):
+    for sha in (group_head, group_base):
+        if not isinstance(sha, str) or _SHA.fullmatch(sha) is None:
+            raise _Refusal(R_INVALID_REQUEST, "merge group commits are not exact")
+    judged = evaluate(name, number, fetch=fetch)
+    evidence.update(judged.evidence)
+    if judged.verdict not in (PASS, NOT_APPLICABLE):
+        # ``fail``, and anything that is not a known verdict.
+        return Verdict(FAIL, judged.reason, judged.detail, evidence)
+    head, base = judged.evidence.get("head"), judged.evidence.get("base")
+    for sha in (head, base):
+        if not isinstance(sha, str) or _SHA.fullmatch(sha) is None:
+            raise _Refusal(R_EVALUATION_ERROR, "the verdict names no head or base")
+    if group_base != base:
+        raise _Refusal(
+            R_MERGE_GROUP_BASE,
+            "the merge group is not built on the main tip that was judged",
+        )
+    # ``evaluate`` accepted ``name``; it is a short RuleSpec repository name.
+    read = _reader(fetch)
+    root = f"/repos/{ORGANISATION}/{name}"
+    with _refuse_as(R_MERGE_GROUP_TREE):
+        group_tree = _commit_tree(read, root, group_head)
+        if group_tree != _commit_tree(read, root, head):
+            raise AdmissionError(
+                "the merge group tree is not the tree of the judged head"
+            )
+    evidence["merge_group"] = evidence["merge_group"] | {"tree": group_tree}
+    with _refuse_as(R_MERGE_GROUP_ANCESTRY):
+        if group_head == base or not _is_ancestor(read, root, base, group_head):
+            raise AdmissionError("the merge group is not ahead of its base")
+    with _refuse_as(R_CHANGED):
+        if _main_tip(read, root) != base:
+            raise AdmissionError("main moved during the merge group evaluation")
+    return Verdict(judged.verdict, judged.reason, judged.detail, evidence)
 
 
 def _evaluate(name, number, read, evidence) -> Verdict:

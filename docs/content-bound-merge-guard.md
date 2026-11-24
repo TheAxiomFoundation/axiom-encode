@@ -6,7 +6,9 @@ this branch's source, which merges `main` at
 (`src/axiom_encode/content_merge_guard.py`) supplies verdicts, the production
 manifest writer emits v5, and the runner offers dry-run and shadow modes only.
 `INFRASTRUCTURE_LANE_ENABLED` remains `False`, so the proposed control-plane
-lane in §3 supplies no current verdicts. No enforcing runner exists. The workflow
+lane in §3 supplies no current verdicts. The enforcing runner of change 3b
+exists and is required nowhere: no organization ruleset names its workflow
+(§4, "Enforcing runner as built"). The shadow workflow
 (`.github/workflows/merge-guard-runner.yml`, change 3 of §8) has only a manual
 dispatch trigger. Its gate job checks `main` and
 `vars.MERGE_GUARD_RUNNER_ENABLED == 'true'`; its `run` job repeats
@@ -676,7 +678,7 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
 | Token | The `run` job mints one per run, for `rulespec-<country>` only: `checks: read` in `dry-run`, `checks: write` in `shadow`; `pull_requests`, `contents`, `actions`: `read`. The CLI reads it from `MERGE_GUARD_TOKEN` and has no token argument |
 | `dry-run` (default) | Prints one JSON report. Writes nothing |
 | `shadow` | Also creates one check run per evaluated pull request on its head commit, named `content-bound-merge-guard (shadow)`, conclusion always `neutral`, with the pull request number, the verdict and the reason in the title (`shadow verdict for #<number>: <verdict> (<reason>)`) and the verdict in the summary. It skips the write only when the guard App's own newest shadow check for that pull request on that head (the runner matches the App by its client ID, `MERGE_GUARD_APP_CLIENT_ID`, and the pull request by the check's `external_id`) already carries the same verdict. A check with the shadow name from another publisher never counts, so a pull request workflow cannot suppress its verdict |
-| Enforcing mode | None. This change reserves the name `content-bound-merge-guard` for it and never publishes that name |
+| Enforcing mode | None in this workflow and in `merge-guard-run`. Change 3 reserves the name `content-bound-merge-guard` and its writer never publishes it. Change 3b's enforcing runner is a separate workflow with no writer ("Enforcing runner as built" below) |
 
 - **Never make the shadow check a required check.** `neutral` satisfies a
   required check, so requiring the shadow name would require nothing. The
@@ -805,6 +807,387 @@ token; calling the CLI elsewhere does not inherit the workflow gate.
   required check, so change 3b must read from a stable snapshot or trigger per
   head.
 
+### Enforcing runner as built (change 3b, required nowhere)
+
+Change 3b adds the enforcing mode as a workflow that an organization ruleset
+can require. It follows option (g') of the key-mechanism research: no GitHub
+App and no private key. This change chooses no mechanism and creates no
+setting. The checklist of §8 still describes the App binding; a follow-up
+change rewrites it if the maintainers choose the ruleset.
+
+**What is off, and the one thing that switches it on.** Nothing requires the
+workflow. It becomes a merge requirement of a RuleSpec repository only when
+an organization owner creates an organization ruleset "Require workflows to
+pass before merging" that names
+`.github/workflows/content-bound-merge-guard.yml` of axiom-encode at a commit
+SHA and targets that repository. No variable, key, environment or repository
+setting switches it on. The research report reads GitHub's documentation as
+letting only organization owners edit an organization ruleset; this change
+did not test that. In axiom-encode itself the workflow's triggers fire on
+the encoder's own pull requests and merge groups; there the command prints
+`"inert": "source_repository"`, makes no network read and exits 0 (see "The
+inert path" below for its conditions).
+
+| Item | Value |
+|---|---|
+| Workflow | `.github/workflows/content-bound-merge-guard.yml`, `name: content-bound-merge-guard`, one job `guard` named `content-bound-merge-guard` (the check name) |
+| Triggers | `pull_request` and `merge_group`, no filter and no activity types. No `workflow_dispatch`, `workflow_call`, `schedule` or `pull_request_target` |
+| Permissions | `contents: read`, `pull-requests: read`, `checks: read`, `actions: read`. The job token is read-only; the job has no secret, variable, environment or `id-token` |
+| Skip paths | None: no `if`, no `continue-on-error`, no `concurrency`. A skipped job would count as passed |
+| Code it runs | The stdlib guard bundle: `scripts/merge_guard_launch.py` and `merge_guard_runner.py`, `content_merge_guard.py`, `reviewed_pr_admission.py`, `applied_manifest_v6.py`, `rulespec_citation_paths.py`, `statute.py`. A sparse checkout of exactly these files at `github.workflow_sha`, copied next to an empty `axiom_encode/__init__.py`. No `uv`, `pip`, cache, console script or encoder package |
+| Bundle digest | The workflow carries `BUNDLE_SHA256` as a literal and refuses a bundle with another digest. The digest is the sha256 of the lines `<sha256 of the file>  <path>` for `launch.py`, `axiom_encode/__init__.py` and the six modules in list order: the output of `sha256sum <those paths> \| sha256sum` in the bundle directory. A test recomputes it from the working tree, so a change to any bundle file fails CI until the same change updates the literal in `.github/` |
+| Launcher | `python3 -I -S launch.py`. It refuses to run without `-I` and `-S`, in a directory that holds anything but the bundle files and the one directory `axiom_encode`, when a bundle file is not a regular file (a link, a FIFO), when an import asks for an `axiom_encode` module off the list, or when such a module was loaded from another directory. It appends the bundle directory to `sys.path`, after the standard library. It takes no argument. It exits 0 only when the command returns the integer 0; every other return value and everything the command raises, `SystemExit` included, is exit 1 |
+| Command | `merge_guard_runner.enforce_command` (also `axiom-encode merge-guard-enforce`). Inputs come from the runner environment only: `GITHUB_REPOSITORY`, `GITHUB_EVENT_NAME`, `GITHUB_EVENT_PATH`, and the job token in `MERGE_GUARD_TOKEN`. No argument selects a pull request, a repository or a mode |
+| Result | The exit code, which is the job's conclusion. 0 only when the verdict and its reason are in `SUCCESS_VERDICTS` (`pass`: `content_bound_approval`; `not_applicable`: `no_guarded_content`, `earlier_lane_v5`), the verdict is bound to the event's head, and the run has no error. The two success reasons of the proposed infrastructure lane (`control_plane_content_bound_approval`, `infrastructure_as_today`) are not in the set while that lane is off: a verdict with one of them fails the job, and the reviewed change that decides the lane adds them. 1 for every `fail`, every read error, a malformed event, another event, another repository and an absent token. The runner creates no check run, so no `neutral` result exists; it sends `GET` requests only |
+
+**The inert path, and the one assumption that would fail open.** The inert
+path is the only way the job ends with success without an evaluation. The
+command takes it only when `GITHUB_REPOSITORY` is
+`TheAxiomFoundation/axiom-encode` and the event payload, read with the same
+bound and strict parser as every event, agrees: the event is `pull_request`
+or `merge_group`; `repository.full_name` is the encoder repository; and for a
+`pull_request` event the pull request's own base repository
+(`pull_request.base.repo.full_name`) is the encoder repository too. The
+payload must also be a whole event of its kind: for `pull_request` a
+`pull_request` object with a number that the payload's `number` repeats and
+an exact head commit; for `merge_group` a `merge_group` object with an exact
+`head_sha` and `base_sha`, a `head_ref` of the form
+`refs/heads/gh-readonly-queue/<branch>/pr-<N>-<40 hex>` and a `base_ref`
+`refs/heads/<branch>` for the same branch. Any
+disagreement, an incomplete event, an absent or unreadable event file and a
+payload that is not strict JSON are exit 1. A `merge_group` payload has no
+second field that names a repository, so for that event the shape is all the
+command can test. (The review of head `979124f10` found that a `merge_group`
+event holding only `{"repository": {"full_name": "TheAxiomFoundation/axiom-encode"}}`
+ended with exit 0 and `inert`; it is exit 1 now.)
+
+Every other unverified item of this section fails closed. This one would
+fail **open**: no live ruleset run has shown what `GITHUB_REPOSITORY` and the
+event payload are when a ruleset runs the workflow for a RuleSpec repository.
+GitHub's troubleshooting page for rulesets, under "Supported directory",
+suggests the condition `github.repository != 'my-org/source-repo'` for a
+workflow that should run only outside its source repository (read
+2026-11-17 in the documentation source, `github/docs`). That is indirect
+support that the value is the target repository; no page states it. If a
+ruleset run carried the encoder repository both in `GITHUB_REPOSITORY` and in
+those payload fields, every pull request of the RuleSpec repository would
+pass with no evaluation. The event check narrows the assumption; it does not
+remove it. **Activation hold, one canary for each trigger:** before the
+ruleset goes Active, on the target repository and under the throwaway or
+Evaluate-mode ruleset, (1) a pull request with no lane (for example one that
+changes only a workflow file) must show a **failed**
+`content-bound-merge-guard` job of the `pull_request` event, and (2) the
+merge group of such a pull request must show a **failed** job of the
+`merge_group` event. Each job's log must show a report with a `verdict` (or,
+for the merge group, an `error` of the wait), with `"repository"` equal to
+the target repository, and not `"inert"`. A passed job, or a report with
+`"inert"`, for either trigger stops the activation. The hold in the workflow
+file's header describes the pull request case; the queue case is a second,
+separate observation, because the `merge_group` payload carries no second
+repository field and nothing but a live run shows what it holds.
+
+A further signal was considered and not added: a read of
+`/repos/TheAxiomFoundation/axiom-encode/actions/runs/<GITHUB_RUN_ID>` with
+the job token, which would succeed only if the run belongs to the encoder
+repository. It would make every pull request of axiom-encode depend on a
+network read for a job that judges nothing there, and whether a ruleset run's
+id resolves in the target or the source repository is itself not documented.
+The experiment (step for `GITHUB_REPOSITORY`) settles the question directly.
+
+**`pull_request` event.** The number is `pull_request.number` and must equal
+the payload's `number`; the event head is `pull_request.head.sha`. The runner
+calls `evaluate`. A verdict whose evidence names another head than the event
+head becomes `fail` (`event_head_is_stale`): the run's check attaches to the
+event head, so a verdict for a head that moved, or a re-run of the run of an
+older head, never satisfies it.
+
+**Waiting for `validate / validate`.** The guard run starts together with
+the required check, and nothing starts it again when that check finishes. On
+`fail` with reason `ci_not_green` the runner polls the check runs named
+`validate / validate` on the event head every 180 seconds
+(`CI_POLL_SECONDS`, the cadence of the merge-group wait), until at least one
+exists and all are completed, for at most 18,000 seconds, five hours
+(`CI_WAIT_SECONDS`), and 101 polls (`MAX_CI_POLLS`). It then evaluates once
+more, and that verdict is final. The wait only delays: a settled check is not
+a verdict, and a poll that cannot be read whole leaves `fail` and makes the
+run an error. The wait starts only for a `ci_not_green` that is a decision
+(the check is absent, pending or red). A `ci_not_green` that carries the
+evaluator's incomplete-read mark (a check listing that does not add up, a
+response of the wrong shape) is an error of the run with no wait and no
+second evaluation, like every other read that could not be made whole: the
+report says `an evaluation could not read GitHub` and the job fails. Every
+other verdict is final at once. In the evaluator's step
+order an unapproved v6 unit fails at step 5 (`no_approval`) before step 7
+reads CI, so it does not wait; a test pins that it makes no check-run read.
+
+**Measured duration of the required check [live read].** Read on 2026-11-17,
+about 6:57pm EST, with one read-only call:
+`gh api "repos/TheAxiomFoundation/rulespec-us/actions/workflows/repository-checks.yml/runs?event=pull_request&status=success&per_page=40"`
+(the 40 newest successful `pull_request` runs, created 2026-11-07 to
+2026-11-17; duration = `updated_at` minus `run_started_at`, so for a re-run
+it is the last attempt; 2 of the 40 were re-runs). 38 runs took 172 to 227
+minutes; the other two took 42 and 55. The median of the 40 is 207.5
+minutes. The independent review of this change measured the same sample
+about ten minutes earlier with the same result. No `merge_group` run of that
+workflow exists yet (`event=merge_group` lists 0), so the group's duration
+is not measured; rulespec-us#2160 reports 2.5 to 4 hours [author-reported].
+The sample is ten days of one repository; a larger matrix makes the check
+slower.
+
+**Why the wait is five hours.** The wait was 60 minutes with a poll every 30
+seconds until review round 2 (P2-1). With the measured duration that wait
+ended before the check in 38 of 40 runs, so every head that reaches the CI
+rule (every v5 lane, every approved v6 head, every control-plane head once
+that lane exists) ended `fail`, `ci_not_green`, and needed a manual re-run
+about two hours later. Five hours leave 73 minutes over the slowest measured
+run. A check that takes longer than five hours ends the job with `fail`,
+`ci_not_green`, as before; then someone re-runs the failed job after the
+check is green.
+
+**What the wait costs.**
+
+- *Runner time.* One GitHub-hosted job stays busy for each head that reaches
+  the CI rule, for as long as that head's required check runs: about 3 to 4
+  hours today. `repository-checks.yml` has no `concurrency` key (read in a
+  checkout of `rulespec-us`, 2026-11-17), so a push to a pull request does
+  not cancel the check of the older head, and the guard job of the older
+  head also waits until that check ends. GitHub documents 500 concurrent
+  jobs on standard hosted runners for the Enterprise plan and 60 for Team
+  ([Actions limits](https://docs.github.com/en/actions/reference/limits),
+  read 2026-11-17) [docs]; the organization's plan reads `enterprise`
+  (`gh api orgs/TheAxiomFoundation --jq .plan.name`, 2026-11-17) [live read].
+  Each waiting guard job takes one of those slots, next to the jobs of the
+  check it waits for. `rulespec-us` is public; whether the job is billed was
+  not checked.
+- *Requests.* A waiting pull-request job makes 20 polls an hour, one read
+  each: 20 requests an hour. One hour can hold both of its evaluations (a
+  wait shorter than an hour; the review of head `979124f10` measured 16 + 20
+  + 25 = 61 reads in 3,420 simulated seconds on the fixture), so its
+  costliest hour is at most 20 + 2 x 30 = 80. The job token's limit is "1,000
+  requests per hour per repository" [docs, link below], shared by every
+  workflow of the repository that uses the job token. With **N** jobs
+  waiting at the same time the polls alone use 20 x N requests an hour: the
+  whole limit at N = 50. Counting every job at its costliest hour (80), the
+  limit is reached at N = 12. Over a whole run of 3.5 hours a job makes
+  about 70 polls and two evaluations, about 130 requests, 37 an hour, so
+  about 27 jobs that start evenly spread use the limit. These numbers leave
+  no room for the other workflows; what they use is not measured. In the
+  last 100 `pull_request` runs of the required workflow (the same read, 100
+  runs) the busiest hour started 8 runs and, with 3.5 hours each, about 28
+  heads can be in CI at once at that rate. So the 1,000 limit can be reached
+  on a busy day.
+- *At the limit the job fails closed.* A rate-limited read is a failed read.
+  In an evaluation it gives `fail` (`github_read_failed`) and a run error.
+  In a poll it ends the wait: the verdict stays `fail`, `ci_not_green`, the
+  report names the error, and no second evaluation is made. For a merge
+  group it is an error with no verdict. No path gives a pass. Someone
+  re-runs the failed job in a later hour.
+- *The higher limit.* GitHub documents "15,000 requests per hour per
+  repository" for "requests to resources that belong to a GitHub Enterprise
+  Cloud account" [docs, same page]. Whether a job token of `rulespec-us`
+  gets that limit is not verified: it needs the `x-ratelimit-limit` header
+  of a request made with a job token of that repository **[check live]**.
+  At 15,000 the same arithmetic gives N = 300 at the costliest hour.
+The poll matches check runs by name only (`_ci_settled`): any completed check
+named `validate / validate` on the head ends the wait early. For a pull
+request that only brings the second evaluation forward, and that evaluation
+verifies the check itself (GitHub Actions app, the `pull_request` run of
+`repository-checks.yml` for this pull request and head, success), so the
+result of an early end is `fail`, never a pass.
+
+**`merge_group` event: evaluated as late as possible.** The run of a merge
+group starts when the group is created. It first waits until the group's own
+`validate / validate` run has completed with success, and evaluates once
+after that. See §6 for the wait, its bounds and the window that remains.
+
+**Job timeout.** `timeout-minutes` is 345. Counted at the socket timeout of
+30 seconds for each request (`REQUEST_TIMEOUT_SECONDS`) and 30 requests for
+an evaluation (900 seconds), the longest run of each event is:
+
+| Event | Evaluation | Wait | Last poll interval | Last poll | Evaluation | Total |
+|---|---|---|---|---|---|---|
+| `pull_request` | 900 | 18,000 | 180 | 30 (1 read) | 900 | 20,010 s, 333.5 minutes |
+| `merge_group` | none before the wait | 18,000 | 180 | 90 (3 reads) | 900, then 90 for the second read of the group's check (3 reads) | 19,260 s, 321 minutes |
+
+A wait checks its clock after a poll and then sleeps one poll interval, so
+its last poll can start up to one interval after the wait's bound; review
+round 2 (P3-2) found that the earlier formula left that interval out. The
+tripwire test computes both totals from the runner's constants and requires
+the timeout to cover them and to stay below 360 minutes, the limit of a
+GitHub-hosted job ("Each job in a workflow can run for up to 6 hours of
+execution time", [Actions limits](https://docs.github.com/en/actions/reference/limits),
+read 2026-11-17). The timeout leaves 11.5 minutes over the longest run for
+the checkout, the Python set-up and the bundle build, which the formula does
+not count. The socket timeout bounds each blocking operation, not a whole
+request; a response that arrives very slowly can exceed these numbers, and
+then the job timeout cancels the job, which fails closed.
+
+**Request volume (measured on fixtures; one page per list).**
+`tests/test_merge_guard_runner.py` pins these numbers of GitHub requests per
+evaluation:
+
+| Evaluation | Requests |
+|---|---|
+| Allowlist only (`not_applicable`) | 5 |
+| No lane (`fail`) | 5 |
+| v5 lane, one unit (`not_applicable`) | 14 |
+| v5 lane, five units | 26 (three more per unit: its manifest and two module files) |
+| v6 unit, unapproved (`fail` before CI) | 15 |
+| v6 unit, `pass` | 25 |
+| Control-plane lane, `pass` (lane switched on in the test only) | 17 |
+| Merge group of a v6 unit, `pass` | 29, after the wait. The whole run with one poll is 33: the check-run listing, the group's workflow run, the evaluation, then the listing and the workflow run once more |
+
+An evaluation is counted as 30 requests below (the largest measured is 29).
+
+| Event | Polls | Reads of one poll | Evaluations | Worst case | Driven by a test |
+|---|---|---|---|---|---|
+| `pull_request` | at most 101 (`MAX_CI_POLLS`) | 1: the listing (`CI_POLL_READS`) | 2 | 2 x 30 + 101 x 1 = 161 | a full wait, the check completed at the last poll, then a whole second evaluation: 16 + 101 + 25 = 142 with the v6 fixture, whose first evaluation stops at the CI rule after 16 reads and whose second makes 25 (the test counts each evaluation by itself; an earlier revision of this row said 12 and 29, which has the same sum and was wrong) |
+| `merge_group` | at most 101 (`MAX_MERGE_GROUP_POLLS`) | at most 3 (`MERGE_GROUP_POLL_READS`) | 1, then one more read of the group's check (at most 3 reads, `GROUP_CI_RECHECK_READS`) | 3 x 101 + 30 + 3 = 336 | every poll at 3 reads, then the evaluation and the second read: 3 x 101 + 29 + 3 = 335 |
+
+A poll of the merge-group wait is one listing read; it reads the workflow
+run of each listed check only when all listed checks say `completed`. In an
+honest run with one listed check that is the last poll, so an honest
+merge-group run of the full five hours makes about 101 + 1 + 29 + 2 = 133
+requests. Review round 2 (P3-3) found that the earlier arithmetic assumed
+two reads for the costliest poll, while two listed checks (the first with a
+completed run, the second with a run in progress) cost three. The run now
+refuses a listing of more than two checks with the required name on the
+group head (`MAX_GROUP_CHECK_RUNS`; an error of the run, no evaluation), so
+three reads are the most one poll can cost, and a test drives that case for
+every poll of a full wait. `MAX_ENFORCE_REQUESTS` is 350 (it was 250, which
+the three-read case exceeded, failing closed): past it every read fails and
+the result is a failed job. The second read of the group's check (review of
+head `979124f10`) adds at most 3 requests to a merge-group run; 336 stays
+under the cap, so the cap is unchanged. In any one hour a waiting run of
+either event makes 20 polls: at most 80 requests for a pull request in an
+hour that holds both of its evaluations (above), and at most
+60 + 30 + 3 = 93 for a merge group in the hour that holds its evaluation. GitHub documents the job
+token's limit as "1,000 requests per hour per repository", and 15,000 for
+resources of a GitHub Enterprise Cloud account
+([Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api),
+read 2026-11-17). Consequences that no load test has measured:
+
+- Waiting pull-request jobs share the 1,000 limit: see "What the wait
+  costs" above for the number of concurrent jobs that reaches it. A
+  merge-group run adds 20 to 60 requests in each hour of its wait (93 in its
+  last hour); with a group size of 1 and one group at a time that is one
+  such run.
+- A real pull request with more than 100 files, commits or reviews needs
+  further page reads; the fixtures have one page of each.
+- A v5 lane of `u` units costs about `11 + 3u` requests per evaluation. With
+  two whole evaluations and a full wait of 101 polls the cap of 350 admits
+  about 37 units (2 x (11 + 3u) + 101 <= 350; the second read of the group's
+  check does not enter this bound, it belongs to the merge-group run). A
+  merge-group run of such a train costs the polls, one evaluation of about
+  `15 + 3u` (the pull request's `11 + 3u` and four reads for the group) and
+  the second read: with one listed check, 100 + 2 + (15 + 3u) + 2 <= 350
+  admits about 77 units; when every poll costs three reads (a second check
+  with the required name on the group head),
+  3 x 101 + (15 + 3u) + 3 <= 350 admits about 9 (it was about 10 before the
+  second read). A larger train fails closed.
+  Raise the cap in a reviewed change (which changes the bundle digest)
+  before a bulk landing.
+
+**Limits of the trigger set.**
+
+- No trigger follows a review. A v6 unit is unapproved when its signed head
+  is pushed, so its first run fails at once (`no_approval`, no wait); after
+  the approval someone must re-run the failed job. That re-run then waits
+  for the required check if it has not completed. A head that is approved
+  before its run starts, and every v5 lane, needs no re-run: its one run
+  waits for the check. A re-run is also needed after a wait that timed out
+  or met a read error. Whether a re-run updates the ruleset's result is
+  unverified **[check live]**.
+- A dismissal after a pass leaves the pull-request run green: this runner
+  has no sweep, and no event follows a review (§9, "Dismissal just after a
+  pass"). The merge-group run evaluates after the group's own check has
+  completed (§6), so with a merge queue the dismissal is seen unless it
+  comes in the last seconds before the merge. Without a merge queue nothing
+  withdraws the green job.
+- No trigger follows the change of a draft to ready for review: a ruleset
+  runs the workflow on the `opened`, `synchronize` and `reopened` activity of
+  `pull_request` (coordinator-reported from GitHub documentation; the
+  independent review of this change confirmed it), and `ready_for_review` is
+  not among them. The v6 lane refuses a draft (`pr_is_draft`), so the run of a draft's
+  head fails and stays failed after the pull request is marked ready, until
+  someone re-runs the job or pushes a new head.
+- The evaluator reads the whole tree of `main` and of the head with
+  `git/trees/<sha>?recursive=1` and refuses a truncated response. GitHub
+  documents a limit of 100,000 entries and 7 MB for that response. Measured
+  2026-11-17 on `rulespec-us` `main` (read-only `gh api`): 18,398 entries,
+  5,050,452 bytes as `gh api` receives it, `truncated: false` (an
+  earlier review agent of this workstream reported 6,092,589 bytes for the
+  same 18,398 entries with another client; that figure is author-reported,
+  with no record of the read in this repository). The entry count is far from its limit; the byte size
+  is at 72 to 87 percent of 7 MB. This is behaviour of the evaluator from
+  change 1; the new consequence is that under enforcement, once the tree
+  passes the limit, **every** evaluation fails and no pull request of that
+  repository can merge until the evaluator reads trees another way. Watch
+  the size before activation and before each bulk landing.
+- GitHub does not start workflows for events that the job token causes. The
+  signed commit must reach the pull request by another identity, as today.
+- Each run judges its own head, so the page-number sweep of the shadow
+  runner is not used and no work list or snapshot is needed.
+
+**Reader fix that this change needed.** The token reader of change 3 refused
+every path that contains `..`. The evaluator's second read is
+`compare/<base>...<head>`, so with the real reader every evaluation failed
+with `github_read_failed`; the shadow tests had replaced the reader with a
+fake. The reader still refuses every `..`, a `.` segment and a
+percent-encoded dot, with one exception: a path segment that is exactly
+`<40 hex>...<40 hex>`. A test sends every path of every lane through it.
+
+**Verified live, in axiom-encode only.** The pull request of this change
+started the workflow on `pull_request` in axiom-encode
+([run 44150203163](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/44150203163),
+2026-11-17). The checkout fetched `github.workflow_sha`, which was the pull
+request's merge commit; the hosted runner's `sha256sum` gave the digest of
+the literal; and the launcher under Python 3.13 printed
+`"inert":"source_repository"` and ended the job with success. That run
+exercised no RuleSpec repository, no ruleset and no evaluation.
+
+**Unverified live.** These need a maintainer's experiment with a throwaway
+ruleset; nothing here was run against a ruleset:
+
+- that a ruleset can run this workflow on `pull_request` and `merge_group`
+  of another repository, ignore nothing it needs, and pin the file by SHA
+  (coordinator-reported from GitHub documentation, 2026-11-17; not run);
+- that another workflow or App cannot satisfy the rule with a check of the
+  same name. A tripwire test keeps every other axiom-encode workflow from
+  using the name; it cannot see workflows of a RuleSpec repository;
+- that a re-run of the job refreshes the rule's result;
+- that the job token of a RuleSpec repository can read the signing run of
+  `axiom-encode` (step 6 of a v6 unit) and that `actions/checkout` can fetch
+  public axiom-encode with it;
+- the `merge_group` payload (`head_sha`, `base_sha`, `head_ref`, `base_ref`,
+  and `repository.full_name`, which GitHub's webhook reference does not mark
+  as required) and the form
+  `refs/heads/gh-readonly-queue/main/pr-<N>-<40 hex>`. A payload without
+  one of them fails the job;
+- what `merge_group.base_sha` is. GitHub's API description calls it "The SHA
+  of the merge group's parent commit" (schema `merge-group`, read
+  2026-11-17). For a queue that rebases several commits, or for an entry
+  behind another entry, the parent of the group head may not be the `main`
+  tip; step 2 of §6 then always fails (closed) **[check live]**;
+- that the group's required check appears on the group head with the name
+  `validate / validate`, from the GitHub Actions app, with a `details_url` of
+  a workflow run whose `event` is `merge_group`, whose `path` is
+  `.github/workflows/repository-checks.yml` and whose `head_sha` is the group
+  head. If one of these differs, every merge-group run fails (closed)
+  **[check live]**;
+- that the merge queue merges a group only after this job has ended, and how
+  long after;
+- what `github.workflow_sha` is for a ruleset workflow. The digest literal
+  makes a wrong value fail closed: a checkout of other bytes cannot match it;
+- that `GITHUB_REPOSITORY` and the event file describe the target repository
+  in a ruleset run. This is the one item that would fail open; see "The
+  inert path" above for the narrowing and the activation hold;
+- the behaviour on rate limiting and the limit a job token of a RuleSpec
+  repository really has (1,000 or 15,000 an hour);
+- the duration of `validate / validate` on a merge group against the 5-hour
+  wait. The duration on a pull request is measured (above): 172 to 227
+  minutes for 38 of 40 runs, under the 5-hour wait.
+
 ## 5. Manifest and encoder changes (planned, not in this change)
 
 ### Manifest (D1)
@@ -910,17 +1293,160 @@ pass `validate / validate` until `rulespec-us` bumps its encoder pin.
   scope-checked candidate for a reviewed one.
 - The preflight step moves to a job that runs before the gated `encode` job.
 
-## 6. Merge queue and `notary-guard` (not implemented)
+## 6. Merge queue and `notary-guard`
 
-`evaluate_merge_group`, a stub, returns `fail`.
+`content_merge_guard.evaluate_merge_group(repository, group_head, group_base,
+pr)` judges a merge group that holds exactly one pull request. No merge
+queue or ruleset uses it; only the enforcing runner calls it, for a
+`merge_group` event.
 
-- The guard must also report a required check on the merge-group commit. The planned
-  algorithm computes the delta of the group head against its queue base, treats
-  every v6 manifest as a unit `{M, P, T}`, and requires each unit to map to a
-  queued PR with the same three blob ids for which `evaluate` passes.
-- rulespec-us#2160 plans a group size of 1; keep that size for the pilot.
-- **[check docs]** How to list the PRs in a merge group, and whether a
-  check run that the App creates on the group SHA satisfies the queue.
+- **Inputs.** The event's `merge_group.head_sha` (`G`), `base_sha` (`Bq`) and
+  `head_ref`. The runner requires `head_ref` to match
+  `refs/heads/gh-readonly-queue/main/pr-<N>-<40 hex>` whole and `base_ref` to
+  be `refs/heads/main`, and takes the pull request number `N` from it.
+- **First the wait, then one evaluation.** The run starts when the queue
+  creates the group, and the group's own `validate / validate` run then takes
+  hours (rulespec-us#2160 reports 2.5 to 4 hours for each group and asks for
+  a queue status-check timeout above 4 hours; these are that pull request's
+  author's figures, not measured here). A verdict from the start of that time
+  would not see an approval that is dismissed, or a `CHANGES_REQUESTED`
+  review, while the group validates. So the runner polls the check runs named
+  `validate / validate` on the **group** head `G` each 180 seconds
+  (`MERGE_GROUP_POLL_SECONDS`), for at most 18,000 seconds
+  (`MERGE_GROUP_WAIT_SECONDS`, five hours) and 101 polls, and calls
+  `evaluate_merge_group` once, after the wait ends well. The wait ends well
+  only when at least one such check is listed, all listed are `completed`,
+  and each is the group's own run: its app is GitHub Actions, its `head_sha`
+  is `G`, its `details_url` names a workflow run of this repository, and that
+  run has `event` `merge_group`, `path`
+  `.github/workflows/repository-checks.yml`, `head_sha` `G` and `status`
+  `completed`. The identity matters here, unlike for a pull request: any
+  workflow of the repository with `checks: write` can create a completed
+  check with that name, and a wait that such a check could end would put the
+  evaluation hours before the merge again. A check that says `completed`
+  while its workflow run does not is waited for.
+- **The same successful attempt, read again after the evaluation.** The
+  success of the group's check is read before the evaluation, and the
+  evaluation takes time (29 reads on the fixture). The review of head
+  `979124f10` showed the gap: a group whose validation was replaced by a
+  failed second attempt during the evaluation ended with exit 0. The wait
+  now returns the identity of what succeeded: for each listed check its
+  check run id, the id of its workflow run and that run's `run_attempt`.
+  After an evaluation whose verdict is not `fail`, the runner reads the
+  listing and the workflow runs once more (`_require_same_group_ci`, at most
+  3 reads) and ends with success only when the check is completed and
+  successful and the identity is the same set as before. A check that is
+  now absent, in progress, red, on another run, at another attempt (a green
+  one too), under another check run id, or joined by one more check is an
+  error of the run: exit 1, with the verdict kept in the report. The second
+  read does not wait; the queue entry needs a new group. A check or a run
+  without a numeric id, and a run without a numeric `run_attempt`, are
+  refused at the first read, because they could not be compared later.
+  What remains open after this read is the time from it to the merge:
+  the end of the job and the queue's own delay. No read follows the second
+  read of the check.
+- **What fails with no evaluation.** The wait ends without such a check
+  (timeout, also when no check ever appears); a poll cannot be read whole or
+  raises; a listed check is not the group's own run; or the check or its run
+  concluded anything other than `success`. For the last case the other option
+  was to evaluate anyway and leave the red group to the repository's own
+  requirement of that check. Failing at once was chosen: it is simpler to
+  state and to test (a red group never has a green guard job), and it does
+  not depend on another setting. The report then has no verdict; the error
+  names the cause.
+- **The window that remains.** After the wait, the evaluation makes its reads
+  (29 on the fixture) and ends with re-reads: for a v6 unit `evaluate` reads
+  the pull request, the `main` tip, the reviews, the signing run and the
+  required check a second time and compares (its step 8), and
+  `evaluate_merge_group` then reads the group's commits and the `main` tip. The runner then reads the
+  group's own check once more (above). The job then ends, and
+  the queue can merge. A dismissal or a `CHANGES_REQUESTED` review that
+  arrives after the last re-read of the reviews and before GitHub merges the
+  group is not seen. That window is the rest of the evaluation after that
+  read, the end of the job and the queue's own delay: seconds, if the queue
+  merges promptly. It was hours before this change. Nothing here measured the
+  queue's delay **[check live]**.
+- **A residual that only the owner's experiment can settle** [inferred,
+  untested]: a re-run of the group's validation that someone starts AFTER
+  the guard job has ended. The guard job is then already green and nothing
+  starts it again; if the queue waits for the new attempt of the group's
+  check, the merge is held for that time with the guard's result from
+  before it, and a dismissal in that interval is not seen. Whether the
+  queue does wait for a re-run of a required check on a group commit,
+  whether a re-run is possible there at all, and whether the guard's
+  result still counts afterwards, is not on the pages read. Until a live
+  run shows it, a re-run of a group's validation after the guard job ended
+  is to be treated as a reason to remove the entry from the queue and add
+  it again.
+- **Algorithm of the evaluation.**
+  1. `evaluate(repository, N)` gives the verdict `V` for head `H` over the
+     live `main` tip `B`. A `fail` is the group's verdict.
+  2. `Bq` must equal `B`: otherwise `fail` (`merge_group_base_not_main`).
+  3. The commits `G` and `H` must have the same tree id: otherwise `fail`
+     (`merge_group_tree_differs`). `H` is strictly ahead of `B` (step 1 of
+     `evaluate`), so a merge, squash or rebase of `H` onto `B` has the tree
+     of `H`. Equal trees bind every byte of the group to the judged pull
+     request.
+  4. `G` must be strictly ahead of `Bq`: otherwise `fail`
+     (`merge_group_not_on_base`). The specification of this change did not
+     ask for this read; it costs one request.
+  5. `main` must still be at `B`: otherwise `fail`
+     (`changed_during_evaluation`).
+  6. The verdict is `V`'s verdict and reason, with `merge_group` (head, base,
+     tree) added to the evidence. The function never raises, and every read
+     error gives `fail`.
+- **Group size 1 is a required queue setting, not something the evaluator
+  proves.** A group of two pull requests fails when the second entry is
+  built on the first group's commit, not on `main` (step 2), and when the
+  group commit that holds two units has another tree than the judged head
+  (step 3, case 24). That binds the group's **content**. It does not
+  establish the group's **membership**: the evaluator reads the tree of `G`
+  and no parent of `G`. The review of head `979124f10` built a group commit
+  with an earlier queued merge as a parent and the same final tree; it
+  passed. So a second pull request whose changes are already contained in
+  the judged head (it adds nothing to the tree) can ride in the group and
+  be marked merged with no verdict of its own; no byte reaches `main` that
+  the judged pull request did not carry. To keep one group equal to one
+  judged pull request, the queue must have a maximum group size of 1
+  (rulespec-us#2160 plans it); activation requires reading that setting
+  back, and a larger size is a reason not to activate. The same holds for
+  a group whose final tree is the head of its last member (a second pull
+  request that already contains the first): the evaluator reads and judges
+  that one pull request only, and the first is merged with the group
+  whatever its own checks said. With the queue's `HEADGREEN` grouping a
+  group can include an earlier entry whose required check failed
+  [reported by the review of the writer's lock, #2289; the GitHub page was
+  not read by the author of this text]. So the requirement is four
+  settings of the `merge_queue` rule, the ones the writer's lock (#2289)
+  refuses to work without: `grouping_strategy: "ALLGREEN"`,
+  `max_entries_to_merge: 1`, `min_entries_to_merge: 1` and
+  `max_entries_to_build: 1`. **The evaluator does not enforce them and
+  cannot prove a group to be a single pull request**: the commits between
+  the base and the group head depend on the merge method (one squash
+  commit, the rebased commits, or the head's commits and a merge commit),
+  so a count of them refuses honest groups or admits dishonest ones. The
+  queue settings, read back before activation, and the lock carry this
+  requirement. A test records the
+  limit (`test_a_group_with_an_earlier_queued_merge_as_parent_and_one_tree_passes`).
+- **The head must be up to date.** `evaluate` requires `H` to be strictly
+  ahead of the live `main` tip. After another pull request merges, a queued
+  pull request that was not updated fails with `base_not_current_main`.
+- **No wait for the pull request's own check.** The evaluation requires
+  `validate / validate` green on `H` from the pull request's own run, as for
+  a pull request event; the merge-group run does not wait for that one.
+- **Queue settings this needs.** The queue's status-check timeout must be
+  longer than the group's validation and this job's wait; the job's own
+  limits are the 5-hour wait and the 345-minute job timeout. The guard job
+  now ends last of the group's required checks, so each landing takes the
+  group's validation time plus up to one poll interval (180 seconds) and the
+  evaluation.
+- **Unverified [check live].** The payload fields and the `head_ref` form
+  above; what `base_sha` is (the API description says "the merge group's
+  parent commit"); which workflow file version a `merge_group` run of a
+  ruleset uses; whether the result of this job satisfies the queue; that the
+  group's required check has the name and the run described above on the
+  group head; and that the queue merges only after this job has ended, and
+  how soon. The 40 hex digits of `head_ref` are not compared with anything.
 - `notary-guard` runs independently. A later integration would let this guard
   report `not_applicable` for a notary lane whose immutable base carries
   `consumer.json` and whose lineage replaces apply manifests. The current
@@ -959,7 +1485,7 @@ count as a pass. The table retains the expectations with
 | 21 | Manifest `applied_files` digest differs from the head blob | fail | yes |
 | 22 | CI passes `validate / validate` on an older head while `H` remains pending | fail | yes |
 | 23 | PR modifies a module that already exists on `main` | fail | yes |
-| 24 | Merge group includes two units and lacks an approval for one | fail for the group | skipped: merge group is a stub |
+| 24 | Merge group includes two units and lacks an approval for one | fail for the group when the second unit changes the tree or the group is built on another base. A second pull request that adds nothing to the judged tree is not detected: membership is not verified, the queue's group size of 1 is a required setting (§6) | yes for the two refused shapes: the tree differs, or the second entry's base is not `main`; the undetected shape is recorded by a test, not guarded |
 | 25 | PR that changes only allowlisted files (docs) | not_applicable | yes |
 | 26 | PR supplies unparseable JSON at a manifest path in the delta | fail | yes |
 | 27 | Enrolled owner authored the commits; a third account opened the PR; the owner approves | fail, also when GitHub attributes the commit to no account | yes |
@@ -1000,6 +1526,35 @@ Cases 43-48:
 | 47 | Signing actors, status or attempt change before the verdict, or required CI changes on either lane | fail | yes |
 | 48 | v5 manifest claims a non-atomic nested root under an existing jurisdiction, in either manifest layout | fail (no lane) | yes |
 
+Cases 49-70, the enforcing runner (`tests/test_merge_guard_runner.py`,
+`tests/test_content_merge_guard.py`,
+`tests/test_merge_guard_enforce_workflow.py`):
+
+| # | Attack or fault | Expected result | Test |
+|---|---|---|---|
+| 49 | The pull request moves to an approved head while a run of the older head is evaluated, waits, or is re-run | job fails (`event_head_is_stale`) | yes |
+| 50 | Required check pending when the run starts; it ends green, red, or never ends | `pass` only after it is green and a second full evaluation passes; `fail` otherwise | yes |
+| 51 | The approval is dismissed while the run waits for the required check | job fails: the wait gives no verdict | yes |
+| 52 | A read fails at any index of a passing run (pull request, v5 lane, waited run, merge group) | job fails | yes, every index |
+| 53 | Event payload malformed, oversized, with a duplicate key, for another repository, or with two pull request numbers | job fails with no read | yes |
+| 54 | Another event (`pull_request_target`, `push`, `workflow_dispatch`, a review event) | job fails with no read | yes |
+| 55 | Merge group whose `head_ref` is not the queue branch of one pull request to `main`, or whose base is not the judged `main` tip | job fails | yes |
+| 56 | A run reads without bound (many polls, many pages) | request cap; job fails | yes |
+| 57 | A repository named like the source repository (other case, suffix, other owner) | not inert; job fails | yes |
+| 58 | A workflow change adds `if`, `continue-on-error`, a trigger, a filter, a secret, a variable, an environment, `id-token`, a write permission, an unpinned action, another checkout or drops `-I -S` | tripwire test fails | yes, each |
+| 59 | A bundle file changes without a new digest literal, or the bundle directory holds one more file, a link or another `axiom_encode` package | tripwire test fails; build step or launcher exits 1 | yes |
+| 60 | A verdict with a success reason that the runner does not list (the two reasons of the switched-off infrastructure lane included), or `neutral` | job fails | yes |
+| 61 | `GITHUB_REPOSITORY` names the encoder repository and the event names a RuleSpec repository (in `repository.full_name` or in the pull request's base), or the event is absent, unreadable or not strict JSON | not inert; job fails | yes, also through the launcher |
+| 62 | The approval is dismissed, or changes are requested, after the merge group is created and while the group's own check runs | job fails: the evaluation runs after that check completes | yes |
+| 63 | The group's required check never appears, never completes, or its listing or run cannot be read | job fails with no evaluation | yes |
+| 64 | A completed check named `validate / validate` on the group head that is not the group's own `merge_group` run (other name, app, head, URL, run, event, workflow, repository), or whose run is still in progress | never ends the wait: job fails, or the wait goes on | yes, each field |
+| 65 | The group's required check or its run concludes `failure`, `cancelled`, `skipped`, `neutral` | job fails with no evaluation | yes |
+| 66 | The build step also writes a file, `GITHUB_PATH`, `GITHUB_ENV` or `GITHUB_OUTPUT`, relaxes `set -e`, tolerates an existing bundle directory or compares part of the digest | tripwire test fails: the script is pinned whole | yes, each |
+| 67 | The workflow repeats a mapping key (`steps`, `on`, `permissions`, `jobs`, `run`, `env`) | tripwire test fails | yes |
+| 68 | The command returns `None`, `False` or `True`, or raises `SystemExit(0)` | launcher exits 1 | yes |
+| 69 | A bundle file is a FIFO, or the bundle directory holds one more directory | launcher exits 1 | yes |
+| 70 | A later, broader `CODEOWNERS` entry with other owners matches a guard file | tripwire test fails: the last matching entry decides | yes |
+
 Cases 15-18 must also run live in the shadow period (§8).
 
 ## 8. Delivery plan
@@ -1012,12 +1567,48 @@ Implementation comes before activation.
 | 2 | axiom-encode | Verifiers can read `applied-rulespec/v6` with the attestation scope, behind `V6_READER_ENABLED = False`; no writer | revert; the production writer emits only v5 |
 | 2b | axiom-encode | Set `V6_READER_ENABLED = True`. May ride with change 3. Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request. | set it back; the production writer emits only v5 |
 | 3 | axiom-encode | Workflow that runs the guard from `main` and publishes its check, with a dry-run mode. Shadow only and inert: manual dispatch, behind `MERGE_GUARD_RUNNER_ENABLED` (§4, "Runner as built"). It does not flip `V6_READER_ENABLED`; change 2b stays a separate one-line commit to `applied_manifest_v6.py` | unset the variable; disable the workflow |
-| 3b | axiom-encode | **Enforcing runner (not built).** A mode that reports the real check `content-bound-merge-guard` (`success` for `pass` and `not_applicable`, `failure` for `fail`) and a trigger that runs it on every pull request head and after every review change (a `schedule` sweep or an event), with a work list it reads from a stable snapshot instead of page numbers, and a measured request volume. Hard precondition of checklist step 4 | remove the check from the required checks first, then disable the trigger |
+| 3b | axiom-encode | **Enforcing runner (built, required nowhere).** `merge_guard_runner.enforce` judges the pull request or merge group of one Actions event and ends its job, named `content-bound-merge-guard`, with success for `pass` and `not_applicable` and with failure for `fail` and for every error. Its workflow has the `pull_request` and `merge_group` trigger, so a ruleset that requires it runs it on every pull request head and every merge group; each run judges its own head, so no work list or snapshot is read. A merge-group run evaluates after the group's own required check has completed (§6). No trigger follows a review change: after an approval someone re-runs the job **[check live]**. Request volume is measured (§4, "Enforcing runner as built"). It is switched on only by an organization ruleset "Require workflows to pass before merging" that names the workflow at a commit; no variable, key or repository setting does it. Hard precondition of checklist step 4 | an organization owner disables or deletes the ruleset rule |
 | 4 | rulespec-us | Pin the encoder that verifies v6 | revert the pin |
 | 5 | axiom-encode | Emit v6 and admit without approval, behind a default-off switch | revert |
 | 6 | axiom-encode | **Activation**: turn the switch on; update `docs/reviewed-pr-promotion.md` | flip the switch back; the required check stays |
 
 ### Activation checklist
+
+> **Superseded at this head. Do not activate from this list.** The steps
+> below were written for the first mechanism (a check published by a guard
+> GitHub App, required as a status check with that App's `app_id`). Change
+> 3b does not work that way: its result is the conclusion of an Actions job
+> of the workflow `.github/workflows/content-bound-merge-guard.yml`, which
+> only an organization ruleset "Require workflows to pass before merging"
+> that names the workflow at a commit SHA can require. The list is kept for
+> the record of step 1 (the key-exposure precondition of the shadow runner)
+> and is replaced by the checklist of the recommendation change (#2287).
+> Whatever list is used, these four rules hold (review of head `979124f10`):
+>
+> 1. **The gate is the pinned workflow, not a status check by name.** Never
+>    require a status check named `content-bound-merge-guard` from an App
+>    (old step 4): no App publishes it, and a check with that name from
+>    another publisher must not satisfy anything.
+> 2. **No removal of the pre-sign approval before the queue is verified.**
+>    A passed pull-request job stays green after the approval is dismissed:
+>    the workflow has no trigger for a review. Only the merge-group run
+>    looks again, after the group's validation. So the change that removes
+>    the pre-sign approval (old step 7, change 6) must come AFTER the pinned
+>    workflow is required by the ruleset in Active mode AND the merge queue
+>    is required on the target branch with a group size of 1 AND a live run
+>    has shown the guard's `merge_group` job rejecting a dismissed approval
+>    (old step 9 moves before old step 7). Without a verified queue, another
+>    gate that withdraws a pass on dismissal is needed; none exists here.
+>    On 2026-11-20 the reviewer read `branches/main/protection` of the
+>    target and found zero native required approvals [reviewer-reported,
+>    not re-read by the author]: nothing else holds an unapproved merge.
+> 3. **A live test that a same-named check cannot satisfy the rule.** Before
+>    Active: a check run named `content-bound-merge-guard` with conclusion
+>    `success`, created on a head by another workflow or App, must NOT make
+>    a pull request with no lane mergeable under the ruleset.
+> 4. **One failed canary for each trigger** (§4, "The inert path"): a pull
+>    request with no lane and its merge group must each show a failed guard
+>    job that is not `inert`.
 
 Steps with **M** need repository or organisation settings. Only a maintainer
 can do them. Maintainers must accept the proposed promotion order before
@@ -1088,7 +1679,9 @@ activation.
    Switch rule: The reader may be switched on while no v6 writer exists: nothing new can land. The v6 writer and the admission without approval must stay off until the guard check is required. With the reader on, the writer on and the guard check not required, an enrolled dispatcher lands their own unreviewed candidate with no approval, and any account with write access re-lands signed v6 bytes from a closed pull request.
 3. Run cases 15-18 live on a throwaway PR and confirm every verdict.
 4. **M** Add the guard's check with the guard App's `app_id` to the required
-   checks on `rulespec-us` main. Hard preconditions: the step 1 mechanism,
+   checks on `rulespec-us` main. *(Superseded: see the note above. The gate
+   of change 3b is the pinned workflow required by an organization ruleset,
+   not a status check of an App.)* Hard preconditions: the step 1 mechanism,
    with any complement it needs, covers the key-exposure set as change 3b's
    enforcing runner extends it, with fresh independent evidence of closure over the whole set for that runner; change 3b
    has landed on `main` and reports `content-bound-merge-guard` on every open
@@ -1100,13 +1693,15 @@ activation.
    it blocks every pull request, administrators included.
 5. Run the current-order canary (rulespec-us#2045) to completion.
 6. Merge change 5 with the switch off.
-7. Merge change 6. The first promotion in the new order is the pilot.
+7. *(Superseded order: not before step 9 is done and the queue is required;
+   see rule 2 of the note above.)* Merge change 6. The first promotion in the new order is the pilot.
 8. **M**, optional hardening: enforce code-owner review for `/.github/` in
    `rulespec-us` (§9). That protects the RuleSpec workflows. It does not cover
    the encoder workflows and code that can obtain the App key or token, which
    step 1 governs.
-9. **M**, before the merge queue (rulespec-us#2160): confirm the guard reports
-   on group SHAs in a test repository.
+9. **M**, before the merge queue (rulespec-us#2160) and before step 7:
+   confirm the guard reports on group SHAs in a test repository, and that
+   its `merge_group` job fails for a dismissed approval.
 
 Steps 4 and 7 land as separate reviewed changes, step 4 first, which keeps
 proposed constraint D2d.
@@ -1133,10 +1728,10 @@ does not close the encoder key-exposure set or satisfy an activation condition.
 | Hand-written v5 manifest | Through CI | The guard does not verify the signature. The lane's scope keeps the PR from changing the workflow and the pin, and the PR's own `validate / validate` run must be green |
 | `validate / validate` from a run that is not this PR's `pull_request` run | Yes | Step 7 |
 | Forged or unsigned v6 manifest | Partly | Current-head CI verifies the signature; the guard does not (open question 3) |
-| Second workflow imitating the check name | Yes, once the App binding exists | `app_id` binding. It keeps other publishers out, and it cannot tell the guard's own code from unreviewed code that holds the App's key or token (row above) |
+| Second workflow imitating the check name | App path: yes, once the App binding exists. Ruleset path (the enforcing runner of §4): unverified **[check live]** | App path: `app_id` binding. It keeps other publishers out, and it cannot tell the guard's own code from unreviewed code that holds the App's key or token (row above). Ruleset path: the enforcing job publishes no check through an App, so there is no App binding. The rule names the source repository, the workflow file and a commit (coordinator-reported from GitHub documentation); whether a check of the same name from another workflow, an API check run or a commit status can satisfy it has not been tested. If one can, the ruleset path does not hold. A tripwire test keeps every other axiom-encode workflow from using the name; it cannot see workflows of a RuleSpec repository |
 | Stale approval after a content change | Yes | Blob equality |
 | Push racing an approval | Yes | The verdict belongs to one head, and the guard computes it from that head's tree |
-| Dismissal just after a pass | Partly | The check stays green until the next sweep |
+| Dismissal just after a pass | Partly | App path (shadow runner): the check stays green until the next sweep. Ruleset path (the enforcing runner of §4): there is no sweep, and no event follows a review, so the pull-request job stays green. The merge-group run evaluates again after the group's own `validate / validate` run has completed, and fails; that needs a merge queue. Not caught with a queue: a dismissal that arrives after that evaluation's last read of the reviews and before GitHub merges. Without a merge queue the green job is never withdrawn |
 | GitHub API failure | Fails closed for new verdicts | The guard does not withdraw a green check it wrote before the outage |
 | Repository administrator, or a compromised administrator account | No | Out of scope. Theft of the guard App key through a workflow or code change that a write collaborator can land stays in scope: the axiom-encode row above and checklist step 1 cover it |
 | Semantic change brought in by the base while the approved bytes stay the same | Partly | Current-head CI catches it; the human approval does not cover it |

@@ -41,6 +41,14 @@
 /src/axiom_encode/applied_manifest_v6.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/merge_guard_runner.py @PavelMakarchuk @MaxGhenis
 /.github/workflows/merge-guard-runner.yml @PavelMakarchuk @MaxGhenis
+# The enforcing merge guard (change 3b): the workflow an organization ruleset
+# would require, the launcher that holds the bundle list, and their tripwire
+# tests. The workflow carries the digest of the bundle, so a change to any
+# bundle file needs a change to this workflow file.
+/.github/workflows/content-bound-merge-guard.yml @PavelMakarchuk @MaxGhenis
+/scripts/merge_guard_launch.py @PavelMakarchuk @MaxGhenis
+/tests/test_merge_guard_enforce_workflow.py @PavelMakarchuk @MaxGhenis
+/tests/merge_guard_bundle_driver.py @PavelMakarchuk @MaxGhenis
 /src/axiom_encode/cli.py @PavelMakarchuk @MaxGhenis
 /scripts/prepare_reviewed_pr_promotion.py @PavelMakarchuk @MaxGhenis
 /tests/test_reviewed_pr_admission.py @PavelMakarchuk @MaxGhenis
