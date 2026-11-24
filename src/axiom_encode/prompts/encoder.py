@@ -1743,22 +1743,30 @@ CROSS_REFERENCE_DEFER_RULE_TAIL = """  or missing the needed export, do not pres
   cross-reference fact; import a real export, defer the affected executable
   surface, or encode a source-grounded overriding branch that avoids it.
 """
-CFR_STATE_SET_AMOUNT_RULE = """- Exception for State-set amounts (federal CFR units only): apply it only when
-  the citing phrase names the State or the agency as the actor that sets the
-  value, with a verb such as "establishes", "elects", "specifies", "sets",
-  "selects", or "chooses" (for example "the income standard established by
-  the agency under § 435.110(c)"), and no copied context module exports that
-  value. Then encode the branch; do not defer it for that reason, also when
-  the cited module is deferred.
+CFR_STATE_SET_AMOUNT_RULE = """- Exception for State-set amounts (federal CFR units only): it covers a
+  value that this source applies from another provision when no copied
+  context module exports that value and either (a) the citing phrase names
+  the State or the agency as the actor that sets it, with a verb such as
+  "establishes", "elects", "specifies", "sets", "selects", or "chooses" (for
+  example household income "at or below the income standard established by
+  the agency in its State plan"), or (b) the phrase cites a provision whose
+  copied module takes that value as a local input and exports no rule for it
+  (for example "the medically needy income standard established under
+  § 435.811", whose module lists `medically_needy_income_standard_amount` as
+  an input slot). Then encode the branch; do not defer it for that reason,
+  also when the cited module is deferred. This exception takes precedence
+  over the rule that defers when a cited sibling file is deferred.
 - Encode literally every number, percentage of the Federal poverty level, or
   dollar amount that this source or a cited federal provision states; such a
   value is never an input. A federally stated floor or ceiling, such as "at
   least $30", stays a literal and is applied with max or min to the input.
+- Federal text that limits what the State may set (a floor or ceiling on the
+  State's own standard) is encoded as a rule about the State plan, not as an
+  input that replaces that limit.
 - Declare the State-set value in the document-root `inputs` list with
   `entity`, `dtype`, `period`, `unit` for money, and a `description` that
-  names the provision under which the State or agency sets it. When the cited
-  module has an input identifier for that value, use the same identifier;
-  otherwise use a descriptive name.
+  names the provision under which the State or agency sets it. For case (b)
+  use the cited module's input identifier; otherwise use a descriptive name.
 - Give the rule that uses the State-set value a proof atom whose excerpt is
   the citing phrase from this unit's source text. Encode the branch's own
   comparisons, max/min, and conditions on that value, and set the input in
