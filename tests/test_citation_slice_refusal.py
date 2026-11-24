@@ -36,6 +36,9 @@ from tests.release_object_fixtures import bind_test_corpus_release
 SECTION = "us/regulation/42/435/900"
 VERSION = "test-version"
 CHECK_ID = "proof:source-evidence/path-unsliceable"
+PROOF_FIELD = "rules[].metadata.proof.atoms[].source.corpus_citation_path"
+INTERPRETATION_FIELD = "module.interpretations[].texts[].corpus_citation_path"
+SOURCE_VERIFICATION_FIELD = "module.source_verification.corpus_citation_path"
 
 # Synthetic section bodies. The first holds a child marker inline after a
 # heading; the resolver cannot isolate `b/1` from it. The second repeats a
@@ -390,11 +393,15 @@ def test_the_eval_numeric_pass_refuses_instead_of_raising(
     after = evaluate(SECTION)
 
     assert refused.ci_pass is False
-    assert [
-        issue.subject.citation
+    typed = [
+        issue
         for issue in refused.ci_issues
         if getattr(issue, "check", None) == CHECK_ID
-    ] == [child_path]
+    ]
+    assert [issue.subject.citation for issue in typed] == [child_path]
+    # The eval-side finding names the citing field, as the CI one does.
+    assert typed[0].subject.field == PROOF_FIELD
+    assert f"In `{PROOF_FIELD}`, cite the unit's own path" in typed[0]
     assert after.ci_pass == before.ci_pass
     assert after.ci_issues == before.ci_issues
 
@@ -479,3 +486,60 @@ def test_no_refusal_without_the_trusted_source_text(tmp_path, monkeypatch):
     assert pipeline._citation_slice_refusal_own_path() is None
     with pytest.raises(CorpusSourceSliceError):
         pipeline._run_ci(rules_file)
+
+
+@pytest.mark.parametrize(("body", "child_path", "message"), SLICE_CASES)
+def test_a_path_cited_by_a_proof_atom_and_an_interpretation_names_both(
+    tmp_path, monkeypatch, body, child_path, message
+):
+    pipeline, rules_file = _pipeline(
+        tmp_path,
+        monkeypatch,
+        body=body,
+        content=_candidate(child_path, interpretation_path=child_path),
+    )
+
+    result = pipeline._run_ci(rules_file)
+
+    typed = [
+        issue for issue in result.issues if getattr(issue, "check", None) == CHECK_ID
+    ]
+    assert len(typed) == 1
+    assert typed[0].subject.field == PROOF_FIELD
+    assert (
+        f"In `{PROOF_FIELD}` and `{INTERPRETATION_FIELD}`, cite the unit's own path"
+    ) in typed[0]
+
+
+@pytest.mark.parametrize(("body", "child_path", "message"), SLICE_CASES)
+def test_a_source_verification_child_path_names_that_field(
+    tmp_path, monkeypatch, body, child_path, message
+):
+    """The checks that read `module.source_verification` fetch its path; the
+    trusted-source binding check refuses a child path there too, but does
+    not stop that fetch, so the slice failure reaches the refusal."""
+
+    pipeline, rules_file = _pipeline(
+        tmp_path,
+        monkeypatch,
+        body=body,
+        content=_candidate(SECTION).replace(
+            f"  source_verification:\n    corpus_citation_path: {SECTION}\n",
+            f"  source_verification:\n    corpus_citation_path: {child_path}\n",
+        ),
+    )
+    with pytest.raises(CorpusSourceSliceError, match=message):
+        _run_ci_without_refusal(pipeline, rules_file, monkeypatch)
+
+    result = pipeline._run_ci(rules_file)
+
+    assert result.passed is False
+    typed = [
+        issue for issue in result.issues if getattr(issue, "check", None) == CHECK_ID
+    ]
+    assert [issue.subject.citation for issue in typed] == [child_path]
+    assert typed[0].subject.field == SOURCE_VERIFICATION_FIELD
+    assert f"In `{SOURCE_VERIFICATION_FIELD}`, cite the unit's own path" in typed[0]
+    assert any(
+        "Source verification target mismatch" in issue for issue in result.issues
+    )
