@@ -56,6 +56,10 @@ from axiom_encode.bound_schedule_structure import (
     recognize_bound_schedule_structure,
 )
 from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check, retype
+from axiom_encode.corpus_resolver import (
+    InvalidCorpusCitationError,
+    normalize_corpus_identifier,
+)
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
 from axiom_encode.harness.bound_form_operands import (
@@ -9495,6 +9499,7 @@ def _deferred_coverage(
                     corpus_citation_path=corpus_citation_path,
                     path=candidate_path,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
+                    leaf_branch=_is_leaf_branch_path(candidate_path, branches),
                 )
                 or _reason_names_source_bound_runtime_gap(
                     reason,
@@ -9563,6 +9568,7 @@ def _deferred_coverage(
                     corpus_citation_path=corpus_citation_path,
                     path=candidate,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
+                    leaf_branch=_is_leaf_branch_path(candidate, branches),
                 )
                 for candidate, candidate_scope_text in most_specific_source_scopes.items()
             )
@@ -9863,6 +9869,20 @@ def _resolved_definition_deferral_clauses(
             )
         )
     return tuple(clauses)
+
+
+def _is_leaf_branch_path(
+    path: tuple[str, ...] | None,
+    branches: Sequence[SourceStructureBranch],
+) -> bool:
+    """Tell whether ``path`` is one recognized branch with no descendant branch."""
+
+    if not path or not any(branch.path == path for branch in branches):
+        return False
+    return not any(
+        len(branch.path) > len(path) and branch.path[: len(path)] == path
+        for branch in branches
+    )
 
 
 def _deferred_source_scope_text(
@@ -11986,6 +12006,295 @@ def _qualified_usc_dependencies(text: str) -> tuple[re.Match[str], ...]:
     )
 
 
+# Closed grammar for one CFR section citation in a deferral reason or in the
+# deferred branch's own source text. Exactly three forms are read:
+#   `42 CFR 435.123`, `42 C.F.R. 435.123`, `42 CFR § 435.123` (title given);
+#   `§ 435.123` (title taken from the unit's own CFR title);
+#   `us/regulation/42/435/123` (canonical corpus path).
+# Each may carry paragraph fragments: `(b)(1)` (or `/b/1` on the path form).
+# A part-only citation (`§ 435`, `42 CFR part 435`, `us/regulation/42/435`),
+# a `§§` list or range, a lettered or hyphenated section (`435.123a`,
+# `1.414(v)-1`) and a range endpoint (`435.110-435.120`, `435.110 through
+# 435.120`) are not read, so they never bind. Every read citation is
+# re-parsed by the corpus resolver's grammar (`normalize_corpus_identifier`)
+# and dropped unless both readings give the same path.
+_CFR_DEPENDENCY_CITATION = re.compile(
+    r"(?:"
+    r"(?<![A-Za-z0-9_§./-])(?P<cfr_title>\d{1,2})\s+C\.?\s?F\.?\s?R\.?\s+"
+    r"(?:§\s*)?(?P<cfr_part>\d{1,4})\.(?P<cfr_section>\d{1,5})"
+    r"|(?<![A-Za-z0-9_§./-])§\s*(?P<sign_part>\d{1,4})\.(?P<sign_section>\d{1,5})"
+    r")"
+    r"(?P<cfr_tail>(?:\([A-Za-z0-9]{1,6}\))*)"
+    r"(?![A-Za-z0-9_(-]|\.\d)"
+    r"|(?<![A-Za-z0-9_./:-])us/regulation/(?P<path_title>\d{1,2})/"
+    r"(?P<path_part>\d{1,4})/(?P<path_section>\d{1,5})"
+    r"(?P<path_tail>(?:\([A-Za-z0-9]{1,6}\))+|(?:/[A-Za-z0-9]{1,6})+)?"
+    r"(?![A-Za-z0-9_(/#-]|\.\d)",
+)
+_CFR_RANGE_CONNECTOR_BEFORE = re.compile(
+    r"(?:[-‐-―−]|\b(?:through|thru|to))\s*(?:§\s*)?$",
+    flags=re.IGNORECASE,
+)
+_CFR_RANGE_CONNECTOR_AFTER = re.compile(
+    r"\s*(?:[-‐-―−]|\b(?:through|thru|to)\b)\s*(?:§\s*)?\d",
+    flags=re.IGNORECASE,
+)
+_US_REGULATION_UNIT = re.compile(
+    r"us/regulation/(?P<title>\d{1,2})/(?P<part>\d{1,4})/(?P<section>[^/]+)$"
+)
+
+
+@dataclass(frozen=True)
+class _CfrDependencyCitation:
+    """One CFR section citation read by `_CFR_DEPENDENCY_CITATION`."""
+
+    match: re.Match[str]
+    title: str
+    part: str
+    section: str
+    fragments: tuple[str, ...]
+
+    @property
+    def section_identity(self) -> tuple[str, str, str]:
+        return (self.title, self.part, self.section)
+
+
+def _us_regulation_unit_identity(
+    corpus_citation_path: str,
+) -> tuple[str, str, str] | None:
+    """Return (title, part, section) of a U.S. CFR section unit, else None."""
+
+    match = _US_REGULATION_UNIT.fullmatch(corpus_citation_path.strip().strip("/"))
+    if match is None:
+        return None
+    return (match.group("title"), match.group("part"), match.group("section"))
+
+
+def _quoted_spans(text: str) -> tuple[tuple[int, int], ...]:
+    """Return spans between paired curly or straight double quotes."""
+
+    spans: list[tuple[int, int]] = []
+    for quoted in re.finditer(r"“[^“”]*”|\"[^\"]*\"", text):
+        spans.append((quoted.start(), quoted.end()))
+    return tuple(spans)
+
+
+def _cfr_dependency_citations(
+    text: str,
+    *,
+    unit_title: str,
+) -> tuple[_CfrDependencyCitation, ...]:
+    """Read the closed CFR citation forms in ``text``; fail closed on the rest."""
+
+    quoted = _quoted_spans(text)
+    citations: list[_CfrDependencyCitation] = []
+    for match in _CFR_DEPENDENCY_CITATION.finditer(text):
+        if any(start <= match.start() < end for start, end in quoted):
+            continue
+        if _CFR_RANGE_CONNECTOR_BEFORE.search(
+            text[max(0, match.start() - 12) : match.start()]
+        ) or _CFR_RANGE_CONNECTOR_AFTER.match(text, match.end()):
+            continue
+        if match.group("path_title") is not None:
+            title = match.group("path_title")
+            part = match.group("path_part")
+            section = match.group("path_section")
+            tail = match.group("path_tail") or ""
+            fragments = tuple(re.findall(r"[A-Za-z0-9]+", tail))
+        else:
+            title = match.group("cfr_title") or unit_title
+            part = match.group("cfr_part") or match.group("sign_part")
+            section = match.group("cfr_section") or match.group("sign_section")
+            fragments = tuple(
+                re.findall(r"\(([A-Za-z0-9]+)\)", match.group("cfr_tail"))
+            )
+        expected = "/".join(("us", "regulation", title, part, section, *fragments))
+        rendered = f"{title} CFR {part}.{section}" + "".join(
+            f"({fragment})" for fragment in fragments
+        )
+        try:
+            if normalize_corpus_identifier(rendered) != expected:
+                continue
+        except InvalidCorpusCitationError:
+            continue
+        citations.append(
+            _CfrDependencyCitation(
+                match=match,
+                title=title,
+                part=part,
+                section=section,
+                fragments=fragments,
+            )
+        )
+    return tuple(citations)
+
+
+def _cfr_citations_name_same_provision(
+    left: _CfrDependencyCitation,
+    right: _CfrDependencyCitation,
+) -> bool:
+    """Same title, part and section; same fragments when both give fragments."""
+
+    if left.section_identity != right.section_identity:
+        return False
+    return not (left.fragments and right.fragments) or (
+        left.fragments == right.fragments
+    )
+
+
+def _cfr_clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    """Clause around ``text[start:end]``; periods inside CFR citations do not end it."""
+
+    masked = list(text)
+    for citation in _CFR_DEPENDENCY_CITATION.finditer(text):
+        for position in range(citation.start(), citation.end()):
+            if masked[position] == ".":
+                masked[position] = " "
+    masked_text = "".join(masked)
+    preceding_stops = [
+        position
+        for separator in (".", ";", "\n")
+        if (position := masked_text.rfind(separator, 0, start)) >= 0
+    ]
+    following_stops = [
+        position
+        for separator in (".", ";", "\n")
+        if (position := masked_text.find(separator, end)) >= 0
+    ]
+    return (
+        max(preceding_stops, default=-1) + 1,
+        min(following_stops, default=len(text)),
+    )
+
+
+# An internal cross-reference (`paragraph (b)(1) of this section`) names a
+# second provision in the leaf, so the leaf does not state one dependency.
+_CFR_INTERNAL_CROSS_REFERENCE = re.compile(
+    r"\b(?:paragraphs?|sections?|subparts?|parts?)\s*\(", flags=re.IGNORECASE
+)
+
+
+def _source_branch_cites_cfr_dependency(
+    branch_text: str,
+    dependency: _CfrDependencyCitation,
+    *,
+    unit_title: str,
+) -> bool:
+    """Return whether a leaf's own text states only ``dependency``, linked.
+
+    Positional and closed, no word list:
+    1. every legal citation in the leaf is a read CFR citation of the same
+       provision (no other section, no other fragment, no U.S.C. or `section
+       N` citation, no `§§` list or range, no `paragraph (x)` cross-reference);
+    2. every sentence after the designation marker holds such a citation in
+       a clause that `_source_clause_links_dependency` accepts.
+    """
+
+    references = _cfr_dependency_citations(branch_text, unit_title=unit_title)
+    read_spans = {(item.match.start(), item.match.end()) for item in references}
+    if any(
+        (raw.start(), raw.end()) not in read_spans
+        for raw in _CFR_DEPENDENCY_CITATION.finditer(branch_text)
+    ):
+        return False
+    if not references or not all(
+        _cfr_citations_name_same_provision(dependency, reference)
+        for reference in references
+    ):
+        return False
+    if _qualified_usc_dependencies(branch_text) or _CFR_INTERNAL_CROSS_REFERENCE.search(
+        branch_text
+    ):
+        return False
+    if any(
+        not any(start <= other.start() < end for start, end in read_spans)
+        for other in _PRECISE_DEFERRAL_DEPENDENCY.finditer(branch_text)
+    ):
+        return False
+
+    marker = re.match(r"\s*(?:\(\s*[A-Za-z0-9]{1,6}\s*\)\s*)*", branch_text)
+    body_start = marker.end() if marker else 0
+    masked = list(branch_text)
+    for start, end in read_spans:
+        for position in range(start, end):
+            if masked[position] == ".":
+                masked[position] = " "
+    masked_text = "".join(masked)
+    for sentence in re.finditer(r"[^.]+(?:\.|$)", masked_text[body_start:]):
+        sentence_start = body_start + sentence.start()
+        sentence_end = body_start + sentence.end()
+        if not branch_text[sentence_start:sentence_end].strip(" \t\n.;"):
+            continue
+        linked = False
+        for reference in references:
+            if not sentence_start <= reference.match.start() < sentence_end:
+                continue
+            clause_start, clause_end = _cfr_clause_bounds(
+                branch_text, reference.match.start(), reference.match.end()
+            )
+            if _source_clause_links_dependency(
+                branch_text[clause_start:clause_end],
+                reference_start=reference.match.start() - clause_start,
+                reference_end=reference.match.end() - clause_start,
+            ):
+                linked = True
+                break
+        if not linked:
+            return False
+    return True
+
+
+def _reason_cfr_dependency_is_source_bound(
+    reason: str,
+    branch_text: str,
+    *,
+    unit: tuple[str, str, str],
+) -> bool:
+    """Bind one CFR dependency named in the reason to the deferred leaf's own text."""
+
+    unit_title = unit[0]
+    for dependency in _cfr_dependency_citations(reason, unit_title=unit_title):
+        if dependency.section_identity == unit:
+            continue
+        if not _reason_match_names_missing_dependency(
+            reason,
+            dependency.match,
+            source_scope_text=branch_text,
+            current_usc_title=None,
+        ):
+            continue
+        if _source_branch_cites_cfr_dependency(
+            branch_text, dependency, unit_title=unit_title
+        ):
+            return True
+    return False
+
+
+def _generic_dependency_is_cfr_shaped(
+    reason: str,
+    match: re.Match[str],
+    *,
+    unit: tuple[str, str, str],
+) -> bool:
+    """Tell whether a generic dependency match is a CFR identity in a CFR unit.
+
+    In a CFR unit a `§` citation and a `us/regulation/` path name CFR
+    provisions, `section 435.110` is a dotted CFR section, and `section 435`
+    or `section 42` names only the unit's own part or title. Only
+    `_reason_cfr_dependency_is_source_bound` binds a CFR provision; the
+    generic reader keys these by their first number (the part, or the
+    title), which matches every `§ 435.x` in the source, so it must not.
+    """
+
+    dependency = match.group(0).lstrip()
+    if dependency.startswith("§") or dependency.lower().startswith("us/regulation/"):
+        return True
+    if re.match(r"\.\d", reason[match.end() :]):
+        return True
+    number = re.search(r"\d+[a-z]?", dependency, flags=re.IGNORECASE)
+    return number is not None and number.group(0).lower() in {unit[0], unit[1]}
+
+
 def _qualified_louisiana_rs_dependencies(text: str) -> tuple[re.Match[str], ...]:
     """Return exact R.S. citations, excluding natural fragment continuations."""
 
@@ -12114,8 +12423,15 @@ def _reason_dependency_is_source_bound(
     corpus_citation_path: str,
     path: tuple[str, ...] | None = None,
     authenticated_same_act_aliases: Sequence[str] = (),
+    leaf_branch: bool = False,
 ) -> bool:
-    """Require one external dependency citation to bind to the deferred source."""
+    """Require one external dependency citation to bind to the deferred source.
+
+    In a CFR section unit, a CFR dependency binds only through
+    `_reason_cfr_dependency_is_source_bound`, and only when ``leaf_branch``
+    says ``source_scope_text`` is one leaf branch's own text (no descendant
+    branches, no parent chapeau, no sibling).
+    """
 
     if _reason_names_missing_same_act_dependency(
         reason,
@@ -12198,6 +12514,18 @@ def _reason_dependency_is_source_bound(
         ):
             return True
 
+    cfr_unit = _us_regulation_unit_identity(corpus_citation_path)
+    if (
+        cfr_unit is not None
+        and leaf_branch
+        and _reason_cfr_dependency_is_source_bound(
+            reason,
+            source_scope_text,
+            unit=cfr_unit,
+        )
+    ):
+        return True
+
     current_section = normalize_rulespec_path_segment(
         corpus_citation_path.rstrip("/").rsplit("/", 1)[-1].lower()
     )
@@ -12205,6 +12533,10 @@ def _reason_dependency_is_source_bound(
         if any(
             dependency.start() <= match.start() and match.end() <= dependency.end()
             for dependency in usc_dependencies
+        ):
+            continue
+        if cfr_unit is not None and _generic_dependency_is_cfr_shaped(
+            reason, match, unit=cfr_unit
         ):
             continue
         dependency = match.group(0).strip()
