@@ -25,6 +25,12 @@ class Yaml12SafeDumper(yaml.SafeDumper):
     """SafeDumper with string typing preserved across YAML schema versions."""
 
 
+def is_yaml12_core_non_string(value: str) -> bool:
+    """Whether an implicit plain scalar has a non-string core-schema type."""
+
+    return _YAML12_NON_STRING.fullmatch(value) is not None
+
+
 def represent_yaml12_string(dumper: yaml.SafeDumper, value: str) -> yaml.ScalarNode:
     """Quote a string whenever a YAML 1.2 core resolver could change its type."""
 
@@ -32,7 +38,7 @@ def represent_yaml12_string(dumper: yaml.SafeDumper, value: str) -> yaml.ScalarN
     # loading that scalar normalizes NEL into a space. Double quotes escape it.
     style = (
         '"'
-        if not value or _YAML12_NON_STRING.fullmatch(value) or "\x85" in value
+        if not value or is_yaml12_core_non_string(value) or "\x85" in value
         else None
     )
     return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)

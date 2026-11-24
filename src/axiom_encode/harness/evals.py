@@ -73,6 +73,7 @@ from axiom_encode.encode_timing import (
     mark_encode_phase,
     timed_phase,
 )
+from axiom_encode.generalist_review_chunks import ReviewSource
 from axiom_encode.harness.same_case_execution import (
     ExecutionGitOrigin,
     bind_execution_overlay_origin,
@@ -9062,24 +9063,6 @@ def _evaluate_artifact_in_scope(
                 "issues": policyengine_result.issues,
                 "duration_ms": policyengine_result.duration_ms,
             }
-        review_context = (
-            "This review is running inside an eval-suite benchmark workspace. "
-            "The artifact file path is generic benchmark output and is not itself the legal citation. "
-            "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
-            "The benchmark target is an atomic source slice/unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RuleSpec claims to encode them. "
-            "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
-            f"{source_text.strip()[:4000]}"
-        )
-        if re.search(
-            r"\bon the first day\b|\bnext benefit week\b|\bon or after the day\b",
-            source_text,
-            flags=re.IGNORECASE,
-        ):
-            review_context += (
-                "\n\nThis is a temporal timing clause. The RuleSpec eval path does not expose a native date-valued output here, "
-                "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
-                "is an acceptable representation."
-            )
         # Findings of advisory checks do not refuse the candidate; the
         # reviewer gets them as warnings to examine. With none, the review
         # context is unchanged.
@@ -9090,8 +9073,10 @@ def _evaluate_artifact_in_scope(
         advisory_context = advisory_review_context(
             ci_advisory_records, source_in_prompt=True
         )
-        if advisory_context:
-            review_context += "\n\n" + advisory_context
+        review_source = generalist_review_source(
+            source_text, advisory_context=advisory_context
+        )
+        review_context = review_source.single_call_context()
         # The encode retry loop feeds only compile/CI findings back to the
         # model and never gates apply on the reviewer, so in that lane a
         # reviewer call on an already-rejected candidate is pure latency.
@@ -9112,6 +9097,7 @@ def _evaluate_artifact_in_scope(
                     validation_file,
                     oracle_context or None,
                     review_context=review_context,
+                    review_source=review_source,
                 )
             except Exception as exc:
                 generalist_review_result = ValidationResult(
@@ -9341,7 +9327,7 @@ def _evaluate_artifact_in_scope(
         and not policyengine_hint_upstream_issues
     )
 
-    return EvalArtifactMetrics(
+    metrics = EvalArtifactMetrics(
         compile_pass=compile_result.passed,
         compile_issues=compile_result.issues,
         ci_pass=ci_pass,
@@ -9383,6 +9369,54 @@ def _evaluate_artifact_in_scope(
             if policyengine_result is not None and policyengine_runtime is not None
             else None
         ),
+    )
+    # In-process only (#2146): what the reviewer call measured about the bytes
+    # it read. It is not a dataclass field, so persisted metric shapes and
+    # signed eval rows are unchanged; a metrics object reloaded from disk has
+    # none, and a review record then reports the verdict as unreadable.
+    review_evidence = generalist_review_result.details.get("review_evidence")
+    if isinstance(review_evidence, dict):
+        setattr(metrics, GENERALIST_REVIEW_EVIDENCE_ATTR, dict(review_evidence))
+    return metrics
+
+
+GENERALIST_REVIEW_EVIDENCE_ATTR = "_axiom_generalist_review_evidence"
+
+
+def generalist_review_source(
+    source_text: str, *, advisory_context: str = ""
+) -> ReviewSource:
+    """The source excerpt of a generalist review and the context around it.
+
+    One call shows the first 4,000 characters of the excerpt between the two
+    context strings; a chunked review shows each chunk of the excerpt between
+    them. ``advisory_context`` is the text of advisory validator findings,
+    empty when there are none.
+    """
+
+    context_after = ""
+    if re.search(
+        r"\bon the first day\b|\bnext benefit week\b|\bon or after the day\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        context_after += (
+            "\n\nThis is a temporal timing clause. The RuleSpec eval path does not expose a native date-valued output here, "
+            "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
+            "is an acceptable representation."
+        )
+    if advisory_context:
+        context_after += "\n\n" + advisory_context
+    return ReviewSource(
+        text=source_text.strip(),
+        context_before=(
+            "This review is running inside an eval-suite benchmark workspace. "
+            "The artifact file path is generic benchmark output and is not itself the legal citation. "
+            "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
+            "The benchmark target is an atomic source slice/unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RuleSpec claims to encode them. "
+            "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
+        ),
+        context_after=context_after,
     )
 
 

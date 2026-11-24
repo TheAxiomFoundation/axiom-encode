@@ -89,6 +89,7 @@ CHECK_MODULES: tuple[str, ...] = (
     "axiom_encode.harness.start_date_evidence",
     "axiom_encode.harness.proof_validator",
     "axiom_encode.harness.validator_pipeline",
+    "axiom_encode.generalist_review_record",
     "axiom_encode.infra_checks",
     "axiom_encode.producer_review_guidance",
     "axiom_encode.repair_companion",
@@ -847,24 +848,26 @@ _REVIEW_ADVISORY_COMMON = (
     "there. The message is shown as one line; control characters, the marker "
     "words and runs of angle brackets were removed from it."
 )
-#: For a reviewer whose prompt holds the authoritative source text.
+#: For a reviewer whose prompt holds the authoritative source text: the
+#: generalist reviewer. The keys are those of its reply schema.
 REVIEW_ADVISORY_INSTRUCTION_WITH_SOURCE = (
     "For each warning, read the quoted source words and the named rule, and "
     "decide from the source text whether the RuleSpec does what the check "
     "requires. If the RuleSpec merges, drops or weakens something the source "
-    "states, report it as a blocking issue and fail the review. If the "
-    "RuleSpec is faithful to the source, say so in one non-blocking note "
-    "that names the warning."
+    "states, list it in `blocking_issues` and set `passed` to false. If the "
+    "RuleSpec is faithful to the source, say so in one entry of "
+    "`non_blocking_issues` that names the warning."
 )
 #: For a reviewer whose prompt holds no source text: it can judge only the
-#: words the message quotes and the structure of the rule.
+#: words the message quotes and the structure of the rule. These are the
+#: four other reviewers; `issues` is the one issue key of their reply schema.
 REVIEW_ADVISORY_INSTRUCTION_WITHOUT_SOURCE = (
     "This prompt does not hold the source text. For each warning, judge only "
     "from the source words that the message quotes and from the structure of "
     "the named rule and its tests. If they show that the RuleSpec merges, "
-    "drops or weakens something the source states, report it as a blocking "
-    "issue and fail the review. If the quoted words are not enough to "
-    "decide, list an issue that names the warning and says that you could "
+    "drops or weakens something the source states, list it in `issues` and "
+    "set `passed` to false. If the quoted words are not enough to decide, "
+    "add an entry to `issues` that names the warning and says that you could "
     "not verify it against the source. Do not state that the RuleSpec is "
     "faithful to the source on this point."
 )
