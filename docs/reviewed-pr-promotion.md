@@ -20,6 +20,124 @@ and immutable comparison files must agree exactly with that delta; truncated or
 contradictory evidence fails closed. Later live revalidation checks mutable
 authorization against the provisioned receipt, not repeated immutable queries.
 
+## Candidate requirements: the source pin
+
+A promotion signs the candidate bytes as they are; it does not stamp them. So
+the candidate primary must already be bound to its source:
+
+```yaml
+module:
+  source_verification:
+    corpus_citation_path: <the promotion citation>
+    source_sha256: <SHA-256 of the resolver's stored source body>
+```
+
+Signing run 45328443323 failed after its approval because the candidate had
+only `corpus_citation_path`. Three checks now refuse such a candidate. Only
+the first runs before the `production-signing` environment approval:
+
+1. **Before the environment approval**, in the unprotected `attempt_budget`
+   job: `scripts/check_candidate_source_pin.py` reads the candidate primary at
+   the exact `rulespec_ref` and refuses a promotion dispatch whose primary does
+   not name the citation and carry a 64-character lowercase hex
+   `source_sha256`. It fails closed, also when GitHub cannot be read; the
+   attempt budget treats the run as neutral. Other dispatches pass untouched.
+2. **At admission** (`verify_reviewed_pr`, under both admission bases): the
+   same read of the primary bytes that the admission binds. Admission runs in
+   the protected `encode` job, so after the environment approval; it is the
+   same check a second time, on the bytes the admission record names. The
+   refusal names the command below.
+3. **In the protected job**, unchanged: the module is parsed and the pin is
+   compared with the resolver's attestation for the pinned corpus. Only this
+   check proves that the pin is the right one for that corpus.
+
+Checks 1 and 2 are a strict line read without a YAML parser and without the
+corpus. The rule is positive: every top-level line is a plain `name:` key or
+a list item and `module:` occurs once; every key directly under `module` is a
+plain `name:` key and `source_verification:` occurs once; every entry of the
+block is one `name: value` line with a one-line plain or quoted value. Through
+the end of the `module` block the reader follows block scalars and quoted or
+plain scalars that continue over lines, so text inside them is not read as a
+key. It refuses every other shape: a quoted, tagged, anchored or complex key,
+a merge key, an alias, flow style on these mappings, tab indentation, a
+document marker (also a leading `---`), a comment on the `module:` or
+`source_verification:` line, an unquoted value that a YAML reader could take
+for a number. They cannot admit anything: a candidate that passes them still
+has to pass check 3.
+
+The binder and the command use the same reader as their last step. A module
+that carries the right values for a YAML parser but is not in the plain block
+form is refused as `not_plain_form`; it is never reported as bound. So "the
+command says bound" implies "admission reads the same pin".
+
+### Where the pin comes from
+
+- `encode` without `--apply` binds the candidate before deterministic
+  validation and before the reviewers, so the validated, reviewed and
+  promotable bytes are the same bytes. The binder inserts or replaces only the
+  two lines (it creates the block when the module has none) and keeps every
+  other byte; it never re-dumps the YAML. A candidate that cannot be bound is
+  not clean: the try fails with the `source-binding/unbound` issue, and the
+  outcome records `source_binding: unbound` (status `source_unbound`).
+- `encode --apply` keeps its own stamp, unchanged.
+- An existing candidate is bound with the command below.
+
+### Bind an existing candidate
+
+```bash
+uv run axiom-encode bind-source-verification \
+  --repo ../rulespec-us \
+  --citation us-az/manual/des/faa5/dependent-care-expense/block-5 \
+  --corpus-path ../axiom-corpus \
+  --expect-source-sha256 <source_sha256 of the encode run's source attestation>
+```
+
+Run it in a checkout of the candidate branch. It resolves the attestation with
+the resolver and the corpus pin of that checkout, as the promotion does, and
+edits only the module at the citation's canonical path. It prints the module
+path, the corpus release, the attested `source_sha256`, the SHA-256 of the
+file before and after, and the changed line (`diff=+    source_sha256: ...`).
+`--check` writes nothing and exits 1 when the module is not bound. The command
+calls no model, writes nothing to the network and signs nothing; commit and
+push the change yourself. Outside the protected runtime, pass the public trust
+roots as for a verification-only local encode (`--corpus-release-public-key`,
+`--apply-public-key`, `--eval-public-key`).
+
+**The pin attests the corpus the checkout pins now, not the corpus of the
+encode.** A candidate that was encoded at one corpus release, on a branch that
+later took a `main` with another release whose source body changed, would get
+the new body's digest and pass the protected check, although it was encoded
+from the old text. `--expect-source-sha256` closes this: give it the
+`source_sha256` that the encode run recorded (the `source_attestation` in the
+run's `source-metadata.json` or context manifest, or the value in the
+candidate PR). The command refuses with `status=refused:source_changed` unless
+the checkout's corpus still attests exactly that body. Use it for every repair
+of an existing candidate. Without it the command still works, and prints a
+`warning=` line that names the corpus release; compare the printed
+`attested_source_sha256` with the run record yourself before you push. If they
+differ, encode the candidate again; do not re-pin it.
+
+It refuses, and writes nothing, when:
+
+- the source changed since the encode (`status=refused:source_changed`);
+- the module names another source: a `corpus_citation_path` that the
+  attestation does not bind, or a `source_sha256` that differs from the
+  attested one (`status=refused:conflict`). A different pin is never
+  overwritten; decide first which source the candidate was encoded from;
+- the block is in a shape the minimal edit does not handle: flow style, an
+  anchor or alias, a merge key, a duplicate key, a multi-line value, a line
+  break other than LF or CRLF (`status=refused:unsupported_shape`; the message
+  names the shape);
+- the values are right but the file is not in the plain block form that the
+  promotion lane reads (`status=refused:not_plain_form`; the message names the
+  reason, for example a leading `---`). Rewrite the block by hand in the plain
+  block form.
+
+A wrong checkout, corpus path or citation ends with `status=error`, one
+`error=` line and exit status 2.
+
+A bound candidate has a new head, so its PR needs a new dispatch on that head.
+
 ## Admission basis
 
 `OWNER_APPROVAL_REQUIRED` in `src/axiom_encode/reviewed_pr_admission.py` decides
@@ -174,7 +292,9 @@ so this adds no workflow-dispatch input beyond GitHub's current 25-input limit:
 }
 ```
 
-The number above is illustrative, not an admission. All remaining generation,
+The number above is illustrative, not an admission. The candidate primary must
+carry its source pin (see "Candidate requirements" above), or the dispatch is
+refused before the approval. All remaining generation,
 repair, import, legacy and queue inputs must be empty. Production-signing approval
 still applies. A moved candidate or main base requires a new dispatch on the new
 head; an API error requires investigating the API state, not disabling the checks.

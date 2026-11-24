@@ -199,6 +199,19 @@ from .engine_binding import (
     resolve_pinned_engine_binary,
 )
 from .failure_classes import PRE_ENCODE_BLOCKED_STATUS, failure_class_payload
+from .generalist_review_record import (
+    EMPTY_DEFERRED_COMPANION_TEST,
+    GENERALIST_REVIEW_FIELD,
+    AppliedPair,
+    GeneralistReviewState,
+    ReviewRequirementRefused,
+    applied_pair,
+    apply_stamp_dump,
+    build_generalist_review_record,
+    deferred_module_needs_empty_companion_test,
+    generalist_review_record_issues,
+    review_requirement_refusal,
+)
 from .harness.amendment_timing import amendment_timing_issues
 from .harness.dependency_stubs import (
     UnsafeRulespecContextPath,
@@ -232,6 +245,7 @@ from .harness.eval_evidence import isolated_eval_evidence_signer
 from .harness.evals import (
     _DEFAULT_SUITE_RETRY_ATTEMPTS,
     _EVAL_RESULT_ARTIFACT_SPECS,
+    GENERALIST_REVIEW_EVIDENCE_ATTR,
     VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
     ValidationRetryCandidate,
     _amendment_documents_visible_in_context_manifest,
@@ -587,7 +601,17 @@ from .toolchain import (
     protected_process_signal_active,
     verify_rulespec_validation_waiver_set,
 )
-from .validation_waiver_scope import select_validation_waiver_scope
+from .validation_waiver_scope import WaiverAuditScope, select_validation_waiver_scope
+from .validation_waiver_shadow import (
+    SHADOW_SCHEMA,
+    append_shadow_summary,
+    compare_incremental_shadow,
+    remove_stale_shadow_record,
+    same_output_path,
+    shadow_output_path_issue,
+    shadow_summary_line,
+    write_shadow_record,
+)
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
@@ -730,6 +754,23 @@ _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS = (
 _REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS = (
     _REVIEWED_CANDIDATE_MANIFEST_FIELDS - _PER_FILE_WAIVER_FIELD_SWAP[0]
 ) | _PER_FILE_WAIVER_FIELD_SWAP[1]
+# Generalist review record (#2146): the model contracts, in either waiver
+# shape, plus the record of the encode's one model review. A verifier older than #2146
+# rejects the field, so the writer emits it only for a target whose protected
+# base verifies with the main encoder and holds it at no earlier commit.
+# Admission accepts the shapes with and without it.
+_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS = _MODEL_APPLY_MANIFEST_FIELDS | {
+    GENERALIST_REVIEW_FIELD
+}
+_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS = (
+    _MODEL_CODEX_APPLY_MANIFEST_FIELDS | {GENERALIST_REVIEW_FIELD}
+)
+_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS = (
+    _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | {GENERALIST_REVIEW_FIELD}
+)
+_MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS = (
+    _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS | {GENERALIST_REVIEW_FIELD}
+)
 _RETIRE_APPLY_MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -855,11 +896,15 @@ _APPLIED_MANIFEST_SCHEMA_VARIANTS = {
     "model": (
         _MODEL_APPLY_MANIFEST_FIELDS,
         _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+        _MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+        _MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS,
     ),
     "codex model": (
         _MODEL_APPLY_MANIFEST_FIELDS,
         _MODEL_CODEX_APPLY_MANIFEST_FIELDS,
         _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS,
     ),
     "reviewed candidate promotion": (
         _REVIEWED_CANDIDATE_MANIFEST_FIELDS,
@@ -1052,11 +1097,37 @@ for _old_fields, _per_file_fields in (
         | _PER_FILE_WAIVER_FIELD_SWAP[1],
     )
 del _old_fields, _per_file_fields
+for _per_file_fields, _review_fields in (
+    (_MODEL_APPLY_MANIFEST_FIELDS, _MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS),
+    (
+        _MODEL_CODEX_APPLY_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+    ),
+    (
+        _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+        _MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS,
+    ),
+    (
+        _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+        _MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS,
+    ),
+):
+    # The record holds digests and enumerated words only; it scans like the rest.
+    _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_review_fields] = (
+        _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_per_file_fields][0],
+        _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[_per_file_fields][1]
+        | {GENERALIST_REVIEW_FIELD},
+    )
+del _per_file_fields, _review_fields
 for _model_fields in (
     _MODEL_APPLY_MANIFEST_FIELDS,
     _MODEL_CODEX_APPLY_MANIFEST_FIELDS,
     _MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
     _MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS,
+    _MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+    _MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS,
+    _MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS,
+    _MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS,
 ):
     _UNRECEIPTED_RETIREMENT_MANIFEST_FIELD_CLASSES[
         _model_fields | {"repair_companion_preservation"}
@@ -2214,6 +2285,23 @@ def main():
         help="Audit all waivers (default) or conservatively select changed read sets",
     )
     validation_waivers_audit_parser.add_argument(
+        "--incremental-shadow-report",
+        type=Path,
+        help=(
+            "Report only, with --scope full: after the full audit, compute the "
+            "incremental selection of the same partition and write a JSON "
+            "comparison here; never changes the exit code"
+        ),
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--incremental-shadow-summary",
+        type=Path,
+        help=(
+            "With --incremental-shadow-report: also append one Markdown line "
+            "here, for example $GITHUB_STEP_SUMMARY"
+        ),
+    )
+    validation_waivers_audit_parser.add_argument(
         "--verifier-restate",
         action="store_true",
         help=(
@@ -3151,12 +3239,110 @@ def main():
         type=Path,
         help="Explicit axiom-compose executable for composition modules",
     )
+    promote_reviewed_candidate_parser.add_argument(
+        "--require-review",
+        action="store_true",
+        help=(
+            "Run the generalist model reviewer on the exact candidate bytes "
+            "after validation and sign only when it passes every file in "
+            "full. A candidate that does not fit one reviewer call is "
+            "reviewed in chunks; above the chunk caps the review is partial "
+            "and the promotion is refused. Off by default: without the flag "
+            "no reviewer runs"
+        ),
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--review-record-file",
+        type=Path,
+        default=None,
+        help=(
+            "Use with --require-review. Write the generalist review record "
+            "of this promotion to this new JSON file, also when the review "
+            "does not pass. The path must be absolute, outside the RuleSpec "
+            "checkout, and must not exist. Keep the file with the run's "
+            "retained output: the promotion manifest does not carry the "
+            "record"
+        ),
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--run-attempt",
+        default=None,
+        help=(
+            "Use with --review-record-file. The attempt number of the "
+            "workflow run (a positive decimal number), written to the review "
+            "record file so that a rerun of a refused review is visible"
+        ),
+    )
     _add_required_corpus_path_argument(promote_reviewed_candidate_parser)
     _add_rulespec_dependency_root_argument(promote_reviewed_candidate_parser)
     promote_reviewed_candidate_parser.add_argument(
         "--run-id",
         default=None,
         help="Optional protected workflow run identifier recorded in the manifest",
+    )
+
+    bind_source_parser = subparsers.add_parser(
+        "bind-source-verification",
+        help=(
+            "Set module.source_verification.corpus_citation_path and "
+            "source_sha256 of one existing candidate module to the "
+            "resolver-attested values by a minimal text edit (no model, no "
+            "network write, no signing)"
+        ),
+    )
+    bind_source_parser.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="RuleSpec policy checkout that holds the candidate module",
+    )
+    bind_source_parser.add_argument(
+        "--citation",
+        required=True,
+        help="Exact canonical corpus citation of the candidate module",
+    )
+    _add_required_corpus_path_argument(bind_source_parser)
+    bind_source_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify only: exit 1 when the module is not bound; write nothing",
+    )
+    bind_source_parser.add_argument(
+        "--expect-source-sha256",
+        default=None,
+        metavar="HEX",
+        help=(
+            "The source_sha256 of the source attestation that the encode run "
+            "recorded for this candidate. The command refuses unless the corpus "
+            "release pinned by the checkout still attests exactly this source "
+            "body. Use it for every existing candidate: without it the pin "
+            "attests the current corpus release, which may hold another body "
+            "than the one the candidate was encoded from"
+        ),
+    )
+    bind_source_parser.add_argument(
+        "--corpus-release-public-key",
+        default=None,
+        help=(
+            "Verification-only local run: verify the pinned corpus release "
+            "with this public root, as encode --corpus-release-public-key does"
+        ),
+    )
+    bind_source_parser.add_argument(
+        "--corpus-release-retired-public-key",
+        action="append",
+        default=[],
+        help="With --corpus-release-public-key, a retired corpus release key",
+    )
+    bind_source_parser.add_argument(
+        "--apply-public-key",
+        default=None,
+        help="With --corpus-release-public-key, the apply-manifest public root",
+    )
+    bind_source_parser.add_argument(
+        "--eval-public-key",
+        default=None,
+        help="With --corpus-release-public-key, the eval-evidence public root",
     )
 
     signed_import_parser = subparsers.add_parser(
@@ -3783,6 +3969,13 @@ def main():
         help=(
             "Skip slower LLM reviewer checks after deterministic compile/CI "
             "validation. Useful for bulk eval and stress runs."
+        ),
+    )
+    encode_parser.add_argument(
+        "--require-review",
+        action="store_true",
+        help=(
+            "Use with --apply; do not combine with --skip-reviewers. The flag requires a passed generalist review record with whole-file coverage of every file the model manifest applies and matching reviewed and applied canonical digests. The encoder refuses if a canonical digest changes; a dump-derived digest cannot substitute. A missing, unreadable, failed or incomplete review also blocks apply. The flag refuses legacy replacements that would rewrite exact dependents, because the model manifest's review does not cover them. A candidate that does not fit one reviewer call (6,000 characters of module, 3,000 of companion test file, 4,000 of source excerpt) is reviewed in ordered chunks of up to 24,000 characters each, and every call must pass. Above 8 chunks for one text or 12 calls for one unit, or with one rule or test case larger than a chunk, the reviewer makes one call on the start of each file; the review is then incomplete and the flag refuses it. The flag defaults to off; no other switch enables it."
         ),
     )
     encode_parser.add_argument(
@@ -4445,6 +4638,23 @@ def main():
     _judge_cli.register_judge_subparsers(subparsers)
 
     args = parser.parse_args()
+    if (
+        args.command == "validation-waivers"
+        and getattr(args, "validation_waivers_command", None) == "audit"
+    ):
+        shadow_report = getattr(args, "incremental_shadow_report", None)
+        shadow_summary = getattr(args, "incremental_shadow_summary", None)
+        if shadow_summary is not None and shadow_report is None:
+            parser.error(
+                "--incremental-shadow-summary requires --incremental-shadow-report"
+            )
+        if shadow_summary is not None and same_output_path(
+            Path(shadow_summary), Path(shadow_report)
+        ):
+            parser.error(
+                "--incremental-shadow-summary and --incremental-shadow-report "
+                "must be different files"
+            )
     _apply_encoder_producer_floor_argument(args)
     if args.command == "encode" and args.escalation_model is None:
         args.escalation_model = (
@@ -4560,6 +4770,8 @@ def main():
         apply_reviewed_repair(args)
     elif args.command == "promote-reviewed-candidate":
         cmd_promote_reviewed_candidate(args)
+    elif args.command == "bind-source-verification":
+        sys.exit(cmd_bind_source_verification(args))
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
     elif args.command == "checks":
@@ -5735,9 +5947,32 @@ def _validation_waiver_audit_partition(
     return selected, partition_index, len(partition_keys)
 
 
+def _validation_waiver_ledger_differs(
+    head: _validation_waivers.ValidationWaiverSet,
+    base: _validation_waivers.ValidationWaiverSet,
+    *,
+    head_file: Path,
+    base_file: Path,
+) -> bool:
+    """Return whether the head ledger is anything but the protected base ledger.
+
+    Both the parsed records and the bytes are compared. An unreadable file
+    counts as a difference.
+    """
+
+    if dict(head.entries) != dict(base.entries):
+        return True
+    try:
+        return head_file.read_bytes() != base_file.read_bytes()
+    except OSError:
+        return True
+
+
 def _cmd_validation_waivers_audit(args) -> int:
     if hasattr(args, "_validation_waiver_audit_selection"):
         del args._validation_waiver_audit_selection
+    if hasattr(args, "_validation_waiver_shadow_done"):
+        del args._validation_waiver_shadow_done
     root = Path(args.root).resolve()
     requested_scope = getattr(args, "scope", "full")
     if requested_scope not in {"full", "incremental"}:
@@ -5804,6 +6039,11 @@ def _cmd_validation_waivers_audit(args) -> int:
                 fallback_reason="protected base transition checks failed",
             )
         _print_validation_waiver_audit_report(report, as_json=args.json)
+        _validation_waiver_incremental_shadow(
+            args,
+            full_report=report,
+            unavailable="protected base transition checks failed",
+        )
         return 1
 
     active_paths = set(head.active_paths)
@@ -5819,38 +6059,6 @@ def _cmd_validation_waivers_audit(args) -> int:
     # a different shard that selected a smaller incremental scope.
     all_classified = list(classified.items())
     total_waivers = len(all_classified)
-    scope = "full"
-    selection_reasons: dict[str, list[str]] = {}
-    fallback_reason = None
-    if requested_scope == "incremental":
-        selection = select_validation_waiver_scope(
-            list(classified),
-            root=root,
-            changed_paths=changed_paths,
-            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
-            shared_execution_inputs=tuple(
-                Path(value)
-                for value in (
-                    args.corpus_path,
-                    args.axiom_rules_path,
-                    getattr(args, "axiom_compose_path", None),
-                )
-                if isinstance(value, (str, Path))
-            ),
-        )
-        scope = selection.scope
-        selection_reasons = selection.reasons
-        fallback_reason = selection.fallback_reason
-        classified = {path: classified[path] for path in selection.paths}
-        args._validation_waiver_audit_selection = {
-            "scope": scope,
-            "selected": len(classified),
-            "total_waivers": total_waivers,
-            "selection_reasons": selection_reasons,
-        }
-        if fallback_reason is not None:
-            args._validation_waiver_audit_selection["fallback_reason"] = fallback_reason
-
     partition_key = getattr(args, "partition_key", None)
     partition_keys_json = getattr(args, "partition_keys_json", None)
     if (partition_key is None) != (partition_keys_json is None):
@@ -5869,7 +6077,7 @@ def _cmd_validation_waivers_audit(args) -> int:
             costs=costs,
         )
         owned_count = len(owned)
-        classified = {path: kind for path, kind in owned if path in classified}
+        classified = dict(owned)
         partition = {
             "key": partition_key,
             "index": partition_index,
@@ -5879,13 +6087,66 @@ def _cmd_validation_waivers_audit(args) -> int:
         if costs is not None:
             # Without a table the report keeps its legacy bytes.
             partition["cost_table_sha256"] = costs.sha256
-        if requested_scope == "incremental":
-            args._validation_waiver_audit_selection.update(
-                selected=len(classified),
-                selection_reasons={
-                    path: selection_reasons[path] for path in classified
-                },
+
+    def _select_incremental(owned: Sequence[str]) -> WaiverAuditScope:
+        # Select within this job's own partition only. Each waiver is decided
+        # from its own read set, so the partition's selection is its share of
+        # the whole ledger's selection, at a cost that follows the partition.
+        selection = select_validation_waiver_scope(
+            list(owned),
+            root=root,
+            changed_paths=changed_paths,
+            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+            shared_execution_inputs=tuple(
+                Path(value)
+                for value in (
+                    args.corpus_path,
+                    args.axiom_rules_path,
+                    getattr(args, "axiom_compose_path", None),
+                )
+                if isinstance(value, (str, Path))
+            ),
+        )
+        if selection.scope == "incremental" and _validation_waiver_ledger_differs(
+            head, base, head_file=waiver_file, base_file=Path(protected_base_path)
+        ):
+            # The incremental scope proves only that unselected waivers kept
+            # their result. A ledger that differs from the protected base
+            # changes what every result is compared with, so nothing may stay
+            # unchecked. This reads the two ledgers themselves: the changed
+            # paths come from the caller, and the list may omit the ledger.
+            reason = (
+                f"{waiver_path} differs from the protected base ledger and is "
+                "not among the changed paths"
             )
+            selection = WaiverAuditScope(
+                "full",
+                tuple(owned),
+                {path: [f"full audit fallback: {reason}"] for path in owned},
+                reason,
+            )
+        return selection
+
+    scope = "full"
+    selection_reasons: dict[str, list[str]] = {}
+    fallback_reason = None
+    if requested_scope == "incremental":
+        selection = _select_incremental(list(classified))
+        scope = selection.scope
+        selection_reasons = selection.reasons
+        fallback_reason = selection.fallback_reason
+        # A selection can only narrow this job's own partition, never widen it.
+        classified = {
+            path: classified[path] for path in selection.paths if path in classified
+        }
+        args._validation_waiver_audit_selection = {
+            "scope": scope,
+            "selected": len(classified),
+            "total_waivers": total_waivers,
+            "selection_reasons": {path: selection_reasons[path] for path in classified},
+        }
+        if fallback_reason is not None:
+            args._validation_waiver_audit_selection["fallback_reason"] = fallback_reason
 
     deleted_removed: set[str] = set()
     missing_required: set[str] = set()
@@ -6083,7 +6344,212 @@ def _cmd_validation_waivers_audit(args) -> int:
     if partition is not None:
         report["partition"] = partition
     _print_validation_waiver_audit_report(report, as_json=args.json)
+    # Report-only: the selection runs after the full audit has finished and
+    # printed, so it cannot change the audit's results, report or exit code.
+    if requested_scope != "full":
+        shadow_unavailable = "the shadow compares a --scope full audit"
+    elif verifier_restate:
+        shadow_unavailable = "a verifier restate requires the full audit"
+    else:
+        shadow_unavailable = None
+    _validation_waiver_incremental_shadow(
+        args,
+        full_report=report,
+        select=lambda: _select_incremental(list(classified)),
+        unavailable=shadow_unavailable,
+    )
     return 0 if report["success"] else 1
+
+
+# Every path-typed input of `validation-waivers audit` besides `--root` and the
+# shadow outputs. The shadow never writes to, or inside, any of them.
+_VALIDATION_WAIVER_AUDIT_PATH_INPUTS = (
+    "protected_base",
+    "changed_paths",
+    "corpus_path",
+    "axiom_rules_path",
+    "axiom_compose_path",
+    "rulespec_dependency_root",
+)
+
+
+def _validation_waiver_shadow_partition(args) -> dict[str, Any]:
+    """The partition a shadow record belongs to, from the arguments alone."""
+
+    key = getattr(args, "partition_key", None)
+    if key is None:
+        return {"key": None, "count": 1}
+    count: int | None = None
+    try:
+        keys = json.loads(getattr(args, "partition_keys_json", None) or "null")
+        if isinstance(keys, list):
+            count = len(keys)
+    except ValueError:
+        count = None
+    return {"key": key, "count": count}
+
+
+def _validation_waiver_shadow_binding(args) -> dict[str, Any]:
+    """What ties a shadow record to one run: revision, inputs and verifier."""
+
+    def digest(value: object) -> str | None:
+        if value is None:
+            return None
+        try:
+            return "sha256:" + hashlib.sha256(Path(value).read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    head_commit: str | None = None
+    root = getattr(args, "root", None)
+    if root is not None:
+        try:
+            # No GIT_* variable (GIT_DIR, GIT_WORK_TREE, ...) may point the
+            # probe at another repository.
+            completed = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"],
+                capture_output=True,
+                timeout=30,
+                check=False,
+                env={"PATH": os.environ.get("PATH", os.defpath)},
+            )
+            lines = completed.stdout.decode("utf-8").splitlines()
+            # Only the root's own checkout counts, never an enclosing one.
+            if (
+                completed.returncode == 0
+                and len(lines) == 2
+                and os.path.samefile(lines[0], root)
+                and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", lines[1])
+            ):
+                head_commit = lines[1]
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # UnicodeDecodeError is a ValueError. Only head_commit is lost.
+            head_commit = None
+    return {
+        "encoder_version": __version__,
+        "head_commit": head_commit,
+        "github_sha": os.environ.get("GITHUB_SHA"),
+        "protected_base_sha256": digest(getattr(args, "protected_base", None)),
+        "changed_paths_sha256": digest(getattr(args, "changed_paths", None)),
+    }
+
+
+def _validation_waiver_incremental_shadow(
+    args,
+    *,
+    full_report: dict[str, Any] | None,
+    select: Callable[[], WaiverAuditScope] | None = None,
+    unavailable: str | None = None,
+) -> None:
+    """Write the report-only comparison of the incremental selection.
+
+    It runs only when `--incremental-shadow-report` is given. It never raises
+    an `Exception` and never changes the audit's exit code: every failure
+    becomes an `inconclusive` record, or, if the record cannot be written,
+    diagnostic lines. An interrupt or a kill leaves no record; a collector
+    must treat a missing record as unsafe.
+    """
+
+    record_path = getattr(args, "incremental_shadow_report", None)
+    if record_path is None or getattr(args, "_validation_waiver_shadow_done", False):
+        return
+    args._validation_waiver_shadow_done = True
+    record_path = Path(record_path)
+    summary_path = getattr(args, "incremental_shadow_summary", None)
+    try:
+        selection: dict[str, Any] | None = None
+        selection_error = unavailable
+        seconds: float | None = None
+        if selection_error is None and select is None:
+            selection_error = "incremental selection was not computed"
+        if selection_error is None and select is not None:
+            started = time.monotonic()
+            try:
+                chosen = select()
+                selection = {"scope": chosen.scope, "paths": list(chosen.paths)}
+                if chosen.fallback_reason is not None:
+                    selection["fallback_reason"] = chosen.fallback_reason
+            except Exception as error:
+                selection_error = f"{type(error).__name__}: {error}"
+            seconds = time.monotonic() - started
+        record = compare_incremental_shadow(
+            full_report=full_report,
+            selection=selection,
+            selection_error=selection_error,
+            selection_seconds=seconds,
+            partition=_validation_waiver_shadow_partition(args),
+            binding=_validation_waiver_shadow_binding(args),
+        )
+        if unavailable is not None and not any(
+            unavailable in error for error in record["errors"]
+        ):
+            record["errors"].append(unavailable)
+    except Exception as error:
+        record = {
+            "schema": SHADOW_SCHEMA,
+            "verdict": "inconclusive",
+            "unsafe": True,
+            "report_only": True,
+            "partition": _validation_waiver_shadow_partition(args),
+            "errors": [f"shadow comparison failed: {type(error).__name__}: {error}"],
+        }
+
+    # Never write into the checked repository, over an input of the audit,
+    # or through a symbolic link. A refused path leaves the record in the log.
+    root = getattr(args, "root", None)
+    inputs: list[Path] = []
+    for name in _VALIDATION_WAIVER_AUDIT_PATH_INPUTS:
+        value = getattr(args, name, None)
+        values = value if isinstance(value, (list, tuple)) else [value]
+        inputs.extend(Path(item) for item in values if item is not None)
+    refused: list[str] = []
+    try:
+        for target in (record_path, summary_path):
+            if target is None:
+                continue
+            issue = shadow_output_path_issue(
+                Path(target), root=None if root is None else Path(root), inputs=inputs
+            )
+            if issue is not None:
+                refused.append(issue)
+    except Exception as error:
+        refused.append(f"output paths cannot be checked: {error}")
+    if refused:
+        record = {
+            **record,
+            "verdict": "inconclusive",
+            "unsafe": True,
+            "errors": [*record.get("errors", []), *refused],
+        }
+
+    line = "validation-waivers " + shadow_summary_line(record)
+    if refused:
+        line += "; record and summary not written: output path refused"
+    else:
+        try:
+            write_shadow_record(record_path, record)
+        except Exception as error:
+            line += f"; record not written: {error}"
+            try:
+                if remove_stale_shadow_record(record_path):
+                    line += "; the record of an earlier run at that path was removed"
+            except Exception:
+                pass
+        if summary_path is not None:
+            try:
+                append_shadow_summary(Path(summary_path), record)
+            except Exception as error:
+                line += f"; summary not written: {error}"
+    try:
+        _waiver_partition.write_audit_line(line)
+        # The same record in the log, for a run whose record file cannot be
+        # written or collected.
+        _waiver_partition.write_audit_line(
+            "validation-waivers incremental shadow record: "
+            + json.dumps(record, sort_keys=True, separators=(",", ":"))
+        )
+    except Exception:
+        pass
 
 
 def _print_validation_waiver_audit_report(
@@ -6136,6 +6602,12 @@ def cmd_validation_waivers(args) -> None:
     except Exception as error:
         _emit_validation_waiver_error(args, error)
         exit_code = 2
+        if getattr(args, "validation_waivers_command", None) == "audit":
+            _validation_waiver_incremental_shadow(
+                args,
+                full_report=None,
+                unavailable=f"the full audit did not complete: {error}",
+            )
     sys.exit(exit_code)
 
 
@@ -10319,6 +10791,189 @@ def _promotion_reviewed_rulespec_record_root() -> Path | None:
     return _checkout_reviewed_rulespec_record_root()
 
 
+def _promotion_requires_review(args) -> bool:
+    """Return whether this promotion signs only after a passed model review.
+
+    ``promote-reviewed-candidate --require-review`` is the only switch, read
+    when the command runs. There is no environment variable for it: the
+    signing supervisor builds the child environment from empty.
+    """
+
+    return getattr(args, "require_review", False) is True
+
+
+PROMOTION_REVIEW_RECORD_SCHEMA = "axiom-encode/promotion-generalist-review/v1"
+
+
+def _promotion_review_record_target(
+    args, repo_path: Path
+) -> tuple[Path, int | None] | None:
+    """Return where this promotion writes its review record, or None.
+
+    Refuses contradictory settings before validation, any reviewer call and
+    any signature request. The file is not part of the signed manifest and
+    is never read back by this command.
+    """
+
+    record_file = getattr(args, "review_record_file", None)
+    run_attempt = getattr(args, "run_attempt", None)
+    if record_file is None:
+        if run_attempt is not None:
+            raise ValueError(
+                "promote-reviewed-candidate --run-attempt requires --review-record-file"
+            )
+        return None
+    if not _promotion_requires_review(args):
+        raise ValueError(
+            "promote-reviewed-candidate --review-record-file requires --require-review"
+        )
+    record_file = Path(record_file)
+    attempt: int | None = None
+    if run_attempt is not None:
+        text = str(run_attempt)
+        if re.fullmatch(r"[1-9][0-9]{0,8}", text) is None:
+            raise ValueError(
+                "promote-reviewed-candidate --run-attempt must be a positive "
+                "decimal number"
+            )
+        attempt = int(text)
+    if not record_file.is_absolute() or ".." in record_file.parts:
+        raise ValueError("review record file must be an absolute path")
+    resolved = record_file.parent.resolve() / record_file.name
+    if resolved == repo_path.resolve() or repo_path.resolve() in resolved.parents:
+        raise ValueError("review record file must be outside the RuleSpec checkout")
+    if record_file.exists() or record_file.is_symlink():
+        raise ValueError("review record file already exists")
+    if not record_file.parent.is_dir():
+        raise ValueError("review record file directory does not exist")
+    return record_file, attempt
+
+
+def _write_promotion_review_record(
+    target: tuple[Path, int | None],
+    *,
+    args,
+    reviewed_ref: str,
+    review_record: Mapping[str, object],
+) -> None:
+    """Write the review record of one promotion attempt to its new file.
+
+    The file is created exclusively, so one path holds one attempt. It holds
+    the record (enumerated words, numbers, digests, manifest paths) and the
+    identifiers of the run; no reviewer prose.
+    """
+
+    record_file, attempt = target
+    payload = {
+        "schema": PROMOTION_REVIEW_RECORD_SCHEMA,
+        "tool": APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+        "axiom_encode_version": __version__,
+        "run_id": None if args.run_id is None else str(args.run_id),
+        "run_attempt": attempt,
+        "citation": str(args.citation),
+        "rulespec_path": str(args.rulespec_path),
+        "reviewed_rulespec_ref": reviewed_ref,
+        "review_passed": review_requirement_refusal(review_record) is None,
+        GENERALIST_REVIEW_FIELD: review_record,
+    }
+    with open(record_file, "x", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _promotion_batch_isolated_paths(
+    units: Sequence[Mapping[str, object]], unit: Mapping[str, object]
+) -> tuple[Path, ...]:
+    """The primary and companion of every other unit of a batch, in order."""
+
+    return tuple(
+        member
+        for other in units
+        if other is not unit
+        for member in (other["rulespec_relative"], other["companion_relative"])
+    )
+
+
+@contextlib.contextmanager
+def _promotion_batch_review_cwd(
+    repo_path: Path, rulespec_relative: Path, isolate_from: Sequence[Path]
+):
+    """The reviewer's working directory for one unit of a multi-unit batch.
+
+    The generalist reviewer CLI starts in this directory. For a unit of a
+    batch it is the content root of a temporary copy of the checkout from
+    which the primary and the companion of every other unit are removed, as
+    for the unit's validation (``_isolate_promotion_batch_overlay``). The
+    reviewer of one unit so starts in the tree of a candidate that holds that
+    unit alone. Only the copy is changed, never the checkout.
+    """
+
+    with tempfile.TemporaryDirectory() as temporary:
+        overlay_repo = Path(temporary) / repo_path.name
+        _stage_apply_overlay_dependency_root(source=repo_path, target=overlay_repo)
+        _isolate_promotion_batch_overlay(overlay_repo, isolate_from)
+        yield overlay_repo / rulespec_relative.parts[0]
+
+
+def _promotion_generalist_review_record(
+    *,
+    source_text: str,
+    cwd: Path,
+    applied: Mapping[Path, bytes],
+    rulespec_relative: Path,
+) -> dict[str, object]:
+    """Review one promoted unit and return its required review record.
+
+    ``applied`` holds the exact bytes the promotion signs, by manifest path:
+    the module at ``rulespec_relative`` and its companion test. The reviewer
+    reads a fresh staged copy of those bytes, never a checkout file, so a
+    change of the checkout after validation cannot reach it. The record
+    binds the verdict to the same bytes with the rules of
+    ``encode --apply --require-review``.
+    """
+
+    from axiom_encode.harness.evals import generalist_review_source
+    from axiom_encode.harness.validator_pipeline import run_generalist_review
+
+    companion_relative = _rulespec_test_path(rulespec_relative)
+    with tempfile.TemporaryDirectory() as temporary:
+        staged_file = (
+            Path(temporary) / "reviewed-candidate" / Path(*rulespec_relative.parts[1:])
+        )
+        staged_file.parent.mkdir(parents=True)
+        staged_file.write_bytes(applied[rulespec_relative])
+        if companion_relative in applied:
+            _rulespec_test_path(staged_file).write_bytes(applied[companion_relative])
+        review = run_generalist_review(
+            staged_file,
+            review_source=generalist_review_source(source_text),
+            cwd=cwd,
+        )
+    details = review.details if isinstance(review.details, dict) else {}
+    companion_relative = _rulespec_test_path(rulespec_relative)
+    return build_generalist_review_record(
+        GeneralistReviewState(
+            metrics_pass=review.passed,
+            score=review.score,
+            issue_count=len(review.issues) if isinstance(review.issues, list) else 0,
+            prompt_sha256=review.prompt_sha256,
+            evidence=details.get("review_evidence"),
+            required=True,
+        ),
+        [
+            applied_pair(
+                applied[rulespec_relative],
+                applied.get(companion_relative),
+                rulespec_path=rulespec_relative.as_posix(),
+            )
+        ],
+        [
+            (relative.as_posix(), hashlib.sha256(raw).hexdigest())
+            for relative, raw in applied.items()
+        ],
+        reviewed_rulespec_path=rulespec_relative.as_posix(),
+    )
+
+
 @contextlib.contextmanager
 def _promotion_unit_scope(label: str | None):
     """Name the unit of a multi-unit promotion in an error raised under it.
@@ -10438,6 +11093,7 @@ def cmd_promote_reviewed_candidate(args):
         _rulespec_dependency_roots_from_args(args)
     )
     reviewed_ref = str(args.reviewed_rulespec_ref)
+    review_record_target = _promotion_review_record_target(args, repo_path)
     country_match = re.fullmatch(r"rulespec-([a-z]{2})", repo_path.name)
     if country_match is None:
         raise ValueError("reviewed candidate checkout name is not canonical")
@@ -10498,6 +11154,16 @@ def cmd_promote_reviewed_candidate(args):
         ):
             raise ValueError(
                 "run-scoped reviewed PR admission does not match this operation"
+            )
+        if batch and review_record_target is not None and len(selector.units) > 1:
+            # The record file holds the record of one unit (schema
+            # PROMOTION_REVIEW_RECORD_SCHEMA). A batch of several units needs
+            # a list form that does not exist yet: refuse it before any
+            # validation, review or signature.
+            raise ValueError(
+                "promote-reviewed-candidate --review-record-file: the review "
+                "record file holds one record; a batch needs the list form, "
+                f"see issue #2319 (this batch names {len(selector.units)} units)"
             )
         revalidate_admission(live_admission)
         if batch:
@@ -10673,6 +11339,7 @@ def cmd_promote_reviewed_candidate(args):
                     (
                         unit["source_attestation"],
                         unit["validation_execution"],
+                        unit["normalized_source"],
                     ) = _validate_reviewed_candidate_unit(
                         repo_path=repo_path,
                         citation=unit["citation"],
@@ -10686,17 +11353,59 @@ def cmd_promote_reviewed_candidate(args):
                         # A unit of a batch is validated without the files
                         # of the other units: its verdict is the verdict of
                         # a single-unit promotion of it.
-                        isolate_from=tuple(
-                            member
-                            for other in units
-                            if other is not unit
-                            for member in (
-                                other["rulespec_relative"],
-                                other["companion_relative"],
-                            )
-                        ),
+                        isolate_from=_promotion_batch_isolated_paths(units, unit),
                     )
 
+            # Validation of every unit is complete. The reviewer runs after it
+            # and before the admission is revalidated and any signature is
+            # requested: one review per unit, in unit order, each on the exact
+            # bytes that unit's manifest signs. The first unit without a
+            # passed review stops the batch; no unit is signed.
+            if _promotion_requires_review(args):
+                for unit in units:
+                    with contextlib.ExitStack() as review_scope:
+                        review_scope.enter_context(unit_scope(unit["target"]))
+                        if batch:
+                            # The reviewer of a batch unit starts in a copy of
+                            # the checkout without the other units' files.
+                            review_cwd = review_scope.enter_context(
+                                _promotion_batch_review_cwd(
+                                    repo_path,
+                                    unit["rulespec_relative"],
+                                    isolate_from=_promotion_batch_isolated_paths(
+                                        units, unit
+                                    ),
+                                )
+                            )
+                        else:
+                            review_cwd = repo_path / unit["rulespec_relative"].parts[0]
+                        review_record = _promotion_generalist_review_record(
+                            source_text=unit["normalized_source"],
+                            cwd=review_cwd,
+                            applied=unit["before"],
+                            rulespec_relative=unit["rulespec_relative"],
+                        )
+                        print(
+                            "reviewed candidate generalist review: "
+                            + json.dumps(review_record, sort_keys=True)
+                        )
+                        if review_record_target is not None:
+                            _write_promotion_review_record(
+                                review_record_target,
+                                args=args,
+                                reviewed_ref=reviewed_ref,
+                                review_record=review_record,
+                            )
+                        if review_requirement_refusal(review_record) is not None:
+                            reason = review_record.get("reason")
+                            raise RuntimeError(
+                                "reviewed candidate promotion requires a passed "
+                                "generalist review of every promoted file "
+                                "(--require-review) and has none: status "
+                                f"{review_record.get('status')}"
+                                + (f" ({reason})" if reason else "")
+                                + ". Nothing was signed."
+                            )
             axiom_encode_git = _require_clean_axiom_encode_git_provenance()
             for unit in units:
                 before = unit["before"]
@@ -10845,11 +11554,13 @@ def _validate_reviewed_candidate_unit(
     axiom_compose_path: Path | None,
     dependency_roots,
     isolate_from: Sequence[Path] = (),
-) -> tuple[dict, dict]:
+) -> tuple[dict, dict, str]:
     """Rerun complete-source validation of one reviewed unit's exact bytes.
 
     Returns the unit's source attestation and validation execution: what its
-    signed manifest records. It writes nothing to the checkout.
+    signed manifest records. It also returns the normalized source text that
+    the validation read, for the generalist review of the unit
+    (``--require-review``). It writes nothing to the checkout.
 
     ``isolate_from`` names the checkout-relative files of the other units of
     a multi-unit promotion. They are removed from the temporary validation
@@ -11002,7 +11713,7 @@ def _validate_reviewed_candidate_unit(
             "reviewed candidate failed overlay validation with the other "
             "units of the batch present: ",
         )
-    return source_attestation, validation_execution
+    return source_attestation, validation_execution, normalized_source
 
 
 def cmd_signed_import_inventory(args):
@@ -13060,6 +13771,135 @@ def _manifest_census_badge(census: dict[str, object]) -> dict[str, object]:
         "message": f"{pct}% ({census.get('encoder', 0)}/{total})",
         "color": color,
     }
+
+
+def cmd_bind_source_verification(args) -> int:
+    """Bind one existing candidate module to its resolver-attested source."""
+
+    try:
+        local_roots = _local_verification_encode_roots(args)
+        if local_roots is None:
+            return _bind_source_verification_in_checkout(args)
+        with local_corpus_release_verification(
+            local_roots.corpus_release_public_key,
+            retired_public_keys=local_roots.retired_corpus_release_public_keys,
+            apply_public_key=local_roots.apply_public_key,
+            eval_public_key=local_roots.eval_public_key,
+        ):
+            return _bind_source_verification_in_checkout(args)
+    except (ValueError, RuntimeError, OSError) as exc:
+        # A wrong checkout, corpus or citation is an operator error, not a
+        # crash: one line, nothing written, a status apart from "unbound".
+        print("status=error")
+        print(f"error={exc}")
+        return 2
+
+
+def _bind_source_verification_in_checkout(args) -> int:
+    """Resolve the attestation as a promotion does, then bind by a minimal edit.
+
+    The corpus release is the one the checkout's toolchain lock pins, and the
+    source is resolved by the resolver the promotion uses, so the pin written
+    here is the pin the protected binding check recomputes. The module is the
+    citation's canonical path. Only that file can change, and only in the two
+    lines of ``module.source_verification``.
+    """
+
+    from .corpus_resolver import require_canonical_corpus_citation_path
+    from .prepare_signed_backfill import citation_rulespec_path
+    from .source_verification_binding import (
+        SourceBindingError,
+        bind_source_verification,
+    )
+
+    repo_path = _resolve_explicit_existing_directory(
+        args.repo,
+        label="RuleSpec checkout",
+    )
+    corpus_path = _resolve_explicit_existing_directory(
+        args.corpus_path,
+        label="Axiom Corpus",
+    )
+    citation = require_canonical_corpus_citation_path(str(args.citation))
+    expected_pin = getattr(args, "expect_source_sha256", None)
+    if expected_pin is not None and (
+        re.fullmatch(r"[0-9a-f]{64}", str(expected_pin)) is None
+    ):
+        raise ValueError(
+            "--expect-source-sha256 must be 64 lowercase hexadecimal characters"
+        )
+    relative = Path(citation_rulespec_path(citation))
+    if relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        raise ValueError("citation does not name a canonical RuleSpec module path")
+    corpus_release = load_rulespec_local_corpus_release(repo_path, corpus_path)
+    source_unit = resolve_corpus_source_unit(citation, corpus_release)
+    attestation = dict(source_unit.source_attestation)
+    module_file = repo_path / relative
+    try:
+        raw = read_bounded_regular_file(
+            repo_path,
+            module_file,
+            label="candidate RuleSpec",
+            max_bytes=10 * 1024 * 1024,
+        )
+        mode = stat.S_IMODE(os.lstat(module_file).st_mode)
+    except (OSError, UnsafeCorpusPathError) as exc:
+        raise ValueError(
+            "candidate RuleSpec is not a regular file in the checkout: "
+            + relative.as_posix()
+        ) from exc
+    print(f"citation={citation}")
+    print(f"module={relative.as_posix()}")
+    print(f"corpus_release={corpus_release.name} ({corpus_release.content_sha256})")
+    print(f"attested_source_sha256={attestation.get('source_sha256')}")
+    expected = getattr(args, "expect_source_sha256", None)
+    if expected is None:
+        # The resolver attests the body the pinned corpus release stores now.
+        # It cannot know which body the candidate was encoded from.
+        print(
+            "warning=NO --expect-source-sha256: this pin attests the source as "
+            f"corpus release {corpus_release.name} stores it now. Compare "
+            "attested_source_sha256 with the source attestation of the encode "
+            "run before you push; if they differ, encode the candidate again"
+        )
+    elif expected != attestation.get("source_sha256"):
+        print(f"expected_source_sha256={expected}")
+        print("status=refused:source_changed")
+        print(
+            "error=the corpus release pinned by this checkout attests another "
+            "source body than the one the candidate was encoded from; do not "
+            "re-pin it, encode the candidate again from the current source"
+        )
+        return 1
+    else:
+        print(f"expected_source_sha256={expected}")
+    print(f"old_sha256={hashlib.sha256(raw).hexdigest()}")
+    try:
+        binding = bind_source_verification(raw, attestation)
+    except SourceBindingError as exc:
+        print(f"status=refused:{exc.kind}")
+        print(f"error={exc}")
+        return 1
+    print(f"new_sha256={hashlib.sha256(binding.content).hexdigest()}")
+    for line in difflib.unified_diff(
+        raw.decode("utf-8").splitlines(),
+        binding.content.decode("utf-8").splitlines(),
+        lineterm="",
+        n=0,
+    ):
+        if line[:1] in "+-" and line[:3] not in ("+++", "---"):
+            print(f"diff={line}")
+    if not binding.changed:
+        print("status=already_bound")
+        return 0
+    if args.check:
+        print("status=unbound")
+        return 1
+    _atomic_replace_bytes(module_file, binding.content, mode=mode)
+    print("status=bound:" + ",".join(binding.edits))
+    return 0
 
 
 def cmd_checks(args):
@@ -28981,6 +29821,58 @@ def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
     or key keeps the set-digest shape; a malformed value refuses to sign.
     """
 
+    return _protected_table_verifies_with_main(
+        _target_protected_workflow_toolchain_table(policy_repo_path)
+    )
+
+
+def _protected_table_verifies_with_main(table: Mapping[str, object] | None) -> bool:
+    """Decide the verifier mode from one read of the protected table."""
+
+    if table is None or "encoder_verifier" not in table:
+        return False
+    mode = table["encoder_verifier"]
+    if mode == "pinned":
+        return False
+    if mode == "main":
+        return True
+    raise RuntimeError(
+        "Cannot sign RuleSpec: [workflow_toolchain].encoder_verifier of the target "
+        "repository must be pinned or main"
+    )
+
+
+def _target_admits_generalist_review_record(policy_repo_path: Path) -> bool:
+    """Return whether new manifests for this repository carry the review record.
+
+    A verifier older than #2146 rejects the field. The record is written only
+    when the target's protected base verifies with the main encoder, which is
+    never older than the encoder that writes, and sets no
+    ``encoder_verifier_hold``: a hold verifies with one exact earlier commit,
+    which may predate the field. The value comes from protected Git objects,
+    so ``policy_repo_path`` must be inside the real checkout, not a staged
+    copy of it; a malformed value refuses to sign.
+
+    The mode and the hold come from one read of the protected table, that is
+    from one protected commit: with two reads, a ref update between them
+    could pair the mode of one commit with the hold of another.
+    """
+
+    table = _target_protected_workflow_toolchain_table(policy_repo_path)
+    if not _protected_table_verifies_with_main(table):
+        return False
+    return table is not None and table.get("encoder_verifier_hold") is None
+
+
+def _target_protected_workflow_toolchain_table(
+    policy_repo_path: Path,
+) -> dict[str, object] | None:
+    """Read ``[workflow_toolchain]`` from the target's protected base commit.
+
+    Returns None when the target has no protected base, file or table. Every
+    other failure refuses to sign.
+    """
+
     import tomllib
 
     # The toolchain root is the checkout top level (toolchain.py), so the
@@ -29018,13 +29910,13 @@ def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
         base = candidate
         break
     if base is None:
-        return False
+        return None
     try:
         listing = _rulespec_migration_git_bytes(
             root, "ls-tree", "-z", "--full-tree", "--", base, relative.as_posix()
         )
         if not listing.strip(b"\0"):
-            return False
+            return None
         raw = _rulespec_migration_base_blob(root, base, relative)
         table = tomllib.loads(raw.decode("utf-8")).get("workflow_toolchain")
     except (OSError, RuntimeError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
@@ -29033,23 +29925,13 @@ def _target_uses_per_file_waiver_bindings(policy_repo_path: Path) -> bool:
             f"repository is unreadable: {exc}"
         ) from exc
     if table is None:
-        return False
+        return None
     if not isinstance(table, dict):
         raise RuntimeError(
             "Cannot sign RuleSpec: [workflow_toolchain] of the target repository "
             "is not a table"
         )
-    if "encoder_verifier" not in table:
-        return False
-    mode = table["encoder_verifier"]
-    if mode == "pinned":
-        return False
-    if mode == "main":
-        return True
-    raise RuntimeError(
-        "Cannot sign RuleSpec: [workflow_toolchain].encoder_verifier of the target "
-        "repository must be pinned or main"
-    )
+    return table
 
 
 def _build_applied_manifest_file_waiver_bindings(
@@ -29669,7 +30551,6 @@ def _applied_manifest_exact_schema_issues(
     issues: list[str] = []
     codex_fields = _MODEL_CODEX_APPLY_MANIFEST_FIELDS - _MODEL_APPLY_MANIFEST_FIELDS
     if "repair_companion_preservation" in payload:
-        from .checks import ValidationIssue
         from .prepare_signed_backfill import citation_rulespec_path
         from .repair_companion import PRESERVATION_CHECK, verify_preservation_receipt
 
@@ -29742,6 +30623,26 @@ def _applied_manifest_exact_schema_issues(
         issues.append(
             f"{manifest_label} does not match the exact {contract} v5 schema"
             + (f" ({'; '.join(detail)})" if detail else "")
+        )
+
+    if GENERALIST_REVIEW_FIELD in payload and contract == "model":
+        applied_entries = payload.get("applied_files")
+        issues.extend(
+            ValidationIssue(f"{manifest_label} {issue}", check=issue.check)
+            for issue in generalist_review_record_issues(
+                payload[GENERALIST_REVIEW_FIELD],
+                # Each applied path with its own digest: a file is reviewed
+                # at its path, not wherever equal bytes are applied.
+                [
+                    (entry.get("path"), entry["sha256"])
+                    for entry in (
+                        applied_entries if isinstance(applied_entries, list) else []
+                    )
+                    if isinstance(entry, dict)
+                    and entry.get("deleted") is not True
+                    and isinstance(entry.get("sha256"), str)
+                ],
+            )
         )
 
     if backend == "codex" and present_codex_fields:
@@ -35130,6 +36031,7 @@ def cmd_encode(args):
             "encode --apply --backend claude-api is unavailable for signed "
             "encoding until the encoding rule changes"
         )
+    _encode_requires_review(args)
     local_roots = _local_verification_encode_roots(args)
     if local_roots is None:
         return _cmd_encode_under_current_trust(args)
@@ -35140,6 +36042,150 @@ def cmd_encode(args):
         eval_public_key=local_roots.eval_public_key,
     ):
         return _cmd_encode_under_current_trust(args)
+
+
+def _encode_requires_review(args) -> bool:
+    """Return whether this encode refuses to apply without a passed review.
+
+    ``--require-review`` is the only switch. An environment variable would
+    not reach the encode in the signed lanes: the signing supervisor builds
+    the child environment from empty. Refuses contradictory settings before
+    any model call.
+    """
+
+    required = getattr(args, "require_review", False) is True
+    if required and getattr(args, "apply", False) is not True:
+        raise ValueError("encode --require-review requires --apply")
+    if required and getattr(args, "skip_reviewers", False) is True:
+        raise ValueError(
+            "encode cannot both require the generalist review "
+            "(--require-review) and skip it (--skip-reviewers)"
+        )
+    return required
+
+
+def _encode_generalist_review_state(
+    result,
+    *,
+    skipped_by_flag: bool,
+    required: bool,
+) -> GeneralistReviewState:
+    """Collect what this attempt knows about its generalist review.
+
+    Reads never raise: a value that cannot be read stays absent, and an
+    absent value can only produce an unavailable or skipped record.
+    """
+
+    metrics = getattr(result, "metrics", None)
+    issues = getattr(metrics, "generalist_review_issues", None)
+    return GeneralistReviewState(
+        metrics_pass=getattr(metrics, "generalist_review_pass", None),
+        score=getattr(metrics, "generalist_review_score", None),
+        issue_count=len(issues) if isinstance(issues, list) else 0,
+        prompt_sha256=getattr(metrics, "generalist_review_prompt_sha256", None),
+        evidence=getattr(metrics, GENERALIST_REVIEW_EVIDENCE_ATTR, None),
+        skipped_by_flag=skipped_by_flag,
+        required=required,
+    )
+
+
+def _mark_logged_iteration_review_blocked(
+    run: EncodingRun | None,
+    *,
+    db_path: Path,
+    message: str,
+) -> None:
+    """Record the final try of an already logged run as failed.
+
+    A run is logged before the apply step, when its last try still counts as
+    a success. A required review that then blocks the apply makes that try a
+    failure. A run that is not logged yet takes its verdict from
+    ``_encode_iteration_verdict``. Telemetry only: a failure here is reported
+    and never changes the encode's result.
+    """
+
+    if run is None or not run.iterations:
+        return
+    try:
+        final = dataclass_replace(
+            run.iterations[-1],
+            success=False,
+            errors=[IterationError(error_type="validation", message=message)],
+        )
+        iterations = [*run.iterations[:-1], final]
+        EncodingDB(db_path).update_run_iterations(run.id, iterations)
+        run.iterations = iterations
+    except Exception as exc:  # noqa: BLE001 - telemetry must never fail an encode
+        print(f"  run_log_review_block=failed:{type(exc).__name__}")
+
+
+def _review_applied_pairs(
+    rulespec_files: Sequence[Path], *, manifest_root: Path
+) -> list[AppliedPair]:
+    """Digest each RuleSpec file with its companion test, as they are now.
+
+    Each pair carries the module's path under ``manifest_root``, the path the
+    manifest lists it at. A file that cannot be read, or that is not under
+    the root, contributes no pair, so a verdict cannot be bound to it.
+    """
+
+    pairs: list[AppliedPair] = []
+    for path in rulespec_files:
+        if path.name.endswith(RULESPEC_TEST_FILE_SUFFIX):
+            continue
+        test_path = _rulespec_test_path(path)
+        try:
+            manifest_path = path.relative_to(manifest_root).as_posix()
+            rulespec = path.read_bytes()
+            test = test_path.read_bytes() if test_path.is_file() else None
+        except (OSError, ValueError):
+            continue
+        pairs.append(applied_pair(rulespec, test, rulespec_path=manifest_path))
+    return pairs
+
+
+def _planned_review_files(
+    result,
+    *,
+    output_root: Path,
+    supplemental_files: Mapping[Path, str] | None,
+) -> tuple[list[AppliedPair], list[tuple[str, str]], str | None]:
+    """The apply plan as the review record sees it, before anything is written.
+
+    Returns the module pairs of the plan, every planned (path, byte digest),
+    and the planned path of the reviewed candidate. The plan is the one
+    ``_planned_apply_file_bytes`` installs: the candidate, its companion test
+    (also the empty one that apply writes) and every supplemental file, each
+    at its own path. A plan that cannot be made returns no file and no
+    reviewed path, so no verdict is bound to it.
+    """
+
+    try:
+        output_file = Path(str(getattr(result, "output_file", "") or ""))
+        relative_output = _canonical_apply_relative_path(
+            _relative_generated_output_path(result, output_root=output_root)
+        )
+        planned, _wrote_empty = _planned_apply_file_bytes(
+            output_file,
+            relative_output=relative_output,
+            supplemental_files=dict(supplemental_files or {}),
+        )
+    except (OSError, RuntimeError, ValueError):
+        return [], [], None
+    pairs = [
+        applied_pair(
+            raw,
+            planned.get(_rulespec_test_path(path)),
+            rulespec_path=path.as_posix(),
+        )
+        for path, raw in planned.items()
+        if not path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+    ]
+    files = [
+        (path.as_posix(), hashlib.sha256(raw).hexdigest())
+        for path, raw in planned.items()
+    ]
+    return pairs, files, relative_output.as_posix()
 
 
 def _validate_encode_producer_guidance_request(args) -> None:
@@ -36163,6 +37209,9 @@ _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
 _REPLACEMENT_OVERLAY_SCOPE_ATTR = "_axiom_replacement_overlay_scope"
 _IMMUTABLE_RULESPEC_SHA256_ATTR = "_axiom_immutable_rulespec_sha256"
 _MANIFEST_ONLY_REFRESH_ATTR = "_axiom_manifest_only_refresh"
+_GENERALIST_REVIEW_STATE_ATTR = "_axiom_generalist_review_state"
+# The record the manifest writer built against the files it signs.
+_GENERALIST_REVIEW_APPLIED_RECORD_ATTR = "_axiom_generalist_review_applied_record"
 _REVIEWED_CANDIDATE_PROMOTION_ATTR = "_axiom_reviewed_candidate_promotion"
 # The checkout-relative files of the other units of a multi-unit promotion.
 # The apply overlay of this unit is staged without them.
@@ -36388,6 +37437,23 @@ def _result_legacy_replacement_contract(result: object) -> object | None:
     except TypeError:
         return None
     return state.get(_LEGACY_REPLACEMENT_ATTR)
+
+
+def _exact_dependent_review_refusal(result: object, *, required: bool) -> str | None:
+    """Refuse required review until finalized migration files are reviewed."""
+
+    contract = _result_legacy_replacement_contract(result)
+    if (
+        required
+        and isinstance(contract, _LegacyReplacementContract)
+        and contract.exact_dependents
+    ):
+        return (
+            "encode --require-review cannot apply a legacy replacement with "
+            "rewritten exact dependents: their finalized files are not covered "
+            "by the generalist review"
+        )
+    return None
 
 
 def _result_promotion_batch_isolation(result: object) -> tuple[Path, ...]:
@@ -40156,6 +41222,9 @@ def _run_encode_attempt(
             else None
         ),
         replacement_overlay_scope=replacement_target is not None,
+        # A candidate that is not applied here is promoted later as it stands,
+        # so it is bound before validation. --apply keeps its own stamp.
+        bind_source_verification=getattr(args, "apply", False) is not True,
     )
 
     result = results[0]
@@ -40270,6 +41339,8 @@ def _run_encode_attempt(
         _ensure_logged_run()
 
     outcome = _initial_encode_outcome(result, apply_requested=apply_requested)
+    if not apply_requested:
+        _record_encode_source_binding(result, outcome)
     if (
         replacement_target is not None
         and replacement_target.retired_source_admission is not None
@@ -43122,7 +44193,63 @@ def _run_encode_attempt(
                     _replace_overlay_validation_failures(outcome, apply_issues)
                     outcome["final_success"] = False
                     print(f"  apply=blocked_validation:{detail}")
-                else:
+                review_refusal: str | None = None
+                if can_apply:
+                    review_state = _encode_generalist_review_state(
+                        result,
+                        skipped_by_flag=skip_reviewers,
+                        required=_encode_requires_review(args),
+                    )
+                    # The manifest writer rebuilds this against the digests it
+                    # signs and enforces the requirement again; this check
+                    # refuses before any signing or installation starts.
+                    # Overlay validation can add repaired dependents; the
+                    # reviewer never read them, also not one whose bytes
+                    # equal a reviewed file. Each planned path is listed.
+                    (
+                        planned_review_pairs,
+                        planned_review_files,
+                        reviewed_review_path,
+                    ) = _planned_review_files(
+                        result,
+                        output_root=args.output,
+                        supplemental_files=supplemental_files,
+                    )
+                    review_record = build_generalist_review_record(
+                        review_state,
+                        planned_review_pairs,
+                        planned_review_files,
+                        reviewed_rulespec_path=reviewed_review_path,
+                    )
+                    setattr(result, _GENERALIST_REVIEW_STATE_ATTR, review_state)
+                    vars(result).pop(_GENERALIST_REVIEW_APPLIED_RECORD_ATTR, None)
+                    outcome["generalist_review"] = review_record
+                    print(
+                        f"  generalist_review_record={review_record['status']}"
+                        + (
+                            f":{review_record['reason']}"
+                            if review_record["reason"]
+                            else ""
+                        )
+                        + (" required=yes" if review_state.required else "")
+                    )
+                    review_refusal = (
+                        _exact_dependent_review_refusal(
+                            result, required=review_state.required
+                        )
+                        or review_requirement_refusal(review_record)
+                        if review_state.required
+                        else None
+                    )
+                if can_apply and review_refusal is not None:
+                    outcome["status"] = "apply_blocked_review"
+                    outcome["apply_error"] = review_refusal
+                    outcome["final_success"] = False
+                    print(f"  apply=blocked_review:{review_refusal}")
+                    _mark_logged_iteration_review_blocked(
+                        logged_run, db_path=db_path, message=review_refusal
+                    )
+                elif can_apply:
                     mark_encode_phase(PHASE_APPLY_WRITE)
                     try:
                         applied = _apply_generated_encoding_result(
@@ -43137,13 +44264,28 @@ def _run_encode_attempt(
                             signing_broker=apply_signing_broker,
                             allow_shrink=(getattr(args, "allow_shrink", False) is True),
                         )
+                    except ReviewRequirementRefused as exc:
+                        # The writer's own check of the required review, on
+                        # the files it was about to sign.
+                        _record_applied_generalist_review(result, outcome)
+                        outcome["status"] = "apply_blocked_review"
+                        outcome["apply_error"] = str(exc)
+                        outcome["final_success"] = False
+                        print(f"  apply=blocked_review:{exc}")
+                        _mark_logged_iteration_review_blocked(
+                            logged_run, db_path=db_path, message=str(exc)
+                        )
                     except (RuntimeError, ValueError) as exc:
+                        # If the writer ran before the refusal, its record
+                        # covers the final plan; otherwise this changes nothing.
+                        _record_applied_generalist_review(result, outcome)
                         outcome["status"] = "apply_blocked_manifest"
                         outcome["apply_error"] = str(exc)
                         outcome["final_success"] = False
                         print(f"  apply=blocked_manifest:{exc}")
                     else:
                         print("  apply=" + ",".join(str(path) for path in applied))
+                        _record_applied_generalist_review(result, outcome)
                         apply_passed = True
                         outcome["status"] = "apply_applied"
                         outcome["apply_success"] = True
@@ -43156,6 +44298,25 @@ def _run_encode_attempt(
         logged_run=logged_run,
         validation_issues=full_validation_issues,
         validation_retry_issues=retry_validation_issues,
+    )
+
+
+def _record_applied_generalist_review(result, outcome: dict) -> None:
+    """Report the review record of the final apply plan in the outcome.
+
+    The record built before apply covers the candidate as it was then. Apply
+    can still stamp the source, add an empty companion test or replace a file,
+    so the manifest writer rebuilds the record against the files it signs.
+    """
+
+    record = vars(result).get(_GENERALIST_REVIEW_APPLIED_RECORD_ATTR)
+    if not isinstance(record, dict) or record == outcome.get("generalist_review"):
+        return
+    outcome["generalist_review"] = copy.deepcopy(record)
+    print(
+        f"  generalist_review_record={record.get('status')}"
+        + (f":{record['reason']}" if record.get("reason") else "")
+        + " (final apply plan)"
     )
 
 
@@ -62164,10 +63325,9 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
         "requested_corpus_citation_path"
     ]
     source_verification["source_sha256"] = attestation["source_sha256"]
-    output_file.write_text(
-        safe_dump_yaml(payload, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    # The review record binds across this stamp only if the content digest
+    # stays unchanged; a dump-derived hash cannot authorize changed content.
+    output_file.write_text(apply_stamp_dump(payload), encoding="utf-8")
 
 
 def _supplemental_source_attestation_issues(
@@ -63510,7 +64670,9 @@ def _planned_apply_file_bytes(
             test_source.read_bytes()
         )
     elif _needs_empty_deferred_companion_test(output_file):
-        planned[_canonical_apply_relative_path(relative_test)] = b"[]\n"
+        planned[_canonical_apply_relative_path(relative_test)] = (
+            EMPTY_DEFERRED_COMPANION_TEST
+        )
         wrote_empty_companion_test = True
 
     roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
@@ -63564,7 +64726,9 @@ def _require_planned_apply_bytes_match_validation_snapshot(
             raise RuntimeError("Apply validation snapshot lacks companion test digest")
         expected[relative_test] = test_sha256
     elif wrote_empty_companion_test:
-        expected[relative_test] = hashlib.sha256(b"[]\n").hexdigest()
+        expected[relative_test] = hashlib.sha256(
+            EMPTY_DEFERRED_COMPANION_TEST
+        ).hexdigest()
 
     for item in supplemental:
         if not isinstance(item, dict):
@@ -63784,6 +64948,9 @@ def _stage_signed_apply_manifest(
                 )
             ),
             allow_shrink=allow_shrink,
+            # The staged checkout holds no Git objects; the record gate reads
+            # the protected base of the real one.
+            review_record_gate_root=content_root,
         )
         manifest_relative = staged_manifest.relative_to(staged_checkout)
         return manifest_relative, staged_manifest.read_bytes()
@@ -65682,6 +66849,13 @@ def _apply_generated_encoding_result(
     relative_output = _relative_generated_output_path(result, output_root=output_root)
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     checkout_root = _rulespec_checkout_root(content_root)
+    review_state = vars(result).get(_GENERALIST_REVIEW_STATE_ATTR)
+    if isinstance(review_state, GeneralistReviewState):
+        review_refusal = _exact_dependent_review_refusal(
+            result, required=review_state.required
+        )
+        if review_refusal is not None:
+            raise ReviewRequirementRefused(review_refusal)
     # Direct internal callers receive the same killed-process recovery ordering
     # as the public encode --apply entrypoint.
     _recover_apply_transaction(checkout_root)
@@ -66028,17 +67202,9 @@ def _needs_empty_deferred_companion_test(output_file: Path) -> bool:
         payload = yaml.safe_load(output_file.read_text())
     except (OSError, yaml.YAMLError, ValueError):
         return False
-    if not isinstance(payload, dict):
-        return False
-    module = payload.get("module")
-    if not isinstance(module, dict):
-        return False
-    if module.get("status") != "deferred":
-        return False
-    if payload.get("rules") != []:
-        return False
-    deferred_outputs = module.get("deferred_outputs")
-    return isinstance(deferred_outputs, list) and bool(deferred_outputs)
+    # The reviewer call uses the same rule, so it shows the reviewer the
+    # companion exactly when this plan writes it.
+    return deferred_module_needs_empty_companion_test(payload)
 
 
 def _resolver_attestation_for_manifest_source(
@@ -66237,6 +67403,7 @@ def _write_applied_encoding_manifest(
     run_id: str | None = None,
     existing_manifest_path: Path | None = None,
     allow_shrink: bool = False,
+    review_record_gate_root: Path | None = None,
 ) -> Path:
     """Record that live RuleSpec files were installed by the encoder."""
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
@@ -66375,7 +67542,43 @@ def _write_applied_encoding_manifest(
     if preservation is not None:
         payload["repair_companion_preservation"] = preservation
     validated_policy = validation_execution.get("policy_pre_apply")
-    if _target_uses_per_file_waiver_bindings(policy_repo_path):
+    per_file_shape = _target_uses_per_file_waiver_bindings(policy_repo_path)
+    review_state = vars(result).get(_GENERALIST_REVIEW_STATE_ATTR)
+    if review_state is not None:
+        # The record is built against the files this manifest signs, so a
+        # verdict on other content is recorded as unavailable, never as passed.
+        if not isinstance(review_state, GeneralistReviewState):
+            raise RuntimeError("Generalist review state is malformed")
+        review_record = build_generalist_review_record(
+            review_state,
+            _review_applied_pairs(unique_applied_files, manifest_root=manifest_root),
+            [
+                (str(item["path"]), str(item["sha256"]))
+                for item in payload["applied_files"]
+            ],
+            # The reviewer read this encode's own module, which the manifest
+            # lists at this path. A dependent at another path stays
+            # unreviewed, also when its bytes equal a reviewed file.
+            reviewed_rulespec_path=manifest_relative_output.as_posix(),
+        )
+        # The encode outcome reports this record, also when the target's
+        # manifest cannot carry it or the requirement refuses below.
+        setattr(
+            result,
+            _GENERALIST_REVIEW_APPLIED_RECORD_ATTR,
+            copy.deepcopy(review_record),
+        )
+        if review_state.required:
+            refusal = review_requirement_refusal(review_record)
+            if refusal is not None:
+                raise ReviewRequirementRefused(refusal)
+        # The protected base is read from the real checkout: a staged copy
+        # has no Git objects, so it can never show that the target opted in.
+        if _target_admits_generalist_review_record(
+            review_record_gate_root or policy_repo_path
+        ):
+            payload[GENERALIST_REVIEW_FIELD] = review_record
+    if per_file_shape:
         payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
             _build_applied_manifest_file_waiver_bindings(
                 policy_repo_path,
@@ -72063,6 +73266,80 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
     return outcome
 
 
+_SOURCE_UNBOUND_STATUS = "source_unbound"
+_SOURCE_UNBOUND_ERROR = (
+    "Generated RuleSpec is not bound to its resolver-attested source"
+)
+
+
+def _record_encode_source_binding(result, outcome: dict) -> None:
+    """Record whether a non-apply candidate is promotable as it stands.
+
+    The eval step binds the candidate before validation and fails the try when
+    it cannot. This reads the final bytes again, so the outcome states the
+    binding of the file the encode leaves behind. An unbound candidate is
+    never a clean result: the outcome gets ``source_binding: unbound`` and
+    ``final_success: False``, the result is failed, and the status is
+    ``source_unbound`` unless the file is not YAML at all (the validation
+    status then already says so). A successful result that recorded a
+    candidate digest but whose file cannot be read is unbound too. Only a
+    result with no candidate (``no_candidate``), or a failed or digest-less
+    one whose file is absent (``unverified``), keeps its verdict.
+    """
+
+    from .source_verification_binding import (
+        SourceBindingError,
+        check_source_verification,
+    )
+
+    output_file = str(getattr(result, "output_file", "") or "")
+    if not output_file:
+        outcome["source_binding"] = "no_candidate"
+        return
+    try:
+        try:
+            raw = Path(output_file).read_bytes()
+        except OSError:
+            recorded = getattr(result, "generated_output_sha256", None)
+            if (
+                getattr(result, "success", False) is not True
+                or not isinstance(recorded, str)
+                or re.fullmatch(r"[0-9a-f]{64}", recorded) is None
+            ):
+                # A failed result, or one that recorded no candidate digest,
+                # has no file to promote; its verdict is left alone.
+                outcome["source_binding"] = "unverified"
+                print("  source_binding=unverified")
+                return
+            unreadable = SourceBindingError(
+                "the candidate file that the eval recorded cannot be read"
+            )
+            unreadable.kind = "unreadable"
+            raise unreadable from None
+        attestation = getattr(result, "source_attestation", None)
+        if not isinstance(attestation, dict):
+            raise SourceBindingError("the encode has no resolver source attestation")
+        check_source_verification(raw, attestation)
+    except SourceBindingError as exc:
+        kind, message = exc.kind, str(exc)
+    else:
+        outcome["source_binding"] = "bound"
+        print("  source_binding=bound")
+        return
+    outcome["source_binding"] = "unbound"
+    outcome["source_binding_error"] = f"{kind}: {message}"
+    outcome["final_success"] = False
+    if getattr(result, "success", False) is True:
+        # The eval step refuses an unbound candidate; keep the exit status
+        # honest if a later step changed the file.
+        result.success = False
+        result.error = _SOURCE_UNBOUND_ERROR
+        outcome["primary_error"] = _SOURCE_UNBOUND_ERROR
+    if kind != "invalid_input" or outcome["status"] == "standalone_validated":
+        outcome["status"] = _SOURCE_UNBOUND_STATUS
+    print(f"  outcome={outcome['status']} final_success=False source_binding=unbound")
+
+
 def _safe_typed_issue_document(
     labeled_issues: Sequence[tuple[str | None, Sequence[str]]],
 ) -> dict[str, Any] | None:
@@ -72176,7 +73453,12 @@ def _encode_iteration_verdict(
     status = outcome.get("status")
     if status in {"apply_applied", "apply_blocked_manifest"}:
         return True, None
-    if status in {"apply_blocked_generation", "apply_blocked_validation"}:
+    if status in {
+        "apply_blocked_generation",
+        "apply_blocked_validation",
+        # A required review that did not pass: the candidate was not applied.
+        "apply_blocked_review",
+    }:
         return False, _encode_outcome_issue(result, outcome)
     success = bool(getattr(result, "success", False))
     return success, None if success else _encode_outcome_issue(result, outcome)

@@ -233,6 +233,21 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "again from the new main head.",
     ),
     (
+        "Refuse a reviewed candidate without a source pin",
+        "The reviewed candidate has no source pin",
+        "For a reviewed-candidate promotion, the candidate primary at the "
+        "exact `rulespec_ref` names the promotion citation in "
+        "`module.source_verification.corpus_citation_path` and carries a "
+        "64-character `source_sha256`, in the plain block form.",
+        "A promotion signs the candidate bytes as they are. A primary "
+        "without the pin would be refused by the protected binding check, "
+        "after the signing approval.",
+        "Run `axiom-encode bind-source-verification` on the candidate "
+        "branch, push the one-line change and dispatch the new head. If the "
+        "candidate could not be read, check `rulespec_ref` and "
+        "`replace_rulespec_path` and dispatch again.",
+    ),
+    (
         "Enforce failed-attempt budget",
         "The failed-attempt budget refused this dispatch",
         "An ad hoc dispatch of a citation has fewer consecutive failed model "

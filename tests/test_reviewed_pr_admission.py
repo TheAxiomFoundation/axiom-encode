@@ -29,6 +29,30 @@ SELECTOR = PromotionSelector(
     "PavelMakarchuk",
     "12345",
 )
+# A promotable primary: the citation and a 64-hex pin, in the plain block form.
+PIN = "d" * 64
+PRIMARY = (
+    "format: rulespec/v1\n"
+    "module:\n"
+    "  source_verification:\n"
+    f"    corpus_citation_path: {SELECTOR.citation}\n"
+    f"    source_sha256: {PIN}\n"
+    "  summary: |-\n"
+    "    Synthetic fixture text.\n"
+    "rules: []\n"
+).encode()
+
+
+def _fixture_bytes(path: str) -> bytes:
+    return PRIMARY if path == PATH else ("fixture " + path).encode()
+
+
+def _set_primary(api: dict, raw: bytes) -> None:
+    entry = api[f"{ROOT}/contents/{PATH}?ref={HEAD}"]
+    entry["content"] = base64.b64encode(raw).decode()
+    entry["size"] = len(raw)
+
+
 ROOT = "/repos/TheAxiomFoundation/rulespec-us"
 PR = ROOT + "/pulls/42"
 RUN = "/repos/TheAxiomFoundation/axiom-encode/actions/runs/12345"
@@ -117,7 +141,7 @@ def api():
         },
     }
     for path in files:
-        raw = ("fixture " + path).encode()
+        raw = _fixture_bytes(path)
         result[f"{ROOT}/contents/{path}?ref={HEAD}"] = {
             "type": "file",
             "path": path,
@@ -135,7 +159,7 @@ def test_exact_bound_admission(api):
     assert result["record"]["base_sha"] == BASE
     assert (
         result["record"]["binding"]["rulespec_sha256"]
-        == hashlib.sha256(("fixture " + PATH).encode()).hexdigest()
+        == hashlib.sha256(PRIMARY).hexdigest()
     )
     assert result["record"]["pr_base_branch"] == SELECTOR.branch
     assert result["approvals"] == [{"review_id": 1, "reviewer_id": 6076111}]
@@ -1108,3 +1132,306 @@ def test_malformed_review_refuses_at_revalidation(api):
     api[REVIEWS].append({"state": "COMMENTED", "user": {"id": 555, "login": "x"}})
     with pytest.raises(AdmissionError, match="identity is malformed"):
         revalidate_admission(admission, fetch=api.__getitem__)
+
+
+# --- the candidate source pin (signing run 45328443323) ---
+
+
+def _primary(block: str, *, head: str = "format: rulespec/v1\nmodule:\n") -> bytes:
+    return (head + block + "rules: []\n").encode()
+
+
+BOUND_BLOCK = (
+    "  source_verification:\n"
+    f"    corpus_citation_path: {SELECTOR.citation}\n"
+    f"    source_sha256: {PIN}\n"
+)
+
+
+def test_admission_refuses_a_candidate_without_the_pin_and_names_the_command(api):
+    _set_primary(
+        api,
+        _primary(
+            f"  source_verification:\n    corpus_citation_path: {SELECTOR.citation}\n"
+        ),
+    )
+    with pytest.raises(AdmissionError) as caught:
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    message = str(caught.value)
+    assert "source_sha256` is missing" in message
+    assert "axiom-encode bind-source-verification" in message
+    assert admission_module.SOURCE_PIN_COMMAND in message
+
+
+@pytest.mark.parametrize(
+    "block, detail",
+    [
+        ("  summary: x\n", "no `module.source_verification` block"),
+        (
+            f"  source_verification:\n    source_sha256: {PIN}\n",
+            "corpus_citation_path` is missing",
+        ),
+        (
+            "  source_verification:\n"
+            f"    corpus_citation_path: us-az/manual/other\n    source_sha256: {PIN}\n",
+            "not the promotion citation",
+        ),
+        (
+            BOUND_BLOCK.replace(PIN, PIN[:-1]),
+            "not 64 lowercase hex",
+        ),
+        (BOUND_BLOCK.replace(PIN, PIN.upper()), "not 64 lowercase hex"),
+        (BOUND_BLOCK.replace(PIN, "1" * 64), "not a plain string"),
+        (BOUND_BLOCK.replace(PIN, PIN + " extra"), "plain block form"),
+        (BOUND_BLOCK + f"    source_sha256: {PIN}\n", "no duplicate key"),
+        (BOUND_BLOCK + "    nested:\n      key: value\n", "plain block form"),
+        # One column short of the block's entries: not a key of the block.
+        (
+            BOUND_BLOCK.replace("    source_sha256", "   xsource_sha256"),
+            "plain block form",
+        ),
+        (BOUND_BLOCK.replace(PIN, "&a " + PIN), "plain block form"),
+        (BOUND_BLOCK.replace(PIN, "!!str " + PIN), "plain block form"),
+        (BOUND_BLOCK.replace(PIN, "|\n      " + PIN), "not a plain string"),
+        (BOUND_BLOCK.replace("    source", "\tsource"), "indented with tabs"),
+        (BOUND_BLOCK.replace("    source", "    \tsource"), "plain block form"),
+        ("  \tsummary: x\n" + BOUND_BLOCK, "indented with tabs"),
+        (
+            "  source_verification: {corpus_citation_path: "
+            f"{SELECTOR.citation}, source_sha256: {PIN}}}\n",
+            "not a single plain block mapping",
+        ),
+        (BOUND_BLOCK + BOUND_BLOCK, "not a single plain block mapping"),
+        (
+            BOUND_BLOCK.replace("source_verification:", "source_verification: &a"),
+            "an anchor, an alias or a tag",
+        ),
+        (
+            BOUND_BLOCK.replace("source_verification:", '"source_verification":'),
+            "not a plain `name:` key",
+        ),
+        ("  source_verification:\n  summary: x\n", "is empty"),
+        ("  <<: *base\n" + BOUND_BLOCK, "an anchor, an alias or a tag"),
+        ("  <<:\n    a: 1\n" + BOUND_BLOCK, "a merge key"),
+        (" odd: 1\n".join(["  summary: x\n", BOUND_BLOCK]), "indented evenly"),
+    ],
+)
+def test_admission_refuses_a_missing_or_malformed_pin(api, block, detail):
+    _set_primary(api, _primary(block))
+    with pytest.raises(AdmissionError) as caught:
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    assert detail in str(caught.value)
+    assert "bind-source-verification" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "raw, detail",
+    [
+        (b"\xff\xfe", "not UTF-8"),
+        (_primary(BOUND_BLOCK).replace(b"\n", b"\r"), "line break"),
+        (b"---\n" + _primary(BOUND_BLOCK), "document marker"),
+        (b"\xef\xbb\xbf" + _primary(BOUND_BLOCK), "byte order mark"),
+        (_primary(BOUND_BLOCK, head="format: rulespec/v1\n"), "no top-level plain"),
+        (_primary(BOUND_BLOCK) + _primary(BOUND_BLOCK), "`module` occurs twice"),
+        (
+            _primary("", head="module: {source_verification: {}}\n"),
+            "`module:` is not a plain block mapping",
+        ),
+        (_primary("", head="module:\n"), "`module` is empty"),
+        (_primary("\tsummary: x\n" + BOUND_BLOCK, head="module:\n  a: 1\n"), "tabs"),
+    ],
+)
+def test_the_strict_reader_refuses_every_other_file_shape(raw, detail):
+    with pytest.raises(AdmissionError) as caught:
+        admission_module.require_candidate_source_pin(raw, SELECTOR.citation)
+    assert detail in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        BOUND_BLOCK,
+        BOUND_BLOCK.replace("\n", "\r\n"),
+        BOUND_BLOCK.replace(PIN, f"'{PIN}'  # pinned"),
+        BOUND_BLOCK.replace(SELECTOR.citation, f'"{SELECTOR.citation}"'),
+        "  summary: |-\n    source_verification: not a key\n\n  # note\n" + BOUND_BLOCK,
+        "      source_verification:\n"
+        f"          # lead\n          source_sha256:   {PIN}\n"
+        f"          corpus_citation_path: {SELECTOR.citation}\n",
+    ],
+)
+def test_the_strict_reader_accepts_the_plain_block_form(block):
+    raw = _primary(block, head="format: rulespec/v1\n# c\nmodule:\n")
+    assert admission_module.read_candidate_source_pin(raw) == (SELECTOR.citation, PIN)
+    admission_module.require_candidate_source_pin(raw, SELECTOR.citation)
+
+
+def test_the_pin_check_is_the_only_change_to_admission_for_a_pinned_candidate(
+    api, monkeypatch
+):
+    """Differential: with the check switched off the admission is the same."""
+    with_check = verify_reviewed_pr(SELECTOR, fetch=copy.deepcopy(api).__getitem__)
+    monkeypatch.setattr(
+        admission_module, "require_candidate_source_pin", lambda raw, citation: None
+    )
+    without_check = verify_reviewed_pr(SELECTOR, fetch=copy.deepcopy(api).__getitem__)
+    assert with_check == without_check
+    assert with_check["record"]["binding"] == {
+        "citation": SELECTOR.citation,
+        "rulespec_path": PATH,
+        "rulespec_sha256": hashlib.sha256(PRIMARY).hexdigest(),
+        "companion_sha256": hashlib.sha256(
+            _fixture_bytes(SELECTOR.companion)
+        ).hexdigest(),
+    }
+
+
+def test_the_pin_check_reads_the_primary_and_not_the_companion(api, monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        admission_module,
+        "require_candidate_source_pin",
+        lambda raw, citation: seen.append((raw, citation)),
+    )
+    verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    assert seen == [(PRIMARY, SELECTOR.citation)]
+
+
+def test_the_admission_module_stays_standard_library_only():
+    source = inspect.getsource(admission_module)
+    assert "import yaml" not in source
+    assert "from axiom_encode" not in source and "from ." not in source
+
+
+# --- the reader agrees with a YAML parser or refuses (review round 1) ---
+
+GOOD = _primary(BOUND_BLOCK)
+OTHER = "    corpus_citation_path: us-az/manual/other\n"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # A second top-level key that YAML reads as `module` replaces the block.
+        GOOD + b'"modul\\x65":\n  source_verification:\n' + OTHER.encode(),
+        GOOD + b"? module\n: source_verification:\n" + OTHER.encode(),
+        GOOD + b"!!str module:\n  status: x\n",
+        GOOD + b"&a module:\n  status: x\n",
+        GOOD + b"'module':\n  status: x\n",
+        GOOD + b"{module: {status: x}}\n",
+        # A second key under `module` that YAML reads as `source_verification`.
+        _primary(BOUND_BLOCK + '  "source_verificatio\\x6e":\n' + OTHER),
+        _primary(BOUND_BLOCK + "  !!str source_verification:\n" + OTHER),
+        _primary(BOUND_BLOCK + "  ? source_verification\n  :" + OTHER.lstrip(" ")),
+        # The block sits inside a scalar: YAML reads no block at all.
+        _primary('  summary: "x\n' + BOUND_BLOCK + '  y"\n'),
+        _primary("  summary: 'x\n" + BOUND_BLOCK + "  y'\n"),
+        _primary("  summary: |\n  " + BOUND_BLOCK.replace("\n", "\n  ")),
+        _primary(BOUND_BLOCK, head='doc: "x\nmodule:\n').replace(
+            b"rules: []", b'  y"\nrules: []'
+        ),
+        _primary("  deferred:\n    - reason: 'x\n" + BOUND_BLOCK + "      y'\n"),
+        _primary("  list: [a,\n" + BOUND_BLOCK + "  b]\n"),
+        # The pin line continues: YAML reads a longer value.
+        _primary(BOUND_BLOCK + "      extra\n"),
+        _primary(BOUND_BLOCK.replace("    source_sha256", "     source_sha256")),
+        # An anchored block reused by an alias, a tag on the mapping.
+        _primary("  base: &b\n    a: 1\n" + BOUND_BLOCK + "  other: *b\n"),
+        _primary(
+            BOUND_BLOCK.replace("source_verification:", "source_verification: !!map")
+        ),
+        # One quoted scalar from the first line to the last: no module at all.
+        b"doc: 'x\nmodule:\n" + BOUND_BLOCK.encode() + b"rules: []'\n",
+        # A quote inside a flow sequence hides the block up to `"]`.
+        _primary('  x: ["a\n' + BOUND_BLOCK + '  b: 1 # "]\n'),
+        # A key before `module` that YAML also reads as `module`.
+        b'"modul\\x65":\n  status: x\n' + GOOD,
+        b"? module\n: {}\n" + GOOD,
+        # Text after a quoted scalar that closed on a later line.
+        _primary("  summary: 'a\n    b' trailing\n" + BOUND_BLOCK),
+        # A tagged or anchored key deeper in `module`.
+        _primary("  nested:\n    &a k: 1\n" + BOUND_BLOCK),
+        _primary("  nested:\n    !!str k: 1\n" + BOUND_BLOCK),
+        # A root mapping that starts indented and then dedents is not YAML.
+        b" module:\n" + GOOD,
+        b"# c\n\n  format: x\n" + GOOD,
+        # NEL is a line break for a YAML parser.
+        _primary(BOUND_BLOCK).replace(b"\nrules", "\u0085rules".encode()),
+    ],
+)
+def test_the_reader_refuses_what_a_yaml_parser_could_read_differently(raw):
+    with pytest.raises(AdmissionError):
+        admission_module.require_candidate_source_pin(raw, SELECTOR.citation)
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        # The shapes of the encoder's own YAML dump: list items at the key
+        # column, and a quoted scalar that continues over lines.
+        '  deferred_outputs:\n  - output: x\n    reason: \'it is "q" and\n'
+        "      source_verification: text '\n" + BOUND_BLOCK,
+        "  summary: 'a\n\n    b: c'\n" + BOUND_BLOCK,
+        '  summary: "a \\"q\\" \\\n    b"\n' + BOUND_BLOCK,
+        "  summary: plain text\n    continued 'here\n" + BOUND_BLOCK,
+        # A double-quoted scalar may continue at the key column.
+        '  summary: "a\n  b"\n' + BOUND_BLOCK,
+        # Block scalar text is not lexed: an open quote there opens nothing.
+        "  summary: |-\n    \"unclosed quote text\n    it's\n" + BOUND_BLOCK,
+        # `''` inside a single-quoted scalar is one quote character.
+        "  summary: 'it''s fine'\n" + BOUND_BLOCK,
+        '  summary: "a \\" b"\n' + BOUND_BLOCK,
+        # A continuation line of a plain scalar may start with a quote.
+        "  summary: plain\n    'here and\n    \"there\n" + BOUND_BLOCK,
+        "  summary: >-\n    source_verification:\n      source_sha256: x\n"
+        + BOUND_BLOCK,
+        "  flags: [a, b]\n  empty: {}\n" + BOUND_BLOCK + "    note: true\n",
+    ],
+)
+def test_the_reader_follows_scalars_over_lines_and_agrees_with_yaml(block):
+    import yaml
+
+    raw = _primary(block).replace(b"rules: []", b"rules:\n- name: r\n  x: 1")
+    parsed = yaml.safe_load(raw)["module"]["source_verification"]
+    assert (parsed["corpus_citation_path"], parsed["source_sha256"]) == (
+        SELECTOR.citation,
+        PIN,
+    )
+    assert admission_module.read_candidate_source_pin(raw) == (SELECTOR.citation, PIN)
+
+
+@pytest.mark.parametrize(
+    "value, plain",
+    [
+        ("us-az/manual/x", True),
+        ("3f" * 32, True),
+        ("1" * 64, False),
+        ("12e" + "4" * 61, False),
+        ("1.e3", False),
+        ("1.5e3", False),
+        ("0o17", False),
+        ("0x1f", False),
+        ("1_000", False),
+        ("1:30", False),
+        (".inf", False),
+        ("-.5", False),
+        ("true", False),
+        ("Yes", False),
+        ("null", False),
+        ("~", False),
+        ("a b", False),
+        ("a#b", False),
+    ],
+)
+def test_plain_scalar_is_string(value, plain):
+    assert admission_module.plain_scalar_is_string(value) is plain
+
+
+def test_a_refusal_carries_its_detail_and_says_plain_block_form():
+    with pytest.raises(AdmissionError) as caught:
+        admission_module.require_candidate_source_pin(
+            b"---\n" + GOOD, SELECTOR.citation
+        )
+    assert caught.value.detail.startswith("the module has a byte order mark")
+    assert "must be in the plain block form" in str(caught.value)
+    assert "rewrite the block by hand" in str(caught.value)

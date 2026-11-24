@@ -73,6 +73,7 @@ from axiom_encode.encode_timing import (
     mark_encode_phase,
     timed_phase,
 )
+from axiom_encode.generalist_review_chunks import ReviewSource
 from axiom_encode.harness.same_case_execution import (
     ExecutionGitOrigin,
     bind_execution_overlay_origin,
@@ -214,6 +215,8 @@ from .validator_pipeline import (
     ValidatorPipeline,
     _authoritative_corpus_scope,
     _authoritative_rulespec_dependency_scope,
+    _citation_slice_failure_issues,
+    _citation_slice_failure_scope,
     _module_numeric_citation_path,
     _normalize_rulespec_dependency_roots,
     _numeric_profile_for_citation_path,
@@ -1842,6 +1845,7 @@ def run_model_eval(
     codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
     axiom_rules_engine_ref: str | None = None,
     producer_review_guidance: ProducerReviewGuidance | None = None,
+    bind_source_verification: bool = False,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
     if producer_review_guidance is not None:
@@ -1951,6 +1955,7 @@ def run_model_eval(
                         required_import_targets=required_import_targets,
                         legacy_replacement=legacy_replacement,
                         replacement_overlay_scope=replacement_overlay_scope,
+                        bind_source_verification=bind_source_verification,
                     )
                 )
 
@@ -9060,24 +9065,6 @@ def _evaluate_artifact_in_scope(
                 "issues": policyengine_result.issues,
                 "duration_ms": policyengine_result.duration_ms,
             }
-        review_context = (
-            "This review is running inside an eval-suite benchmark workspace. "
-            "The artifact file path is generic benchmark output and is not itself the legal citation. "
-            "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
-            "The benchmark target is an atomic source slice/unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RuleSpec claims to encode them. "
-            "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
-            f"{source_text.strip()[:4000]}"
-        )
-        if re.search(
-            r"\bon the first day\b|\bnext benefit week\b|\bon or after the day\b",
-            source_text,
-            flags=re.IGNORECASE,
-        ):
-            review_context += (
-                "\n\nThis is a temporal timing clause. The RuleSpec eval path does not expose a native date-valued output here, "
-                "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
-                "is an acceptable representation."
-            )
         # Findings of advisory checks do not refuse the candidate; the
         # reviewer gets them as warnings to examine. With none, the review
         # context is unchanged.
@@ -9088,8 +9075,10 @@ def _evaluate_artifact_in_scope(
         advisory_context = advisory_review_context(
             ci_advisory_records, source_in_prompt=True
         )
-        if advisory_context:
-            review_context += "\n\n" + advisory_context
+        review_source = generalist_review_source(
+            source_text, advisory_context=advisory_context
+        )
+        review_context = review_source.single_call_context()
         # The encode retry loop feeds only compile/CI findings back to the
         # model and never gates apply on the reviewer, so in that lane a
         # reviewer call on an already-rejected candidate is pure latency.
@@ -9110,6 +9099,7 @@ def _evaluate_artifact_in_scope(
                     validation_file,
                     oracle_context or None,
                     review_context=review_context,
+                    review_source=review_source,
                 )
             except Exception as exc:
                 generalist_review_result = ValidationResult(
@@ -9129,9 +9119,19 @@ def _evaluate_artifact_in_scope(
         if require_complete_source_unit
         else source_text
     )
-    numeric_proof_source_texts = pipeline._numeric_source_texts_for_rulespec_content(
-        content,
-        source_texts=None,
+    # A cited path that cannot be sliced refuses the candidate (as in CI)
+    # instead of stopping the evaluation; the unit's own path still raises.
+    with _citation_slice_failure_scope(
+        pipeline._citation_slice_refusal_own_path()
+    ) as slice_failures:
+        numeric_proof_source_texts = (
+            pipeline._numeric_source_texts_for_rulespec_content(
+                content,
+                source_texts=None,
+            )
+        )
+    citation_slice_issues = _citation_slice_failure_issues(
+        slice_failures, content=content
     )
     embedded_source = extract_embedded_source_text(content)
     numeric_source_text = extract_numeric_grounding_source_text(content)
@@ -9322,6 +9322,7 @@ def _evaluate_artifact_in_scope(
     seen_ci_issues: set[str] = set()
     for issue in (
         list(ci_result.issues)
+        + citation_slice_issues
         + ungrounded_numeric_issues
         + numeric_occurrence_issues
         + admin_agency_aggregate_issues
@@ -9333,13 +9334,14 @@ def _evaluate_artifact_in_scope(
         seen_ci_issues.add(issue)
     ci_pass = (
         ci_result.passed
+        and not citation_slice_issues
         and not ungrounded_numeric_issues
         and not numeric_occurrence_issues
         and not admin_agency_aggregate_issues
         and not policyengine_hint_upstream_issues
     )
 
-    return EvalArtifactMetrics(
+    metrics = EvalArtifactMetrics(
         compile_pass=compile_result.passed,
         compile_issues=compile_result.issues,
         ci_pass=ci_pass,
@@ -9382,6 +9384,54 @@ def _evaluate_artifact_in_scope(
             else None
         ),
     )
+    # In-process only (#2146): what the reviewer call measured about the bytes
+    # it read. It is not a dataclass field, so persisted metric shapes and
+    # signed eval rows are unchanged; a metrics object reloaded from disk has
+    # none, and a review record then reports the verdict as unreadable.
+    review_evidence = generalist_review_result.details.get("review_evidence")
+    if isinstance(review_evidence, dict):
+        setattr(metrics, GENERALIST_REVIEW_EVIDENCE_ATTR, dict(review_evidence))
+    return metrics
+
+
+GENERALIST_REVIEW_EVIDENCE_ATTR = "_axiom_generalist_review_evidence"
+
+
+def generalist_review_source(
+    source_text: str, *, advisory_context: str = ""
+) -> ReviewSource:
+    """The source excerpt of a generalist review and the context around it.
+
+    One call shows the first 4,000 characters of the excerpt between the two
+    context strings; a chunked review shows each chunk of the excerpt between
+    them. ``advisory_context`` is the text of advisory validator findings,
+    empty when there are none.
+    """
+
+    context_after = ""
+    if re.search(
+        r"\bon the first day\b|\bnext benefit week\b|\bon or after the day\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        context_after += (
+            "\n\nThis is a temporal timing clause. The RuleSpec eval path does not expose a native date-valued output here, "
+            "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
+            "is an acceptable representation."
+        )
+    if advisory_context:
+        context_after += "\n\n" + advisory_context
+    return ReviewSource(
+        text=source_text.strip(),
+        context_before=(
+            "This review is running inside an eval-suite benchmark workspace. "
+            "The artifact file path is generic benchmark output and is not itself the legal citation. "
+            "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
+            "The benchmark target is an atomic source slice/unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RuleSpec claims to encode them. "
+            "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
+        ),
+        context_after=context_after,
+    )
 
 
 _GENERATED_EVAL_REPAIR_LIMIT = 50
@@ -9410,10 +9460,16 @@ def _evaluate_generated_artifact_with_repairs(
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
     repair_log: list[str] | None = None,
+    bind_source: Callable[[], Exception | None] | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
         test_file = _rulespec_test_path(rulespec_file)
+        # Bind before every evaluation, so the bytes that validation and the
+        # reviewers see are the bytes a promotion can sign. A round that
+        # follows a repair (for example a quoted scalar that made the YAML
+        # parse) binds the repaired file before it is evaluated again.
+        source_binding_refusal = bind_source() if bind_source is not None else None
         artifact_state = tuple(
             path.read_bytes() if path.exists() else None
             for path in (rulespec_file, test_file)
@@ -9445,6 +9501,9 @@ def _evaluate_generated_artifact_with_repairs(
         )
         if metrics is None:
             return None
+        if source_binding_refusal is not None:
+            metrics.ci_pass = False
+            metrics.ci_issues.append(_source_binding_issue(source_binding_refusal))
         if not allow_artifact_repairs:
             return metrics
         if artifact_state in evaluated_states:
@@ -10592,6 +10651,7 @@ def _run_single_eval(
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
     producer_review_guidance: ProducerReviewGuidance | None = None,
+    bind_source_verification: bool = False,
 ) -> EvalResult:
     if (
         accept_valid_retry_candidate
@@ -10700,6 +10760,17 @@ def _run_single_eval(
     output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
     artifact_root = Path(output_root).resolve()
     _clear_eval_target_artifacts(output_file, artifact_root)
+    bind_source: Callable[[], Exception | None] | None = None
+    if bind_source_verification:
+        # A tests-only repair keeps its RuleSpec immutable: it only checks.
+        def bind_source() -> Exception | None:
+            return _bind_generated_source_verification(
+                output_file,
+                artifact_root=artifact_root,
+                attestation=_source_metadata_attestation(source_metadata_payload),
+                read_only=repair_candidate_tests_only,
+            )
+
     retained_candidate_metrics: EvalArtifactMetrics | None = None
     retained_candidate_accepted = False
     if accept_valid_retry_candidate:
@@ -10759,6 +10830,7 @@ def _run_single_eval(
             legacy_replacement=legacy_replacement,
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=False,
+            **({"bind_source": bind_source} if bind_source is not None else {}),
         )
         mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         rebound_hashes = _rebind_retained_candidate_proof_import_hashes(
@@ -10803,6 +10875,7 @@ def _run_single_eval(
                 legacy_replacement=legacy_replacement,
                 replacement_overlay_scope=replacement_overlay_scope,
                 allow_artifact_repairs=False,
+                **({"bind_source": bind_source} if bind_source is not None else {}),
             )
             mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         retained_candidate_accepted = (
@@ -10986,6 +11059,7 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
             repair_log=eval_repairs,
+            **({"bind_source": bind_source} if bind_source is not None else {}),
         )
     quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     mark_encode_phase(PHASE_RECORD_RESULT)
@@ -11066,6 +11140,89 @@ def _run_single_eval(
     )
     emit_eval_result(result, response.trace)
     return result
+
+
+def _bind_generated_source_verification(
+    output_file: Path,
+    *,
+    artifact_root: Path,
+    attestation: Mapping[str, object] | None,
+    read_only: bool,
+) -> Exception | None:
+    """Bind the staged candidate to the resolver's source; return the refusal.
+
+    The binder sets ``module.source_verification.corpus_citation_path`` and
+    ``source_sha256`` to the attested values by a minimal text edit, and keeps
+    every other byte. It never re-dumps the YAML. A candidate it cannot bind is
+    left as the model wrote it and the refusal is returned, so a non-apply
+    encode never reports an unbound candidate as clean. ``read_only`` checks
+    the pin and writes nothing.
+    """
+
+    from axiom_encode.source_verification_binding import (
+        SourceBindingError,
+        check_source_verification,
+    )
+    from axiom_encode.source_verification_binding import (
+        bind_source_verification as bind_module_source_verification,
+    )
+
+    try:
+        if attestation is None:
+            raise SourceBindingError("the encode has no resolver source attestation")
+        raw = _corpus_resolver.read_bounded_regular_file(
+            Path(os.path.abspath(artifact_root)),
+            Path(os.path.abspath(output_file)),
+            label="generated eval RuleSpec",
+            max_bytes=32 * 1024 * 1024,
+        )
+        if read_only:
+            check_source_verification(raw, attestation)
+            return None
+        binding = bind_module_source_verification(raw, attestation)
+    except (OSError, _corpus_resolver.UnsafeCorpusPathError):
+        # A missing, symlinked or oversized candidate is not a crash of the
+        # encode: it is a candidate that cannot be bound.
+        exc = SourceBindingError(
+            "the generated RuleSpec is not a readable regular file in the output root"
+        )
+        exc.kind = "unreadable"
+        print(f"  source_binding_refused={exc.kind}")
+        return exc
+    except SourceBindingError as exc:
+        print(f"  source_binding_refused={exc.kind}")
+        if read_only:
+            refusal = SourceBindingError(
+                f"{exc}; the retained RuleSpec is immutable in a tests-only "
+                "repair, so bind it first with `axiom-encode "
+                "bind-source-verification`"
+            )
+            refusal.kind = exc.kind
+            return refusal
+        return exc
+    if binding.changed:
+        root, relative = _eval_artifact_write_location(output_file, artifact_root)
+        _secure_atomic_eval_write(root, relative, binding.content)
+        print("  source_binding_edit=" + ",".join(binding.edits))
+    return None
+
+
+def _source_binding_issue(refusal: Exception) -> ValidationIssue:
+    """The blocking CI issue for a candidate that could not be bound."""
+
+    from axiom_encode.source_verification_binding import CHECK_SOURCE_BINDING
+
+    kind = str(getattr(refusal, "kind", "error"))
+    return ValidationIssue(
+        "[source-binding] Generated RuleSpec is not bound to its "
+        f"resolver-attested source ({kind}): {refusal}. Write "
+        "`module.source_verification` as a plain block mapping with the "
+        "requested `corpus_citation_path` on its own line, and leave "
+        "`source_sha256` out: the encoder writes it.",
+        check=CHECK_SOURCE_BINDING,
+        expected="the attested corpus_citation_path and source_sha256",
+        found=kind,
+    )
 
 
 def _eval_artifact_validation_error(
