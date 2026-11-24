@@ -1,3 +1,147 @@
+## 0.2.2392
+
+- Make the incremental waiver audit usable for signed encoder pull requests (#2322)
+- Record the generalist review of each model apply and add opt-in --require-review (#2229)
+
+## 0.2.2391
+
+- Admit signed promotions on enrolled-owner dispatch, without a per-candidate owner approval (#2301) (#2317)
+
+## 0.2.2390
+
+- Make the gates-collapsed check advisory: record it and show it to the reviewer, do not refuse (#2300) (#2312)
+
+## 0.2.2389
+
+- Validate complete T1170 source obligations against execution evidence (#2110)
+
+## 0.2.2388
+
+- Report each companion-test gap once with source detail; require executed clamps (#1901)
+
+## 0.2.2387
+
+- Keep "both to and from" as one fact in the gates-collapsed check (#2293)
+- Guide the encoder not to add a zero floor the source does not state (#2299)
+
+## 0.2.2386
+
+- Keep See Example reference ordinals out of numeric recall (#2291)
+- Credit exact imported scalars in the complete-mode numeric-occurrence check (#2290)
+- Guide the encoder to put a gated cap in its own derived rule (#2284)
+
+## 0.2.2385
+
+- Let a sole table row witness a direct nonnegative clamp (#2288)
+
+## 0.2.2384
+
+- Evidence floor for the start date of a date-silent unit (#2227)
+
+## 0.2.2383
+
+- Reviewed alternative-list readings for the gates-collapsed check (digest-bound registry) (#2216)
+
+## 0.2.2382
+
+- Cut the evals import edge from the v6 lane path helper (prep for the stdlib guard bundle, #2257) (#2278)
+- Require code-owner review for all of .github/ (closes the unowned-workflow exposure, #2257) (#2277)
+- Quote trailing-colon source excerpts in the eval-time repair (#2266)
+
+## 0.2.2381
+
+- Fix receipt verification during native reviewed-repair staging (#2270)
+
+## 0.2.2380
+
+- Fold structure findings behind an imprecise deferral into its finding and use a U.S. retry example (#1932)
+
+## 0.2.2379
+
+- Close the follow-up findings of the #2051 version-rule review (#2151)
+- Propose guard App key protection: stdlib bundle plus owner review of .github/ (needs Max's choice, #2257) (#2267)
+
+## 0.2.2378
+
+- Name the policies/ root for manual-unit deferrals and type the target refusal (#2260)
+
+## 0.2.2377
+
+- Bind large primary review guidance to immutable producer evidence (#2140)
+
+## 0.2.2376
+
+- Preserve authenticated policy bytes during manifest refresh (#2225)
+- Fix anonymous companion row identities across CLI relations (#2107)
+- fix: replace historical root ownership receipts through verified transactions (#2078)
+- Preserve verified engine and checkout origin for registered repairs (#2243)
+- Recommended three-class lane (content / control plane / infrastructure), off (#2172) (#2231)
+
+## 0.2.2375
+
+- Add a switched-off reader for applied-rulespec/v6 promotion manifests (inactive, #2172) (#2230)
+- State the unpaired (ii) limit in the roman-item changelog fragment (#2250)
+
+## 0.2.2374
+
+- Preserve authenticated companion assertions during constrained repairs (#2203)
+- Correct the promotion-order decision status (#2246)
+- Use constructed modules in declared-dtype and repair tests (#2247)
+
+## 0.2.2373
+
+- Read (i) under paragraph (h) as a roman item when (ii) follows at its level (#2115)
+
+## 0.2.2372
+
+- Register reviewed Nova Scotia NS479 repair (#2244)
+
+## 0.2.2371
+
+- Register reviewed T2036 full-artifact repair (#2241)
+
+## 0.2.2370
+
+- fix: scope T2036 country evidence to its asserted cases (#2232)
+- Register reviewed NL479 and NB Schedule 12 source-binding repairs (#2236)
+- fix: load reviewed repair packages through protected Git (#2233)
+
+## 0.2.2369
+
+- fix: validate complete retirement transfer execution (#2105)
+- Register the reviewed Schedule 2 repair with all original expectations (#2228)
+
+## 0.2.2368
+
+- Register exact Schedule M repair preserving all companion cases (#2223)
+
+## 0.2.2367
+
+- Lock the build backends and build every locked source against them (#1887)
+- Balance waiver audit shards by measured cost and print progress (#2177)
+- Say Microcosm in prose, help text and private names (#2183)
+- Protected reviewer runtime: supervisor Codex home, signer subscription options, reprovisioning and source-lane replay (#2037)
+- Align proof excerpts to the printed source text; fix imports pruning (0.2.2349) (#1900)
+- Apply exact registered repairs through protected validation (#1963)
+- Publish signed RuleSpec PRs onto a main tip that moved only through plumbing (#1892)
+- Require Encoding-Target and Fixes-Run lines in every PR body (#2156)
+- Add content-bound merge guard evaluator (inactive, #2172) (#2204)
+- Declare the validation effect in automated version-bump PRs (#2197)
+
+## 0.2.2366
+
+- Bind Canadian form and Schedule M obligations to observed execution (#2083)
+
+## 0.2.2365
+
+- Add failure classes and a pre-encode gate that stops empty and repealed targets before a model call (#1997)
+- Count only listed values in numeric-recall retry feedback (#2209)
+
+## 0.2.2364
+
+- Bind complete form source evidence to verified execution (#2139)
+- Add immutable complete T936 producer guidance reference (#2208)
+
 ## 0.2.2363
 
 - fix: bind copied return categories to source projections (#2129)

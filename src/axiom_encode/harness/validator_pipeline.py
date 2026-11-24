@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
 from bisect import bisect_left, bisect_right
@@ -42,6 +43,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Sequence
 
 import yaml
@@ -62,10 +64,16 @@ from axiom_encode.bare_structure import bare_outline, mask_bare_labels
 from axiom_encode.checks import (
     IssueSubject,
     ValidationIssue,
+    advisory_issue_records,
+    advisory_log_line,
+    advisory_review_context,
     declare_check,
     map_issue_text,
+    partition_by_enforcement,
 )
 from axiom_encode.codex_cli import (
+    codex_auth_secrets,
+    redact_codex_auth_secrets,
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
@@ -122,6 +130,23 @@ from axiom_encode.form_numeric_structure import (
     mask_form_numeric_locators,
 )
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.generalist_review_chunks import (
+    MAX_PROMPT_BYTES,
+    SINGLE_CALL_SOURCE_CHARS,
+    ReviewSource,
+    chunked_prompt_sha256,
+    chunked_review_prompts,
+    fits_single_call,
+    plan_chunked_review,
+    prefix_chunks,
+    review_coverage_evidence,
+)
+from axiom_encode.generalist_review_record import (
+    EVIDENCE_EXPLICIT_PASSED,
+    GENERALIST_REVIEWER_NAME,
+    empty_deferred_companion_test,
+    review_evidence_digests,
+)
 from axiom_encode.harness.amendment_timing import amendment_timing_issues
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
@@ -147,6 +172,7 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from axiom_encode.signing_broker import supervisor_codex_home
 from axiom_encode.statute import (
     citation_to_citation_path,
     normalize_rulespec_path_segment,
@@ -194,6 +220,7 @@ from .same_case_execution import (
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
     _LINE_BREAK_CHARS,
+    CompleteSourceUnitAnalysis,
     _is_us_manual_citation_path,
     _nested_outline_marker_spans,
     _qualified_parenthesized_legal_outline_markers,
@@ -202,6 +229,10 @@ from .source_completeness import (
     collect_artifact_numeric_bindings,
     manual_outcome_exception_advice,
     source_states_stated_conversion_result,
+)
+from .start_date_evidence import (
+    StartDateEvidence,
+    start_date_evidence_from_metadata,
 )
 
 logger = logging.getLogger(__name__)
@@ -237,6 +268,48 @@ _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS: ContextVar[tuple[Path, ...]] = Context
 
 
 _SITE_COMPILE = "axiom_encode/harness/validator_pipeline.py:_run_rulespec_compile_check"
+CHECK_SCOPED_REFUSAL_CONTEXT = declare_check(
+    "tests:scoped-refusal/context-unbound",
+    title="Expected refusal has no authenticated execution context",
+    requires=(
+        "A scoped expected-refusal case identifies its source-bound principal "
+        "inside the fresh materialized execution context."
+    ),
+    why=(
+        "An expected-error label alone cannot prove that a source restriction "
+        "rejected the intended principal computation."
+    ),
+    fix=(
+        "Use a supported source-bound refusal case with its required factual "
+        "inputs and query, and validate the whole companion against the "
+        "authenticated release and pinned engine. Do not treat arbitrary errors "
+        "as source evidence."
+    ),
+    cause="encoder_output",
+    gate="tests",
+    site="axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+)
+CHECK_SCOPED_EXECUTION_PAIRS = declare_check(
+    "tests:scoped-execution/incomplete",
+    title="Scoped execution records or refusal pairs are incomplete",
+    requires=(
+        "The complete companion produces fresh typed positive records and "
+        "source-coherent positive/refusal pairs in the same execution context."
+    ),
+    why=(
+        "Incomplete, stale, or unrelated records cannot establish that the "
+        "source condition controls the requested principal output."
+    ),
+    fix=(
+        "Correct the companion's factual cases and matching positive/refusal "
+        "pairs, then rerun the whole module with the authenticated source and "
+        "pinned engine. Keep failed records instead of borrowing older results."
+    ),
+    cause="encoder_output",
+    gate="tests",
+    site="axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+)
+
 CHECK_RULES_ENGINE_COMPILE_FAILED = declare_check(
     "compile:rules-engine/failed",
     title="Axiom rules engine rejected the RuleSpec",
@@ -545,6 +618,19 @@ _LOCAL_REVIEWER_SYSTEM_PATH: tuple[str, ...] = (
 )
 _LOCAL_REVIEWER_CONFIG_DIR_NAMES: tuple[str, ...] = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
 _REVIEWER_UNAVAILABLE = "reviewer_unavailable"
+# The reviewer CLI one thread last started, as (backend, model). A review
+# record names its reviewer from this; nothing reads it to decide a verdict.
+_REVIEWER_CLI_STARTED = threading.local()
+
+
+def _note_reviewer_cli_started(backend: str | None, model: str | None) -> None:
+    _REVIEWER_CLI_STARTED.identity = (
+        None if backend is None else (backend, str(model or ""))
+    )
+
+
+def _reviewer_cli_started() -> tuple[str, str] | None:
+    return getattr(_REVIEWER_CLI_STARTED, "identity", None)
 
 
 def _protected_reviewer_context_active() -> bool:
@@ -684,6 +770,7 @@ def run_claude_code(
             return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
         claude_executable = resolved_claude
         local_environment = _local_reviewer_environment([resolved_claude])
+    _note_reviewer_cli_started("claude", model)
 
     cmd = [
         claude_executable,
@@ -738,13 +825,35 @@ def run_claude_code(
                 env=environment,
                 env_is_final=True,
             )
-        return result.output, result.returncode
+        return _claude_reviewer_reply(result), result.returncode
     except subprocess.TimeoutExpired as exc:
         return f"Timeout after {exc.timeout}s", 1
     except FileNotFoundError:
         return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
     except Exception as e:
         return f"Error: {e}", 1
+
+
+def _claude_reviewer_reply(result: "_SubprocessRunResult") -> str:
+    """Return the text that the reviewer reads from one Claude CLI run.
+
+    The reply of a run that exits 0 is its stdout alone: a warning on stderr
+    is not part of the reply, and only its length is logged. A run that exits
+    non-zero has no reply: the caller refuses it, and gets stdout and stderr
+    together for its error message.
+    """
+    # A result built without stdout (a test double) keeps the joined output.
+    stdout = getattr(result, "stdout", None)
+    if result.returncode != 0 or stdout is None:
+        return result.output
+    stderr_chars = len(result.output) - len(stdout)
+    if stderr_chars > 0:
+        logger.warning(
+            "Reviewer CLI exited 0 and wrote %d characters to stderr; "
+            "the reply is read from stdout only",
+            stderr_chars,
+        )
+    return stdout
 
 
 def _run_codex_reviewer_cli(
@@ -759,6 +868,7 @@ def _run_codex_reviewer_cli(
         if not os.path.isabs(codex_executable):
             resolved_codex = _resolve_local_reviewer_executable(codex_executable)
             if resolved_codex is None:
+                _note_reviewer_cli_started(None, None)
                 return (
                     f"{_REVIEWER_UNAVAILABLE}: no reviewer CLI could start "
                     "(claude and codex were not found on PATH)",
@@ -766,6 +876,10 @@ def _run_codex_reviewer_cli(
                 )
             codex_executable = resolved_codex
         local_environment = _local_reviewer_environment([codex_executable])
+    codex_model = os.environ.get(
+        "AXIOM_ENCODE_REVIEWER_CODEX_MODEL", DEFAULT_OPENAI_MODEL
+    )
+    _note_reviewer_cli_started("codex", codex_model)
     cmd = [
         codex_executable,
         "exec",
@@ -774,7 +888,7 @@ def _run_codex_reviewer_cli(
         "--sandbox",
         "read-only",
         "--model",
-        os.environ.get("AXIOM_ENCODE_REVIEWER_CODEX_MODEL", DEFAULT_OPENAI_MODEL),
+        codex_model,
     ]
     if cwd is not None:
         cmd.extend(["-C", str(cwd)])
@@ -793,12 +907,26 @@ def _run_codex_reviewer_cli(
                 ),
             ),
         )
+        # The read-only sandbox still lets the reviewer read auth.json in its
+        # home. Collect the credential strings before and after the run (a
+        # refresh can rotate them) and strip them from everything kept.
+        if local_environment is None:
+            codex_home = supervisor_codex_home()
+        else:
+            codex_home = local_environment.get("CODEX_HOME") or os.path.join(
+                local_environment["HOME"], ".codex"
+            )
+        secrets = codex_auth_secrets(codex_home)
         if local_environment is None:
             result = _run_subprocess_with_idle_timeout(
                 cmd,
                 timeout=timeout,
                 idle_timeout=idle_timeout,
                 cwd=cwd,
+                # Codex cannot initialize without a home directory. Under the
+                # signing supervisor only its captured, isolated home is
+                # forwarded; the sandbox above keeps the review read-only.
+                include_supervisor_codex_home=True,
             )
         else:
             result = _run_subprocess_with_idle_timeout(
@@ -809,10 +937,18 @@ def _run_codex_reviewer_cli(
                 env=local_environment,
                 env_is_final=True,
             )
-        return _extract_codex_text_output(result.output), result.returncode
+        secrets |= codex_auth_secrets(codex_home)
+        # The event stream of a run that exits 0 is stdout alone: a log line
+        # on stderr is not an event. A failed run has no reply; the caller
+        # refuses it and gets both streams for its error message.
+        stdout = getattr(result, "stdout", None)
+        stream = result.output if result.returncode != 0 or stdout is None else stdout
+        text = _extract_codex_text_output(redact_codex_auth_secrets(stream, secrets))
+        return redact_codex_auth_secrets(text, secrets), result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
     except FileNotFoundError:
+        _note_reviewer_cli_started(None, None)
         return (
             f"{_REVIEWER_UNAVAILABLE}: Reviewer CLIs not found "
             "(missing claude and codex)",
@@ -824,10 +960,15 @@ def _run_codex_reviewer_cli(
 
 @dataclass
 class _SubprocessRunResult:
-    """Captured subprocess output plus exit status."""
+    """Captured subprocess output plus exit status.
+
+    ``output`` is stdout followed by stderr. ``stdout`` is stdout alone, or
+    None when the caller built the result without it.
+    """
 
     output: str
     returncode: int
+    stdout: str | None = None
 
 
 def _sha256_text(text: str | None) -> str | None:
@@ -844,6 +985,7 @@ def _run_subprocess_with_idle_timeout(
     idle_timeout: int,
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
+    include_supervisor_codex_home: bool = False,
     env_is_final: bool = False,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
@@ -877,9 +1019,12 @@ def _run_subprocess_with_idle_timeout(
                     env=(
                         dict(env)
                         if env_is_final and env is not None
-                        else scrub_attestation_signing_keys()
-                        if env is None
-                        else scrub_attestation_signing_keys(env)
+                        else scrub_attestation_signing_keys(
+                            env,
+                            include_supervisor_codex_home=(
+                                include_supervisor_codex_home
+                            ),
+                        )
                     ),
                 )
 
@@ -921,7 +1066,8 @@ def _run_subprocess_with_idle_timeout(
 
                 time.sleep(poll_interval)
 
-            output = stdout_path.read_text() + stderr_path.read_text()
+            stdout = stdout_path.read_text()
+            output = stdout + stderr_path.read_text()
             normalized_output = _normalize_validation_staging_text(
                 output,
                 capture_root,
@@ -930,6 +1076,11 @@ def _run_subprocess_with_idle_timeout(
             return _SubprocessRunResult(
                 output=normalized_output,
                 returncode=process.returncode or 0,
+                stdout=_normalize_validation_staging_text(
+                    stdout,
+                    capture_root,
+                    placeholder=_VALIDATOR_SUBPROCESS_CAPTURE_PLACEHOLDER,
+                ),
             )
     except subprocess.TimeoutExpired:
         raise
@@ -948,34 +1099,68 @@ def _run_subprocess_with_idle_timeout(
         raise RuntimeError(normalized_error) from exc
 
 
-def _extract_codex_text_output(output: str) -> str:
-    """Return the concatenated assistant text from a Codex JSONL stream."""
-    assistant_messages: list[str] = []
-    last_error: str | None = None
+def _unreadable_codex_stream(reason: str, output: str) -> str:
+    """Return text that is never a verdict: the reason, then the stream."""
+    return f"Codex reviewer stream is unreadable ({reason}):\n{output}"
 
-    for line in output.splitlines():
-        stripped = line.strip()
+
+def _extract_codex_text_output(output: str) -> str:
+    """Return the reviewer reply from a Codex JSONL stream.
+
+    The reply is the text of the one agent message of the run. Fails closed:
+    the result is text that the verdict reader cannot read when the stream
+    holds an `error` or a `turn.failed` event, a line that is not a JSON
+    object, no agent message, or more than one agent message with text. A
+    run with a preamble message is unreadable by design: this reader cannot
+    tell a harmless preamble from an earlier verdict in other words.
+    """
+    assistant_messages: list[str] = []
+    errors: list[str] = []
+    malformed = False
+    non_string_text = False
+
+    # A JSONL line ends at a line feed. `str.splitlines` would also break at
+    # U+0085, U+2028 and U+2029, which JSON allows raw inside a string.
+    for line in output.split("\n"):
+        stripped = line.strip(_JSON_WHITESPACE)
         if not stripped:
             continue
         try:
             payload = json.loads(stripped)
         except json.JSONDecodeError:
+            malformed = True
             continue
         if not isinstance(payload, dict):
+            malformed = True
             continue
         payload_type = payload.get("type")
         if payload_type == "item.completed":
-            item = payload.get("item") or {}
-            if item.get("type") == "agent_message" and item.get("text"):
-                assistant_messages.append(item["text"])
-        elif payload_type == "error":
-            last_error = payload.get("message") or "codex exec error"
+            item = payload.get("item")
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                text = item.get("text")
+                if not isinstance(text, str):
+                    non_string_text = True
+                elif text.strip():
+                    assistant_messages.append(text)
+        elif payload_type in ("error", "turn.failed"):
+            detail = payload.get("message") or payload.get("error")
+            errors.append(str(detail or "codex exec error"))
 
-    return (
-        "\n".join(assistant_messages).strip()
-        or with_codex_model_availability_hint(last_error)
-        or output
-    )
+    if errors:
+        return _unreadable_codex_stream(
+            f"error event: {with_codex_model_availability_hint(errors[-1])}", output
+        )
+    if malformed:
+        return _unreadable_codex_stream("a line is not a JSON object", output)
+    if non_string_text:
+        return _unreadable_codex_stream(
+            "an agent message whose text is not a string", output
+        )
+    if len(assistant_messages) != 1:
+        return _unreadable_codex_stream(
+            f"{len(assistant_messages)} agent messages with text, not one", output
+        )
+    return assistant_messages[0].strip()
 
 
 _REVIEW_JSON_KEYS = {
@@ -998,166 +1183,798 @@ def _strip_trailing_json_commas(text: str) -> str:
     return re.sub(r",(\s*[}\]])", r"\1", text)
 
 
+class _DuplicateReviewerJsonKey(ValueError):
+    """A syntactically complete object in reviewer output repeats a key.
+
+    Not a ``json.JSONDecodeError``: no decode path may count it as an
+    ordinary failed decode and go on to read the text another way.
+    """
+
+
+def _unique_reviewer_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateReviewerJsonKey(
+                "Duplicate JSON object key in reviewer output"
+            )
+        result[key] = value
+    return result
+
+
 def _decode_json_object_candidate(text: str) -> dict[str, Any] | None:
     """Decode a JSON object candidate with strict and reviewer-friendly modes."""
-    cleaned = text.strip().replace("\u3000", " ")
+    decoded = _decode_json_object_candidate_extent(text)
+    return None if decoded is None else decoded[0]
+
+
+def _decode_json_object_candidate_extent(
+    text: str,
+) -> tuple[dict[str, Any], int] | None:
+    """Decode a candidate; also return how many characters of it were read.
+
+    A whole-text decode reads all of ``text``. The prefix fallback reads less:
+    the count then ends at the last character of the decoded object, mapped
+    back through the trailing-comma repair, so the rest is known to be unread.
+    """
+    stripped = text.lstrip()
+    lead = len(text) - len(stripped)
+    cleaned = stripped.rstrip().replace("　", " ")
     if not cleaned:
         return None
 
-    variants = [cleaned]
+    removed_commas: list[int] = []
+    variants: list[tuple[str, list[int]]] = [(cleaned, removed_commas)]
     without_trailing_commas = _strip_trailing_json_commas(cleaned)
     if without_trailing_commas != cleaned:
-        variants.append(without_trailing_commas)
+        variants.append(
+            (
+                without_trailing_commas,
+                [match.start() for match in re.finditer(r",(\s*[}\]])", cleaned)],
+            )
+        )
 
-    for variant in variants:
+    for variant, removed in variants:
         for strict in (True, False):
             with contextlib.suppress(json.JSONDecodeError):
-                data = json.loads(variant, strict=strict)
+                data = json.loads(
+                    variant, strict=strict, object_pairs_hook=_unique_reviewer_json_keys
+                )
                 if isinstance(data, dict):
-                    return data
+                    return data, len(text)
 
         for strict in (True, False):
-            decoder = json.JSONDecoder(strict=strict)
+            decoder = json.JSONDecoder(
+                strict=strict, object_pairs_hook=_unique_reviewer_json_keys
+            )
             with contextlib.suppress(json.JSONDecodeError):
-                data, _ = decoder.raw_decode(variant)
+                data, end = decoder.raw_decode(variant)
                 if isinstance(data, dict):
-                    return data
+                    for position in removed:
+                        if position < end:
+                            end += 1
+                    return data, lead + end
 
     return None
 
 
-def _iter_balanced_json_object_snippets(output: str) -> list[str]:
-    """Return brace-balanced object snippets for repair-oriented parsing."""
-    snippets: list[str] = []
-    for start, char in enumerate(output):
-        if char != "{":
-            continue
+@dataclass
+class _ReviewJsonObjectSpan:
+    start: int
+    end: int | None = None
+    review_like: bool = False
+    has_passed: bool = False
 
-        depth = 0
-        in_string = False
-        escaped = False
-        for index in range(start, len(output)):
-            current = output[index]
-            if escaped:
+
+def _skip_json_whitespace(output: str, index: int) -> int:
+    while index < len(output) and output[index].isspace():
+        index += 1
+    return index
+
+
+def _brace_in_string_starts_object(output: str, quote: int) -> bool:
+    """Decide whether `{ "` met inside a string resynchronizes the lexer.
+
+    ``quote`` is the index of the quote after the brace. If valid JSON may
+    continue after that quote as after a closed string (a separator, a closer
+    or the end of the output), the quote closes the current string: the brace
+    was string content. Otherwise the current string is malformed, and the
+    brace starts an object only when the quote opens an actual key: a complete
+    string, with backslash escapes, followed by a colon.
+    """
+    after_quote = _skip_json_whitespace(output, quote + 1)
+    if after_quote >= len(output) or output[after_quote] in ",:}]":
+        return False
+    index = quote + 1
+    while index < len(output):
+        current = output[index]
+        if current == "\\":
+            index += 2
+            continue
+        if current == '"':
+            after_key = _skip_json_whitespace(output, index + 1)
+            return after_key < len(output) and output[after_key] == ":"
+        index += 1
+    return False
+
+
+# Only these can start a JSON object. A failed decode costs time in proportion
+# to its offset, so prose braces are skipped without a decode attempt.
+_JSON_OBJECT_START = re.compile(r'\{[ \t\n\r]*["}]')
+# A failed decode can still cost time in proportion to the output, so the
+# scan refuses an output with more failed starts than any review needs.
+_MAX_UNDECODABLE_JSON_OBJECT_STARTS = 500
+
+
+def _refuse_too_many_undecodable_starts(failed: int) -> None:
+    if failed > _MAX_UNDECODABLE_JSON_OBJECT_STARTS:
+        raise ValueError("Too many undecodable JSON object starts in reviewer output")
+
+
+def _scan_well_formed_json_objects(
+    output: str,
+) -> tuple[list[tuple[int, int, dict[str, Any]]], int]:
+    """Decode every outermost well-formed JSON object, without the lexer.
+
+    Also returns the number of failed decode attempts. Fails closed
+    (ValueError) above a fixed number of them.
+
+    A repeated key is refused, never decoded: the standard decoder keeps the
+    last value, so a later object under the same key would silently replace
+    an earlier one that this check exists to see. The refusal holds for any
+    syntactically complete object at a scanned start, at any depth, also in
+    an array and also when the object around it does not decode.
+    """
+    text = output.replace("\u3000", " ")
+    decoder = json.JSONDecoder(
+        strict=False, object_pairs_hook=_unique_reviewer_json_keys
+    )
+    objects: list[tuple[int, int, dict[str, Any]]] = []
+    failed = 0
+    start = _JSON_OBJECT_START.search(text)
+    while start is not None:
+        position = start.start()
+        try:
+            data, end = decoder.raw_decode(text, position)
+        except _DuplicateReviewerJsonKey:
+            raise
+        except (ValueError, RecursionError):
+            failed += 1
+            _refuse_too_many_undecodable_starts(failed)
+            start = _JSON_OBJECT_START.search(text, position + 1)
+            continue
+        if isinstance(data, dict):
+            objects.append((position, end, data))
+        start = _JSON_OBJECT_START.search(text, max(end, position + 1))
+    return objects, failed
+
+
+def _well_formed_json_objects(output: str) -> list[tuple[int, int, dict[str, Any]]]:
+    """The objects of ``_scan_well_formed_json_objects``."""
+    return _scan_well_formed_json_objects(output)[0]
+
+
+def _decoded_review_verdicts(value: Any, under_review: bool) -> list[dict[str, Any]]:
+    """List verdict objects in decoded JSON with the lexer's nesting rule."""
+    verdicts: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        review = _looks_like_review_json(value)
+        if review and (not under_review or "passed" in value):
+            verdicts.append(value)
+        for child in value.values():
+            verdicts.extend(_decoded_review_verdicts(child, under_review or review))
+    elif isinstance(value, list):
+        for child in value:
+            verdicts.extend(_decoded_review_verdicts(child, under_review))
+    return verdicts
+
+
+def _refuse_verdicts_hidden_from_lexer(
+    output: str,
+    selected: tuple[_ReviewJsonObjectSpan, dict[str, Any] | None] | None,
+    well_formed: list[tuple[int, int, dict[str, Any]]],
+) -> None:
+    """Fail closed when decoded JSON holds a verdict the lexer did not select.
+
+    The lexer tolerates malformed output, so a crafted string can desynchronize
+    it. Well-formed objects need no tolerance: decode them independently and
+    require that their verdicts are exactly the lexer's selection.
+    """
+    found: list[tuple[int, int, dict[str, Any]]] = []
+    for start, end, data in well_formed:
+        inside_selected = (
+            selected is not None
+            and selected[1] is not None
+            and selected[0].start < start < (selected[0].end or len(output))
+        )
+        found.extend(
+            (start, end, verdict)
+            for verdict in _decoded_review_verdicts(data, inside_selected)
+        )
+    if not found:
+        return
+    if len(found) == 1 and selected is not None and selected[1] is not None:
+        start, end, verdict = found[0]
+        span, data = selected
+        with contextlib.suppress(TypeError, ValueError):
+            if start <= span.start < end and json.dumps(
+                data, sort_keys=True
+            ) == json.dumps(verdict, sort_keys=True):
+                return
+    raise ValueError("Multiple reviewer JSON verdict objects in output")
+
+
+def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
+    """Locate physical objects and review keys, including malformed fragments.
+
+    One lexical pass gives a fenced/balanced/repaired view of the same object
+    one identity. Only a plausible JSON object opens a context. A quoted key
+    after a brace also resynchronizes a malformed string: valid JSON strings
+    must escape that quote. Inside a string that holds only for an actual key
+    (a complete string, then a colon) whose opening quote cannot be the
+    closing quote of the current string, so a string value that ends in a
+    brace keeps its object's later keys visible. Escaped JSON examples and
+    empty braces in strings stay within their string. A recognized review key
+    still counts if its value or closing brace is malformed, so a later
+    verdict cannot supersede it.
+    """
+    spans: list[_ReviewJsonObjectSpan] = []
+    stack: list[_ReviewJsonObjectSpan] = []
+    string_start: int | None = None
+    string_owner: _ReviewJsonObjectSpan | None = None
+    escaped = False
+    for index, current in enumerate(output):
+        if current == "{":
+            following = index + 1
+            while following < len(output) and output[following].isspace():
+                following += 1
+            quoted_key = following < len(output) and output[following] == '"'
+            if quoted_key and string_start is not None:
+                quoted_key = _brace_in_string_starts_object(output, following)
+            empty_object = following < len(output) and output[following] == "}"
+            if quoted_key or (empty_object and string_start is None):
+                span = _ReviewJsonObjectSpan(index)
+                spans.append(span)
+                stack.append(span)
+                string_start = None
+                string_owner = None
                 escaped = False
                 continue
-            if current == "\\":
-                escaped = True
-                continue
-            if current == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if current == "{":
-                depth += 1
-            elif current == "}":
-                depth -= 1
-                if depth == 0:
-                    snippets.append(output[start : index + 1])
-                    break
-    return snippets
-
-
-def _iter_terminal_object_brace_repairs(output: str) -> list[str]:
-    """Repair reviewer output that is missing only the final top-level brace."""
-    snippets: list[str] = []
-    for start, char in enumerate(output):
-        if char != "{":
-            continue
-
-        stack: list[str] = []
-        in_string = False
-        escaped = False
-        balanced_before_end = False
-        invalid = False
-        for index in range(start, len(output)):
-            current = output[index]
+        if string_start is not None:
             if escaped:
                 escaped = False
-                continue
-            if current == "\\":
+            elif current == "\\":
                 escaped = True
-                continue
-            if current == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if current == "{":
-                stack.append("}")
-            elif current == "[":
-                stack.append("]")
-            elif current in "}]":
-                if not stack or stack[-1] != current:
-                    invalid = True
-                    break
-                stack.pop()
-                if not stack:
-                    balanced_before_end = True
-                    break
-
-        if invalid or balanced_before_end or in_string or stack != ["}"]:
+            elif current == '"':
+                following = index + 1
+                while following < len(output) and output[following].isspace():
+                    following += 1
+                if (
+                    string_owner is not None
+                    and following < len(output)
+                    and output[following] == ":"
+                ):
+                    with contextlib.suppress(json.JSONDecodeError):
+                        key = json.loads(output[string_start : index + 1], strict=False)
+                        if key in _REVIEW_JSON_KEYS:
+                            string_owner.review_like = True
+                        if key == "passed":
+                            string_owner.has_passed = True
+                string_start = None
+                string_owner = None
             continue
+        if current == "}" and stack:
+            stack.pop().end = index + 1
+        elif current == '"' and stack:
+            string_start = index
+            string_owner = stack[-1]
+    return spans
 
-        candidate = output[start:].strip()
-        candidate = re.sub(r"\s*```\s*$", "", candidate).strip()
-        snippets.append(candidate + "}")
 
-    return snippets
+# A quote that an even number of backslashes precedes is not escaped.
+_UNESCAPED = r"(?<!\\)(?:\\\\)*"
+# Each piece is linear: no nested unbounded repeat, a comment cannot span a
+# comment end, and a line comment cannot span a line end.
+# Space as lenient parsers skip it: U+FEFF is not whitespace for `\s`.
+_LENIENT_SPACE = r"[\s﻿]*"
+_BLOCK_COMMENT = r"/\*(?:[^*]|\*(?!/)){0,200}\*/"
+_LINE_COMMENT = r"(?:\#|//)[^\n]{0,200}\n"
+# Between a key and its colon: space and block comments.
+_KEY_COLON = _LENIENT_SPACE + "(?:" + _BLOCK_COMMENT + _LENIENT_SPACE + "){0,8}:"
+_REVIEW_KEY_TOKEN_OUTSIDE_VERDICT = re.compile(
+    "|".join(
+        (
+            # A JSON key. An escaped example inside a string does not count.
+            _UNESCAPED
+            + '"(?:'
+            + "|".join(sorted(_REVIEW_JSON_KEYS))
+            + ')"'
+            + _KEY_COLON,
+            # `passed` in spellings that neither the lexer nor the decoder
+            # reads: another case, single or curly quotes, or no quotes.
+            _UNESCAPED + '(?i:"passed")' + _KEY_COLON,
+            _UNESCAPED + "(?i:'passed')" + _KEY_COLON,
+            "[‘’“”](?i:passed)[‘’“”]" + _KEY_COLON,
+            # Unquoted: first in its object, or first on its line after a
+            # comma (a line comment may end that line), with optional block
+            # and line comments before it.
+            r"(?:\{|,[^\S\n]*(?:\n|"
+            + _LINE_COMMENT
+            + "))"
+            + _LENIENT_SPACE
+            + "(?:(?:"
+            + _BLOCK_COMMENT
+            + "|"
+            + _LINE_COMMENT
+            + ")"
+            + _LENIENT_SPACE
+            + "){0,8}(?i:passed)"
+            + _KEY_COLON,
+        )
+    )
+)
+# A double-quoted key: up to 160 characters or escapes, more than the longest
+# review key written as \uXXXX throughout.
+_ESCAPED_KEY_TOKEN = re.compile(
+    _UNESCAPED + r'("(?:[^"\\\n]|\\.){0,160}")' + _KEY_COLON, re.DOTALL
+)
+# A key in single or curly quotes, or a bare word that opens an object. No
+# JSON reader accepts these; a lenient reader does.
+_LOOSE_KEY_TOKEN = re.compile(
+    "(?:"
+    + _UNESCAPED
+    + r"'([^'\n]{0,160})'"
+    + "|[‘’“”]([^‘’“”\n]{0,160})[‘’“”]"
+    + r"|\{"
+    + _LENIENT_SPACE
+    + r"([^\s\"'‘’“”{}\[\],:]{1,160})"
+    + ")"
+    + _KEY_COLON
+)
+
+
+_REVIEW_KEY_OUTSIDE_VERDICT_ERROR = (
+    "Reviewer JSON key outside the verdict object in output"
+)
+_COMPETING_VERDICT_KEY_ERROR = "Competing spelling of a reviewer verdict key in output"
+# The keys that decide a verdict: the pass itself, the score (a pass needs
+# 7.0) and the blocking issues (one makes a pass invalid).
+_VERDICT_KEYS = ("passed", "score", "blocking_issues")
+_VERDICT_KEY_LETTERS = {
+    key: "".join(character for character in key if character.isalnum())
+    for key in _VERDICT_KEYS
+}
+
+
+def _is_competing_verdict_key(key: object) -> bool:
+    """Return whether ``key`` reads as a verdict key without being exactly it.
+
+    The verdict keys are ``passed``, ``score`` and ``blocking_issues``.
+    Compared after compatibility normalization and case folding, on letters
+    and digits only, so another case, a full-width form, added spaces,
+    punctuation, combining marks and invisible characters all count. A
+    letter outside ASCII stands for any letter: a look-alike from another
+    script counts without a table of look-alikes. Fails closed: a key of
+    the same length in another script is refused too.
+    """
+    if not isinstance(key, str) or key in _VERDICT_KEYS:
+        return False
+    folded = unicodedata.normalize("NFKC", key).casefold()
+    letters = [character for character in folded if character.isalnum()]
+    return any(
+        len(letters) == len(expected_letters)
+        and all(
+            character == expected or not character.isascii()
+            for character, expected in zip(letters, expected_letters, strict=True)
+        )
+        for expected_letters in _VERDICT_KEY_LETTERS.values()
+    )
+
+
+def _has_review_key_token(text: str) -> bool:
+    if _REVIEW_KEY_TOKEN_OUTSIDE_VERDICT.search(text):
+        return True
+    for match in _ESCAPED_KEY_TOKEN.finditer(text):
+        token = match.group(1)
+        key: object = token[1:-1]
+        with contextlib.suppress(ValueError):
+            key = json.loads(token, strict=False)
+        if isinstance(key, str) and (
+            key in _REVIEW_JSON_KEYS
+            or key.casefold() == "passed"
+            or _is_competing_verdict_key(key)
+        ):
+            return True
+        # A token with a malformed escape still reads as its raw text.
+        if _is_competing_verdict_key(token[1:-1]):
+            return True
+    return any(
+        _is_competing_verdict_key(next(group for group in match.groups() if group))
+        for match in _LOOSE_KEY_TOKEN.finditer(text)
+        if any(match.groups())
+    )
+
+
+def _refuse_review_keys_outside_verdict(output: str, start: int, end: int) -> None:
+    """Fail closed when text outside the decoded verdict holds a review key.
+
+    ``output[start:end]`` is what the decoder read as the verdict (or the
+    well-formed object around it): there, everything is a known key or string
+    content. Any review key token elsewhere belongs to something else: a
+    second verdict, or a fragment that the lexer and the decoder could not
+    read. The scan needs no string state and no decoding, so damage before a
+    key (an odd quote, a string that ends in a backslash) cannot hide it.
+
+    Deliberate policy: prose outside the verdict that quotes a key is refused
+    too, for example `I set "passed": true because ...` before the object,
+    `Schema: { passed: <boolean> }`, or `checks run: 4,` then a line
+    `passed: 4`. The scan cannot tell such prose from a second verdict.
+
+    A key in double, single or curly quotes, or a bare word that opens an
+    object, also counts when it is another spelling of a verdict key
+    (`_is_competing_verdict_key`): an object that only a lenient reader
+    accepts (`{"passed ": false,}`) is never decoded, so its keys are read
+    here.
+
+    Between a counted key and its colon the scan skips whitespace, U+FEFF
+    and `/* */` comments. Before an unquoted `passed` it also skips `#` and
+    `//` line comments.
+
+    Known limits, not detected: a key whose quotes are backslash-escaped
+    outside any string (`{\\"passed\\": false}`); an unquoted `passed:` after
+    a comma on the same line; single-quoted or unquoted exact keys other than
+    `passed` (`{'score': 1}`), and an unquoted other spelling of a verdict
+    key that does not open its object; a comment longer than 200 characters, more than eight comments
+    in a row, or a line comment between a quoted key and its colon; an
+    invisible character other than U+FEFF between a key and its colon.
+    """
+    if _has_review_key_token(output[:start]) or _has_review_key_token(output[end:]):
+        # Its own message: the output may hold one object and a key in prose.
+        raise ValueError(_REVIEW_KEY_OUTSIDE_VERDICT_ERROR)
+
+
+def _refuse_competing_verdict_keys(values: Iterable[Any]) -> None:
+    """Fail closed when a decoded object key is another spelling of a verdict key.
+
+    The raw key scan covers the text outside the decoded verdict and its
+    well-formed wrapper, including objects that only a lenient reader
+    accepts. This covers the inside: every key of the verdict and of every
+    well-formed object of the output, at any depth. One verdict must have
+    one spelling of each verdict key, so `{"score": 9, "Passed": false}`,
+    `{"passed": true, "score": 9, "Blocking_Issues": ["bad"]}` and a wrapper
+    that holds `{"Passed": false}` beside the verdict are refused.
+    Iterative: the depth of decoded JSON is not bounded by this function.
+    """
+    pending = list(values)
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if _is_competing_verdict_key(key):
+                    raise ValueError(_COMPETING_VERDICT_KEY_ERROR)
+                pending.append(child)
+        elif isinstance(value, list):
+            pending.extend(value)
 
 
 def _extract_json_object(output: str) -> dict[str, Any]:
-    """Extract the reviewer JSON object from model output."""
-    candidates: list[dict[str, Any]] = []
-    fenced_blocks = re.findall(
-        r"```(?:json)?\s*(.*?)```",
-        output,
-        flags=re.DOTALL | re.IGNORECASE,
+    """Extract one physical reviewer verdict; refuse multiple occurrences.
+
+    Three independent checks refuse a second verdict: the tolerant lexer, the
+    decode of every well-formed object, and the scan for raw review key
+    tokens outside the verdict. The last one holds when the others have lost
+    the string state. A fourth check refuses another spelling of a verdict
+    key (``passed``, ``score``, ``blocking_issues``) inside decoded JSON,
+    where the raw scan does not look.
+    """
+    data, start, end, well_formed = _select_reviewer_json_object(output)
+    _refuse_review_keys_outside_verdict(output, start, end)
+    _refuse_competing_verdict_keys([data, *(item[2] for item in well_formed)])
+    return data
+
+
+# The JSON object that each reviewer prompt asks for: its keys and the type
+# of each value. A verdict holds no other key and no other value type.
+# `_GENERALIST_REVIEW_JSON_FORMAT` states the first schema; `_REVIEW_JSON_FORMAT`
+# and the inline prompt of `_run_reviewer` state the second one.
+_SCORE, _PASSED, _TEXT, _TEXT_LIST = "number", "boolean", "string", "string list"
+_GENERALIST_REVIEW_SCHEMA: Mapping[str, str] = MappingProxyType(
+    {
+        "score": _SCORE,
+        "passed": _PASSED,
+        "blocking_issues": _TEXT_LIST,
+        "non_blocking_issues": _TEXT_LIST,
+        "reasoning": _TEXT,
+    }
+)
+_REVIEW_SCHEMA: Mapping[str, str] = MappingProxyType(
+    {"score": _SCORE, "passed": _PASSED, "issues": _TEXT_LIST, "reasoning": _TEXT}
+)
+_JSON_WHITESPACE = " \t\n\r"
+# The whole of a fenced output: one code fence, plain or marked `json`, with
+# the body on its own lines.
+_REVIEWER_JSON_FENCE = re.compile(
+    r"```(?:json)?[ \t]*\r?\n(?P<body>.*)\r?\n[ \t]*```", re.DOTALL | re.IGNORECASE
+)
+
+
+def _reviewer_schema(reviewer_type: str) -> Mapping[str, str]:
+    """Return the verdict schema that the prompt of ``reviewer_type`` asks for."""
+    if reviewer_type == GENERALIST_REVIEWER_NAME:
+        return _GENERALIST_REVIEW_SCHEMA
+    return _REVIEW_SCHEMA
+
+
+def _reviewer_schema_keys(reviewer_type: str) -> frozenset[str]:
+    """Return the verdict keys that the prompt of ``reviewer_type`` asks for."""
+    return frozenset(_reviewer_schema(reviewer_type))
+
+
+def _has_reviewer_schema_type(value: Any, kind: str) -> bool:
+    """Return whether a decoded JSON value has exactly the type ``kind``."""
+    if kind == _PASSED:
+        return type(value) is bool
+    if kind == _SCORE:
+        # `true`, `"9"` and `null` are not a number. The caller refuses a
+        # number that overflows to infinity (`1e309`).
+        return type(value) in (int, float)
+    if kind == _TEXT:
+        return type(value) is str
+    return type(value) is list and all(type(item) is str for item in value)
+
+
+def _refuse_json_constant(name: str) -> Any:
+    raise ValueError(f"Reviewer output holds {name}, which is not JSON")
+
+
+def _drop_trailing_json_commas(text: str) -> str:
+    """Drop a comma that stands between a value and the closer of its container.
+
+    The one repair of the verdict reader. A comma inside a string stays, and
+    so does a comma that follows no value (`[,]`, `[1,,]`): that is not a
+    trailing comma, and the text stays invalid JSON.
+    """
+    kept: list[str] = []
+    in_string = escaped = False
+    last = ""
+    for index, current in enumerate(text):
+        if in_string:
+            kept.append(current)
+            if escaped:
+                escaped = False
+            elif current == "\\":
+                escaped = True
+            elif current == '"':
+                in_string = False
+                last = current
+            continue
+        if current == ",":
+            following = text[index + 1 :].lstrip(_JSON_WHITESPACE)[:1]
+            if following and following in "}]" and last and last not in "[{,:":
+                continue
+        if current == '"':
+            in_string = True
+        if current not in _JSON_WHITESPACE:
+            last = current
+        kept.append(current)
+    return "".join(kept)
+
+
+def _decode_whole_reviewer_output(output: str) -> Any:
+    """Decode the whole reviewer output as one JSON value, or raise ValueError.
+
+    Two shapes are read, after one leading byte order mark and surrounding
+    JSON whitespace (space, tab, line feed, carriage return) are dropped: the
+    JSON value alone, or one code fence (plain or marked `json`) that holds
+    the JSON value alone. Nothing may stand before or after it: no prose, no
+    second fence, no second value.
+
+    The value is strict JSON, with one repair: a trailing comma before a
+    closer is dropped. Refused: a repeated key, `NaN` and `Infinity`, a raw
+    control character in a string (so a string cannot hold a line that looks
+    like a fence), and whitespace that JSON does not define.
+    """
+    text = output.removeprefix("\ufeff").strip(_JSON_WHITESPACE)
+    fenced = _REVIEWER_JSON_FENCE.fullmatch(text)
+    if fenced is not None:
+        text = fenced.group("body").strip(_JSON_WHITESPACE)
+    try:
+        return json.loads(
+            _drop_trailing_json_commas(text),
+            object_pairs_hook=_unique_reviewer_json_keys,
+            parse_constant=_refuse_json_constant,
+        )
+    except RecursionError as error:
+        raise ValueError("Reviewer output nests too deep") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "Reviewer output is not one JSON value alone or in one code fence"
+        ) from error
+
+
+def _read_reviewer_verdict(output: str, reviewer_type: str) -> dict[str, Any]:
+    """Return the verdict of a reviewer output, or raise ValueError.
+
+    A verdict is exactly one top-level JSON object that is the whole output
+    (see ``_decode_whole_reviewer_output`` for the two shapes), with no key
+    outside the schema that the prompt of ``reviewer_type`` asks for, a value
+    of the schema type under each key, and a ``score``. The types: ``passed``
+    is a JSON boolean, ``score`` a JSON number, ``reasoning`` a string,
+    and each issue list a list of strings.
+
+    Not a verdict, so the caller records an unreadable review: an array, an
+    object under another key, two objects, text beside the object, an object
+    that the output does not close, an object without ``score``, an object
+    with any other key (for example `pass`, `failed` or `verdict` beside
+    `passed`), and an object or a list where the schema has a string (for
+    example an issue written as an object). The checks of
+    ``_extract_json_object`` run first and still hold.
+    """
+    # A second, independent reading. No test input is known that it refuses
+    # and the strict typed reading below accepts; it stays as a second guard.
+    _extract_json_object(output)
+    data = _decode_whole_reviewer_output(output)
+    if type(data) is not dict:
+        raise ValueError("Reviewer verdict is not the top-level JSON object of output")
+    schema = _reviewer_schema(reviewer_type)
+    for key, value in data.items():
+        if key not in schema:
+            raise ValueError(
+                "Reviewer JSON key outside the schema of the review prompt"
+            )
+        if not _has_reviewer_schema_type(value, schema[key]):
+            raise ValueError(f"Reviewer {key} must be a JSON {schema[key]}")
+    if "score" not in data:
+        raise ValueError("Reviewer verdict has no score")
+    return data
+
+
+def _legacy_generalist_reviewer_passed(
+    data: Mapping[str, Any], *, score: float, blocking_issues: list[Any]
+) -> bool:
+    """Return the eval-scoring verdict of a generalist review.
+
+    Legacy fallback, kept for eval scoring only: without a ``passed`` key the
+    verdict comes from the absence of blocking issues, or else from the
+    score. ``ValidationResult.passed`` and the eval metrics carry this value.
+    It is not the reviewer's explicit verdict, and the generalist review
+    record does not accept it as one: see ``_explicit_reviewer_passed``.
+    """
+    if "passed" in data:
+        passed = bool(data["passed"])
+    elif "blocking_issues" in data:
+        passed = len(blocking_issues) == 0
+    else:
+        passed = score >= 7.0
+    return passed and not blocking_issues
+
+
+def _explicit_reviewer_passed(data: Mapping[str, Any]) -> bool | None:
+    """Return the reviewer's own boolean ``passed``, or None without one.
+
+    Exact key and exact type. This value alone can make a generalist review
+    record ``passed``; a verdict inferred from the score or from the absence
+    of blocking issues (the legacy eval fallback in ``_run_reviewer``) never
+    can.
+    """
+    value = data.get("passed")
+    return value if type(value) is bool else None
+
+
+def _decode_review_span(
+    output: str, span: _ReviewJsonObjectSpan
+) -> tuple[dict[str, Any], int] | None:
+    """Decode one lexer span; return its data and the end of what was read."""
+    candidate = output[span.start : span.end]
+    if span.end is not None:
+        decoded = _decode_json_object_candidate_extent(candidate)
+        return None if decoded is None else (decoded[0], span.start + decoded[1])
+    # The candidate starts at its brace, so offsets in the body are offsets
+    # in the output. Reading the appended brace means reading to the end:
+    # only whitespace and a closing fence were dropped.
+    body = re.sub(r"\s*```\s*$", "", candidate.strip()).strip()
+    decoded = _decode_json_object_candidate_extent(body + "}")
+    if decoded is None:
+        return None
+    data, consumed = decoded
+    return data, len(output) if consumed > len(body) else span.start + consumed
+
+
+def _select_reviewer_json_object(
+    output: str,
+) -> tuple[dict[str, Any], int, int, list[tuple[int, int, dict[str, Any]]]]:
+    """Return the verdict and the extent of the output that decoded as it.
+
+    Also returns every well-formed object of the output, for checks of the
+    decoded keys.
+    """
+    spans = _review_json_object_spans(output)
+    # Every object here decoded with unique keys (a repeated key refuses the
+    # output), so an extent below never covers text that was not fully read.
+    well_formed, failed_starts = _scan_well_formed_json_objects(output)
+
+    def extent(span: _ReviewJsonObjectSpan, end: int) -> tuple[int, int]:
+        # A well-formed object around the selection is decoded JSON too, and
+        # the decode check has shown that it holds no other verdict.
+        for outer_start, outer_end, _data in well_formed:
+            if outer_start <= span.start < outer_end:
+                return min(outer_start, span.start), max(outer_end, end)
+        return span.start, end
+
+    reviews: list[tuple[_ReviewJsonObjectSpan, dict[str, Any] | None]] = []
+    review_end = 0
+    for span in spans:
+        if not span.review_like:
+            continue
+        # Nested scores/details may be metadata, but a second explicit
+        # `passed` object is another verdict even inside a decoded wrapper.
+        # An undecodable fragment cannot hide a later object.
+        if any(
+            data is not None
+            and parent.start < span.start < (parent.end or len(output))
+            and not span.has_passed
+            for parent, data in reviews
+        ):
+            continue
+        if reviews:
+            raise ValueError("Multiple reviewer JSON verdict objects in output")
+        decoded = _decode_review_span(output, span)
+        reviews.append((span, None if decoded is None else decoded[0]))
+        review_end = 0 if decoded is None else decoded[1]
+    _refuse_verdicts_hidden_from_lexer(
+        output, reviews[0] if reviews else None, well_formed
     )
-    for block in fenced_blocks:
-        data = _decode_json_object_candidate(block)
-        if data is not None:
-            candidates.append(data)
+    if reviews:
+        span, data = reviews[0]
+        if data is None or not _looks_like_review_json(data):
+            raise ValueError("Malformed reviewer JSON verdict object")
+        return (data, *extent(span, review_end), well_formed)
 
-    for snippet in _iter_balanced_json_object_snippets(output):
-        data = _decode_json_object_candidate(snippet)
-        if data is not None:
-            candidates.append(data)
-
-    for snippet in _iter_terminal_object_brace_repairs(output):
-        data = _decode_json_object_candidate(snippet)
-        if data is not None:
-            candidates.append(data)
-
-    for data in candidates:
-        if _looks_like_review_json(data):
-            return data
-    if candidates:
-        return candidates[0]
+    # No review key anywhere. Each failed span decode can cost time in
+    # proportion to the output, so these attempts share the budget of the
+    # well-formed scan.
+    for span in spans:
+        decoded = _decode_review_span(output, span)
+        if decoded is not None:
+            return (decoded[0], *extent(span, decoded[1]), well_formed)
+        failed_starts += 1
+        _refuse_too_many_undecodable_starts(failed_starts)
 
     raise ValueError("No JSON found in output")
 
 
-_REVIEW_JSON_FORMAT = """
+# One sentence, the same in every reviewer prompt: the shape that
+# `_read_reviewer_verdict` reads.
+_REVIEW_REPLY_SHAPE = (
+    "Your whole reply must be exactly one JSON object with exactly these keys: "
+    "no text before or after it and no other key. `score` is a number, `passed` "
+    "is true or false, every issue is one string and `reasoning` is one string. "
+    "One ```json code fence around the object is allowed."
+)
+
+_REVIEW_JSON_FORMAT = f"""
 Output your review as JSON:
-{
+{{
   "score": <float 1-10>,
   "passed": <boolean>,
   "issues": ["issue1", "issue2"],
   "reasoning": "<brief explanation>"
-}
+}}
+
+{_REVIEW_REPLY_SHAPE}
 """
 
-_GENERALIST_REVIEW_JSON_FORMAT = """
+_GENERALIST_REVIEW_JSON_FORMAT = f"""
 Output your review as JSON:
-{
+{{
   "score": <float 1-10>,
   "passed": <boolean>,
   "blocking_issues": ["issue1", "issue2"],
   "non_blocking_issues": ["issue3", "issue4"],
   "reasoning": "<brief explanation>"
-}
+}}
+
+{_REVIEW_REPLY_SHAPE}
 
 Use `passed: true` when the encoding is safe to promote even if there are minor cleanup notes.
 Only place substantive statutory-fidelity defects in `blocking_issues`.
@@ -20021,7 +20838,7 @@ def repair_formula_let_bindings(content: str) -> tuple[str, list[str]]:
 
 
 _FORMULA_LET_BINDING_PATTERN = re.compile(
-    r"^(?P<indent>\s*)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?!=)(?P<expr>.*)$"
+    r"^(?P<indent>\s*)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=(?![=>])\s*(?P<expr>.*)$"
 )
 
 
@@ -24221,10 +25038,65 @@ def _mask_person_resource_type_description(text: str) -> str:
     return "".join(characters)
 
 
+_TABLE_INSTRUCTION_SPACE = r"(?:[ \t]|\r?\n(?![ \t]*\r?\n))+"
+_FAMILY_EXPENSE_TABLE_INSTRUCTION = re.compile(
+    r"(?:\A|(?<=\n\n)|(?<=\r\n\r\n))"
+    + _TABLE_INSTRUCTION_SPACE.join(
+        (
+            "If",
+            "applicable,",
+            "complete",
+            "the",
+            "following",
+            "table",
+            "and",
+            "include",
+            "all",
+            "of",
+            "your",
+            r"(?P<modifier>family)'s",
+            "eligible",
+            "physical",
+            "activity",
+            r"expenses\.",
+        )
+    )
+    + r"(?=[ \t]*(?:\Z|\r?\n[ \t]*\r?\n))",
+    flags=re.IGNORECASE,
+)
+
+
+def _mask_family_expense_table_instruction(text: str) -> str:
+    """Distinguish the expenses' family from an eligibility test's subject.
+
+    Only the complete instruction paragraph is recognized, and only when it is
+    not colon-led and the following text does not open with a listed
+    qualifier or condition word. Qualifying prose that opens otherwise is not
+    detected here; it stays in the text for condition analysis. This removes a
+    false scope inference; it does not assign a Person actor or establish
+    applicability, eligibility, or compliance with the instruction.
+    """
+    characters = list(text)
+    for match in _FAMILY_EXPENSE_TABLE_INSTRUCTION.finditer(text):
+        # Blank lines do not sever a colon-led instruction or its qualification.
+        if text[: match.start()].rstrip().endswith(":") or re.match(
+            r"(?:unless|except|provided|providing|subject\s+to|but|however|only|if|when"
+            r"|once|until|assuming"
+            r"|where|on\s+condition|conditional|as\s+long\s+as|so\s+long\s+as"
+            r"|in\s+the\s+event|to\s+the\s+extent)\b",
+            text[match.end() :].lstrip(),
+            flags=re.IGNORECASE,
+        ):
+            continue
+        start, end = match.span("modifier")
+        characters[start:end] = " " * (end - start)
+    return "".join(characters)
+
+
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
     classification_text = _mask_person_resource_type_description(
-        _mask_household_filing_statuses(text)
+        _mask_family_expense_table_instruction(_mask_household_filing_statuses(text))
     )
     person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
     unit_scoped = (
@@ -24241,7 +25113,7 @@ def _classify_source_scope(text: str) -> str | None:
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
     classification_text = _mask_person_resource_type_description(
-        _mask_household_filing_statuses(text)
+        _mask_family_expense_table_instruction(_mask_household_filing_statuses(text))
     )
     if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text):
         return "taxunit"
@@ -25585,6 +26457,78 @@ _NUMERIC_DERIVED_DTYPES = {
     "number",
     "rate",
 }
+# Corpus document class names that a deferral can copy into its target root
+# (`us-az:manuals/...` for `us-az/manual/...`); none is a RuleSpec module root.
+_CORPUS_CLASS_ROOT_TOKENS = frozenset(
+    {
+        "form",
+        "forms",
+        "guidance",
+        "manual",
+        "manuals",
+        "policy",
+        "regulation",
+        "statute",
+    }
+)
+CHECK_DEFERRED_OUTPUT_TARGET_NOT_ABSOLUTE = declare_check(
+    "deferred-outputs/target-not-absolute",
+    title="Deferred output is not an absolute RuleSpec output target",
+    requires=(
+        "Each `module.deferred_outputs[].output` is "
+        "`<jurisdiction>:<root>/<path>#<output>` with the root `legislation`, "
+        "`policies`, `regulations` or `statutes`."
+    ),
+    why=(
+        "A deferral records which output is still missing so that a later "
+        "encode can supply it. A target outside the RuleSpec module roots names "
+        "no module, so nobody can find or close the gap."
+    ),
+    fix=(
+        "Write the deferred output under the module's own RuleSpec target, the "
+        "prefix that its companion tests use, and add `#<output>`. Manual, "
+        "guidance, policy and form sources are encoded under `policies/`, not "
+        "`manuals/` or `forms/`."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site="axiom_encode/harness/validator_pipeline.py:find_deferred_output_issues",
+)
+
+
+def _deferred_output_module_target(
+    output: str,
+    module: Mapping[str, Any],
+) -> tuple[str, str] | None:
+    """Return the copied corpus class root and this module's own deferral target.
+
+    The target comes from `module.source_verification.corpus_citation_path`,
+    as the complete-source prompt renders it, so it carries no branch segment
+    that the source does not print.
+    """
+
+    root = output.partition(":")[2].partition("/")[0]
+    symbol = output.partition("#")[2].strip()
+    source_verification = module.get("source_verification")
+    corpus_citation_path = (
+        source_verification.get("corpus_citation_path")
+        if isinstance(source_verification, dict)
+        else None
+    )
+    if (
+        root not in _CORPUS_CLASS_ROOT_TOKENS
+        or not symbol
+        or not isinstance(corpus_citation_path, str)
+    ):
+        return None
+    # Imported here: evals imports this module.
+    from axiom_encode.harness.evals import _complete_source_deferral_anchor
+
+    target = f"{_complete_source_deferral_anchor(corpus_citation_path)}#{symbol}"
+    target_ref = _parse_rulespec_target(target)
+    if target_ref is None or target_ref.symbol is None:
+        return None
+    return root, target
 
 
 def find_deferred_output_issues(content: str) -> list[str]:
@@ -25618,9 +26562,27 @@ def find_deferred_output_issues(content: str) -> list[str]:
         output = str(record.get("output") or "").strip()
         output_ref = _parse_rulespec_target(output) if output else None
         if output_ref is None or output_ref.symbol is None:
+            corrected = _deferred_output_module_target(output, module)
+            root_hint = (
+                f" `{corrected[0]}/` is a corpus document class, not a RuleSpec "
+                f"module root. Use this module's own target `{corrected[1]}`, and "
+                "add a branch segment only for a marker that the source prints."
+                if corrected
+                else ""
+            )
             issues.append(
-                f"{label}.output must use an absolute RuleSpec output target "
-                "such as `us:statutes/26/63/f#additional_amount`."
+                ValidationIssue(
+                    f"{label}.output must use an absolute RuleSpec output target "
+                    f"such as `us:statutes/26/63/f#additional_amount`.{root_hint}",
+                    check=CHECK_DEFERRED_OUTPUT_TARGET_NOT_ABSOLUTE,
+                    subject=IssueSubject(field=f"{label}.output"),
+                    expected=(
+                        corrected[1]
+                        if corrected
+                        else "<jurisdiction>:<root>/<path>#<output>"
+                    ),
+                    found=output or "<empty output>",
+                )
             )
 
         reason = str(record.get("reason") or "").strip()
@@ -33353,6 +34315,8 @@ def _formula_uses_cross_reference_base_mechanics(
 def find_test_input_assignment_issues(
     content: str,
     test_cases: Any,
+    *,
+    execution_capture: Any = None,
 ) -> list[str]:
     """Require tests to assign every local factual input used by formulas."""
     if not isinstance(test_cases, list):
@@ -33457,8 +34421,31 @@ def find_test_input_assignment_issues(
         if not isinstance(test_case, dict):
             continue
         test_name = str(test_case.get("name") or f"case {index}").strip()
+        selected_output_names = None
+        if "expected_refusal" in test_case:
+            from .scoped_execution import refusal_target
+
+            target = (
+                refusal_target(
+                    execution_capture,
+                    test_case,
+                    index,
+                )
+                if execution_capture is not None
+                else None
+            )
+            if target is None:
+                issues.append(
+                    ValidationIssue(
+                        f"Test case `{test_name}` lacks authenticated refusal context.",
+                        check=CHECK_SCOPED_REFUSAL_CONTEXT,
+                    )
+                )
+                continue
+            selected_output_names = (target,)
         required_inputs = _required_inputs_for_test_outputs(
             test_case.get("output"),
+            selected_output_names=selected_output_names,
             symbol_inputs=symbol_inputs,
             symbol_dependencies=symbol_dependencies,
             symbol_versions=symbol_versions,
@@ -33534,12 +34521,15 @@ def _required_inputs_for_test_outputs(
     symbol_dependencies: dict[str, set[str]],
     symbol_versions: dict[str, tuple[_SymbolInputDependencyVersion, ...] | None],
     period_bounds: tuple[date, date] | None,
+    selected_output_names: tuple[str, ...] | None = None,
 ) -> set[str]:
-    if not isinstance(outputs, dict):
+    if selected_output_names is None and not isinstance(outputs, dict):
         return set().union(*symbol_inputs.values()) if symbol_inputs else set()
 
     required: set[str] = set()
-    for output_name in outputs:
+    for output_name in (
+        outputs if selected_output_names is None else selected_output_names
+    ):
         fragment = _test_reference_fragment(output_name)
         if fragment in symbol_inputs:
             required.update(
@@ -36063,6 +37053,10 @@ class ValidationResult:
     raw_output: Optional[str] = None
     prompt_sha256: Optional[str] = None
     details: dict[str, Any] = field(default_factory=dict)
+    # Findings of checks declared ``enforcement="advisory"`` (see
+    # ``axiom_encode.checks``). They are recorded and shown to the reviewer;
+    # ``passed``, ``issues`` and ``error`` hold blocking findings only.
+    advisory_issues: list[str] = field(default_factory=list)
 
 
 def _normalize_validation_staging_text(
@@ -36792,6 +37786,9 @@ class ValidatorPipeline:
             return text
 
         result.issues = [map_issue_text(issue, normalize) for issue in result.issues]
+        result.advisory_issues = [
+            map_issue_text(issue, normalize) for issue in result.advisory_issues
+        ]
         if result.error is not None:
             result.error = normalize(result.error)
         if result.raw_output is not None:
@@ -37012,8 +38009,46 @@ class ValidatorPipeline:
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
-        if not self.require_complete_source_unit:
+        completeness = self._complete_source_unit_analysis(
+            content,
+            validation_source_texts=validation_source_texts,
+            test_cases=test_cases,
+            rules_file=rules_file,
+            proof_source_texts=proof_source_texts,
+            execution_evidence=execution_evidence,
+            local_relation_context=local_relation_context,
+        )
+        if completeness is None:
             return []
+        # Reported beside the CI result for the admission score; a result that
+        # carries no counts (a stubbed analyzer) records none.
+        recall = {
+            key: getattr(completeness, attribute, None)
+            for key, attribute in (
+                ("total", "source_numeric_occurrence_count"),
+                ("covered", "covered_source_numeric_occurrence_count"),
+                ("missing", "missing_source_numeric_occurrence_count"),
+            )
+        }
+        if all(type(value) is int for value in recall.values()):
+            self._complete_source_unit_recall = recall
+        return list(completeness.issues)
+
+    def _complete_source_unit_analysis(
+        self,
+        content: str,
+        *,
+        validation_source_texts: Mapping[str, str] | None,
+        test_cases: Sequence[object] | None,
+        rules_file: Path | None = None,
+        proof_source_texts: Mapping[str, str | None] | None = None,
+        execution_evidence: SameCaseEvidence | None = None,
+        local_relation_context: object | None = None,
+    ) -> CompleteSourceUnitAnalysis | None:
+        """Run the opt-in completeness analysis, or return None when disabled."""
+
+        if not self.require_complete_source_unit:
+            return None
         source_texts = (
             dict(validation_source_texts)
             if validation_source_texts is not None
@@ -37101,20 +38136,50 @@ class ValidatorPipeline:
             authenticated_same_act_aliases=(
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
+            start_date_evidence=self._complete_source_start_date_evidence(
+                corpus_citation_path
+            ),
         )
-        # Reported beside the CI result for the admission score; a result that
-        # carries no counts (a stubbed analyzer) records none.
-        recall = {
-            key: getattr(completeness, attribute, None)
-            for key, attribute in (
-                ("total", "source_numeric_occurrence_count"),
-                ("covered", "covered_source_numeric_occurrence_count"),
-                ("missing", "missing_source_numeric_occurrence_count"),
+        return completeness
+
+    def _complete_source_start_date_evidence(
+        self, corpus_citation_path: str
+    ) -> StartDateEvidence | None:
+        """Corpus dates for the date-silent start-date check, or ``None``.
+
+        An encode supplies the resolver attestation in ``source_metadata``.
+        ``validate`` supplies none; the dates then come from the unit's row in
+        the bound corpus release. With neither a metadata object nor a bound
+        release the caller gave no corpus date channel, and the check does not
+        run. Metadata that is supplied but has no readable dates, and a
+        citation the bound release does not resolve, still reach the check as
+        evidence with problems, which supports nothing.
+        """
+
+        amendment_context = bool(
+            self.amendment_documents or self.amendment_source_texts
+        )
+        if self.source_metadata is not None:
+            return start_date_evidence_from_metadata(
+                self.source_metadata, amendment_context=amendment_context
             )
-        }
-        if all(type(value) is int for value in recall.values()):
-            self._complete_source_unit_recall = recall
-        return list(completeness.issues)
+        if not isinstance(self.local_corpus_release, LocalCorpusRelease):
+            return None
+        try:
+            attestation = resolve_local_corpus_source(
+                corpus_citation_path, self.local_corpus_release
+            ).to_attestation()
+        except (CorpusResolutionError, OSError, TypeError, ValueError):
+            return StartDateEvidence(
+                None,
+                None,
+                ("the bound corpus release does not resolve the citation",),
+                amendment_context,
+            )
+        return start_date_evidence_from_metadata(
+            {"source_attestation": attestation},
+            amendment_context=amendment_context,
+        )
 
     def _complete_source_unit_deferred_outputs(
         self,
@@ -37420,14 +38485,28 @@ class ValidatorPipeline:
             results["ci"].details["complete_source_unit_recall"] = dict(
                 self._complete_source_unit_recall
             )
+        ci_advisory_records = advisory_issue_records(
+            getattr(results["ci"], "advisory_issues", None) or ()
+        )
         self._log_event(
             "validation_ci_end",
             "CI validation complete",
             {
                 "passed": results["ci"].passed,
                 "issues": results["ci"].issues,
+                **(
+                    {"advisory_issues": ci_advisory_records}
+                    if ci_advisory_records
+                    else {}
+                ),
                 "duration_ms": int((time.time() - ci_start) * 1000),
             },
+        )
+        # Advisory CI findings go to every reviewer as warnings to examine.
+        # With none, the reviewer prompts are byte-identical to before. These
+        # four prompts hold no source text, so the warning says so.
+        advisory_context = (
+            advisory_review_context(ci_advisory_records, source_in_prompt=False) or None
         )
 
         # Tier 2: Oracles (parallel, fast, generates comparison context)
@@ -37511,16 +38590,28 @@ class ValidatorPipeline:
 
             llm_validators = {
                 "rulespec_reviewer": lambda: self._run_reviewer(
-                    "rulespec-reviewer", rulespec_file, oracle_context
+                    "rulespec-reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
                 "formula_reviewer": lambda: self._run_reviewer(
-                    "Formula Reviewer", rulespec_file, oracle_context
+                    "Formula Reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
                 "parameter_reviewer": lambda: self._run_reviewer(
-                    "Parameter Reviewer", rulespec_file, oracle_context
+                    "Parameter Reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
                 "integration_reviewer": lambda: self._run_reviewer(
-                    "Integration Reviewer", rulespec_file, oracle_context
+                    "Integration Reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
             }
 
@@ -38904,6 +39995,26 @@ class ValidatorPipeline:
         execution_capture: ExecutionCapture | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
+        refusal = "expected_refusal" in case
+        if refusal:
+            from .scoped_execution import refusal_target
+
+            target = (
+                refusal_target(
+                    execution_capture,
+                    case,
+                    case_index,
+                )
+                if execution_capture is not None
+                else None
+            )
+            if target is None or output_names != [target]:
+                return None, [
+                    ValidationIssue(
+                        f"Test case `{case_name}` lacks authenticated refusal context.",
+                        check=CHECK_SCOPED_REFUSAL_CONTEXT,
+                    )
+                ]
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
         query_entity_id = self._rulespec_case_query_entity_id(
             case, query_entity, case_index
@@ -39026,6 +40137,21 @@ class ValidatorPipeline:
                 placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
             )
             return None, [f"Test case `{case_name}` execution failed: {detail}"]
+        if refusal:
+            if execution_capture.stage_refusal(
+                case,
+                request,
+                result.returncode,
+                result.stdout,
+                result.stderr,
+                binary,
+                compiled_path,
+                case_index,
+            ):
+                return None, []
+            return None, [
+                f"Test case `{case_name}` did not satisfy exact scoped refusal."
+            ]
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
             detail = _normalize_validation_staging_text(
@@ -39202,20 +40328,46 @@ class ValidatorPipeline:
                 issues.append(f"Test case `{case_name}` period invalid: {exc}")
                 continue
 
+            refusal = "expected_refusal" in case
             output_map = case.get("output")
-            if "output" not in case:
+            query_outputs = None
+            if refusal:
+                from .scoped_execution import refusal_target
+
+                target = (
+                    refusal_target(
+                        execution_capture,
+                        case,
+                        index,
+                    )
+                    if execution_capture is not None
+                    else None
+                )
+                if target is None:
+                    issues.append(
+                        ValidationIssue(
+                            f"Test case `{case_name}` lacks authenticated refusal context.",
+                            check=CHECK_SCOPED_REFUSAL_CONTEXT,
+                        )
+                    )
+                    continue
+                query_outputs = [target]
+                output_map = {}
+            if not refusal and "output" not in case:
                 issues.append(f"Test case #{index} is missing output.")
                 continue
-            if not isinstance(output_map, dict) or not output_map:
+            if not isinstance(output_map, dict) or (not refusal and not output_map):
                 issues.append(f"Test case `{case_name}` output must be a mapping.")
                 continue
+            if query_outputs is None:
+                query_outputs = list(output_map)
             if self.policyengine_rule_hint and not any(
                 self._rulespec_output_satisfies_policyengine_hint(
                     str(output_name),
                     derived_by_key=derived_by_key,
                     parameter_by_key=parameter_by_key,
                 )
-                for output_name in output_map
+                for output_name in query_outputs
             ):
                 issues.append(
                     f"Test case #{index} output must assert "
@@ -39243,7 +40395,7 @@ class ValidatorPipeline:
             derived_outputs: list[str] = []
             parameter_outputs: list[str] = []
             output_runtime_keys: dict[str, str] = {}
-            for output_name in output_map:
+            for output_name in query_outputs:
                 output_key = str(output_name)
                 runtime_key = output_key
                 if (
@@ -39401,8 +40553,74 @@ class ValidatorPipeline:
                 if mismatch:
                     issues.append(mismatch)
 
+        if execution_capture is not None and any(
+            isinstance(case, dict) and "expected_refusal" in case for case in cases
+        ):
+            from .scoped_execution import observation
+
+            if (
+                not issues
+                and observation(execution_capture.evidence(), rules_file.read_text())
+                is None
+            ):
+                issues.append(
+                    ValidationIssue(
+                        "Incomplete fresh scoped execution/refusal pairs.",
+                        check=CHECK_SCOPED_EXECUTION_PAIRS,
+                    )
+                )
         if issues and execution_capture is not None:
             execution_capture.records.clear()
+            from .scoped_execution import clear_private
+
+            clear_private(execution_capture)
+        return issues
+
+    def _companion_test_payload_issues(
+        self,
+        content: str,
+        payload: list[Any],
+        *,
+        rules_file: Path,
+        strict_layout_checks: bool,
+        compiled_payload: dict[str, Any] | None = None,
+        execution_capture: ExecutionCapture | None = None,
+    ) -> list[str]:
+        """Static companion-case checks that gate executing the test file."""
+
+        issues: list[str] = []
+        if strict_layout_checks:
+            issues.extend(
+                find_missing_derived_companion_output_issues(
+                    content,
+                    payload,
+                    rules_file=rules_file,
+                    policy_repo_path=self.policy_repo_path,
+                )
+            )
+            issues.extend(
+                find_judgment_positive_companion_output_issues(
+                    content,
+                    payload,
+                    rules_file=rules_file,
+                    policy_repo_path=self.policy_repo_path,
+                )
+            )
+        # Static unions include facts on unselected branches. For recognized
+        # strict-read IR, ordinary execution is authoritative about reached
+        # missing facts. Unknown/default-bearing compiled programs (or no
+        # compiled program) retain the conservative check.
+        if compiled_payload is None or not compiled_program_has_strict_input_reads(
+            compiled_payload
+        ):
+            issues.extend(
+                find_test_input_assignment_issues(
+                    content, payload, execution_capture=execution_capture
+                )
+            )
+        issues.extend(find_tax_filing_status_test_input_issues(payload))
+        issues.extend(find_exception_test_coverage_issues(content, payload))
+        issues.extend(find_zero_branch_test_coverage_issues(content, payload))
         return issues
 
     def _rulespec_companion_input_entities(
@@ -39757,7 +40975,10 @@ class ValidatorPipeline:
         if strict_layout_checks:
             issues.extend(find_rule_source_metadata_issues(content))
 
-        test_path = self._rulespec_test_path(rules_file)
+        # Compile and execute one captured closure. Reading the original
+        # companion here could execute a transient edit that is reverted
+        # before the capture's freshness check.
+        test_path = execution_pipeline._rulespec_test_path(execution_file)
         if test_path.exists():
             try:
                 payload = _safe_load_unique_keys(test_path.read_text())
@@ -39779,35 +41000,15 @@ class ValidatorPipeline:
                     complete_source_unit_test_cases = payload
                 if isinstance(payload, list) and compiled_payload and compiled_path:
                     pre_test_issue_count = len(issues)
-                    if strict_layout_checks:
-                        issues.extend(
-                            find_missing_derived_companion_output_issues(
-                                content,
-                                payload,
-                                rules_file=rules_file,
-                                policy_repo_path=self.policy_repo_path,
-                            )
-                        )
-                        issues.extend(
-                            find_judgment_positive_companion_output_issues(
-                                content,
-                                payload,
-                                rules_file=rules_file,
-                                policy_repo_path=self.policy_repo_path,
-                            )
-                        )
-                    # Static unions include facts on unselected branches. For
-                    # recognized strict-read IR, ordinary execution below is
-                    # authoritative about reached missing facts. Unknown/default-
-                    # bearing compiled programs retain the conservative check.
-                    if not compiled_program_has_strict_input_reads(compiled_payload):
-                        issues.extend(
-                            find_test_input_assignment_issues(content, payload)
-                        )
-                    issues.extend(find_tax_filing_status_test_input_issues(payload))
-                    issues.extend(find_exception_test_coverage_issues(content, payload))
                     issues.extend(
-                        find_zero_branch_test_coverage_issues(content, payload)
+                        self._companion_test_payload_issues(
+                            content,
+                            payload,
+                            rules_file=rules_file,
+                            strict_layout_checks=strict_layout_checks,
+                            compiled_payload=compiled_payload,
+                            execution_capture=execution_capture,
+                        )
                     )
                     if len(issues) == pre_test_issue_count:
                         from .local_case_custody import suite_scope
@@ -39868,6 +41069,18 @@ class ValidatorPipeline:
             validation_source_texts=validation_source_texts,
         )
 
+        # A finding of a check declared advisory is kept, apart from the
+        # blocking ones: it does not decide `passed` and is not the `error`.
+        # Every issue that is not positively advisory stays blocking.
+        issues, advisory_issues = partition_by_enforcement(issues)
+        # The one default operator surface: a WARNING line per advisory
+        # finding, in every lane that runs this step (validate, encode, the
+        # overlay validation of an apply).
+        for advisory_issue in advisory_issues:
+            line = advisory_log_line(advisory_issue, unit=self.source_citation_path)
+            if line is not None:
+                logger.warning("%s", line)
+
         duration = int((time.time() - start) * 1000)
         try:
             return ValidationResult(
@@ -39882,6 +41095,7 @@ class ValidatorPipeline:
                     if manual_advice
                     else {}
                 ),
+                advisory_issues=advisory_issues,
             )
         finally:
             tmpdir_cm.cleanup()
@@ -42092,6 +43306,7 @@ class ValidatorPipeline:
         rulespec_file: Path,
         oracle_context: Optional[dict] = None,
         review_context: str | None = None,
+        review_source: ReviewSource | None = None,
     ) -> ValidationResult:
         """Run a reviewer agent via Claude Code CLI with oracle context.
 
@@ -42099,19 +43314,46 @@ class ValidatorPipeline:
             reviewer_type: Type of reviewer (rulespec-reviewer, formula-reviewer, etc.)
             rulespec_file: Path to the RuleSpec file to review
             oracle_context: Results from the explicit PolicyEngine oracle for context
+            review_context: Review context of the one call
+            review_source: The source excerpt of the generalist review, apart
+                from the context around it. With it, ``review_context`` is
+                its ``single_call_context()``.
 
         Returns:
             ValidationResult with score, issues, and raw output
+
+        The generalist reviewer makes one call when the module, the
+        companion test and the source excerpt fit the single-call limits;
+        that prompt is unchanged. A larger candidate is reviewed in ordered
+        chunks (``generalist_review_chunks``), and passes only when every
+        call passes. A candidate with no chunk plan gets the one call.
         """
         start = time.time()
 
         # Read RuleSpec file content
+        review_evidence: dict[str, Any] = {}
         try:
-            rulespec_content = Path(rulespec_file).read_text()
+            reviewed_rulespec_bytes = Path(rulespec_file).read_bytes()
+            rulespec_content = reviewed_rulespec_bytes.decode("utf-8")
             test_content = None
+            reviewed_test_bytes = None
             companion_test = self._rulespec_test_path(rulespec_file)
             if companion_test.exists():
-                test_content = companion_test.read_text()
+                reviewed_test_bytes = companion_test.read_bytes()
+                test_content = reviewed_test_bytes.decode("utf-8")
+            elif reviewer_type == GENERALIST_REVIEWER_NAME:
+                # Apply writes an empty companion test for a deferred module
+                # that has none. Generate those bytes now, so the prompt
+                # shows them and the evidence names their digest: the record
+                # never credits a companion that the reviewer did not see.
+                reviewed_test_bytes = empty_deferred_companion_test(
+                    reviewed_rulespec_bytes
+                )
+                if reviewed_test_bytes is not None:
+                    test_content = reviewed_test_bytes.decode("utf-8")
+            review_evidence.update(
+                review_evidence_digests(reviewed_rulespec_bytes, reviewed_test_bytes)
+            )
         except Exception as e:
             duration = int((time.time() - start) * 1000)
             return ValidationResult(
@@ -42153,11 +43395,35 @@ class ValidatorPipeline:
         if review_context:
             review_context_section = f"\n## Review Context\n{review_context}\n"
         test_section = ""
-        if test_content:
+        # Presence decides, not truthiness: an empty companion file is shown
+        # as an empty section, because the evidence names it as reviewed.
+        if test_content is not None:
             test_section = (
                 "\n## Companion Test File\n"
                 f"{test_content[:3000]}{'...' if len(test_content) > 3000 else ''}\n"
             )
+
+        source_text = None if review_source is None else review_source.text
+        with contextlib.suppress(UnicodeError):
+            review_evidence["reviewed_source_sha256"] = (
+                None
+                if source_text is None
+                else hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+            )
+        if reviewer_type == GENERALIST_REVIEWER_NAME and not fits_single_call(
+            rulespec_content, test_content, source_text
+        ):
+            chunked = self._run_chunked_generalist_review(
+                rulespec_content=rulespec_content,
+                test_content=test_content,
+                review_source=review_source,
+                review_context=review_context,
+                oracle_section=oracle_section,
+                review_evidence=review_evidence,
+                start=start,
+            )
+            if chunked is not None:
+                return chunked
 
         if prompt_template is not None:
             prompt = f"""{prompt_template}
@@ -42194,8 +43460,51 @@ Output ONLY valid JSON:
   "issues": ["issue1", "issue2"],
   "reasoning": "<brief explanation>"
 }}
+
+{_REVIEW_REPLY_SHAPE}
 """
         prompt_sha256 = _sha256_text(prompt)
+        # The prompt quotes a bounded prefix of each file; record whether the
+        # reviewer was shown the whole of what the digests above name.
+        rulespec_limit = 6000 if prompt_template is not None else 3000
+        review_evidence["rulespec_complete"] = len(rulespec_content) <= rulespec_limit
+        review_evidence["test_complete"] = (
+            test_content is None or len(test_content) <= 3000
+        )
+        review_evidence["source_complete"] = (
+            source_text is None or len(source_text) <= SINGLE_CALL_SOURCE_CHARS
+        )
+        # The byte range of each text that this one call showed.
+        with contextlib.suppress(UnicodeError):
+            review_evidence["coverage"] = review_coverage_evidence(
+                prefix_chunks(rulespec_content, rulespec_limit),
+                None if test_content is None else prefix_chunks(test_content, 3000),
+                None
+                if source_text is None
+                else prefix_chunks(source_text, SINGLE_CALL_SOURCE_CHARS),
+                calls_planned=1,
+                calls_made=1,
+            )
+        return self._reviewer_call_result(
+            reviewer_type,
+            prompt,
+            prompt_sha256=prompt_sha256,
+            review_evidence=review_evidence,
+            start=start,
+        )
+
+    def _reviewer_call_result(
+        self,
+        reviewer_type: str,
+        prompt: str,
+        *,
+        prompt_sha256: str | None,
+        review_evidence: dict[str, Any],
+        start: float,
+    ) -> ValidationResult:
+        """Make one reviewer call and read its verdict with the strict parser."""
+
+        _note_reviewer_cli_started(None, None)
 
         try:
             reviewer_timeout = int(
@@ -42207,6 +43516,9 @@ Output ONLY valid JSON:
                 timeout=reviewer_timeout,
                 cwd=self.policy_repo_path,
             )
+            started = _reviewer_cli_started()
+            review_evidence["reviewer_backend"] = started[0] if started else None
+            review_evidence["reviewer_model"] = started[1] if started else None
             if returncode != 0:
                 output_excerpt = output.strip()[:500] or "no output"
                 raise RuntimeError(
@@ -42217,7 +43529,7 @@ Output ONLY valid JSON:
             # structured "reviewer_parse_failed" result instead of
             # letting the generic except below swallow the detail.
             try:
-                data = _extract_json_object(output)
+                data = _read_reviewer_verdict(output, reviewer_type)
             except (ValueError, json.JSONDecodeError) as parse_err:
                 duration = int((time.time() - start) * 1000)
                 raw_snippet = (output or "").strip()
@@ -42245,6 +43557,9 @@ Output ONLY valid JSON:
                     prompt_sha256=prompt_sha256,
                 )
 
+            # The record of a model apply reads this value, never the
+            # verdict that the legacy fallbacks below can infer.
+            review_evidence[EVIDENCE_EXPLICIT_PASSED] = _explicit_reviewer_passed(data)
             score = float(data.get("score", 5.0))
             if not math.isfinite(score):
                 # JSON has no Infinity literal, but `1e309` parses to inf; a
@@ -42266,35 +43581,22 @@ Output ONLY valid JSON:
                     prompt_sha256=prompt_sha256,
                 )
             if reviewer_type == "generalist-reviewer":
+                # The verdict reader has checked the keys and the types:
+                # each issue list is a list of strings.
                 blocking_issues = data.get("blocking_issues", [])
                 non_blocking_issues = data.get("non_blocking_issues", [])
-                if not isinstance(blocking_issues, list):
-                    blocking_issues = [str(blocking_issues)]
-                if not isinstance(non_blocking_issues, list):
-                    non_blocking_issues = [str(non_blocking_issues)]
 
-                if "passed" in data:
-                    passed = bool(data["passed"])
-                elif "blocking_issues" in data:
-                    passed = len(blocking_issues) == 0
-                else:
-                    passed = score >= 7.0
+                passed = _legacy_generalist_reviewer_passed(
+                    data, score=score, blocking_issues=blocking_issues
+                )
 
-                reported_issues = data.get("issues", [])
-                if not isinstance(reported_issues, list):
-                    reported_issues = [str(reported_issues)]
                 issues = list(blocking_issues)
                 issues.extend(
                     f"[non-blocking] {issue}" for issue in non_blocking_issues
                 )
-                for issue in reported_issues:
-                    if issue not in issues:
-                        issues.append(issue)
             else:
                 passed = bool(data.get("passed", score >= 7.0))
-                issues = data.get("issues", [])
-            if not isinstance(issues, list):
-                issues = [str(issues)]
+                issues = list(data.get("issues", []))
             if score < 7.0:
                 if passed:
                     issues.append(
@@ -42313,6 +43615,7 @@ Output ONLY valid JSON:
                 duration_ms=duration,
                 raw_output=output,
                 prompt_sha256=prompt_sha256,
+                details={"review_evidence": review_evidence},
             )
 
         except Exception as e:
@@ -42326,6 +43629,127 @@ Output ONLY valid JSON:
                 error=str(e),
                 prompt_sha256=prompt_sha256,
             )
+
+    def _run_chunked_generalist_review(
+        self,
+        *,
+        rulespec_content: str,
+        test_content: str | None,
+        review_source: ReviewSource | None,
+        review_context: str | None,
+        oracle_section: str,
+        review_evidence: dict[str, Any],
+        start: float,
+    ) -> ValidationResult | None:
+        """Review a candidate that does not fit one call, in ordered chunks.
+
+        None when the candidate has no chunk plan (a cap is exceeded, or a
+        text cannot be split): the caller then makes its one call.
+
+        The calls run in plan order and stop at the first call that does not
+        pass. The result passes only when every planned call passed; a call
+        that failed makes it fail, and a call with no readable verdict makes
+        it a reviewer error. The evidence says the reviewer wrote
+        ``passed: true`` itself only when every call did.
+        """
+
+        plan = plan_chunked_review(
+            rulespec_content,
+            test_content,
+            None if review_source is None else review_source.text,
+        )
+        if plan is None:
+            return None
+        try:
+            prompts = chunked_review_prompts(
+                plan,
+                prompt_template=GENERALIST_REVIEWER_PROMPT,
+                review_source=review_source,
+                review_context=review_context,
+                oracle_section=oracle_section,
+            )
+            if any(
+                len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES for prompt in prompts
+            ):
+                return None
+        except UnicodeError:
+            return None
+        prompt_sha256s = tuple(str(_sha256_text(prompt)) for prompt in prompts)
+        prompt_sha256 = chunked_prompt_sha256(prompt_sha256s)
+
+        results: list[ValidationResult] = []
+        identities: set[tuple[object, object]] = set()
+        every_call_explicit = True
+        stopped: ValidationResult | None = None
+        for prompt, call_sha256 in zip(prompts, prompt_sha256s, strict=True):
+            call_evidence: dict[str, Any] = {}
+            result = self._reviewer_call_result(
+                GENERALIST_REVIEWER_NAME,
+                prompt,
+                prompt_sha256=call_sha256,
+                review_evidence=call_evidence,
+                start=time.time(),
+            )
+            results.append(result)
+            identities.add(
+                (
+                    call_evidence.get("reviewer_backend"),
+                    call_evidence.get("reviewer_model"),
+                )
+            )
+            if call_evidence.get(EVIDENCE_EXPLICIT_PASSED) is not True:
+                every_call_explicit = False
+            if result.passed is not True or result.score is None:
+                stopped = result
+                break
+
+        calls_made = len(results)
+        number = f"review call {calls_made} of {len(prompts)}"
+        duration = int((time.time() - start) * 1000)
+        issues = [
+            f"[review call {index} of {len(prompts)}] {issue}"
+            for index, result in enumerate(results, start=1)
+            for issue in result.issues
+        ]
+        if stopped is not None and stopped.score is None:
+            # No readable verdict for one chunk: never a pass, and not a
+            # failed review either.
+            return ValidationResult(
+                validator_name=GENERALIST_REVIEWER_NAME,
+                passed=False,
+                score=None,
+                issues=issues,
+                duration_ms=duration,
+                raw_output=stopped.raw_output,
+                error=f"{number}: {stopped.error or 'no verdict'}",
+                prompt_sha256=prompt_sha256,
+            )
+
+        whole = stopped is None and calls_made == len(prompts)
+        backend, model = identities.pop() if len(identities) == 1 else (None, None)
+        review_evidence["reviewer_backend"] = backend
+        review_evidence["reviewer_model"] = model
+        review_evidence[EVIDENCE_EXPLICIT_PASSED] = whole and every_call_explicit
+        review_evidence["rulespec_complete"] = whole
+        review_evidence["test_complete"] = whole
+        review_evidence["source_complete"] = whole
+        review_evidence["coverage"] = review_coverage_evidence(
+            plan.rulespec,
+            plan.test,
+            plan.source,
+            calls_planned=len(prompts),
+            calls_made=calls_made,
+        )
+        return ValidationResult(
+            validator_name=GENERALIST_REVIEWER_NAME,
+            passed=whole,
+            score=min(float(result.score) for result in results),
+            issues=issues,
+            duration_ms=duration,
+            raw_output="\n".join(result.raw_output or "" for result in results),
+            prompt_sha256=prompt_sha256,
+            details={"review_evidence": review_evidence},
+        )
 
     def _required_policyengine_runtime(self) -> PolicyEngineRuntime:
         """Return the one admitted runtime bound to this canonical RuleSpec root."""
@@ -42718,9 +44142,9 @@ Output ONLY valid JSON:
         year: int = 2024,
         sample_size: int | None = None,
     ) -> ValidationResult:
-        """Benchmark RuleSpec encoding against PolicyEngine using Populace.
+        """Benchmark RuleSpec encoding against PolicyEngine using Microcosm.
 
-        Runs PE Microsimulation on Populace, extracts the target
+        Runs PE Microsimulation on Microcosm, extracts the target
         variable for all tax units, and reports the benchmark. This establishes
         the PE baseline that RuleSpec must match as inputs get wired up.
 
@@ -46964,3 +48388,25 @@ annual = sim.calculate('{pe_var}', int('{year}'))
 val = float(annual[0]) / {scale}
 print(f'RESULT:{{val}}')
 """
+
+
+def run_generalist_review(
+    rulespec_file: Path, *, review_source: ReviewSource, cwd: Path
+) -> ValidationResult:
+    """Run the generalist reviewer on one candidate file, outside an eval.
+
+    The reviewer reads ``rulespec_file`` and the companion test beside it,
+    and judges them against ``review_source``. ``cwd`` is the directory the
+    reviewer CLI starts in. The call uses no other state of a pipeline, so
+    no engine, corpus or oracle is set up for it.
+    """
+
+    pipeline = object.__new__(ValidatorPipeline)
+    pipeline.policy_repo_path = cwd
+    return pipeline._run_reviewer(
+        GENERALIST_REVIEWER_NAME,
+        rulespec_file,
+        None,
+        review_context=review_source.single_call_context(),
+        review_source=review_source,
+    )

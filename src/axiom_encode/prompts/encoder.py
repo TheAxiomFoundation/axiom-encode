@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 4
+__version__ = 6
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -1010,6 +1010,12 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   if the upstream formula has deductions, rates, or offsets that make the exact
   boundary awkward, choose clearly below/above-boundary inputs instead of an
   exact boundary case.
+- When a cap is encoded in its own derived rule because the provision also
+  has a comparison gate, assert that cap rule's output, and the output of any
+  derived rule that computes the capped amount, in every companion case that
+  sets the capped amount, not only in the at-limit case. Include a case with
+  the amount exactly at the limit, and keep below-limit and above-limit cases,
+  plus a negative-amount case when the clamp floors at zero.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>`
   key. For example, use
   `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not
@@ -1286,6 +1292,17 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   be negative. Wrap the final selected branch at zero, including both sides of
   conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`,
   not `if condition: branch_a else: branch_b`.
+- A single source-stated amount or a bare input that a rule returns as its
+  result (not a difference, not an operand of the floor rules above, and not
+  the cap clamp or excess forms below) gets no zero floor of its own: do not
+  wrap it in `max(0, ...)` unless the source states a floor for it ("not less
+  than zero", "but not below zero", "cannot be negative") or the existing
+  encoding of the same rule already has one. If the rule returns that amount,
+  return it without a floor, e.g. `if amount_qualifies: stated_amount else: 0`,
+  not `if amount_qualifies: max(0, stated_amount) else: 0`. This bullet does
+  not change any rule about a difference, a subtraction, an income base,
+  taxable income, an excess, or a cap: those keep the forms required above and
+  below.
 - Taxpayer elections such as electing to itemize deductions are legitimate
   election-state inputs to the legal computation. Do not mark a taxable-income
   rule unsupported merely because the taxpayer could optimize that election
@@ -1324,6 +1341,19 @@ _FORMULA_PROTOCOL = """- Put formulas under `versions: - effective_from: 'YYYY-M
   `if condition: cap_b else: uncapped_amount` unless the source expressly says
   the alternative amount is used "instead of", "in lieu of", or as a
   substitution for the base computation.
+- When a source limit ("up to", "no more than", "a maximum of", "cannot
+  exceed") applies to an amount and the same provision also has a comparison
+  condition (a gate such as a distance, age, date, or count test), encode the
+  capped amount in its own `kind: derived` rule whose formula is only the
+  clamp, e.g. `min(max(0, amount), cap)`, with no comparison, and reference
+  that rule from the gated principal formula, e.g.
+  `if gate_measure > gate_threshold: capped_amount else: 0`. Do not put a
+  comparison gate and the cap `min(...)` in one formula. If the capped amount
+  is itself computed (a sum, a rate), compute it in its own derived rule first
+  so the clamp is applied to one name. Use one clamp rule per source cap
+  value, with that cap parameter as the direct second argument of `min`, and
+  select between the clamp rules in the principal formula. Each clamp rule
+  carries its own proof atom quoting the cap sentence.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.

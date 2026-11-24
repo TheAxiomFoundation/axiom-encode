@@ -43,10 +43,24 @@ installs nothing with pip, and only this script's call names the purelib.
 ``tests/test_verification_site_packages_lock.py`` enforces both forms, reads
 ``--site-packages`` with this script's own argument parser, and fails a
 workflow whose text names the staged tree outside staging and this script's call.
-``uv.lock`` does not pin build backends, so the sdists it pins, the git
-dependency and the project are built with whatever backend versions the index
-serves at run time; when the ``--encoder-*`` attestation arguments are given,
-the staged ``axiom_encode`` package is replaced by the attested commit's bytes.
+That staging builds three kinds of input: the sdists the lock pins with no wheel
+for the interpreter (pyiceberg 0.10.0; pyroaring 1.0.3 on 3.14), the git
+dependency and the project. In bulk-encode, golden-regeneration and
+targeted-signed-reencode each build runs uncached (``--no-cache``) with
+``--build-constraints`` set to the hash-pinned export of the lock's ``build``
+dependency group, so uv verifies every build backend it installs against
+``uv.lock``. uv would still build with a backend that export omits, unpinned;
+``scripts/check_locked_builds.py`` (the ``locked-builds`` CI job) builds each
+of those inputs with ``uv build --require-hashes``, which refuses an omitted or
+unhashed one. It builds on 3.13, which these workflows use, and on 3.14, the
+default of the organization's reusable ``validate-rulespec.yml``, which also
+stages this lock. Every uv call in the staging passes ``--no-config``, so
+neither the runner's user ``uv.toml`` nor a parent directory's uv config can
+change what it installs or builds. What remains unpinned everywhere is the
+runner's C toolchain, which compiles pyiceberg's and pyroaring's extensions
+(pyiceberg's build drops its Cython extension silently if compiling it fails).
+When the ``--encoder-*`` attestation arguments are given, the attested commit's
+bytes replace the staged ``axiom_encode`` package.
 A pinned dependency carrying hostile ELF metadata (an absolute ``DT_NEEDED``, a
 ``DT_AUDIT`` hook, a decoy section) is NOT statically audited here — such a
 dependency already executes its own code inside the signer, so metadata-level
@@ -1476,7 +1490,14 @@ def _require_snapshot_version_bump(
         "--",
         *_ENCODER_VERSION_FILES,
     ).splitlines()
+    # The same choice as version_provenance.latest_version_commit and cli's
+    # _latest_axiom_encode_version_commit: prefer the bump to the version the
+    # head declares, else the latest increase of any kind.
+    head_version = _encoder_versions_at_ref(trusted_git, git_dir, home, commit).get(
+        "pyproject"
+    )
     version_commit: str | None = None
+    fallback: str | None = None
     for candidate in (line.strip() for line in lines if line.strip()):
         current = _encoder_versions_at_ref(trusted_git, git_dir, home, candidate)
         if not current.get("pyproject") or not current.get("package"):
@@ -1484,13 +1505,16 @@ def _require_snapshot_version_bump(
         parents = _hardened_git_text(
             trusted_git, git_dir, home, "rev-list", "--parents", "-n", "1", candidate
         ).split()
-        if len(parents) <= 1:
-            version_commit = candidate  # root commit that declares a version
-            break
-        previous = _encoder_versions_at_ref(trusted_git, git_dir, home, parents[1])
-        if _encoder_version_increased(current, previous):
+        if len(parents) > 1:  # a root commit that declares a version counts
+            previous = _encoder_versions_at_ref(trusted_git, git_dir, home, parents[1])
+            if not _encoder_version_increased(current, previous):
+                continue
+        if fallback is None:
+            fallback = candidate
+        if current.get("pyproject") == head_version:
             version_commit = candidate
             break
+    version_commit = version_commit or fallback
     if not version_commit:
         raise SystemExit(
             "refusing to provision: no committed encoder version bump is reachable "
@@ -1574,9 +1598,10 @@ def _main_history_unversioned(
     """The two first-parent rules of version_provenance.main_history_changes
     (axiom-encode#2051 review), on the root-owned history.
 
-    A head below a version main already declared needs a bump of the version
-    files; so do encoder changes after main first reached the head's version
-    at another commit than the bump found by the latest-bump rule.
+    A head below a version main already declared (or with a version that is
+    not numeric) needs a bump of the version files; so do encoder changes
+    after main first reached the head's version at another commit than the
+    bump found by the latest-bump rule.
     """
     history = _first_parent_pyproject_versions(trusted_git, git_dir, home, commit)
     current = _encoder_versions_at_ref(trusted_git, git_dir, home, commit).get(
@@ -1589,10 +1614,12 @@ def _main_history_unversioned(
         if version and (key := _parse_numeric_version(version)) is not None
     ]
     current_key = _parse_numeric_version(current) if current else None
-    if keys and current_key is not None and max(keys) > current_key:
+    # A head version that is not numeric reads as below every numeric one.
+    if keys and (current_key is None or max(keys) > current_key):
         unversioned.update(_ENCODER_VERSION_FILES)
+    # The oldest arrival: history is newest first, so walk it from the end.
     arrival = None
-    for index, (each, version) in enumerate(history):
+    for index, (each, version) in reversed(list(enumerate(history))):
         if version != current:
             continue
         older = history[index + 1][1] if index + 1 < len(history) else None
@@ -2208,6 +2235,22 @@ def provision(
             )
         runtime = destination / "python"
         _stage_runtime_tree(source_runtime, runtime, site_packages)
+        interpreter = runtime / source_interpreter.relative_to(source_runtime)
+        # copytree created a fresh prefix. A previously provisioned source can
+        # carry a broker with its old interpreter path, an old attestation and
+        # the old encoder's reviewed RuleSpec records; none of them belongs to
+        # this installation. Remove only those copied entries before probing
+        # the new runtime, then publish fresh ones exclusively.
+        for inherited in (
+            interpreter.parent / "git",
+            runtime / _RUNTIME_ATTESTATION_FILENAME,
+        ):
+            inherited.unlink(missing_ok=True)
+        inherited_refs = runtime / _REVIEWED_RULESPEC_REFS_EXPORT
+        if inherited_refs.is_dir() and not inherited_refs.is_symlink():
+            shutil.rmtree(inherited_refs)
+        else:
+            inherited_refs.unlink(missing_ok=True)
         package_tree_sha256: str | None = None
         if provision_encoder:
             assert encoder_package is not None
@@ -2234,7 +2277,6 @@ def provision(
                         "(install it or pass --patchelf)"
                     )
             _relocate_elf_rpaths(runtime, patchelf)
-        interpreter = runtime / source_interpreter.relative_to(source_runtime)
         _assert_self_contained(runtime, source_runtime, interpreter)
         _install_trusted_git_wrapper(interpreter.parent, interpreter, trusted_git)
         codex_cli = (

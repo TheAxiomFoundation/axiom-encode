@@ -14,20 +14,45 @@ import re
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Final
 
 # The same human owners who authorize encoder signing-critical changes. Numeric
 # GitHub identities prevent a recycled login from gaining signing authority.
 # Changes to this policy require code-owner review, not candidate PR review.
 TRUSTED_SIGNING_REVIEWERS = {6076111: "MaxGhenis", 110687043: "PavelMakarchuk"}
-SCHEMA = "axiom-encode/live-reviewed-pr-admission/v1"
+
+# What authorizes one promotion (#2301). Read at call time; there is no
+# environment variable, CLI flag or repository setting.
+#   False: no APPROVED review is required. The accountable act is the dispatch
+#     of the protected signing run by an enrolled owner account: the live run's
+#     actor (who chose the inputs) and its triggering actor (who started this
+#     attempt) must be the same ``TRUSTED_SIGNING_REVIEWERS`` identity (numeric
+#     id, login and type ``User``). This identifies an account, not a person:
+#     a tool or agent session that holds an owner's token passes. No second
+#     person sees the candidate before it is signed. An outstanding
+#     changes-requested review still refuses.
+#   True (or any value that is not exactly ``False``): an independent enrolled
+#     owner must have approved the exact candidate head, and any account with
+#     write access may dispatch. This is the rule that was in force before.
+# Every other check is the same under both values.
+OWNER_APPROVAL_REQUIRED: Final[bool] = False
+BASIS_OWNER_APPROVAL: Final = "owner_approval"
+BASIS_OWNER_DISPATCH: Final = "owner_dispatch"
+# The one field of an admission that holds the evidence for each basis. A
+# record names its basis; it never carries an empty approvals list.
+_BASIS_EVIDENCE_FIELD: Final = {
+    BASIS_OWNER_APPROVAL: "approvals",
+    BASIS_OWNER_DISPATCH: "dispatcher",
+}
+# v2 added ``admission_basis`` and the per-basis evidence field.
+SCHEMA = "axiom-encode/live-reviewed-pr-admission/v2"
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_PAGES = 10
 INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 
 
 class AdmissionError(ValueError):
-    """The requested candidate has no current independent authorization."""
+    """The requested candidate has no current authorization."""
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -191,15 +216,74 @@ def selector_from_payload(value: object) -> PromotionSelector:
     return PromotionSelector(**payload)
 
 
+def _admission_basis() -> str:
+    """The basis the policy in force admits. Only exactly ``False`` drops the approval."""
+    return (
+        BASIS_OWNER_DISPATCH
+        if OWNER_APPROVAL_REQUIRED is False
+        else BASIS_OWNER_APPROVAL
+    )
+
+
+def _enrolled_run_account(run: dict, field: str, label: str) -> tuple[int, str]:
+    account = _object(run.get(field), label)
+    identity = account.get("id")
+    if (
+        type(identity) is not int
+        or identity not in TRUSTED_SIGNING_REVIEWERS
+        or account.get("login") != TRUSTED_SIGNING_REVIEWERS[identity]
+        or account.get("type") != "User"
+    ):
+        raise AdmissionError("dispatch actor is not a verified enrolled signing owner")
+    return identity, account["login"]
+
+
+def _enrolled_dispatcher(run: dict, selector: PromotionSelector) -> dict:
+    """The live run's dispatcher as one enrolled owner account, or refuse.
+
+    Two accounts are read from the live run and must be the same enrolled
+    identity: ``actor``, who dispatched the run and chose its inputs, and
+    ``triggering_actor``, who started this attempt. So an owner's re-run of
+    another account's dispatch refuses, and so does another account's re-run
+    of an owner's dispatch. For each, the numeric id is the identity, the
+    login must be the enrolled login of that id, and the account type must be
+    ``User``. The selector's actor must be that login. A missing or malformed
+    field refuses.
+
+    Type ``User`` excludes Apps and bots. It does not prove that a person
+    acted: any session that holds the owner's token is that ``User``.
+    """
+    actor_id, _login = _enrolled_run_account(run, "actor", "run actor")
+    triggering_id, login = _enrolled_run_account(
+        run, "triggering_actor", "triggering actor"
+    )
+    if actor_id != triggering_id or selector.actor != login:
+        raise AdmissionError("dispatch actor is not a verified enrolled signing owner")
+    return {"login": login, "actor_id": actor_id, "triggering_actor_id": triggering_id}
+
+
 def revalidate_admission(
     expected: object, *, fetch: Callable[[str], object] = github_json
 ) -> dict:
     payload = _object(expected, "provisioned admission")
+    basis = payload.get("admission_basis")
+    if not isinstance(basis, str) or basis not in _BASIS_EVIDENCE_FIELD:
+        raise AdmissionError("unknown admission basis")
     if (
-        set(payload) != {"schema", "selector", "record", "approvals", "workflow_commit"}
+        set(payload)
+        != {
+            "schema",
+            "selector",
+            "record",
+            "workflow_commit",
+            "admission_basis",
+            _BASIS_EVIDENCE_FIELD[basis],
+        }
         or payload.get("schema") != SCHEMA
     ):
         raise AdmissionError("invalid provisioned admission")
+    if basis != _admission_basis():
+        raise AdmissionError("admission basis is not the policy in force")
     selector = selector_from_payload(payload["selector"])
     root = "/repos/" + selector.repository
     run = _object(
@@ -213,16 +297,28 @@ def revalidate_admission(
         != selector.actor
     ):
         raise AdmissionError("protected run changed after provisioning")
+    if (
+        basis == BASIS_OWNER_DISPATCH
+        and _enrolled_dispatcher(run, selector) != payload["dispatcher"]
+    ):
+        raise AdmissionError("dispatching owner changed after provisioning")
     pr_path = f"{root}/pulls/{selector.pr}"
     pr = _object(fetch(pr_path), "PR")
     base, author_id = _pr_identity(pr, selector)
     main = _object(fetch(root + "/git/ref/heads/main"), "main ref")
     reviews = _pages(fetch, pr_path + "/reviews")
-    approvals = _approved_reviews(reviews, selector, author_id)
+    if basis == BASIS_OWNER_DISPATCH:
+        # No approval to compare; the veto is still read live.
+        _decisive_reviews(reviews)
+        evidence_unchanged = True
+    else:
+        evidence_unchanged = (
+            _approved_reviews(reviews, selector, author_id) == payload["approvals"]
+        )
     if (
         base != payload["record"]["base_sha"]
         or _object(main.get("object"), "main object").get("sha") != base
-        or approvals != payload["approvals"]
+        or not evidence_unchanged
     ):
         raise AdmissionError(
             "live approval or candidate differs from provisioned admission"
@@ -267,13 +363,26 @@ def _pr_identity(pr: dict, selector: PromotionSelector) -> tuple[str, int]:
     return base["sha"], author["id"]
 
 
-def _approved_reviews(
-    reviews: list[dict], selector: PromotionSelector, author_id: int
-) -> list[dict]:
+def _decisive_reviews(reviews: list[dict]) -> dict[int, dict]:
+    """Each reviewer's latest decisive review; refuse on the veto.
+
+    Any reviewer's outstanding changes-requested review refuses, under both
+    admission bases. It is not limited to enrolled owners.
+    """
+    # Order and reviewer identity decide the veto, so neither may be guessed.
+    for review in reviews:
+        if any(
+            type(value) is not int or value <= 0
+            for value in (
+                review.get("id"),
+                _object(review.get("user"), "reviewer").get("id"),
+            )
+        ):
+            raise AdmissionError("review or reviewer identity is malformed")
     decisive: dict[int, dict] = {}
-    for review in sorted(reviews, key=lambda item: item.get("id", 0)):
-        reviewer = _object(review.get("user"), "reviewer")
-        identity = reviewer.get("id")
+    for review in sorted(reviews, key=lambda item: item["id"]):
+        reviewer = review["user"]
+        identity = reviewer["id"]
         state = review.get("state")
         if state in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}:
             decisive[identity] = review
@@ -281,6 +390,13 @@ def _approved_reviews(
             raise AdmissionError("unknown review state")
     if any(review["state"] == "CHANGES_REQUESTED" for review in decisive.values()):
         raise AdmissionError("candidate has unresolved changes requested")
+    return decisive
+
+
+def _approved_reviews(
+    reviews: list[dict], selector: PromotionSelector, author_id: int
+) -> list[dict]:
+    decisive = _decisive_reviews(reviews)
     approvals = []
     for identity, review in decisive.items():
         reviewer = review["user"]
@@ -308,7 +424,11 @@ def verify_reviewed_pr(
     *,
     fetch: Callable[[str], object] = github_json,
 ) -> dict:
-    """Derive a module-bound admission from live, independently approved bytes.
+    """Derive a module-bound admission from live GitHub state.
+
+    ``OWNER_APPROVAL_REQUIRED`` decides the basis: an enrolled owner's dispatch
+    of the run (``False``) or an independent enrolled owner's approval of the
+    exact head (``True``). The admission names its basis.
 
     New modules only. The exact primary/companion and optional derived index
     are the only allowed changes. No fork, stacked base, deleted/renamed file,
@@ -331,6 +451,10 @@ def verify_reviewed_pr(
         raise AdmissionError(
             "admission is not bound to the live central main signing run"
         )
+    basis = _admission_basis()
+    dispatcher = (
+        _enrolled_dispatcher(run, selector) if basis == BASIS_OWNER_DISPATCH else None
+    )
     root = "/repos/" + selector.repository
     pr_path = f"{root}/pulls/{selector.pr}"
     before = _object(fetch(pr_path), "PR")
@@ -379,7 +503,18 @@ def verify_reviewed_pr(
         raise AdmissionError("candidate PR changes files outside its new module scope")
 
     reviews = _pages(fetch, pr_path + "/reviews")
-    approvals = _approved_reviews(reviews, selector, author_id)
+    if basis == BASIS_OWNER_DISPATCH:
+        # No approval is required; an outstanding changes-requested review
+        # still refuses.
+        _decisive_reviews(reviews)
+        evidence: object = dispatcher
+        purpose = (
+            "Enrolled signing-owner dispatch of the protected signing run; no "
+            "owner approval of the RuleSpec PR; new-module promotion only."
+        )
+    else:
+        evidence = _approved_reviews(reviews, selector, author_id)
+        purpose = "Live exact-head independent signing-owner approval on the RuleSpec PR; new-module promotion only."
 
     digests = {}
     tree = _object(
@@ -425,7 +560,8 @@ def verify_reviewed_pr(
         "schema": SCHEMA,
         "workflow_commit": run["head_sha"],
         "selector": selector.__dict__,
-        "approvals": sorted(approvals, key=lambda value: value["reviewer_id"]),
+        "admission_basis": basis,
+        _BASIS_EVIDENCE_FIELD[basis]: evidence,
         "record": {
             "schema": "axiom-encode/reviewed-rulespec-admission/v1",
             "country": selector.country,
@@ -440,6 +576,6 @@ def verify_reviewed_pr(
                 "companion_sha256": digests[selector.companion],
             },
             "declared": None,
-            "purpose": "Live exact-head independent signing-owner approval on the RuleSpec PR; new-module promotion only.",
+            "purpose": purpose,
         },
     }

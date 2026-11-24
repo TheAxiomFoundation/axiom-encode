@@ -19,11 +19,13 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts.replay_us_failure_bundles import (
     DEFAULT_FIXTURE_ROOT,
@@ -41,6 +43,7 @@ from scripts.replay_us_failure_bundles import (
     _read_inside,
     analyzer_module_paths,
     build_report,
+    case_is_control,
     compare_reports,
     discover_bundle_modules,
     extract_fixture,
@@ -50,18 +53,21 @@ from scripts.replay_us_failure_bundles import (
     gate_markdown,
     guard_violations,
     import_symbol_contents,
+    issue_rule,
     load_bundle_cases,
     load_fixture,
     load_split_map,
     main,
     read_snapshot_at,
     recorded_issue_rule,
+    replay_case,
     replay_is_needed,
     run_gate,
     snapshot_drift,
     snapshot_from_report,
     unneeded_allowances,
 )
+from tests.real_engine import binding_receipt
 
 FIXTURES = DEFAULT_FIXTURE_ROOT
 SNAPSHOT = FIXTURES / SNAPSHOT_FILE
@@ -79,7 +85,29 @@ RECORDED_FAILURE_CLASSES = COMPLETENESS_RULES | {
     "proof:excerpt-not-found",
     "tests:wrong-expected-value",
 }
-MAX_FIXTURE_BYTES = 5 * 1024 * 1024
+BASE_MAX_FIXTURE_BYTES = 5 * 1024 * 1024
+# Preserve the public raw-merge regression's named 64 KiB allowance.
+# Its retained case measures 61,524 bytes.
+RAW_MERGE_FIXTURE = "local-date-silent-merge-41088317595"
+RAW_MERGE_FIXTURE_ALLOWANCE = 64 * 1024
+# The proof-alias diagnostic measures 38,278 bytes and has its own allowance.
+# The shared fixture budget remains 5 MiB; named cases have separate caps.
+PROOF_ALIAS_FIXTURE = "local-date-proof-alias-41648809989"
+PROOF_ALIAS_FIXTURE_ALLOWANCE = 64 * 1024
+# Keep the T1170 printed-table regression's separate twelve-block allowance.
+PRINTED_TABLE_FIXTURE = "local-t1170-printed-tables-20261115"
+PRINTED_TABLE_FIXTURE_ALLOWANCE = 12 * 64 * 1024
+# The retained Schedule N diagnostic needs its own four-block allowance after
+# main adds its public fixtures; the remaining fixtures keep the 5 MiB cap.
+SCHEDULE_N_FIXTURE = "local-schedule-n-20261113"
+SCHEDULE_N_FIXTURE_ALLOWANCE = 4 * 64 * 1024
+MAX_FIXTURE_BYTES = (
+    BASE_MAX_FIXTURE_BYTES
+    + RAW_MERGE_FIXTURE_ALLOWANCE
+    + PROOF_ALIAS_FIXTURE_ALLOWANCE
+    + PRINTED_TABLE_FIXTURE_ALLOWANCE
+    + SCHEDULE_N_FIXTURE_ALLOWANCE
+)
 LABEL_KEYS = ("expected_class", "expected_subclass", "class_evidence", "class_source")
 # Private corpus: never committed (see docs/us-replay-benchmark.md).
 PRIVATE_CITATION_PREFIXES = ("us/regulation/12/1005", "us/regulation/12/1006")
@@ -131,6 +159,13 @@ def test_snapshot_totals_match_cases():
 def test_fixture_set_covers_failing_rule_classes_and_controls():
     snapshot = json.loads(SNAPSHOT.read_text())
     replayed = {rule for case in snapshot["cases"].values() for rule in case["rules"]}
+    # A rule class whose findings are advisory (docs/validator-checks.md) is
+    # still replayed; its findings are pinned under `advisory_findings`.
+    replayed |= {
+        issue_rule(finding)
+        for case in snapshot["cases"].values()
+        for finding in case.get("advisory_findings", [])
+    }
     recorded = {
         rule
         for directory in fixture_directories(FIXTURES)
@@ -246,6 +281,237 @@ def test_fixtures_carry_provenance_and_stay_small():
         )
 
     assert total <= MAX_FIXTURE_BYTES
+    raw_merge_bytes = sum(
+        path.stat().st_size
+        for path in (FIXTURES / RAW_MERGE_FIXTURE).rglob("*")
+        if path.is_file()
+    )
+    assert 0 < raw_merge_bytes <= RAW_MERGE_FIXTURE_ALLOWANCE
+    proof_alias_bytes = sum(
+        path.stat().st_size
+        for path in (FIXTURES / PROOF_ALIAS_FIXTURE).rglob("*")
+        if path.is_file()
+    )
+    assert 0 < proof_alias_bytes <= PROOF_ALIAS_FIXTURE_ALLOWANCE
+    assert PROOF_ALIAS_FIXTURE_ALLOWANCE == (
+        (proof_alias_bytes + 64 * 1024 - 1) // (64 * 1024)
+    ) * (64 * 1024)
+    printed_table_bytes = sum(
+        path.stat().st_size
+        for path in (FIXTURES / PRINTED_TABLE_FIXTURE).rglob("*")
+        if path.is_file()
+    )
+    assert 0 < printed_table_bytes <= PRINTED_TABLE_FIXTURE_ALLOWANCE
+    schedule_n_bytes = sum(
+        path.stat().st_size
+        for path in (FIXTURES / SCHEDULE_N_FIXTURE).rglob("*")
+        if path.is_file()
+    )
+    assert 0 < schedule_n_bytes <= SCHEDULE_N_FIXTURE_ALLOWANCE
+    assert SCHEDULE_N_FIXTURE_ALLOWANCE == (
+        (schedule_n_bytes + 64 * 1024 - 1) // (64 * 1024)
+    ) * (64 * 1024)
+    assert (
+        total
+        - raw_merge_bytes
+        - proof_alias_bytes
+        - printed_table_bytes
+        - schedule_n_bytes
+        <= BASE_MAX_FIXTURE_BYTES
+    )
+
+
+def test_printed_table_fixture_keeps_its_derived_runtime_input_origin():
+    import yaml
+
+    from axiom_encode.harness.bound_capital_gift_operands import bind_capital_gift
+    from tests.t1170_contract_projection import (
+        REMOVED_RULES,
+        historical,
+        projected_static,
+    )
+    from tests.test_capital_gift_real_engine import _cases
+
+    directory = FIXTURES / PRINTED_TABLE_FIXTURE
+    case = load_fixture(directory)
+    metadata = case.provenance
+    static = projected_static()
+    assert metadata["derivation"]["not_historical_encoder_output"] is True
+    repository = Path(__file__).resolve().parents[1]
+    for origin in metadata["derivation"]["base_inputs"].values():
+        raw = (repository / origin["path"]).read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == origin["sha256"]
+        assert (
+            hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+            == origin["git_blob_sha1"]
+        )
+    assert case.candidate == static["policy_yaml"]
+    assert case.tests == yaml.safe_dump(_cases(True), sort_keys=False)
+    assert len(yaml.safe_load(case.tests)) == 124
+    guide = (directory / "public-source-context/p113.txt").read_text()
+    assert guide == historical("t1170-static.json")["p113_body"]
+    assert (
+        metadata["supplemental_public_sources"]["public-source-context/p113.txt"][
+            "offline_replay_input"
+        ]
+        is False
+    )
+    binding = bind_capital_gift(case.candidate, case.source, guide)
+    assert binding is not None and len(binding.rules) == 64
+    assert REMOVED_RULES.isdisjoint(rule.name for rule in binding.rules)
+    # The capture test executes these same bytes; an offline replay does not
+    # acquire that test's private observations or become an accepted control.
+    assert case_is_control(case) is False
+    report = json.loads((directory / "issues.json").read_text())
+    assert any("t1170-evidence" in issue for issue in report["issues"])
+
+
+def test_public_proof_alias_diagnostic_preserves_its_public_inputs():
+    directory = FIXTURES / PROOF_ALIAS_FIXTURE
+    case = load_fixture(directory)
+    mutation = case.provenance["mutation"]
+    parent = FIXTURES / mutation["base_fixture"]
+    original = (parent / "candidate.yaml").read_text()
+    transformed = original
+    for replacement in mutation["replacements"]:
+        assert transformed.count(replacement["old"]) == 1
+        transformed = transformed.replace(replacement["old"], replacement["new"], 1)
+    assert transformed == case.candidate
+    assert mutation["not_historical_encoder_output"] is True
+    assert case.context == {}
+    for name, digest in mutation["original_hashes"].items():
+        assert hashlib.sha256((parent / name).read_bytes()).hexdigest() == digest
+        blob = hashlib.sha1(
+            f"blob {(parent / name).stat().st_size}\0".encode()
+            + (parent / name).read_bytes()
+        ).hexdigest()
+        assert blob == mutation["original_git_blobs"][name]
+        if name != "candidate.yaml":
+            assert (directory / name).read_bytes() == (parent / name).read_bytes()
+    assert (
+        hashlib.sha256(case.candidate.encode()).hexdigest()
+        == (mutation["mutated_candidate_sha256"])
+    )
+    # Reversing only the two proof aliases recovers every parsed value and type.
+    payload = yaml.safe_load(case.candidate)
+    rule = payload["rules"][0]
+    assert "metadata" not in rule
+    rule["metadata"] = {"proof": rule.pop("proof")}
+    [period] = [
+        atom
+        for atom in rule["metadata"]["proof"]["atoms"]
+        if atom["kind"] == "effective_period"
+    ]
+    source = period["source"]
+    assert "excerpt" not in source
+    source["excerpt"] = source.pop("quote")
+    assert payload == yaml.safe_load(original)
+
+
+def test_public_proof_alias_diagnostic_replays_without_the_old_false_positive():
+    case = load_fixture(FIXTURES / PROOF_ALIAS_FIXTURE)
+    original = load_fixture(FIXTURES / case.provenance["mutation"]["base_fixture"])
+    recorded = json.loads((FIXTURES / PROOF_ALIAS_FIXTURE / "issues.json").read_text())
+    assert recorded["control"] is False
+    assert len(recorded["issues"]) == 1
+    assert "`2026-03-01`" in recorded["issues"][0]
+    assert recorded["rules"] == {"complete-source-unit:effective-date": 1}
+    for candidate in (original, case):
+        replayed = replay_case(candidate)
+        assert replayed["error"] is None
+        assert replayed["issues"] == []
+    # Removing the date-bearing atom must restore the refusal; aliases do not
+    # disable examination of the unit or make an arbitrary date supported.
+    payload = yaml.safe_load(case.candidate)
+    atoms = payload["rules"][0]["proof"]["atoms"]
+    atoms[:] = [atom for atom in atoms if atom["kind"] != "effective_period"]
+    unsupported = replay_case(
+        dataclasses.replace(case, candidate=yaml.safe_dump(payload, sort_keys=False))
+    )
+    assert unsupported["error"] is None
+    assert len(unsupported["issues"]) == 1
+    assert "`2026-03-01`" in unsupported["issues"][0]
+
+
+def test_public_proof_alias_diagnostic_keeps_proof_results_and_authentication_limit():
+    from axiom_encode.harness.proof_validator import validate_rulespec_proofs
+
+    case = load_fixture(FIXTURES / PROOF_ALIAS_FIXTURE)
+    original = load_fixture(FIXTURES / case.provenance["mutation"]["base_fixture"])
+    structural = [
+        validate_rulespec_proofs(candidate.candidate) for candidate in (original, case)
+    ]
+    assert structural[0] == structural[1]
+    assert structural[0].passed and structural[0].atoms_checked == 20
+    available_text = [
+        validate_rulespec_proofs(
+            candidate.candidate, source_texts={candidate.citation: candidate.source}
+        )
+        for candidate in (original, case)
+    ]
+    assert available_text[0] == available_text[1]
+    assert not available_text[0].passed
+    assert available_text[0].atoms_checked == 20
+    assert len(available_text[0].issues) == 4
+    assert all(
+        "Proof source unresolved:" in issue
+        and "us-az/manual/des/archived-policy/2026-03-23-whats-changed" in issue
+        for issue in available_text[0].issues
+    )
+
+
+def test_real_engine_public_proof_alias_preserves_program_and_companion(
+    real_engine, tmp_path
+):
+    from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+    from axiom_encode.rules_engine_compat import run_rulespec_compile
+
+    case = load_fixture(FIXTURES / PROOF_ALIAS_FIXTURE)
+    original = load_fixture(FIXTURES / case.provenance["mutation"]["base_fixture"])
+    assert case.context == {}
+    checkout = tmp_path / "rulespec-us"
+    country = checkout / case.policy_prefix
+    program = country / case.module_path
+    program.parent.mkdir(parents=True)
+    receipt = binding_receipt(real_engine)
+    config = checkout / ".axiom/toolchain.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        f'[toolchain]\naxiom_rules_engine_ref = "{receipt["engine_commit"]}"\n'
+    )
+    program.with_name(program.stem + ".test.yaml").write_text(case.tests)
+    payloads = []
+    for index, content in enumerate((original.candidate, case.candidate)):
+        program.write_text(content)
+        output = tmp_path / f"compiled-{index}.json"
+        compiled = run_rulespec_compile(
+            binary=real_engine.binary,
+            program=program,
+            rulespec_roots=[checkout],
+            output=output,
+            cwd=real_engine.root,
+            env=os.environ.copy(),
+        )
+        assert compiled.returncode == 0, compiled.stderr or compiled.stdout
+        payloads.append(output.read_bytes())
+        pipeline = ValidatorPipeline(
+            policy_repo_path=country,
+            axiom_rules_path=real_engine.root,
+            local_corpus_release=None,
+            enable_oracles=False,
+            max_workers=1,
+            axiom_rules_engine_ref=receipt["engine_commit"],
+        )
+        assert (
+            pipeline._run_rulespec_test_cases(
+                rules_file=program,
+                compiled_path=output,
+                compiled_payload=json.loads(output.read_text()),
+                cases=yaml.safe_load(case.tests),
+            )
+            == []
+        )
+    assert payloads[0] == payloads[1]
 
 
 @pytest.mark.parametrize(

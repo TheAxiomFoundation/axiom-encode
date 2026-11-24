@@ -233,7 +233,11 @@ def sync_run_to_supabase(
         ):
             data[cost_field] = float(cost)
     generation_attempt_count = getattr(run, "generation_attempt_count", 0)
-    if isinstance(generation_attempt_count, int) and generation_attempt_count > 0:
+    if isinstance(generation_attempt_count, int) and (
+        generation_attempt_count > 0
+        # A pre-encode block is a measured zero: no model was called.
+        or (outcome or {}).get("status") == "pre_encode_blocked"
+    ):
         data["generation_attempt_count"] = generation_attempt_count
     for github_column in GITHUB_RUN_COLUMNS:
         value = (github_run or {}).get(github_column)

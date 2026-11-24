@@ -118,6 +118,272 @@ capability.
 The launcher is validated but never executed; the
 supervisor executes the validated interpreter and protected bootstrap directly.
 
+### Requiring the generalist review
+
+`encode --apply` records its generalist review in the encode outcome, and in
+the signed manifest for a target that verifies with the main encoder. That is
+a target whose protected base sets `[workflow_toolchain] encoder_verifier =
+"main"` and sets no `encoder_verifier_hold`. A hold verifies with one exact
+earlier encoder commit, which may predate the record field, so a held target
+gets the record in the encode outcome only, like a pinned target. The mode and
+the hold are read from one protected commit. By
+default a review that is unavailable, failed or partial does not stop the
+apply. To make it stop, add `--require-review` to the supervised command:
+
+```text
+  -- /opt/axiom/python/bin/axiom-encode encode ... --apply --require-review
+```
+
+With the flag, the encode applies only when the reviewer ran, passed, and was
+shown the whole content of every applied file; otherwise it ends
+`apply_blocked_review` with a non-zero exit and nothing applied.
+
+One reviewer call shows at most the first 6,000 characters of the module, the
+first 3,000 characters of the companion test file and the first 4,000
+characters of the source excerpt. A candidate within all three limits gets
+that one call, and its prompt did not change. A larger candidate is reviewed
+in ordered chunks, so the reviewer still sees the whole content:
+
+- The module and the companion test file are cut at the start of a root-level
+  entry: a top-level key, one rule, one test case. The positions come from the
+  YAML parser. The source excerpt is cut after a blank line, and a paragraph
+  larger than one chunk is cut after a line break. A cut is never inside a
+  line, a rule or a test case.
+- A chunk has at most 24,000 characters. One call shows one module chunk, at
+  most one source chunk and at most one companion chunk, each between two
+  marker lines that carry the SHA-256 of that chunk. The calls together show
+  every module chunk beside every source chunk, and every companion chunk
+  once.
+- A module with several chunks also gets an outline in every call: one line
+  for each import, unit, input and rule of the whole module (name, kind,
+  entity, dtype, period). The outline comes from the candidate, so it stands
+  in a marked data block of its own. A name or attribute that is not a plain
+  identifier is shown as `[not-an-identifier sha256=...]`, never as text. A
+  module whose root names one key twice gets no outline and no chunk plan. The
+  companion chunks of a module with several chunks are judged against the
+  outline, not against the rule bodies.
+- Each call names the texts it shows whole and the texts it shows in part. A
+  call that shows everything says that it is the whole review and that no
+  other call judges anything. Only for a text shown in part does a call tell
+  the reviewer that another call judges the rest.
+- The review passes only when every call returns its own `"passed": true`.
+  The calls run in order and stop at the first call that does not pass. A
+  call that fails makes the record `failed`. A call with no readable verdict
+  makes it `unavailable`. The score of the review is the lowest score of its
+  calls.
+
+The cost has two caps: at most 8 chunks for one text and at most 12 reviewer
+calls for one unit. Above a cap, with one rule, test case or source line
+larger than a chunk, with a file the YAML parser cannot read, or with a prompt
+above 120,000 bytes, the reviewer makes the one call on the start of each
+file, as before. The record is then `partial` (`review_saw_truncated_file`, or
+`review_saw_truncated_source` when only the source excerpt was cut), and the
+flag refuses it.
+
+Of the 65 replay-benchmark candidates in this repository, 62 get a full chunk
+plan under these caps (4 in the one unchanged call, 35 in one chunked call),
+with a median of 1 call, a mean of 2.4 and a maximum of 11. The other 3 have a
+companion test file above 180,000 characters. A full plan is not yet a record
+that can pass: with a reviewer that passes every call, 58 of the 65 get a
+`passed` record. One of the 3 above the caps is `partial`. Six are
+`unavailable` because a file has no canonical content digest (see below): five
+have a companion test file with anchors and aliases or merge keys (two of them
+are also above the caps), and one has a module with a merge key. That digest
+limit is the next one to lift (#2252).
+
+Chunked review is on for every generalist review, also without the flag: a
+large candidate in an `encode` run costs up to 12 reviewer calls of up to 300
+seconds each, where it cost one call before.
+
+The record (`axiom-encode/generalist-review/v2`) has a `coverage` block for
+this. It holds the number of planned and made calls and, for the module, the
+companion test file and the source excerpt, the size and SHA-256 of the
+reviewed text and the byte range and SHA-256 of every chunk. A file is
+`complete` only when its chunks cover every byte of the reviewed text exactly
+once, in order, within the caps, with every planned call made. The number of
+planned calls must be the number that the chunk counts give.
+`reviewed.source_sha256` is the digest of the source excerpt the reviewer was
+given, and a `passed` record needs coverage of exactly that text. A reader
+refuses a record of another schema version. The byte ranges are of the
+reviewed file. When the apply stamp changes the bytes, the content digest
+binds the reviewed file to the applied file, as described below.
+
+Limits of a chunked review, to weigh before a lane requires it. A call judges
+what it shows, so a defect that needs two parts at once can pass every call:
+a test case against a rule body in another chunk, or, when the source excerpt
+itself is split, a rule that no part of the source supports. The measured
+effect of chunking on review verdicts is unknown: no model call was made to
+build or test this.
+
+A verdict is exactly one JSON object that is the whole reviewer reply. Two
+shapes are read: the object alone, or one code fence (plain or marked `json`,
+with the object on its own lines) that holds the object alone. One leading
+byte order mark and surrounding JSON whitespace (space, tab, line feed,
+carriage return) are dropped. The object is strict JSON with one repair: a
+trailing comma between a value and its closer is dropped. Every reviewer
+prompt states this shape.
+
+The object must match the schema that the reviewer prompt asks for, in keys
+and in value types:
+
+| Reviewer | Keys and types |
+| --- | --- |
+| generalist | `score` number, `passed` boolean, `blocking_issues` list of strings, `non_blocking_issues` list of strings, `reasoning` string |
+| the other reviewers | `score` number, `passed` boolean, `issues` list of strings, `reasoning` string |
+
+`score` must be present. A pass is the reviewer's own `"passed": true` in that
+object.
+
+Everything else is not a verdict, and the record says `unavailable`
+(`reviewer_error`): an array, an object under another key, two objects, text
+before or after the object or the fence, an object that the output does not
+close, an object without `score`, an object with any other key (for example
+`pass`, `failed`, `verdict`, `details` or `"Passed"`), and a value of another
+type (for example an issue written as an object, or `reasoning` as an object).
+Not strict JSON, and refused too: a repeated key, `NaN` and `Infinity`, a
+comma that follows no value (`[,]`), whitespace that JSON does not define
+(for example U+3000), and a raw control character inside a string. The last
+one is a choice: strict JSON forbids it, no stored reviewer output has one,
+and a string can then not hold a line that looks like a fence. The earlier
+checks still run first: a second verdict object and another spelling of a
+verdict key anywhere in the output are refused.
+
+The reply is read from the reviewer CLI as follows. The default backend is the
+Claude CLI; `AXIOM_ENCODE_REVIEWER_CLI=codex` selects the Codex CLI, and it is
+also the fallback when the Claude CLI is not installed. For the Claude CLI the
+reply is stdout alone when the run exits 0; the length of stderr is logged,
+and stderr is not part of the reply. For the Codex CLI the event stream is stdout alone when the run exits 0, and the reply is the text of the
+one agent message in it. The stream is unreadable, and the record says
+`unavailable`, when it holds more than one agent message with text, no agent
+message, an `error` or `turn.failed` event, a line that is not a JSON
+object, or an agent message whose `text` is not a string. A line ends at a
+line feed, and only JSON whitespace (space, tab, line feed, carriage return)
+is stripped from it: a stream whose events are separated by a lone carriage
+return, or a line that holds or is padded with another whitespace character
+(for example a form feed, U+00A0 or U+2028 outside a string), is unreadable. An object with no `type` or an unknown
+`type`, and an `item.completed` whose `item` is not an object, are ignored:
+the CLI writes these lines, not the reviewer. A reviewer run with a preamble message before its verdict is therefore
+unreadable by design: the reader cannot tell a harmless preamble from an
+earlier verdict in other words. This can be relaxed later with data; none of
+the 45 stored Codex reviews has more than one agent message. A
+run that exits non-zero has no reply for either backend, whatever it printed:
+the record says `unavailable`.
+Eval scoring keeps its older fallback from the score.
+A pass that the fallback infers never reaches the record as a pass: a score
+without `passed` is recorded as `failed` when the fallback says fail (for
+example `{"score": 2}`) and as `unavailable` otherwise, and a non-boolean
+`passed` is recorded as `unavailable` (`reviewer_error`).
+
+The record binds a verdict by canonical YAML content, not by bytes. "Shown the
+whole content" means: the prompt showed the whole text of a file whose
+canonical content equals the applied file. Comments, key order and harmless
+quoting can differ; the record names the byte digests of both sides. Quoting
+is not harmless when it changes the value that the companion-test loader
+(`yaml.safe_load`) reads: plain `yes`, `0b10`, `1_000`, `1:30` and
+`2001-01-01` are a boolean, numbers and a date there, and strings when
+quoted. Such a pair has two canonical contents, so a review of one spelling
+does not cover the other. A plain float that every modeled reader
+(`yaml.safe_load`, a YAML 1.2 core reader, a reader of both typed forms)
+reads as one value is bound by that value, because the apply dump respells
+it: `0.20` and `0.2` are one content. A quoted number, a tagged number, an
+integer, `-0.0` against `0.0`, and a spelling that one dialect reads another
+way (`1_000.0`, `1.5e3`) keep their exact text. So does a number that
+overflows to infinity (`1.0e+999`): only `.inf`, `-.inf` and `.nan`, in their
+three letter cases, are one infinity or NaN for every reader.
+
+The record binds review coverage to each manifest path. Its `files` list has
+one entry per applied path, with that path's byte digest. The verdict covers
+only the module path that the reviewer was asked about and the companion test
+path of that module. Another applied file stays not reviewed also when its
+bytes equal a reviewed file, for example a repaired dependent companion test
+that is byte-identical to the reviewed one: its path selects another module
+as its validation context, and the reviewer did not read that context. The
+record is then `partial` and a required apply refuses. Paths have one
+spelling (relative, `/` separators, no `.` or `..` segment); a list with
+another spelling, or with two paths that differ only by case or Unicode
+composition, binds no verdict.
+
+The manifest reader checks the record against the manifest alone. It checks
+the exact (path, digest) list, the shape of each path, that the reviewed
+entries are the named module and its companion test, and that the reviewed
+and applied content digests are equal. It does not check which module the
+reviewer read, and it cannot recompute a content digest from the listed byte
+digests: a forged record that names other bytes as `applied.rulespec_sha256`
+and keeps the reviewed content digest is accepted by the reader. The reader
+relies on the manifest signature for that. The manifest writer is the only
+site that puts the record in a manifest, and it builds the record from the
+files it signs.
+
+A retry that accepts a retained repair candidate without a new model call
+does not run the reviewer. Its record is `skipped` (`reviewer_not_run`), so
+with `--require-review` that encode ends `apply_blocked_review` even where a
+reviewer CLI is available. Encode the citation again to get a reviewed
+candidate.
+
+For a deferred module without a companion test, apply writes an empty
+companion test (`[]`). The reviewer prompt shows that generated companion and
+the record binds its canonical content, so the whole-file statement also
+holds for it. An empty list is one canonical content whatever its formatting
+or comments. A null document (a 0-byte file, a file with only comments, `~`)
+and an empty mapping are other contents, because the companion-test loader
+refuses them, and an absent companion is a content of its own. A reviewed
+empty companion covers none of them, and a companion with test cases is
+never covered by a review of an empty one. A companion file that exists is
+always shown in the prompt, also when it is empty. A companion that the
+reviewer was not shown binds no verdict: the record is `unavailable` and a
+required apply refuses.
+
+A file has no canonical content digest, and so no binding, when its mapping
+keys are ambiguous: a repeated key, two keys that PyYAML (YAML 1.1), a YAML
+1.2 core reader or a mix of their typed forms reads as one value (`0x10` and
+`16`, `0o20` and `0b10000`), a key that is not a scalar, or a key that one of
+those two dialects cannot construct (`!!value`, `!!timestamp`, a local tag).
+No other YAML dialect is modeled. The flag is
+the only switch. There is no environment variable for it, because the
+supervisor builds the child environment from empty and would drop one.
+
+Turn it on only where a reviewer CLI can start under the supervisor: the local
+trusted lane (#2037), after the trusted runtime is re-provisioned at a commit
+that has the flag. The hosted signed workflow has no reviewer CLI on its
+runner, so the flag would block every run there.
+
+The promotion lane has the same switch. `promote-reviewed-candidate` signs a
+reviewed candidate after validation and runs no model reviewer. With
+`--require-review` it also runs the generalist reviewer on the exact candidate
+bytes, after validation and before the signature request:
+
+```text
+  -- /opt/axiom/python/bin/axiom-encode promote-reviewed-candidate ... --require-review
+```
+
+The command builds the same record, with the rules above, against the two
+files it signs. It prints the record on one line and signs only when the
+status is `passed`. Otherwise it ends with a non-zero exit, signs nothing and
+installs no manifest. The flag is the only switch, it is read when the command
+runs, and it defaults to off: without it no reviewer runs and the promotion is
+unchanged. The reviewer gets the body of the cited source unit. It gets no
+advisory validator findings and no amendment documents, so it cannot judge
+what an attached amendment changes; the validators still read them.
+
+The promotion manifest does not carry the record, because older verifiers
+refuse an unknown manifest field. To keep the record, add
+`--review-record-file <absolute path>` and, in a workflow, `--run-attempt
+<number>`. The command then writes one new JSON file
+(`axiom-encode/promotion-generalist-review/v1`) with the record, the run id,
+the run attempt, the citation, the module path and the reviewed commit, also
+when the review does not pass. The path must be outside the RuleSpec checkout
+and must not exist. Put it in the directory that the run uploads as its
+artifact. What stays open: no verifier reads this file, so a signed promotion
+manifest does not prove that a review ran; and a refused review can be run
+again until it passes. The run attempt makes a rerun visible, it does not
+prevent one (#2319). `targeted-signed-reencode.yml` does not pass the
+flag and has no input for it, because its runner has no reviewer CLI. To use
+it there, a later change must provision a reviewer CLI for the supervisor,
+add a workflow input that defaults to `false`, and append `--require-review`,
+`--review-record-file "$RUNNER_TEMP/targeted-reencode/promotion-generalist-review.json"`
+and `--run-attempt "$GITHUB_RUN_ATTEMPT"` to `promotion_args` when that input
+is `true`.
+
 The Python environment is constructed from empty. It contains fixed locale,
 bytecode/isolation controls, a fixed path containing only the validated runtime
 tool directory, and the anonymous
@@ -356,6 +622,47 @@ The launcher is the process manager the deployment model calls for. It:
 
 The supervisor performs its own forbidden-private-key-environment rejection and
 per-child scrub, so the launcher is a wiring layer, not a second trust boundary.
+
+For subscription-backed generation, `run` also accepts the supervisor's
+`--trusted-codex-cli-config`, `--codex-subscription-auth`, and
+`--codex-auth-outbox` flags before the `--` separator. Supply all three together.
+Before it reads the signing key, the launcher rejects a partial configuration,
+an ambient `CODEX_HOME` (which the supervisor would also refuse), and a
+non-empty `OPENAI_API_KEY` or `CODEX_API_KEY`, which would otherwise reach the
+supervised encoder beside the subscription home. It forwards the paths
+unchanged and never opens them: the supervisor owns credential-file
+validation, isolation, and refresh, so a path the supervisor rejects is
+refused only after the key has been delivered to the signer. The signer's
+minimal environment and CI context requirements still apply. Omitting all three
+subscription flags preserves the existing supervisor arguments.
+
+Codex children can read the `auth.json` in their home despite the read-only
+sandbox. The encoder therefore reads that file's credential strings before and
+after each Codex generation and review run. It replaces them, verbatim and
+JSON-escaped, in the child's stdout and stderr, in the extracted reviewer text,
+and in the generation last-message file, which it reads once and then deletes
+from the workspace. The redaction matches whole strings only: it stops a
+token from being copied out by accident, not a deliberate leak. A child that
+encodes a token (for example as base64) or prints it in pieces gets it past
+the redaction, so treat Codex output as sensitive wherever it is kept.
+
+Generation runs Codex in a temporary home whose `auth.json` symlinks or copies
+the encoder's own. A token refresh that writes through the symlink updates the
+encoder's file. A refresh that replaces the file, or any refresh of a copy,
+stays in the temporary home and is discarded with it, so the encoder's file
+keeps the older token. Under the supervisor, the encoder's file is the
+`auth.json` in the supervisor's scratch home, and at teardown the supervisor
+copies that file to the `--codex-auth-outbox` path whether or not the child
+succeeded. The outbox then receives the older token, which the provider may
+already have rotated out. The reviewer runs in the supervisor's home directly.
+
+A supervisor runs the encoder package that was provisioned into its root-owned
+runtime. The reviewer's `CODEX_HOME` and the output redaction above therefore
+reach a long-lived supervisor only when it is re-provisioned with an encoder
+that contains them; a supervisor provisioned from an older encoder runs its
+reviewer without the supervisor's `CODEX_HOME`. The central signed re-encode
+workflow provisions at its own commit on every run, so it needs no extra step.
+The launcher checks ship in the apply-signer binary, which is rebuilt separately.
 
 ### ChatGPT subscription generation
 

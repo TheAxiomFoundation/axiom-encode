@@ -1,0 +1,69 @@
+"""Simulate ratchet-step and job critical paths for partition/scheduling policies.
+
+Costs: measured per-module audit seconds from run 41819980907 (encoder 5af06cddf, 4 workers per leg).
+Evaluation always uses the measured costs; policies may plan with a proxy.
+"""
+import heapq, json, statistics, sys
+from datetime import datetime
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+import leg_durations as L
+
+DATA = Path(__file__).resolve().parent.parent / "data"
+legs = json.load(open(DATA / "module_timings_41819980907.json"))
+cost = {p: s for _, m in legs.items() for p, s in m}
+keys = sorted(legs)
+assert len(keys) == 52
+paths = sorted(cost)
+sizes = {}
+for line in open(DATA / "sizes_6fd18c0b.tsv"):
+    s, p = line.rstrip("\n").split("\t"); sizes[p] = int(s) if s != "-" else 0
+proxy = {p: sizes.get(p, 0) + sizes.get(p[:-5] + ".test.yaml", 0) for p in paths}
+
+def t(s): return datetime.fromisoformat(s.replace("Z", "+00:00"))
+# per-leg observed ratchet and non-ratchet job time (minutes)
+obs_ratchet, other = {}, {}
+for jb in L.jobs("41819980907"):
+    if not jb["name"].startswith("validate / validate ("): continue
+    leg = jb["name"].split("(")[1].rstrip(")")
+    tot = (t(jb["completed_at"]) - t(jb["started_at"])).total_seconds() / 60
+    r = next(((t(s["completed_at"]) - t(s["started_at"])).total_seconds() / 60 for s in jb["steps"] if s["name"] == L.STEP), 0)
+    obs_ratchet[leg] = r; other[leg] = tot - r
+
+def leg_time(mods, order_key, workers=4):
+    """List-schedule mods on `workers` workers in the given order; return makespan (s)."""
+    free = [0.0] * workers
+    for p in sorted(mods, key=order_key):
+        f = heapq.heappop(free); heapq.heappush(free, f + cost[p])
+    return max(free) if mods else 0.0
+
+def round_robin():
+    # The real round-robin partition, as each leg's log reported it (over the full 1930-entry ledger).
+    return {k: [p for p, _ in legs[k]] for k in keys}
+
+def lpt(weight, initial=None):
+    heap = [((initial or {}).get(k, 0.0), j, k) for j, k in enumerate(keys)]
+    heapq.heapify(heap); out = {k: [] for k in keys}
+    for p in sorted(paths, key=lambda p: (-weight[p], p)):
+        load, j, k = heapq.heappop(heap); out[k].append(p); heapq.heappush(heap, (load + weight[p], j, k))
+    return out
+
+OVERHEAD = statistics.median(obs_ratchet[k] - leg_time(round_robin()[k], lambda p: p) / 60 for k in keys)
+def report(name, part, order):
+    r = {k: leg_time(part[k], order) / 60 + OVERHEAD for k in keys}
+    job = {k: other[k] + r[k] for k in keys}
+    worst = max(r, key=r.get); jw = max(job, key=job.get)
+    print(f"{name:58s} ratchet max {r[worst]:5.1f} ({worst:5s}) median {statistics.median(r.values()):5.1f} | job max {job[jw]:5.1f} ({jw})")
+    return r
+
+print(f"ratchet overhead per leg (setup+report, median) = {OVERHEAD:.1f} min")
+rr = report("A round-robin, path order within leg (main today)", round_robin(), lambda p: p)
+err = [abs(rr[k] - obs_ratchet[k]) for k in keys]
+print(f"   simulator check vs observed ratchet: median |err| {statistics.median(err):.1f} min, max {max(err):.1f}; observed max {max(obs_ratchet.values()):.1f}")
+report("B round-robin, longest-first within leg (oracle cost)", round_robin(), lambda p: (-cost[p], p))
+report("C LPT across legs + longest-first (oracle cost)", lpt(cost), lambda p: (-cost[p], p))
+report("D LPT across legs + longest-first (byte proxy)", lpt(proxy), lambda p: (-proxy[p], p))
+init = {k: other[k] * 60 * 4 for k in keys}  # leg's own work, in worker-seconds
+report("E LPT with each leg's own job time as initial load (oracle)", lpt(cost, init), lambda p: (-cost[p], p))
+print("lower bound on ratchet max: max module", round(max(cost.values()) / 60, 1), "+ overhead", round(OVERHEAD, 1))
+print("job time without any audit share, worst legs:", sorted(((round(other[k]), k) for k in keys), reverse=True)[:5])

@@ -66,6 +66,9 @@ _EXPLICIT_SUBPROCESS_ENV_NAMES: Final = frozenset(
     }
 )
 _trusted_subprocess_base_environment: dict[str, str] | None = None
+# The supervisor's isolated Codex home, captured when the broker attaches. Only
+# the Codex reviewer receives it; no caller or ambient value can replace it.
+_trusted_codex_home: str | None = None
 
 
 def canonical_signing_message(scope: str, payload: bytes) -> bytes:
@@ -124,8 +127,15 @@ class BrokerStatus:
     retired_apply_inventory: RetiredApplyInventory | None = None
 
 
+def supervisor_codex_home() -> str | None:
+    """Return the isolated Codex home recorded at broker attach, if any."""
+    return _trusted_codex_home
+
+
 def scrub_private_signing_environment(
     environment: Mapping[str, str] | None = None,
+    *,
+    include_supervisor_codex_home: bool = False,
 ) -> dict[str, str]:
     """Build the purpose-minimal environment allowed for untrusted children.
 
@@ -157,6 +167,8 @@ def scrub_private_signing_environment(
         for name, value in environment.items():
             if name in _EXPLICIT_SUBPROCESS_ENV_NAMES:
                 clean[name] = value
+    if include_supervisor_codex_home and _trusted_codex_home:
+        clean["CODEX_HOME"] = _trusted_codex_home
     return clean
 
 
@@ -557,12 +569,13 @@ def attach_signing_broker_from_environment() -> SigningBrokerClient | None:
         broker_pid=broker_pid,
     )
     install_signing_broker(client, broker_pid=broker_pid)
-    global _trusted_subprocess_base_environment
+    global _trusted_codex_home, _trusted_subprocess_base_environment
     _trusted_subprocess_base_environment = {
         name: os.environ[name]
         for name in _TRUSTED_SUBPROCESS_BASE_NAMES
         if name in os.environ
     }
+    _trusted_codex_home = os.environ.get("CODEX_HOME") or None
     atexit.register(_close_active_production_broker)
     return client
 

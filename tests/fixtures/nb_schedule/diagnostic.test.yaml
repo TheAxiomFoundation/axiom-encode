@@ -1,0 +1,272 @@
+- name: existing_valid_cap_other_claimants
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1: 15000
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2: 2000
+    ? ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_expenses_claimed_by_other_eligible_individuals_line_4
+    : 3000
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_total_eligible_home_renovation_expenses: 15000
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_assistance: 2000
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#entered_home_renovation_other_claims: 3000
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3: 10000
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360: 7000
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#new_brunswick_seniors_home_renovation_tax_credit_line_47900: 700
+- name: below_cap_explicit_inclusion
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_home_renovation_total_eligible_expenses_line_1: 9000
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_government_assistance_line_2: 1000
+    ? ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.nb_s12_expenses_claimed_by_other_eligible_individuals_line_4
+    : 2000
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_net_home_renovation_expenses_line_3: 8000
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#nb_s12_home_renovation_expenses_line_60360: 6000
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#new_brunswick_seniors_home_renovation_tax_credit_line_47900: 600
+- name: schedule_use_false
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.is_completing_home_renovation_schedule: false
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.is_filing_paper_return: true
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#paper_return_schedule_attachment_required: not_holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#receipts_exclusion_from_submission_required: not_holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#receipt_retention_required: not_holds
+- name: paper_filing_false
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.is_completing_home_renovation_schedule: true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.is_filing_paper_return: false
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#paper_return_schedule_attachment_required: not_holds
+- name: eligible_expense_completion_premise_false
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.has_eligible_home_renovation_expenses: false
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#home_renovation_schedule_completion_required: not_holds
+- name: needs_space_false
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.needs_additional_space: false
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#additional_sheet_attachment_required: not_holds
+- name: residence_answer_false
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.expenses_relate_to_return_page_one_residence: false
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#return_residence_yes_checkbox_required: not_holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#renovation_residence_address_reporting_required: holds
+- name: entry_gst_applicability_false
+  entity_id: nb-entry-1
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.gst_hst_number_is_applicable: false
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#supplier_gst_hst_number_reporting_required: not_holds
+- name: schedule_use_true
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.is_completing_home_renovation_schedule: true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.is_filing_paper_return: true
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#paper_return_schedule_attachment_required: holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#receipts_exclusion_from_submission_required: holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#receipt_retention_required: holds
+- name: paper_filing_true
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.is_completing_home_renovation_schedule: true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.is_filing_paper_return: true
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#paper_return_schedule_attachment_required: holds
+- name: eligible_expense_completion_premise_true
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.has_eligible_home_renovation_expenses: true
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#home_renovation_schedule_completion_required: holds
+- name: needs_space_true
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.needs_additional_space: true
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#additional_sheet_attachment_required: holds
+- name: residence_answer_true
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.expenses_relate_to_return_page_one_residence: true
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#return_residence_yes_checkbox_required: holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#renovation_residence_address_reporting_required: not_holds
+- name: entry_gst_applicability_true
+  entity_id: nb-entry-1
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.gst_hst_number_is_applicable: true
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#supplier_gst_hst_number_reporting_required: holds
+- name: positive_medical_nb-claimant-a
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.has_spouse_or_common_law_partner_at_reference_date: true
+    ? ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.occupied_separate_principal_residences_at_reference_date
+    : true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.principal_residence_separation_was_for_medical_reasons: true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.medical_separation_reference_date: '2025-12-31'
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#medical_separation_claim_permission_applies: holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#spouse_residence_address_reporting_required: holds
+  description: Explicitly supplied facts concern claimant nb-claimant-a and partner nb-claimant-b; no
+    relation or ownership inferred.
+- name: positive_medical_nb-claimant-b
+  entity_id: nb-claimant-b
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.has_spouse_or_common_law_partner_at_reference_date: true
+    ? ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.occupied_separate_principal_residences_at_reference_date
+    : true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.principal_residence_separation_was_for_medical_reasons: true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.medical_separation_reference_date: '2025-12-31'
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#medical_separation_claim_permission_applies: holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#spouse_residence_address_reporting_required: holds
+  description: Explicitly supplied facts concern claimant nb-claimant-b and partner nb-claimant-a; no
+    relation or ownership inferred.
+- name: medical_exception_not_established_no_spouse
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.has_spouse_or_common_law_partner_at_reference_date: false
+    ? ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.occupied_separate_principal_residences_at_reference_date
+    : true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.principal_residence_separation_was_for_medical_reasons: true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.medical_separation_reference_date: '2025-12-31'
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#medical_separation_claim_permission_applies: not_holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#spouse_residence_address_reporting_required: not_holds
+- name: medical_exception_not_established_not_separate
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.has_spouse_or_common_law_partner_at_reference_date: true
+    ? ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.occupied_separate_principal_residences_at_reference_date
+    : false
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.principal_residence_separation_was_for_medical_reasons: true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.medical_separation_reference_date: '2025-12-31'
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#medical_separation_claim_permission_applies: not_holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#spouse_residence_address_reporting_required: not_holds
+- name: medical_exception_not_established_not_medical
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.has_spouse_or_common_law_partner_at_reference_date: true
+    ? ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.occupied_separate_principal_residences_at_reference_date
+    : true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.principal_residence_separation_was_for_medical_reasons: false
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.medical_separation_reference_date: '2025-12-31'
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#medical_separation_claim_permission_applies: not_holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#spouse_residence_address_reporting_required: not_holds
+- name: medical_exception_not_established_wrong_day
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.has_spouse_or_common_law_partner_at_reference_date: true
+    ? ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.occupied_separate_principal_residences_at_reference_date
+    : true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.principal_residence_separation_was_for_medical_reasons: true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.medical_separation_reference_date: '2025-12-30'
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#medical_separation_claim_permission_applies: not_holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#spouse_residence_address_reporting_required: not_holds
+- name: medical_exception_not_established_wrong_year
+  entity_id: nb-claimant-a
+  period:
+    period_kind: tax_year
+    start: '2025-01-01'
+    end: '2025-12-31'
+  input:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.has_spouse_or_common_law_partner_at_reference_date: true
+    ? ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.occupied_separate_principal_residences_at_reference_date
+    : true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.principal_residence_separation_was_for_medical_reasons: true
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#input.medical_separation_reference_date: '2024-12-31'
+  output:
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#medical_separation_claim_permission_applies: not_holds
+    ca:policies/cra/t1-2025/nb-s12-seniors-home-renovation-credit#spouse_residence_address_reporting_required: not_holds

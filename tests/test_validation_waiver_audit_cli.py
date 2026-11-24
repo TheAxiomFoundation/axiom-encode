@@ -841,9 +841,16 @@ def test_removed_waiver_must_pass_unless_module_was_deleted(tmp_path: Path, caps
             )
         )
 
-    report = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
     assert exit_code == 1
     assert any("still-broken.yaml" in error for error in report["errors"])
+    # The plan line counts what will execute, not what was selected: a deleted
+    # module prints no timing line, so audit-costs must not expect one.
+    assert (
+        "validation-waivers audit plan: audit owns all 2 waiver path(s); "
+        "2 selected, 1 to execute"
+    ) in captured.err.splitlines()
     deleted = next(item for item in report["results"] if item["path"] == "deleted.yaml")
     assert deleted == {
         "path": "deleted.yaml",

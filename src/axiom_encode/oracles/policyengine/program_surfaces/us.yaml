@@ -17,7 +17,7 @@ surfaces:
   axiom_status: wired
   priority: P1
   rationale: Axiom encodes federal income tax liability surfaces and the PolicyEngine registry wires the final income-tax
-    comparison target; Populace validation verifies the final federal income-tax surface.
+    comparison target; Microcosm validation verifies the final federal income-tax surface.
   populace_validation:
     status: validated
     dataset: populace-us-2024 local H5
@@ -217,7 +217,7 @@ surfaces:
   rationale: PolicyBench scores this direct person-level CHIP eligibility variable, and it is an appropriate final oracle
     target once Axiom assembles the upstream CHIP category graph. Axiom currently encodes federal CHIP child and
     targeted-low-income-child source definitions plus mapped state-set income-limit parameters where available, but still
-    needs RuleSpec coverage for the child, standard pregnant, FCEP, and aggregate category paths before Populace comparison.
+    needs RuleSpec coverage for the child, standard pregnant, FCEP, and aggregate category paths before Microcosm comparison.
 - country: us
   program_id: aca_subsidies
   program_name: ACA subsidies
@@ -871,7 +871,7 @@ surfaces:
       --year 2026 --month 1 --populace-year 2024
       --variable ar_tea --sample-size 0 --max-differences 10
     rationale: >-
-      Pending PolicyEngine source-law review before running or accepting a final Populace parity result. Current
+      Pending PolicyEngine source-law review before running or accepting a final Microcosm parity result. Current
       RuleSpec follows Arkansas DHS TEA Manual section 2362: income-eligible units below the gross-income trigger
       receive the maximum grant, while units at or above the trigger receive the rounded 50% reduced payment.
 - country: us
@@ -927,7 +927,7 @@ surfaces:
     Axiom now encodes Alabama TANF payment standards from the 2024 TANF State Plan, the Alabama Administrative Code
     assistance-payment rule, and the DHR Public Assistance Payment Manual payment-computation slice that aligns most
     closely to PolicyEngine's simplified al_tanf entitlement calculation. Do not treat the surface as PE-parity-complete:
-    Populace validation is blocked by a source hierarchy conflict where Alabama Admin. Code r. 660-2-2-.24 states a
+    Microcosm validation is blocked by a source hierarchy conflict where Alabama Admin. Code r. 660-2-2-.24 states a
     30% earned-income disregard while the DHR payment manual and PolicyEngine use 20%; PolicyEngine/policyengine-us#8840
     tracks that upstream-law review.
   populace_validation:
@@ -943,7 +943,7 @@ surfaces:
       --year 2026 --month 1 --populace-year 2024
       --variable al_tanf --sample-size 0 --max-differences 10
     rationale: >-
-      Pending source-hierarchy resolution before running or accepting a final Populace parity result. Current RuleSpec
+      Pending source-hierarchy resolution before running or accepting a final Microcosm parity result. Current RuleSpec
       preserves both the higher Alabama Administrative Code assistance-payment rule and the delegated DHR manual
       payment-computation rule; PolicyEngine's al_tanf currently follows the DHR manual's 20% work-expense rate and
       does not expose every final legal payment adjustment boundary.
@@ -1750,7 +1750,7 @@ surfaces:
   axiom_status: wired
   priority: P1
   rationale: >-
-    Colorado AND-CS grant-payment rules are encoded and wired to PolicyEngine's CO state-supplement surface. Populace
+    Colorado AND-CS grant-payment rules are encoded and wired to PolicyEngine's CO state-supplement surface. Microcosm
     validation is currently blocked by PolicyEngine-US parameter drift: PE-US 1.751.2 carries the 2025 monthly grant standard
     of $967 into 2026, while 9 CCR 2503-5 3.546 sets $994 effective January 1, 2026. The upstream PE fix is
     PolicyEngine/policyengine-us#8807.
@@ -1877,7 +1877,7 @@ surfaces:
     not a one-to-one oracle target.
   populace_validation:
     status: pending_validator
-    rationale: Needs either RCAP RuleSpec coverage plus a final `in_ssp` composition, or a narrower Populace adapter for
+    rationale: Needs either RCAP RuleSpec coverage plus a final `in_ssp` composition, or a narrower Microcosm adapter for
       the SAPN source-law budgeted-income inputs before a meaningful full-surface comparison can run.
 - country: us
   program_id: ssi_state_supplement
@@ -2304,7 +2304,7 @@ surfaces:
   axiom_status: wired
   priority: P1
   rationale: >-
-    Colorado OAP grant-payment rules are encoded and wired to PolicyEngine's CO OAP surface. Populace validation
+    Colorado OAP grant-payment rules are encoded and wired to PolicyEngine's CO OAP surface. Microcosm validation
     is currently blocked by PolicyEngine-US parameter drift: PE-US 1.751.2 carries the 2025 monthly grant standard of
     $1,005 into 2026, while 9 CCR 2503-5 3.530 sets $1,032 effective January 1, 2026. The upstream PE fix is
     PolicyEngine/policyengine-us#8807.
@@ -2408,7 +2408,7 @@ surfaces:
   priority: P2
   rationale: California CDSS EAS Chapter 49 CAPI benefit determination is encoded in RuleSpec and wired through a
     person-level final-benefit oracle mapping; coverage promotes this surface to wired when the mapping is present in
-    the scanned RuleSpec checkout, while Populace validation is scoped to cases where PolicyEngine's SPM-unit CAPI
+    the scanned RuleSpec checkout, while Microcosm validation is scoped to cases where PolicyEngine's SPM-unit CAPI
     surface maps cleanly to a single person-level legal output.
   populace_validation:
     status: validated

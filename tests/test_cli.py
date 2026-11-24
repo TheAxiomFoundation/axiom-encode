@@ -136,6 +136,7 @@ from axiom_encode.cli import (
     _qualify_deferred_output_subsection_paths,
     _quote_unquoted_source_scalars,
     _quoted_review_finding_excerpts,
+    _quoted_source_scalars_match,
     _read_only_guard_encoder_execution_identity,
     _reanchor_legacy_exact_dependent_proof_excerpts,
     _record_successful_apply_validation,
@@ -329,6 +330,7 @@ from axiom_encode.constants import (
 from axiom_encode.corpus_resolver import (
     PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     CorpusResolutionError,
+    InvalidActiveCorpusSourceError,
     LocalCorpusRelease,
     UnsafeCorpusPathError,
     normalize_corpus_identifier,
@@ -372,6 +374,7 @@ from tests.eval_evidence_fixtures import (
     TEST_APPLY_PUBLIC_KEY_B64,
     install_test_eval_evidence_keys,
 )
+from tests.generalist_review_fixtures import whole_review_coverage
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     bind_test_corpus_release,
@@ -1883,6 +1886,7 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
         "live-path",
         "live-encoder",
         "live-invalid-static",
+        "live-unknown-basis",
     ],
 )
 def test_promote_reviewed_candidate_changes_only_manifest(
@@ -1948,6 +1952,21 @@ def test_promote_reviewed_candidate_changes_only_manifest(
                             "run_id": args.run_id,
                         },
                         "record": record,
+                        **(
+                            {
+                                "schema": (
+                                    "axiom-encode/live-reviewed-pr-admission/v2"
+                                ),
+                                "admission_basis": "owner_waiver",
+                                "dispatcher": {
+                                    "login": "PavelMakarchuk",
+                                    "actor_id": 110687043,
+                                    "triggering_actor_id": 110687043,
+                                },
+                            }
+                            if admission == "live-unknown-basis"
+                            else {}
+                        ),
                     }
                 }
             )
@@ -2009,6 +2028,10 @@ def test_promote_reviewed_candidate_changes_only_manifest(
         "version_commit": "b" * 40,
         "identity_source": "trusted-runtime-attestation",
     }
+    from axiom_encode.reviewed_pr_admission import (
+        revalidate_admission as real_revalidate_admission,
+    )
+
     with (
         patch(
             "axiom_encode.cli._load_trusted_runtime_attestation",
@@ -2073,6 +2096,27 @@ def test_promote_reviewed_candidate_changes_only_manifest(
         ),
     ):
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
+        if admission == "live-unknown-basis":
+            # The real reader, not a mock: the promotion command refuses a
+            # run-scoped admission whose basis it does not know, before any
+            # GitHub read, validation or signature.
+            from axiom_encode.reviewed_pr_admission import AdmissionError
+
+            def no_fetch(path):
+                raise AssertionError("refused before any GitHub read: " + path)
+
+            live_check.side_effect = lambda value: real_revalidate_admission(
+                value, fetch=no_fetch
+            )
+            with pytest.raises(AdmissionError, match="unknown admission basis"):
+                cmd_promote_reviewed_candidate(args)
+            assert live_check.call_count == 1
+            signer_context.assert_not_called()
+            overlay_mock.assert_not_called()
+            assert not (
+                repo / _applied_encoding_manifest_path(Path(args.rulespec_path))
+            ).exists()
+            return
         if admission in {
             "live-run",
             "live-country",
@@ -4193,7 +4237,7 @@ class TestMain:
         assert "--log-dir" in error
         assert "--repos" in error
 
-    def test_uk_populace_coverage_command_dispatches(self):
+    def test_uk_microcosm_coverage_command_dispatches(self):
         with patch("sys.argv", ["axiom_encode", "uk-populace-coverage"]):
             with patch(
                 "axiom_encode.cli.run_uk_populace_coverage", return_value=0
@@ -7616,7 +7660,7 @@ class TestCmdValidate:
         assert "PolicyEngine program surfaces: 1" in output
         assert "wic: pending_rulespec_encoding" in output
 
-    def test_oracle_coverage_fail_on_unvalidated_populace_surfaces_exits_nonzero(
+    def test_oracle_coverage_fail_on_unvalidated_microcosm_surfaces_exits_nonzero(
         self, capsys, tmp_path
     ):
         checkout = tmp_path / "rulespec-us"
@@ -7671,8 +7715,8 @@ class TestCmdValidate:
 
         assert exc_info.value.code == 1
         output = capsys.readouterr().out
-        assert "unvalidated_populace=1" in output
-        assert "Populace validation: not_configured=1" in output
+        assert "unvalidated_microcosm=1" in output
+        assert "Microcosm validation: not_configured=1" in output
         assert "29.86% is_medicaid_eligible: not_configured" in output
 
     def test_oracle_coverage_fail_on_incomplete_comparable_exits_nonzero(
@@ -8159,6 +8203,7 @@ rules:
         args.json = json_output
         args.axiom_rules_path = axiom_rules_path
         args.rulespec_dependency_root = []
+        args.corpus_path = None
         return args
 
     def test_scalar_match_tolerates_decimal_residue(self):
@@ -8583,7 +8628,7 @@ rules:
         formula: |-
           1 / premium_assistance_annual_income_month_count
 
-  - name: direct_parent_alias_consumer
+  - name: direct_parent_alias_reader
     kind: derived
     entity: TaxUnit
     dtype: Judgment
@@ -8640,20 +8685,20 @@ rules:
         ]
         payload = yaml.safe_load(rules_file.read_text())
         assert [rule["name"] for rule in payload["rules"]] == [
-            "direct_parent_alias_consumer",
+            "direct_parent_alias_reader",
             "applicable_taxpayer_minimum_household_income_poverty_line_ratio",
         ]
-        consumer = payload["rules"][0]
+        reader = payload["rules"][0]
         assert (
-            consumer["versions"][0]["formula"]
+            reader["versions"][0]["formula"]
             == "household_income <= required_contribution_monthly_fraction"
         )
         assert (
-            consumer["metadata"]["proof"]["atoms"][0]["import"]["target"]
+            reader["metadata"]["proof"]["atoms"][0]["import"]["target"]
             == "us:statutes/26/36B/b#required_contribution_monthly_fraction"
         )
         assert (
-            consumer["metadata"]["proof"]["atoms"][0]["import"]["output"]
+            reader["metadata"]["proof"]["atoms"][0]["import"]["output"]
             == "required_contribution_monthly_fraction"
         )
         assert payload["module"]["deferred_outputs"][0]["source_values"] == [
@@ -9111,6 +9156,7 @@ rules:
         args.json = True
         args.axiom_rules_path = engine_root
         args.rulespec_dependency_root = []
+        args.corpus_path = None
 
         monkeypatch.setattr(
             "axiom_encode.harness.validator_pipeline.ValidatorPipeline._axiom_rules_binary",
@@ -14493,9 +14539,12 @@ class TestCmdEncode:
             policy_repo_path,
             corpus_path,
             citation_path=normalize_corpus_identifier(citation),
+            body=overrides.get("corpus_body", "authoritative test source"),
+            metadata=overrides.get("corpus_metadata"),
         )
         args = MagicMock()
         args.citation = citation
+        args.pre_encode_gate = overrides.get("pre_encode_gate", "enforce")
         args.output = overrides.get("output", tmp_path / "out")
         args.model = overrides.get("model", "test-model")
         args.escalation_model = overrides.get(
@@ -14519,6 +14568,12 @@ class TestCmdEncode:
         args.mode = overrides.get("mode", "repo-augmented")
         args.allow_context = overrides.get("allow_context", [])
         args.review_findings = overrides.get("review_findings", [])
+        args.producer_review_guidance_ref = overrides.get(
+            "producer_review_guidance_ref", None
+        )
+        args.producer_review_guidance_checkout = overrides.get(
+            "producer_review_guidance_checkout", None
+        )
         args.review_contract_json = overrides.get("review_contract_json", None)
         args.repair_candidate_root = overrides.get("repair_candidate_root", None)
         args.repair_candidate_path = overrides.get("repair_candidate_path", None)
@@ -14530,6 +14585,9 @@ class TestCmdEncode:
         )
         args.repair_candidate_tests_only = overrides.get(
             "repair_candidate_tests_only", False
+        )
+        args.preserve_repair_companion = overrides.get(
+            "preserve_repair_companion", False
         )
         args.emit_final_rejected_candidate = overrides.get(
             "emit_final_rejected_candidate", None
@@ -14550,6 +14608,286 @@ class TestCmdEncode:
         )
         args.allow_shrink = overrides.get("allow_shrink", False)
         return args
+
+    _GATE_TOC_BODY = "Table of Contents\n" + "\n".join(
+        f"Section {number}{'.' * 40} {number}" for number in range(12)
+    )
+
+    def test_encode_pre_encode_gate_blocks_an_empty_body_before_any_model_call(
+        self, tmp_path, capsys
+    ):
+        args = self._make_args(tmp_path, corpus_body=".")
+
+        with patch("axiom_encode.cli.run_model_eval") as model_call:
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(SystemExit) as exc_info:
+                    cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        model_call.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.iterations == []
+        assert run.generation_attempt_count == 0
+        assert run.outcome["status"] == "pre_encode_blocked"
+        assert run.outcome["final_success"] is False
+        assert run.outcome["standalone_validation_success"] is None
+        assert run.outcome["pre_encode_gate"]["blocked"] is True
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("no_operative_text", True)]
+        assert run.outcome["failure_class"]["class"] == "corpus"
+        assert run.outcome["failure_class"]["subclass"] == "content"
+        assert run.outcome["failure_class"]["confidence"] == "certain"
+        assert "Pre-encode gate blocked" in run.outcome["primary_error"]
+        events = EncodingDB(args.db).get_session_events(run.session_id)
+        assert "encode_outcome" in [event.event_type for event in events]
+        assert "pre_encode_gate=block check=no_operative_text" in (
+            capsys.readouterr().out
+        )
+
+    def test_encode_pre_encode_gate_only_reports_a_contents_page(self, tmp_path):
+        args = self._make_args(tmp_path, corpus_body=self._GATE_TOC_BODY)
+
+        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        mock_run.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["pre_encode_gate"]["blocked"] is False
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("toc_page", False)]
+
+    def test_encode_pre_encode_gate_blocks_a_repealed_target(self, tmp_path):
+        args = self._make_args(tmp_path, corpus_metadata={"status": "repealed"})
+
+        with patch("axiom_encode.cli.run_model_eval") as model_call:
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(SystemExit) as exc_info:
+                    cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        model_call.assert_not_called()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "pre_encode_blocked"
+        assert [
+            finding["check"] for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == ["repealed_target"]
+        assert run.outcome["failure_class"]["class"] == "selection"
+
+    def test_encode_pre_encode_gate_report_mode_never_blocks(self, tmp_path):
+        args = self._make_args(
+            tmp_path,
+            corpus_body=".",
+            pre_encode_gate="report",
+        )
+
+        mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        mock_run.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "standalone_validated"
+        assert run.outcome["pre_encode_gate"]["blocked"] is False
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("no_operative_text", False)]
+        assert run.outcome["failure_class"] is None
+
+    def test_encode_pre_encode_gate_report_mode_keeps_the_repealed_error(
+        self, tmp_path
+    ):
+        args = self._make_args(
+            tmp_path,
+            corpus_metadata={"status": "repealed"},
+            pre_encode_gate="report",
+        )
+
+        with patch("axiom_encode.cli.run_model_eval") as model_call:
+            with patch.dict(os.environ, {}, clear=True):
+                with pytest.raises(InvalidActiveCorpusSourceError, match="repealed"):
+                    cmd_encode(args)
+
+        model_call.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("body", "title"),
+        [
+            ("Applicants must be 18", "Applicants must be 18"),
+            ("Applicants must be 18:", "Applicants must be 18:"),
+            ("The standard deduction is $198", "The standard deduction is $198"),
+            ("Pay $100", "Pay $100"),
+            ("Pay $100.", "Pay $100."),
+            ("Minimum age 18", "Minimum age 18"),
+            ("Section 401(a)(9)(A).", "Section 401(a)(9)(A)."),
+            ("Eligibility Standards\n273.9", "Eligibility Standards"),
+        ],
+    )
+    def test_encode_pre_encode_gate_only_reports_nonempty_copied_labels(
+        self, tmp_path, body, title
+    ):
+        args = self._make_args(
+            tmp_path,
+            citation="7 CFR 273.9",
+            corpus_body=body,
+            corpus_metadata={"title": title},
+        )
+
+        model_call, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        model_call.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "standalone_validated"
+        assert run.outcome["pre_encode_gate"]["blocked"] is False
+        assert [
+            (finding["check"], finding["enforce"])
+            for finding in run.outcome["pre_encode_gate"]["findings"]
+        ] == [("no_operative_text", False)]
+        assert run.outcome["failure_class"] is None
+
+    def test_encode_first_try_reuses_the_gate_resolution(self, tmp_path):
+        import axiom_encode.cli as cli_module
+
+        args = self._make_args(tmp_path)
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            wraps=cli_module.resolve_corpus_source_unit,
+        ) as resolve:
+            _mock_run, exit_code = self._run_encode(args, self._make_eval_result(True))
+
+        assert exit_code == 0
+        assert resolve.call_count == 1
+
+    def test_encode_pre_encode_gate_leaves_an_invalid_engine_ref_to_the_try(
+        self, tmp_path
+    ):
+        # The body would block, but the try's engine-ref preflight comes first.
+        args = self._make_args(
+            tmp_path, corpus_body=".", axiom_rules_engine_ref="not-a-sha"
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(Exception, match="axiom_rules_engine_ref"):
+                cmd_encode(args)
+
+        model_call.assert_not_called()
+        assert EncodingDB(args.db).get_recent_runs(limit=1) == []
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [{"corpus_body": "."}, {"corpus_metadata": {"status": "repealed"}}],
+        ids=["empty", "repealed"],
+    )
+    def test_encode_pre_encode_gate_block_keeps_the_engine_binding_failure(
+        self, tmp_path, overrides
+    ):
+        # A valid SHA whose checkout does not bind: the block must not hide the
+        # engine binding failure behind a corpus or selection failure class.
+        from axiom_encode.engine_binding import EngineBindingError
+
+        args = self._make_args(tmp_path, axiom_rules_engine_ref="a" * 40, **overrides)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(EngineBindingError, match="engine checkout HEAD"):
+                cmd_encode(args)
+
+        model_call.assert_not_called()
+        assert EncodingDB(args.db).get_recent_runs(limit=1) == []
+
+    def test_encode_pre_encode_gate_block_binds_a_good_engine_once(self, tmp_path):
+        pin = "a" * 40
+        args = self._make_args(tmp_path, corpus_body=".", axiom_rules_engine_ref=pin)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch("axiom_encode.cli._pinned_apply_engine_binding") as bind,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        model_call.assert_not_called()
+        bind.assert_called_once()
+        assert bind.call_args.args[1] == pin
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "pre_encode_blocked"
+        assert run.outcome["failure_class"]["class"] == "corpus"
+
+    def test_encode_pre_encode_gate_defers_to_the_part_heading_refusal(self, tmp_path):
+        """The resolver's #1825 refusal (#2035) fires first; the gate defers.
+
+        The gate records nothing for a target the resolver refuses, so the
+        user sees main's refusal and message, unchanged.
+        """
+        from axiom_encode.corpus_resolver import CorpusDescendantStructureError
+
+        args = self._make_args(tmp_path)
+        refusal = CorpusDescendantStructureError(
+            "Active corpus source 'us/statute/26/1' has heading-only descendant "
+            "'us/statute/26/1/a': a part heading with no body (#1825)"
+        )
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit", side_effect=refusal
+            ) as resolve,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises(
+                CorpusDescendantStructureError, match="heading-only descendant"
+            ):
+                cmd_encode(args)
+
+        # Once in the gate, once in the first try, which raises it.
+        assert resolve.call_count == 2
+        model_call.assert_not_called()
+        assert EncodingDB(args.db).get_recent_runs(limit=1) == []
+
+    def test_encode_pre_encode_gate_leaves_preflight_failures_to_the_try(
+        self, tmp_path
+    ):
+        args = self._make_args(tmp_path)
+        args.axiom_rules_path = tmp_path / "missing-rules-engine"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval") as model_call,
+            patch("axiom_encode.cli.load_rulespec_local_corpus_release") as load,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            with pytest.raises((SystemExit, ValueError, FileNotFoundError)):
+                cmd_encode(args)
+
+        load.assert_not_called()
+        model_call.assert_not_called()
+
+    def test_encode_records_failure_class_on_every_outcome(self, tmp_path):
+        args = self._make_args(tmp_path)
+
+        _mock_run, exit_code = self._run_encode(args, self._make_eval_result(False))
+
+        assert exit_code == 1
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert "pre_encode_gate" not in run.outcome
+        assert run.outcome["failure_class"] == {
+            "schema": "axiom-encode/failure-class/v1",
+            "class": "unknown",
+            "subclass": None,
+            "source": "rule",
+            "confidence": "certain",
+            "evidence": ["status:standalone_failed"],
+        }
 
     def _make_eval_result(self, success=True):
         result = MagicMock()
@@ -16137,6 +16475,22 @@ class TestCmdEncode:
         assert cli_module._validation_residual_obligation_count(older_issues) == 14
         assert cli_module._validation_residual_obligation_count(newer_issues) == 8
 
+    def test_residual_count_ignores_boundary_repair_details(self):
+        import axiom_encode.cli as cli_module
+
+        detailed = (
+            "[complete-source-unit:tests] Companion tests do not exercise every "
+            "source-stated boundary input; missing: (iii)=6, 12. formula clause "
+            "61=500. Boundary details: (iii)=6 at us/x(a); source `less than 6 "
+            "months, from the United States, with no intention`; covering "
+            "principal output(s) `a`, `b`; compared numeric input(s) `c` | "
+            "12. formula clause 61=500 at us/x(12); source `not to exceed $ 500, "
+            "in each year`. For each listed boundary, copy an existing case, set "
+            "the input, and assert the output."
+        )
+
+        assert cli_module._validation_residual_obligation_count((detailed,)) == 2
+
     def test_encode_retry_scans_full_overlay_issue_list_for_actionable_feedback(
         self, tmp_path
     ):
@@ -17265,7 +17619,10 @@ rules:
         assert candidate.allowed_missing_rule_removals == ("obsolete",)
         assert candidate.allowed_missing_test_removals == ("obsolete_case",)
 
-    def test_encode_replaces_cross_run_candidate_after_in_run_rejection(self, tmp_path):
+    @pytest.mark.parametrize("preserve_companion", [False, True])
+    def test_encode_replaces_cross_run_candidate_after_in_run_rejection(
+        self, tmp_path, preserve_companion
+    ):
         candidate_root = tmp_path / "preserved-candidate"
         candidate_path = Path("statutes/26/1/j/2.yaml")
         output_file = candidate_root / candidate_path
@@ -17274,10 +17631,16 @@ rules:
             "format: rulespec/v1\n# preserved-cross-run-rule\nrules: []\n"
         )
         test_file = output_file.with_suffix(".test.yaml")
-        test_file.write_text("# preserved-cross-run-companion\n[]\n")
+        test_file.write_text(
+            '- name: retained\n  period: "2025"\n  input: {}\n  output: {x: 1}\n'
+            if preserve_companion
+            else "# preserved-cross-run-companion\n[]\n"
+        )
         args = self._make_args(
             tmp_path,
             model=None,
+            citation="us/statute/26/1/j/2",
+            preserve_repair_companion=preserve_companion,
             apply=True,
             sync=False,
             escalation_enabled=True,
@@ -17291,6 +17654,12 @@ rules:
             ).hexdigest(),
         )
 
+        args.require_complete_source_unit = True
+        args.legacy_dependent_rulespec_path = []
+        args.legacy_exact_dependent_rulespec_path = []
+        args.legacy_retained_successor_rulespec_path = []
+        args.manifest_only_refresh = False
+        args.reviewed_candidate_promotion = False
         _exit_code, _generated, _validated, mock_run, _mock_validate, _mock_apply = (
             self._run_validator_escalation_case(
                 args,
@@ -17313,6 +17682,23 @@ rules:
         assert mock_run.call_args_list[1].kwargs["validation_retry_feedback"] == (
             "first candidate regressed",
         )
+
+        if preserve_companion:
+            from axiom_encode import cli
+
+            final_result = _mock_apply.call_args.args[0]
+            original = vars(final_result)[cli._PRESERVED_REPAIR_COMPANION_ATTR]
+            assert original.rulespec_sha256 == args.repair_candidate_rulespec_sha256
+            assert original.tests_sha256 == args.repair_candidate_tests_sha256
+            assert original is retry_candidates[0]
+            assert original is not retry_candidates[1]
+            # The mocked model/validator emitted an empty companion. The actual
+            # final gate still refuses it against the original seed on retry 2.
+            with pytest.raises(RuntimeError, match="Cannot apply repair"):
+                cli._preserved_repair_companion_record(
+                    final_result,
+                    Path(final_result.output_file).with_suffix(".test.yaml"),
+                )
 
     def test_encode_retry_context_rejects_feedback_without_matching_candidate(self):
         import axiom_encode.cli as cli_module
@@ -18251,7 +18637,10 @@ rules:
 
         assert mock_sync.call_args.kwargs["github_run"] == {}
 
-    def test_apply_generated_encoding_writes_manifest(self, tmp_path):
+    @pytest.mark.parametrize("preserve_companion", [False, True])
+    def test_apply_generated_encoding_writes_manifest(
+        self, tmp_path, preserve_companion
+    ):
         output_root = tmp_path / "out"
         policy_checkout = tmp_path / "rulespec-us"
         policy_repo = policy_checkout / "us-ny"
@@ -18269,9 +18658,22 @@ rules:
         )
         generated.parent.mkdir(parents=True)
         generated.write_text("format: rulespec/v1\nrules: []\n")
-        generated.with_name("c.test.yaml").write_text("[]\n")
+        companion = (
+            '- name: retained\n  period: "2025"\n  input: {}\n  output: {result: 0}\n'
+            if preserve_companion
+            else "[]\n"
+        )
+        generated.with_name("c.test.yaml").write_text(companion)
         policy_repo.mkdir(parents=True)
         result = self._make_eval_result(True)
+        if preserve_companion:
+            from axiom_encode import cli
+
+            result.citation = "us-ny/regulation/18-nycrr/387/12/f/3/v/c"
+            result._axiom_preserved_repair_companion = cli.ValidationRetryCandidate(
+                rulespec=generated.read_text(),
+                tests=companion,
+            )
         result.output_file = str(generated)
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
@@ -18308,7 +18710,7 @@ rules:
                 "axiom_encode.cli._require_axiom_encode_version_provenance",
                 return_value={
                     "version": AXIOM_ENCODE_TEST_VERSION,
-                    "version_commit": "version123",
+                    "version_commit": "a" * 40,
                     "identity_source": "git",
                 },
             ),
@@ -18338,7 +18740,7 @@ rules:
             "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
             "dirty_tracked": False,
             "version": AXIOM_ENCODE_TEST_VERSION,
-            "version_commit": "version123",
+            "version_commit": "a" * 40,
             "identity_source": "git",
         }
         assert payload["validation_execution"]["axiom_encode"] == {
@@ -18372,6 +18774,49 @@ rules:
             },
         ]
 
+        if preserve_companion:
+            from axiom_encode import cli
+            from axiom_encode.repair_companion import (
+                guard_preservation_evidence,
+                verified_preservation_manifest,
+            )
+
+            record = payload["repair_companion_preservation"]
+            assert record["cases"] == 1
+            assert record["assertions"] == 1
+            assert record["final_tests_sha256"] == _sha256_file(target_test)
+            with patch.object(
+                cli,
+                "_applied_encoding_manifest_verifier",
+                return_value=TEST_APPLY_SIGNING_BROKER,
+            ):
+                assert verified_preservation_manifest(
+                    manifest.read_bytes(),
+                    original_rulespec_sha256=result._axiom_preserved_repair_companion.rulespec_sha256,
+                    original_tests_sha256=hashlib.sha256(
+                        companion.encode()
+                    ).hexdigest(),
+                    final_tests_sha256=_sha256_file(target_test),
+                ) == _sha256_file(manifest)
+                evidence = guard_preservation_evidence(
+                    policy_checkout,
+                    "us-ny/regulation/18-nycrr/387/12/f/3/v/c",
+                    result._axiom_preserved_repair_companion.rulespec_sha256,
+                    hashlib.sha256(companion.encode()).hexdigest(),
+                )
+                assert evidence["manifest_sha256"] == _sha256_file(manifest)
+                assert evidence["final_tests_sha256"] == _sha256_file(target_test)
+                target_test.write_text("[]\n")
+                with pytest.raises(ValueError, match="failed verification"):
+                    guard_preservation_evidence(
+                        policy_checkout,
+                        "us-ny/regulation/18-nycrr/387/12/f/3/v/c",
+                        result._axiom_preserved_repair_companion.rulespec_sha256,
+                        hashlib.sha256(companion.encode()).hexdigest(),
+                    )
+        else:
+            assert "repair_companion_preservation" not in payload
+
     @pytest.mark.parametrize(
         "publication_mutation",
         [
@@ -18387,11 +18832,14 @@ rules:
         ],
     )
     @pytest.mark.parametrize("has_target_waiver", [False, True])
+    @pytest.mark.parametrize("owner_layout", ["canonical", "nested", "historical-root"])
     def test_apply_freshly_replaces_untrusted_v1_at_same_canonical_path(
         self,
         tmp_path,
         publication_mutation,
         has_target_waiver,
+        owner_layout,
+        owner_defect=None,
     ):
         from axiom_encode.cli import _resolve_legacy_replacement_contract
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
@@ -18422,10 +18870,19 @@ rules:
             path.relative_to(checkout).as_posix(): _sha256_file(path)
             for path in (target, target_test)
         }
-        manifest = (
-            checkout / ".axiom/encoding-manifests/us-me/policies/income_tax/"
-            "pilot_liability_pipeline.json"
+        canonical_manifest = (
+            checkout / ".axiom/encoding-manifests/us-me" / relative.with_suffix(".json")
         )
+        manifest = {
+            "canonical": canonical_manifest,
+            "nested": content_root
+            / ".axiom/encoding-manifests"
+            / relative.with_suffix(".json"),
+            "historical-root": checkout
+            / ".axiom/encoding-manifests"
+            / relative.with_suffix(".json"),
+        }[owner_layout]
+        historical_manifest = manifest
         manifest.parent.mkdir(parents=True)
         legacy_manifest = {
             "schema_version": "axiom-encode/applied-rulespec/v1",
@@ -18442,7 +18899,23 @@ rules:
                 "value": "untrusted-historical-evidence",
             },
         }
+        if owner_defect == "wrong-jurisdiction":
+            legacy_manifest["applied_files"][0]["path"] = legacy_manifest[
+                "applied_files"
+            ][0]["path"].replace("us-me/", "us-az/", 1)
+        elif owner_defect == "stale-hash":
+            legacy_manifest["applied_files"][0]["sha256"] = "0" * 64
+        elif owner_defect == "extra-file":
+            legacy_manifest["applied_files"].append(
+                {"path": "us-me/policies/extra.yaml", "sha256": "0" * 64}
+            )
         manifest.write_text(json.dumps(legacy_manifest) + "\n")
+        if owner_defect == "executable":
+            manifest.chmod(0o755)
+        elif owner_defect == "symlink":
+            backing = manifest.with_suffix(".backing")
+            manifest.rename(backing)
+            manifest.symlink_to(backing.name)
         old_target = target.read_bytes()
         old_manifest = manifest.read_bytes()
 
@@ -18500,6 +18973,19 @@ rules:
             "us-me/guidance/revenue/rate-schedule",
             release,
         )
+        if owner_defect is not None:
+            with pytest.raises(ValueError):
+                _resolve_legacy_replacement_contract(
+                    source_raw=checkout_relative,
+                    destination_raw=checkout_relative,
+                    policy_checkout_path=checkout,
+                    policy_repo_path=content_root,
+                    source_unit=source_unit,
+                    corpus_release=release,
+                )
+            assert target.read_bytes() == old_target
+            assert manifest.read_bytes() == old_manifest
+            return
         contract = _resolve_legacy_replacement_contract(
             source_raw=checkout_relative,
             destination_raw=checkout_relative,
@@ -18627,6 +19113,9 @@ rules:
 
         assert target.read_bytes() != old_target
         assert target_test.read_bytes() == generated_test.read_bytes()
+        if historical_manifest != canonical_manifest:
+            assert not historical_manifest.exists()
+        manifest = canonical_manifest
         assert manifest.read_bytes() != old_manifest
         assert applied[:3] == [target, target_test, manifest]
         assert len(applied) == 4
@@ -18654,6 +19143,10 @@ rules:
         )
         assert replacement_execution["rulespec_scope"] == (
             "active_jurisdiction_and_country_ancestors"
+        )
+        assert (
+            receipt["legacy"]["manifest"]["path"]
+            == historical_manifest.relative_to(checkout).as_posix()
         )
         assert receipt["legacy"]["owner_class"] == "v1-hmac-untrusted"
         assert receipt["replacement"]["source"] == checkout_relative.as_posix()
@@ -18815,6 +19308,19 @@ rules:
             {"known-validation-gaps.yaml", ".axiom/toolchain.toml"}
             if has_target_waiver
             else set()
+        ) | (
+            {historical_manifest.relative_to(checkout).as_posix()}
+            if historical_manifest != canonical_manifest
+            else set()
+        )
+
+    @pytest.mark.parametrize(
+        "defect",
+        ["wrong-jurisdiction", "stale-hash", "extra-file", "executable", "symlink"],
+    )
+    def test_historical_root_owner_rejected_before_replacement(self, tmp_path, defect):
+        self.test_apply_freshly_replaces_untrusted_v1_at_same_canonical_path(
+            tmp_path, None, False, "historical-root", owner_defect=defect
         )
 
     def test_in_place_source_bound_dependent_completes_signed_transaction(
@@ -23178,6 +23684,649 @@ rules: []
         assert mock_overlay.call_args.kwargs["amendment_documents"] == (
             visible_amendment,
         )
+
+    # --- the generalist review record and --require-review (#2146) ---
+
+    def _run_review_gate(
+        self,
+        tmp_path,
+        capsys,
+        *,
+        review,
+        require_flag=False,
+        skip_reviewers=False,
+        change_after_review=None,
+        supplemental_files=None,
+        apply_side_effect=None,
+        environment_overrides=None,
+        stale_applied_record=None,
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        args.require_review = require_flag
+        args.skip_reviewers = skip_reviewers
+        result = self._make_eval_result(True)
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "63.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file = output_file.with_name("63.test.yaml")
+        test_file.write_text("[]\n")
+        result.output_file = str(output_file)
+        if stale_applied_record is not None:
+            # What an earlier apply attempt on this result left behind.
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(stale_applied_record),
+            )
+        result.metrics = EvalArtifactMetrics(
+            compile_pass=True,
+            compile_issues=[],
+            ci_pass=True,
+            ci_issues=[],
+            embedded_source_present=True,
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            grounding=[],
+            generalist_review_pass=review["passed"],
+            generalist_review_score=review["score"],
+            generalist_review_issues=list(review.get("issues", [])),
+            generalist_review_prompt_sha256=review.get("prompt_sha256"),
+        )
+        if review.get("evidence", False):
+            # What the reviewer call measured about the files it read.
+            from axiom_encode.generalist_review_record import (
+                review_evidence_digests,
+            )
+
+            setattr(
+                result.metrics,
+                "_axiom_generalist_review_evidence",
+                {
+                    **review_evidence_digests(
+                        output_file.read_bytes(), test_file.read_bytes()
+                    ),
+                    "rulespec_complete": review.get("rulespec_complete", True),
+                    "test_complete": True,
+                    "coverage": whole_review_coverage(
+                        output_file.read_bytes(), test_file.read_bytes()
+                    ),
+                    "explicit_passed": True,
+                    "reviewer_backend": "codex",
+                    "reviewer_model": "gpt-test",
+                },
+            )
+        if change_after_review == "repair":
+            output_file.write_text("format: rulespec/v1\nrules: [repaired]\n")
+        elif change_after_review == "source-stamp":
+            # What overlay validation does to every candidate before apply.
+            output_file.write_text(
+                "format: rulespec/v1\n"
+                "module:\n"
+                "  source_verification:\n"
+                "    corpus_citation_path: us/statute/26/63\n"
+                "    source_sha256: " + "5" * 64 + "\n"
+                "rules: []\n"
+            )
+        applied_file = args.policy_repo_path / "statutes/26/63.yaml"
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], dict(supplemental_files or {})),
+            ),
+            patch(
+                "axiom_encode.cli._enforce_canonical_concept_registry",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+                side_effect=apply_side_effect,
+            ) as mock_apply,
+            patch.dict(
+                os.environ,
+                {
+                    APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64,
+                    **dict(environment_overrides or {}),
+                },
+                clear=True,
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        return SimpleNamespace(
+            code=exc_info.value.code,
+            apply=mock_apply,
+            outcome=run.outcome,
+            iterations=run.iterations,
+            output=capsys.readouterr().out,
+            result=result,
+        )
+
+    _REVIEW_PASSED = {
+        "passed": True,
+        "score": 9.0,
+        "prompt_sha256": "4" * 64,
+        "evidence": True,
+    }
+    _REVIEW_FAILED = {
+        "passed": False,
+        "score": 3.0,
+        "issues": ["wrong and/or"],
+        "prompt_sha256": "4" * 64,
+        "evidence": True,
+    }
+    _REVIEW_UNAVAILABLE = {
+        "passed": False,
+        "score": None,
+        "issues": ["Reviewer error: reviewer_unavailable: Reviewer CLIs not found"],
+        "prompt_sha256": "4" * 64,
+    }
+    _REVIEW_NOT_RUN = {"passed": True, "score": None}
+
+    def test_review_gate_flag_off_and_reviewer_unavailable_applies_and_records_it(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(tmp_path, capsys, review=self._REVIEW_UNAVAILABLE)
+
+        # Today's behaviour, plus the record.
+        assert run.code == 0
+        run.apply.assert_called_once()
+        assert run.outcome["status"] == "apply_applied"
+        assert run.outcome["final_success"] is True
+        assert run.outcome["generalist_review"]["status"] == "unavailable"
+        assert run.outcome["generalist_review"]["reason"] == "reviewer_error"
+        assert run.outcome["generalist_review"]["required"] is False
+        assert "generalist_review_record=unavailable:reviewer_error" in run.output
+        # The manifest writer receives the same state on the result it signs.
+        state = vars(run.result)["_axiom_generalist_review_state"]
+        assert type(state).__name__ == "GeneralistReviewState"
+        assert state.required is False
+
+    def test_review_gate_flag_off_and_review_failed_applies_and_records_it(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(tmp_path, capsys, review=self._REVIEW_FAILED)
+
+        assert run.code == 0
+        run.apply.assert_called_once()
+        assert run.outcome["generalist_review"]["status"] == "failed"
+        assert run.outcome["generalist_review"]["verdict"] == {
+            "passed": False,
+            "score": 3.0,
+            "issue_count": 1,
+        }
+
+    def test_review_gate_flag_off_and_review_passed_records_passed(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(tmp_path, capsys, review=self._REVIEW_PASSED)
+
+        assert run.code == 0
+        assert run.outcome["generalist_review"]["status"] == "passed"
+        assert "generalist_review_record=passed" in run.output
+        assert "required=yes" not in run.output
+
+    def test_review_gate_skip_reviewers_records_skipped(self, tmp_path, capsys):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_NOT_RUN, skip_reviewers=True
+        )
+
+        assert run.code == 0
+        run.apply.assert_called_once()
+        assert run.outcome["generalist_review"]["status"] == "skipped"
+        assert run.outcome["generalist_review"]["reason"] == "skip_reviewers_flag"
+
+    def test_review_gate_required_and_reviewer_unavailable_does_not_apply(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_UNAVAILABLE, require_flag=True
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.outcome["final_success"] is False
+        assert run.outcome["apply_success"] is False
+        assert run.outcome["applied_files"] == []
+        assert run.outcome["generalist_review"]["status"] == "unavailable"
+        assert run.outcome["generalist_review"]["required"] is True
+        assert "apply=blocked_review:" in run.output
+        assert "outcome=apply_blocked_review final_success=False" in run.output
+
+    def test_review_gate_required_and_review_failed_does_not_apply(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_FAILED, require_flag=True
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.outcome["generalist_review"]["status"] == "failed"
+
+    def test_review_gate_required_and_reviewer_not_run_does_not_apply(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_NOT_RUN, require_flag=True
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert run.outcome["generalist_review"]["reason"] == "reviewer_not_run"
+
+    def test_review_gate_required_and_candidate_changed_after_review_does_not_apply(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            require_flag=True,
+            change_after_review="repair",
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert (
+            run.outcome["generalist_review"]["reason"] == "reviewed_content_not_applied"
+        )
+
+    def test_review_gate_required_review_survives_the_source_stamp(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            require_flag=True,
+            change_after_review="source-stamp",
+        )
+
+        assert run.code == 0
+        run.apply.assert_called_once()
+        record = run.outcome["generalist_review"]
+        assert record["status"] == "passed"
+        assert (
+            record["reviewed"]["rulespec_sha256"]
+            != (record["applied"]["rulespec_sha256"])
+        )
+        assert (
+            record["reviewed"]["rulespec_content_sha256"]
+            == (record["applied"]["rulespec_content_sha256"])
+        )
+
+    def test_review_gate_required_and_review_passed_applies(self, tmp_path, capsys):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_PASSED, require_flag=True
+        )
+
+        assert run.code == 0
+        run.apply.assert_called_once()
+        assert run.outcome["status"] == "apply_applied"
+        assert run.outcome["final_success"] is True
+        assert run.outcome["generalist_review"]["status"] == "passed"
+        assert run.outcome["generalist_review"]["required"] is True
+        assert "generalist_review_record=passed required=yes" in run.output
+        assert vars(run.result)["_axiom_generalist_review_state"].required is True
+
+    def test_review_gate_environment_variable_is_not_a_switch(self, tmp_path, capsys):
+        # The signing supervisor drops the environment; only the flag counts.
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_UNAVAILABLE,
+            environment_overrides={"AXIOM_ENCODE_REQUIRE_REVIEW": "1"},
+        )
+
+        assert run.code == 0
+        run.apply.assert_called_once()
+        assert run.outcome["generalist_review"]["required"] is False
+
+    def test_review_gate_required_pass_does_not_cover_an_unreviewed_dependent(
+        self, tmp_path, capsys
+    ):
+        # Overlay validation repaired a dependent; the reviewer never read it.
+        dependent = "format: rulespec/v1\nrules: [dependent]\n"
+        for require_flag, code in ((True, 1), (False, 0)):
+            (tmp_path / str(require_flag)).mkdir()
+            run = self._run_review_gate(
+                tmp_path / str(require_flag),
+                capsys,
+                review=self._REVIEW_PASSED,
+                require_flag=require_flag,
+                supplemental_files={Path("statutes/26/64.yaml"): dependent},
+            )
+
+            assert run.code == code
+            record = run.outcome["generalist_review"]
+            assert record["status"] == "partial"
+            assert record["reason"] == "unreviewed_applied_files"
+            assert {
+                "path": "statutes/26/64.yaml",
+                "sha256": hashlib.sha256(dependent.encode()).hexdigest(),
+                "reviewed": False,
+                "complete": False,
+            } in record["files"]
+            assert [entry["path"] for entry in record["files"]] == [
+                "statutes/26/63.test.yaml",
+                "statutes/26/63.yaml",
+                "statutes/26/64.yaml",
+            ]
+            assert run.apply.called is (not require_flag)
+
+    @pytest.mark.parametrize(
+        "supplemental",
+        [
+            # A repaired dependent companion with the bytes of the reviewed one.
+            {"statutes/26/64.test.yaml": "[]\n"},
+            # A dependent module with the bytes of the reviewed module.
+            {"statutes/26/64.yaml": "format: rulespec/v1\nrules: []\n"},
+            # Both: the whole reviewed pair again at another path.
+            {
+                "statutes/26/64.yaml": "format: rulespec/v1\nrules: []\n",
+                "statutes/26/64.test.yaml": "[]\n",
+            },
+        ],
+    )
+    def test_review_gate_does_not_credit_reviewed_bytes_at_another_path(
+        self, tmp_path, capsys, supplemental
+    ):
+        for require_flag, code in ((True, 1), (False, 0)):
+            (tmp_path / str(require_flag)).mkdir()
+            run = self._run_review_gate(
+                tmp_path / str(require_flag),
+                capsys,
+                review=self._REVIEW_PASSED,
+                require_flag=require_flag,
+                supplemental_files={
+                    Path(path): content for path, content in supplemental.items()
+                },
+            )
+
+            assert run.code == code
+            record = run.outcome["generalist_review"]
+            assert record["status"] == "partial"
+            assert record["reason"] == "unreviewed_applied_files"
+            assert {entry["path"]: entry["reviewed"] for entry in record["files"]} == {
+                "statutes/26/63.yaml": True,
+                "statutes/26/63.test.yaml": True,
+                **dict.fromkeys(supplemental, False),
+            }
+            assert run.apply.called is (not require_flag)
+            if require_flag:
+                assert run.outcome["status"] == "apply_blocked_review"
+
+    def test_review_gate_required_pass_does_not_cover_a_truncated_review(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review={**self._REVIEW_PASSED, "rulespec_complete": False},
+            require_flag=True,
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.outcome["generalist_review"]["status"] == "partial"
+        assert run.outcome["generalist_review"]["reason"] == "review_saw_truncated_file"
+
+    def test_review_gate_blocked_review_is_a_failed_iteration_in_the_run_log(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_FAILED, require_flag=True
+        )
+
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.iterations[-1].success is False
+        assert [error.message for error in run.iterations[-1].errors] == [
+            run.outcome["apply_error"]
+        ]
+
+    def test_review_gate_applied_run_keeps_a_successful_iteration(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_PASSED, require_flag=True
+        )
+
+        assert run.outcome["status"] == "apply_applied"
+        assert run.iterations[-1].success is True
+
+    def test_review_gate_writer_refusal_is_a_blocked_review_not_a_manifest_block(
+        self, tmp_path, capsys
+    ):
+        # The manifest writer checks the requirement again on the files it
+        # signs; its refusal is the same failure as the earlier check.
+        from axiom_encode.generalist_review_record import ReviewRequirementRefused
+
+        refusal = "A passed generalist review of every applied file is required"
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            require_flag=True,
+            apply_side_effect=ReviewRequirementRefused(refusal),
+        )
+
+        assert run.code == 1
+        run.apply.assert_called_once()
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.outcome["apply_error"] == refusal
+        assert run.outcome["final_success"] is False
+        assert "apply=blocked_review:" in run.output
+        assert run.iterations[-1].success is False
+        assert [error.message for error in run.iterations[-1].errors] == [refusal]
+
+    @staticmethod
+    def _writer_record(review, pair_bytes, applied_bytes):
+        """The record the manifest writer builds for the final apply plan."""
+
+        from axiom_encode.generalist_review_record import (
+            GeneralistReviewState,
+            applied_pair,
+            build_generalist_review_record,
+            review_evidence_digests,
+        )
+
+        state = GeneralistReviewState(
+            metrics_pass=review["passed"],
+            score=review["score"],
+            issue_count=0,
+            prompt_sha256=review["prompt_sha256"],
+            evidence={
+                **review_evidence_digests(b"format: rulespec/v1\nrules: []\n", b"[]\n"),
+                "rulespec_complete": True,
+                "test_complete": True,
+                "coverage": whole_review_coverage(
+                    b"format: rulespec/v1\nrules: []\n", b"[]\n"
+                ),
+                "explicit_passed": True,
+                "reviewer_backend": "codex",
+                "reviewer_model": "gpt-test",
+            },
+        )
+        module_path = "statutes/26/63.yaml"
+        return build_generalist_review_record(
+            state,
+            [applied_pair(*pair_bytes, rulespec_path=module_path)],
+            [
+                (path, hashlib.sha256(raw).hexdigest())
+                for path, raw in zip(
+                    (module_path, "statutes/26/63.test.yaml"),
+                    applied_bytes,
+                    strict=True,
+                )
+            ],
+            reviewed_rulespec_path=module_path,
+        )
+
+    @pytest.mark.parametrize("refused", [False, True])
+    def test_review_gate_outcome_reports_the_record_of_the_final_apply_plan(
+        self, tmp_path, capsys, refused
+    ):
+        from axiom_encode.generalist_review_record import ReviewRequirementRefused
+
+        # Apply replaced the main file after the gate's own record was built:
+        # the verdict is on content that is not in the final plan.
+        replaced = b"format: rulespec/v1\nrules: [replaced]\n"
+        writer_record = self._writer_record(
+            self._REVIEW_PASSED, (replaced, b"[]\n"), (replaced, b"[]\n")
+        )
+        assert writer_record["status"] == "unavailable"
+        applied_file = tmp_path / "policy" / "statutes/26/63.yaml"
+
+        def apply(result, **_kwargs):
+            # What `_write_applied_encoding_manifest` leaves on the result.
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(writer_record),
+            )
+            if refused:
+                raise ReviewRequirementRefused("refused on the final plan")
+            return [applied_file]
+
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            require_flag=refused,
+            apply_side_effect=apply,
+        )
+
+        run.apply.assert_called_once()
+        assert run.code == (1 if refused else 0)
+        assert run.outcome["status"] == (
+            "apply_blocked_review" if refused else "apply_applied"
+        )
+        assert "generalist_review_record=passed" in run.output
+        assert (
+            "generalist_review_record=unavailable:reviewed_content_not_applied"
+            " (final apply plan)"
+        ) in run.output
+        assert run.outcome["generalist_review"] == writer_record
+
+    @pytest.mark.parametrize(
+        ("side_effect", "status"),
+        [
+            (None, "apply_applied"),
+            (RuntimeError("Cannot sign: something else"), "apply_blocked_manifest"),
+        ],
+    )
+    def test_review_gate_outcome_ignores_the_record_of_an_earlier_attempt(
+        self, tmp_path, capsys, side_effect, status
+    ):
+        # This apply never reaches the writer; the record an earlier attempt
+        # left on the result is about other files.
+        stale = self._writer_record(
+            self._REVIEW_PASSED,
+            (b"format: rulespec/v1\nrules: [stale]\n", b"[]\n"),
+            (b"format: rulespec/v1\nrules: [stale]\n", b"[]\n"),
+        )
+        assert stale["status"] == "unavailable"
+
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            apply_side_effect=side_effect,
+            stale_applied_record=stale,
+        )
+
+        run.apply.assert_called_once()
+        assert run.outcome["status"] == status
+        assert run.outcome["generalist_review"]["status"] == "passed"
+        assert "(final apply plan)" not in run.output
+        assert "_axiom_generalist_review_applied_record" not in vars(run.result)
+
+    def test_review_gate_outcome_reports_the_writer_record_when_signing_fails(
+        self, tmp_path, capsys
+    ):
+        replaced = b"format: rulespec/v1\nrules: [replaced]\n"
+        writer_record = self._writer_record(
+            self._REVIEW_PASSED, (replaced, b"[]\n"), (replaced, b"[]\n")
+        )
+
+        def apply(result, **_kwargs):
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(writer_record),
+            )
+            raise RuntimeError("Cannot sign: something else")
+
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_PASSED, apply_side_effect=apply
+        )
+
+        assert run.code == 1
+        assert run.outcome["status"] == "apply_blocked_manifest"
+        assert run.outcome["generalist_review"] == writer_record
+
+    def test_review_gate_outcome_reports_a_companion_that_apply_adds(
+        self, tmp_path, capsys
+    ):
+        # The writer's plan has a companion that the gate's own plan did
+        # not list: two files are applied where the gate's record lists one.
+        rulespec = b"format: rulespec/v1\nrules: []\n"
+        writer_record = self._writer_record(
+            self._REVIEW_PASSED, (rulespec, b"[]\n"), (rulespec, b"[]\n")
+        )
+        assert len(writer_record["files"]) == 2
+        seen = {}
+        from axiom_encode.generalist_review_record import applied_pair
+
+        def apply(result, **_kwargs):
+            seen["stale"] = vars(result).get("_axiom_generalist_review_applied_record")
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(writer_record),
+            )
+            return [tmp_path / "policy" / "statutes/26/63.yaml"]
+
+        module_path = "statutes/26/63.yaml"
+        with patch(
+            "axiom_encode.cli._planned_review_files",
+            side_effect=lambda result, **_kwargs: (
+                [applied_pair(rulespec, None, rulespec_path=module_path)],
+                [(module_path, hashlib.sha256(rulespec).hexdigest())],
+                module_path,
+            ),
+        ):
+            run = self._run_review_gate(
+                tmp_path, capsys, review=self._REVIEW_PASSED, apply_side_effect=apply
+            )
+
+        assert run.code == 0
+        assert seen == {"stale": None}
+        assert len(run.outcome["generalist_review"]["files"]) == 2
+        assert run.outcome["generalist_review"] == writer_record
+
+    def test_review_gate_other_writer_refusals_stay_manifest_blocks(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            apply_side_effect=RuntimeError("Cannot sign: something else"),
+        )
+
+        assert run.code == 1
+        assert run.outcome["status"] == "apply_blocked_manifest"
+        assert run.iterations[-1].success is True
 
     def test_encode_apply_auto_repairs_nonnegative_taxable_income_floor(
         self, capsys, tmp_path
@@ -29368,10 +30517,15 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    @pytest.mark.parametrize("transport", ["inline", "reference"])
     def test_encode_apply_converges_nonexact_proof_excerpt_repairs(
-        self, capsys, tmp_path
+        self, capsys, tmp_path, transport
     ):
-        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args = self._make_args(
+            tmp_path,
+            backend="openai" if transport == "reference" else "codex",
+            sync=False,
+        )
         args.apply = True
         result = self._make_eval_result(False)
         result.error = "Generated RuleSpec failed CI validation"
@@ -29391,7 +30545,26 @@ rules:
         ).hexdigest()
         findings_path = tmp_path / "review-findings.md"
         findings_path.write_text(findings_content)
-        args.review_findings = [findings_path]
+        args.review_findings = [findings_path] if transport == "inline" else []
+        if transport == "reference":
+            args.producer_review_guidance_ref = "{}"
+            args.producer_review_guidance_checkout = tmp_path
+            args.require_complete_source_unit = True
+            args.legacy_dependent_rulespec_path = []
+            args.legacy_exact_dependent_rulespec_path = []
+            args.legacy_retained_successor_rulespec_path = []
+        from axiom_encode.producer_review_guidance import ProducerReviewGuidance
+
+        guidance = ProducerReviewGuidance(
+            "a" * 40,
+            "review-guidance/example.json",
+            "b" * 64,
+            100,
+            args.citation,
+            "c" * 64,
+            findings_content.encode(),
+            hashlib.sha256(findings_content.encode()).hexdigest(),
+        )
         output_file = (
             tmp_path / "out" / "codex-test-model" / "policies" / "benefit.yaml"
         )
@@ -29443,6 +30616,10 @@ rules:
         applied_file = args.policy_repo_path / "us/policies/benefit.yaml"
 
         with (
+            patch(
+                "axiom_encode.cli._resolve_encode_producer_review_guidance",
+                return_value=guidance,
+            ),
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
@@ -30831,10 +32008,10 @@ rules:
         us:statutes/7/2014/e/6/A#input.snap_net_income 2026-05-28.
         """
         repo = tmp_path / "rulespec-us" / "us"
-        consumer_file = repo / "statutes/7/2014/c.yaml"
-        consumer_test_file = repo / "statutes/7/2014/c.test.yaml"
+        importer_file = repo / "statutes/7/2014/c.yaml"
+        importer_test_file = repo / "statutes/7/2014/c.test.yaml"
         producer_file = repo / "statutes/7/2014/e/6/A.yaml"
-        consumer_file.parent.mkdir(parents=True)
+        importer_file.parent.mkdir(parents=True)
         producer_file.parent.mkdir(parents=True)
         producer_file.write_text(
             """format: rulespec/v1
@@ -30849,7 +32026,7 @@ rules:
         formula: "0"
 """
         )
-        consumer_file.write_text(
+        importer_file.write_text(
             """format: rulespec/v1
 imports:
   - us:statutes/7/2014/e/6/A#snap_net_income
@@ -30864,7 +32041,7 @@ rules:
         formula: "snap_net_income > 0"
 """
         )
-        consumer_test_file.write_text(
+        importer_test_file.write_text(
             """- name: override_imported_output
   period: 2024-10
   input:
@@ -30880,7 +32057,7 @@ rules:
         ]
 
         rewritten = _rewrite_import_output_test_input_refs(
-            test_file=consumer_test_file,
+            test_file=importer_test_file,
             repo_path=repo,
             issues=issues,
         )
@@ -30889,7 +32066,7 @@ rules:
             "us:statutes/7/2014/e/6/A#input.snap_net_income"
             " -> us:statutes/7/2014/e/6/A#snap_net_income"
         ]
-        repaired = yaml.safe_load(consumer_test_file.read_text())
+        repaired = yaml.safe_load(importer_test_file.read_text())
         assert repaired[0]["input"] == {
             "us:statutes/7/2014/e/6/A#snap_net_income": 1500
         }
@@ -30993,24 +32170,25 @@ rules:
         self, tmp_path
     ):
         # The name carries no numeric word, so the name guess alone says false.
+        # A constructed module in a made-up 7 CFR part.
         repo = tmp_path / "rulespec-us" / "us"
-        target_file = repo / "regulations/12-cfr/1005/6.yaml"
-        dependent_file = repo / "regulations/12-cfr/1005/11.yaml"
-        test_file = repo / "regulations/12-cfr/1005/11.test.yaml"
+        target_file = repo / "regulations/7-cfr/9990/6.yaml"
+        dependent_file = repo / "regulations/7-cfr/9990/11.yaml"
+        test_file = repo / "regulations/7-cfr/9990/11.test.yaml"
         target_file.parent.mkdir(parents=True)
         target_file.write_text(
             """format: rulespec/v1
 inputs:
-  - name: state_law_or_agreement_imposes_less_liability
+  - name: state_plan_sets_a_lower_payment
     entity: Person
     dtype: Boolean
     period: Month
-  - name: liability_under_this_section
+  - name: payment_under_this_part
     entity: Person
     dtype: Money
     period: Month
 rules:
-  - name: state_law_or_agreement_liability
+  - name: state_plan_payment
     kind: derived
     entity: Person
     dtype: Money
@@ -31018,22 +32196,22 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          if state_law_or_agreement_imposes_less_liability: min(50, liability_under_this_section) else: liability_under_this_section
+          if state_plan_sets_a_lower_payment: min(75, payment_under_this_part) else: payment_under_this_part
 """
         )
         dependent_file.write_text(
             """format: rulespec/v1
 imports:
-  - us:regulations/12-cfr/1005/6#state_law_or_agreement_liability
+  - us:regulations/7-cfr/9990/6#state_plan_payment
 rules: []
 """
         )
         test_file.write_text(
             """- name: dependent_case
   input:
-    us:regulations/12-cfr/1005/6#input.state_law_or_agreement_imposes_less_liability: false
+    us:regulations/7-cfr/9990/6#input.state_plan_sets_a_lower_payment: false
   output:
-    us:regulations/12-cfr/1005/11#provisional_credit: 0
+    us:regulations/7-cfr/9990/11#supplemental_payment_amount: 0
 """
         )
         validation = SimpleNamespace(
@@ -31041,7 +32219,7 @@ rules: []
                 "ci": SimpleNamespace(
                     error=(
                         "Test case `dependent_case` execution failed: missing input "
-                        "`liability_under_this_section` for entity `case-1` over "
+                        "`payment_under_this_part` for entity `case-1` over "
                         "2026-10-01..2026-10-31"
                     )
                 )
@@ -31050,17 +32228,16 @@ rules: []
 
         changed = _complete_missing_dependent_test_inputs(
             overlay_repo=repo,
-            relative_output=Path("regulations/12-cfr/1005/6.yaml"),
+            relative_output=Path("regulations/7-cfr/9990/6.yaml"),
             validations=[(dependent_file, validation)],
         )
 
         assert changed == [test_file]
         repaired = test_file.read_text()
         assert (
-            "us:regulations/12-cfr/1005/6#input.liability_under_this_section: 0"
-            in repaired
+            "us:regulations/7-cfr/9990/6#input.payment_under_this_part: 0" in repaired
         )
-        assert "liability_under_this_section: false" not in repaired
+        assert "payment_under_this_part: false" not in repaired
 
     def test_complete_missing_dependent_test_inputs_uses_dependent_import_ref(
         self, tmp_path
@@ -33686,9 +34863,9 @@ rules:
     def test_encode_apply_wrong_typed_repair_keeps_declared_money_values(
         self, capsys, tmp_path
     ):
-        # A 12 CFR 1005.6 shape: the generated case's `false` triggers the
+        # A constructed module: the generated case's `false` triggers the
         # repair, which must turn it into 0 and leave the model's numbers
-        # alone. `transfers_that_were_preventable` reads as boolean to the name
+        # alone. `payments_that_were_withheld` reads as boolean to the name
         # guess, so only its Money declaration keeps the model's 200.
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
@@ -33704,20 +34881,20 @@ module:
   proof_validation:
     required: true
 inputs:
-  - name: consumer_notified_within_two_business_days
+  - name: application_filed_during_open_season
     entity: Person
     dtype: Boolean
     period: Month
-  - name: unauthorized_transfers_before_notice
+  - name: fuel_bills_before_application
     entity: Person
     dtype: Money
     period: Month
-  - name: transfers_that_were_preventable
+  - name: payments_that_were_withheld
     entity: Person
     dtype: Money
     period: Month
 rules:
-  - name: timely_notice_liability
+  - name: open_season_payment
     kind: derived
     entity: Person
     dtype: Money
@@ -33725,30 +34902,30 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          if consumer_notified_within_two_business_days:
-            min(50, unauthorized_transfers_before_notice)
+          if application_filed_during_open_season:
+            min(75, fuel_bills_before_application)
           else:
-            min(500, min(50, unauthorized_transfers_before_notice) + transfers_that_were_preventable)
+            min(300, min(75, fuel_bills_before_application) + payments_that_were_withheld)
 """
         )
         test_file = output_file.with_name("151.test.yaml")
         test_file.write_text(
-            """- name: timely_notice_limits_transfers
+            """- name: open_season_caps_the_payment
   period: 2026-10
   input:
-    us:statutes/26/151#input.consumer_notified_within_two_business_days: true
-    us:statutes/26/151#input.unauthorized_transfers_before_notice: 100
-    us:statutes/26/151#input.transfers_that_were_preventable: 200
+    us:statutes/26/151#input.application_filed_during_open_season: true
+    us:statutes/26/151#input.fuel_bills_before_application: 100
+    us:statutes/26/151#input.payments_that_were_withheld: 200
   output:
-    us:statutes/26/151#timely_notice_liability: 50
-- name: auto_zero_timely_notice_liability
+    us:statutes/26/151#open_season_payment: 75
+- name: auto_zero_open_season_payment
   period: 2026-10
   input:
-    us:statutes/26/151#input.consumer_notified_within_two_business_days: false
-    us:statutes/26/151#input.unauthorized_transfers_before_notice: false
-    us:statutes/26/151#input.transfers_that_were_preventable: false
+    us:statutes/26/151#input.application_filed_during_open_season: false
+    us:statutes/26/151#input.fuel_bills_before_application: false
+    us:statutes/26/151#input.payments_that_were_withheld: false
   output:
-    us:statutes/26/151#timely_notice_liability: 0
+    us:statutes/26/151#open_season_payment: 0
 """
         )
         result.output_file = str(output_file)
@@ -33763,7 +34940,7 @@ rules:
                         False,
                         [
                             "statutes/26/151.yaml: ci: Test case "
-                            "`auto_zero_timely_notice_liability` execution failed: "
+                            "`auto_zero_open_season_payment` execution failed: "
                             "type mismatch: expected numeric scalar"
                         ],
                         {},
@@ -33782,19 +34959,18 @@ rules:
 
         assert exc_info.value.code == 0
         test_payload = yaml.safe_load(test_file.read_text())
-        transfers = "us:statutes/26/151#input.unauthorized_transfers_before_notice"
-        preventable = "us:statutes/26/151#input.transfers_that_were_preventable"
-        notified = "us:statutes/26/151#input.consumer_notified_within_two_business_days"
-        for ref, model_number in ((transfers, 100), (preventable, 200)):
+        bills = "us:statutes/26/151#input.fuel_bills_before_application"
+        withheld = "us:statutes/26/151#input.payments_that_were_withheld"
+        filed = "us:statutes/26/151#input.application_filed_during_open_season"
+        for ref, model_number in ((bills, 100), (withheld, 200)):
             model_value = test_payload[0]["input"][ref]
             repaired_value = test_payload[1]["input"][ref]
             assert model_value == model_number and not isinstance(model_value, bool)
             assert repaired_value == 0 and not isinstance(repaired_value, bool)
-        assert test_payload[1]["input"][notified] is False
+        assert test_payload[1]["input"][filed] is False
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert sorted(run.outcome["auto_repaired_wrong_typed_test_inputs"]) == sorted(
-            f"auto_zero_timely_notice_liability:{ref}"
-            for ref in (transfers, preventable)
+            f"auto_zero_open_season_payment:{ref}" for ref in (bills, withheld)
         )
         assert run.outcome["status"] == "apply_applied"
 
@@ -38462,26 +39638,238 @@ rules:
         assert repaired == []
         assert generated.read_text() == original
 
-    def test_generated_yaml_source_evidence_repair_preserves_inline_comments(
-        self, tmp_path
+    @pytest.mark.parametrize(
+        "original",
+        (
+            "excerpt: valid evidence # reviewer: note\n"
+            "source: changes at age: 65 # source: note\n",
+            # In source text ` #` is literal; YAML would cut the value there.
+            "source: Arizona DES FAA5: NA Medical Expenses and Deduction, "
+            "Change #02-2022, block 13\n",
+            "source:\n  excerpt: Rule 5: see Change #02-2022, which adds:\n",
+            "source:\n  excerpt: Item 4: costs\t#4 and #5\n",
+        ),
+    )
+    def test_generated_yaml_source_evidence_repair_refuses_a_space_hash(
+        self, original, tmp_path
     ):
         generated = tmp_path / "generated.yaml"
-        original = """excerpt: valid evidence # reviewer: note
-source: changes at age: 65 # source: note
-"""
         generated.write_text(original)
 
         repaired = _quote_unquoted_source_scalars(rules_file=generated)
 
-        assert repaired == ["source:2"]
-        assert generated.read_text() == (
-            "excerpt: valid evidence # reviewer: note\n"
-            "source: 'changes at age: 65' # source: note\n"
+        assert repaired == []
+        assert generated.read_text() == original
+
+    def test_generated_yaml_repair_refuses_a_run_candidate_with_a_space_hash(
+        self, tmp_path
+    ):
+        original = (
+            Path(__file__).parent
+            / "fixtures"
+            / "generated_yaml_scanner"
+            / "az_faa5_medical_block13_run69afe785_rejected.yaml"
+        ).read_text()
+        source_line = (
+            "    source: Arizona DES FAA5, NA Medical Expenses and Deduction, "
+            "block 13\n"
         )
-        assert yaml.safe_load(generated.read_text()) == {
-            "excerpt": "valid evidence",
-            "source": "changes at age: 65",
+        assert original.count(source_line) == 1
+        # The review's variant of the candidate's rule source: quoting it at
+        # the YAML comment would cut "#02-2022, block 13" from the value.
+        changed = original.replace(
+            source_line,
+            "    source: Arizona DES FAA5: NA Medical Expenses and Deduction, "
+            "Change #02-2022, block 13\n",
+        )
+        generated = tmp_path / "block-13.yaml"
+        generated.write_text(changed)
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == []
+        assert generated.read_text() == changed
+
+    @pytest.mark.parametrize(
+        ("original", "expected"),
+        (
+            (
+                b"source:\r\n  excerpt: one of the following:\r\n  path: x\r\n",
+                b"source:\r\n  excerpt: 'one of the following:'\r\n  path: x\r\n",
+            ),
+            (
+                b"source:\r\n  excerpt: age: 65 \r\n",
+                b"source:\r\n  excerpt: 'age: 65' \r\n",
+            ),
+        ),
+    )
+    def test_generated_yaml_source_evidence_repair_keeps_crlf_line_endings(
+        self, original, expected, tmp_path
+    ):
+        generated = tmp_path / "generated.yaml"
+        generated.write_bytes(original)
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == ["excerpt:2"]
+        assert generated.read_bytes() == expected
+
+    @pytest.mark.parametrize(
+        ("fixture_name", "fixture_sha256", "parse_error_line", "repaired_lines"),
+        (
+            # Rejected RuleSpecs from local Arizona SNAP runs 69afe785,
+            # 2b708c06 and 7bc07eb9 (encoder 0.2.2371): each excerpt that ends
+            # a list lead-in with ':' failed the YAML parse.
+            (
+                "az_faa5_medical_block13_run69afe785_rejected.yaml",
+                "db45b21ff32498723404180bd1e1e7fb8f109f71a72d3a1837fd0e4acaad4624",
+                96,
+                (96, 106),
+            ),
+            (
+                "az_faa5_medical_block13_run2b708c06_rejected.yaml",
+                "e2397628ecd4ddc519a3e83d47a8671920f76fee1041d3446d6055dc8e2b7047",
+                102,
+                (102,),
+            ),
+            (
+                "az_faa5_utility_block9_run7bc07eb9_rejected.yaml",
+                "1eafcc04163baeed29625760abc113e7bf421366ea323b2a70a16b76b3e8a47e",
+                85,
+                (85, 120, 169),
+            ),
+        ),
+    )
+    def test_generated_yaml_repair_quotes_trailing_colon_excerpts_from_runs(
+        self,
+        fixture_name,
+        fixture_sha256,
+        parse_error_line,
+        repaired_lines,
+        tmp_path,
+    ):
+        original = (
+            Path(__file__).parent / "fixtures" / "generated_yaml_scanner" / fixture_name
+        ).read_text()
+        assert hashlib.sha256(original.encode()).hexdigest() == fixture_sha256
+        with pytest.raises(yaml.scanner.ScannerError) as exc_info:
+            yaml.safe_load(original)
+        assert exc_info.value.problem == "mapping values are not allowed here"
+        mark = exc_info.value.problem_mark
+        offending_line = original.splitlines()[mark.line]
+        assert mark.line + 1 == parse_error_line
+        assert mark.column == len(offending_line) - 1
+        assert offending_line.endswith(":")
+        generated = tmp_path / "block.yaml"
+        generated.write_text(original)
+
+        repaired = _quote_unquoted_source_scalars(rules_file=generated)
+
+        assert repaired == [f"excerpt:{line}" for line in repaired_lines]
+        expected_lines = original.splitlines(keepends=True)
+        excerpts = {}
+        for line_number in repaired_lines:
+            prefix, text = (
+                expected_lines[line_number - 1].rstrip("\n").split("excerpt: ", 1)
+            )
+            assert text.endswith(":") and "'" not in text
+            excerpts[line_number] = text
+            expected_lines[line_number - 1] = f"{prefix}excerpt: '{text}'\n"
+        repaired_text = generated.read_text()
+        # Only quotes were added; every other byte is the model's output.
+        assert repaired_text == "".join(expected_lines)
+        payload = yaml.safe_load(repaired_text)
+        assert payload["format"] == "rulespec/v1"
+        parsed_excerpts = []
+        pending = [payload]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, dict):
+                parsed_excerpts.extend(
+                    value for key, value in node.items() if key == "excerpt"
+                )
+                pending.extend(node.values())
+            elif isinstance(node, list):
+                pending.extend(node)
+        assert set(excerpts.values()) <= set(parsed_excerpts)
+
+    @pytest.mark.parametrize(
+        "original",
+        (
+            # Not a source-text key: the value's type is not known.
+            "description: The tax is:\nexcerpt: valid\n",
+            "rules:\n  - header: one of the following:\n",
+            # A sequence item: the repair reads only `key: value` lines.
+            "atoms:\n  - excerpt: one of the following:\n",
+            # A deeper next line may continue a multi-line plain value.
+            "source:\n  excerpt: one of the following:\n    more source text\n",
+            "source:\n  excerpt: one: two\n\n    # note\n    more source text\n",
+            # Anchored, tagged, flow and block values are not plain text.
+            "source:\n  excerpt: &a one of the following:\n",
+            "source:\n  excerpt: !!str one of the following:\n",
+            # A trailing colon on a later non-source line still fails parsing.
+            "excerpt: one of the following:\nformula: if x: 1\n",
+            # An unrelated error after a quotable excerpt.
+            "excerpt: one of the following:\nkey: [unclosed\n",
+        ),
+    )
+    def test_generated_yaml_source_evidence_repair_refuses_ambiguous_lines(
+        self, original, tmp_path
+    ):
+        generated = tmp_path / "generated.yaml"
+        generated.write_text(original)
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == []
+        assert generated.read_text() == original
+
+    @pytest.mark.parametrize(
+        "original",
+        (
+            "excerpt: 'one of the following:'\nsource: plain text\n",
+            'excerpt: "one of the following:"\n',
+            "excerpt: |-\n  one of the following:\n",
+            "excerpt: a:b\nsource: x # y: z\n",
+        ),
+    )
+    def test_generated_yaml_source_evidence_repair_leaves_valid_yaml_alone(
+        self, original, tmp_path
+    ):
+        yaml.safe_load(original)
+        generated = tmp_path / "generated.yaml"
+        generated.write_text(original)
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == []
+        assert generated.read_text() == original
+
+    def test_generated_yaml_source_evidence_repair_quotes_apostrophes_exactly(
+        self, tmp_path
+    ):
+        generated = tmp_path / "generated.yaml"
+        generated.write_text(
+            "source:\n"
+            "  excerpt: The participant's costs include:\n"
+            "  corpus_citation_path: us-az/manual/x\n"
+        )
+
+        assert _quote_unquoted_source_scalars(rules_file=generated) == ["excerpt:2"]
+        assert generated.read_text() == (
+            "source:\n"
+            "  excerpt: 'The participant''s costs include:'\n"
+            "  corpus_citation_path: us-az/manual/x\n"
+        )
+        assert yaml.safe_load(generated.read_text())["source"] == {
+            "excerpt": "The participant's costs include:",
+            "corpus_citation_path": "us-az/manual/x",
         }
+
+    def test_quoted_source_scalar_check_requires_exact_quoted_text(self):
+        candidate = "source:\n  excerpt: 'one: two'\n  other: 'one: two'\n"
+
+        assert _quoted_source_scalars_match(candidate, {1: ("excerpt", "one: two")})
+        assert not _quoted_source_scalars_match(
+            candidate, {1: ("excerpt", "one: three")}
+        )
+        assert not _quoted_source_scalars_match(candidate, {2: ("excerpt", "one: two")})
+        assert not _quoted_source_scalars_match(
+            "excerpt: one\n", {0: ("excerpt", "one")}
+        )
+        assert not _quoted_source_scalars_match("[", {0: ("excerpt", "one")})
 
     def test_encode_apply_blocks_non_validation_generation_failure(
         self, capsys, tmp_path
@@ -45117,7 +46505,7 @@ class TestGuardGenerated:
             for issue in issues
         )
         assert any(expected_issue in issue for issue in issues), issues
-        # Prefixing the refusal must retain its declared identity for consumers.
+        # Prefixing the refusal must retain its declared identity for callers.
         assert all(isinstance(issue, ValidationIssue) for issue in issues)
         expected_check = {
             "added_entry": "new-entry",
@@ -48821,25 +50209,26 @@ rules: []
         self, tmp_path
     ):
         # The name carries no numeric word, so the name guess alone says false.
+        # A constructed module in a made-up 7 CFR part.
         policy_repo = tmp_path / "rulespec-us" / "us"
-        imported = policy_repo / "regulations/12-cfr/1005/6.yaml"
-        dependent = policy_repo / "regulations/12-cfr/1005/11.yaml"
-        dependent_test = policy_repo / "regulations/12-cfr/1005/11.test.yaml"
+        imported = policy_repo / "regulations/7-cfr/9990/6.yaml"
+        dependent = policy_repo / "regulations/7-cfr/9990/11.yaml"
+        dependent_test = policy_repo / "regulations/7-cfr/9990/11.test.yaml"
         imported.parent.mkdir(parents=True)
         _write_test_rulespec_toolchain(policy_repo)
         imported.write_text(
             """format: rulespec/v1
 inputs:
-  - name: consumer_notified_within_two_business_days
+  - name: application_filed_during_open_season
     entity: Person
     dtype: Boolean
     period: Month
-  - name: unauthorized_transfers_before_notice
+  - name: fuel_bills_before_application
     entity: Person
     dtype: Money
     period: Month
 rules:
-  - name: timely_notice_liability
+  - name: open_season_payment
     kind: derived
     entity: Person
     dtype: Money
@@ -48847,24 +50236,24 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: |-
-          if consumer_notified_within_two_business_days:
-            min(50, unauthorized_transfers_before_notice)
+          if application_filed_during_open_season:
+            min(75, fuel_bills_before_application)
           else: 0
 """
         )
         dependent.write_text(
             """format: rulespec/v1
 imports:
-  - us:regulations/12-cfr/1005/6#timely_notice_liability
+  - us:regulations/7-cfr/9990/6#open_season_payment
 rules: []
 """
         )
         dependent_test.write_text(
             """- name: case_one
   input:
-    us:regulations/12-cfr/1005/6#input.consumer_notified_within_two_business_days: true
+    us:regulations/7-cfr/9990/6#input.application_filed_during_open_season: true
   output:
-    us:regulations/12-cfr/1005/11#provisional_credit: 0
+    us:regulations/7-cfr/9990/11#supplemental_payment_amount: 0
 """
         )
         validation = SimpleNamespace(
@@ -48872,7 +50261,7 @@ rules: []
                 "ci": SimpleNamespace(
                     error=(
                         "Test case `case_one` execution failed: "
-                        "missing input `unauthorized_transfers_before_notice`"
+                        "missing input `fuel_bills_before_application`"
                     )
                 )
             }
@@ -48888,10 +50277,10 @@ rules: []
         assert changed is True
         updated = dependent_test.read_text()
         assert (
-            "us:regulations/12-cfr/1005/6#input.unauthorized_transfers_before_notice: 0"
+            "us:regulations/7-cfr/9990/6#input.fuel_bills_before_application: 0"
             in updated
         )
-        assert "unauthorized_transfers_before_notice: false" not in updated
+        assert "fuel_bills_before_application: false" not in updated
 
     def test_complete_missing_imported_test_inputs_adds_deferred_import_defaults(
         self, tmp_path
@@ -56318,6 +57707,32 @@ def test_initial_encode_outcome_success_omits_validation_failure_keys():
     )
 
     assert not any(key.startswith("validation_failure") for key in outcome)
+
+
+def test_initial_encode_outcome_records_eval_time_source_scalar_quotes():
+    from axiom_encode.cli import _initial_encode_outcome
+
+    repaired = _initial_encode_outcome(
+        SimpleNamespace(
+            success=True,
+            error=None,
+            metrics=None,
+            auto_repaired_unquoted_source_scalars=["excerpt:96", "excerpt:106"],
+        ),
+        apply_requested=False,
+    )
+    untouched = _initial_encode_outcome(
+        SimpleNamespace(success=True, error=None, metrics=None),
+        apply_requested=False,
+    )
+
+    assert repaired["auto_repaired_unquoted_source_scalars"] == [
+        "excerpt:96",
+        "excerpt:106",
+    ]
+    assert repaired["generated_output_repaired_by_encoder"] is True
+    assert "auto_repaired_unquoted_source_scalars" not in untouched
+    assert "generated_output_repaired_by_encoder" not in untouched
 
 
 def test_initial_encode_outcome_telemetry_error_never_propagates():

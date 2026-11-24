@@ -44,12 +44,10 @@ def test_workflow_budget_markers_follow_constructed_queue(
     steps = workflow["jobs"]["encode"]["steps"]
     prepare = next(step for step in steps if step.get("id") == "prepare_encode_apply")
     script = prepare["run"]
-    queue_function = script[
-        script.index("operation_index=0") : script.index(
-            'if [ "$reviewed_candidate_promotion" = "true" ]; then',
-            script.index("operation_index=0"),
-        )
-    ]
+    queue_start = script.index("operation_index=0\n")
+    # Extract the helper itself, independent of subsequent dispatch branches.
+    queue_end = script.index("\n}\n", queue_start) + len("\n}\n")
+    queue_function = script[queue_start:queue_end]
     completed = subprocess.run(
         [
             "bash",
@@ -589,6 +587,25 @@ class TestMainExitContract:
         self._set_env(monkeypatch, repair_run_id="32201076681")
         self._stub_api(monkeypatch, self.FAILING_HISTORY)
         assert budget_mod.main() == 0
+
+    @pytest.mark.parametrize("override", ["", "true"])
+    def test_reviewed_patch_is_not_replay_budget_exemption(
+        self, monkeypatch, capsys, override
+    ):
+        self._set_env(monkeypatch, repair_run_id="32201076681", override=override)
+        monkeypatch.setenv(
+            "SOURCE_BUNDLE_JSON",
+            json.dumps(
+                {
+                    "schema": "axiom-encode/reviewed-repair-transaction/v1",
+                    "patch_id": "fixture",
+                    "transaction": {},
+                }
+            ),
+        )
+        self._stub_api(monkeypatch, self.FAILING_HISTORY)
+        assert budget_mod.main() == 1
+        assert "enforced=True blocked=True" in capsys.readouterr().out
 
     def test_override_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._set_env(monkeypatch, override="true")

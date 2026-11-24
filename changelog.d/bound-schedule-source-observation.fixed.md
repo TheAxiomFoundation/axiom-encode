@@ -1,0 +1,1 @@
+Validate complete printed Schedule calculations and reporting duties against source-owned rows, explicit typed facts, and the full compiled graph. Preserve raw companion-case identities for actual execution evidence while retaining typed cases for generic source analysis.

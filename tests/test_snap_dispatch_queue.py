@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -92,7 +93,42 @@ def _utah_like() -> list[dict[str, Any]]:
 
 
 def _toml_payload(text: str) -> dict[str, str]:
-    return {"content": base64.b64encode(text.encode()).decode()}
+    return {"type": "file", "content": base64.b64encode(text.encode()).decode()}
+
+
+def _workflow_git_objects(ref: str, text: str) -> dict[str, dict[str, Any]]:
+    raw = text.encode()
+    blob = hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
+    root = hashlib.sha1(f"root:{ref}:{blob}".encode()).hexdigest()
+    directory = hashlib.sha1(f"directory:{ref}:{blob}".encode()).hexdigest()
+    prefix = f"repos/{RULESPEC_REPO}/git"
+    return {
+        f"{prefix}/commits/{ref}": {"sha": ref, "tree": {"sha": root}},
+        f"{prefix}/trees/{root}": {
+            "sha": root,
+            "truncated": False,
+            "tree": [
+                {"path": ".axiom", "mode": "040000", "type": "tree", "sha": directory}
+            ],
+        },
+        f"{prefix}/trees/{directory}": {
+            "sha": directory,
+            "truncated": False,
+            "tree": [
+                {
+                    "path": "workflow-toolchain.toml",
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": blob,
+                }
+            ],
+        },
+        f"{prefix}/blobs/{blob}": {
+            "sha": blob,
+            "encoding": "base64",
+            "content": base64.b64encode(raw).decode(),
+        },
+    }
 
 
 def _toolchain(release: str = RELEASE) -> str:
@@ -148,6 +184,11 @@ class FakeGitHub:
         self.fail_get: set[str] = set()
         self.missing_runs: set[int] = set()
         self.approvals: dict[int, list[dict[str, Any]]] = {}
+        # base...tip -> compare payload; an unknown pair answers 404.
+        self.comparisons: dict[str, dict[str, Any]] = {}
+        # ref -> workflow-toolchain text, overriding the default for that ref.
+        self.workflow_toolchains: dict[str, str] = {}
+        self.git_objects: dict[str, dict[str, Any]] = {}
         self.next_id = 1000
 
     # helpers used by tests
@@ -175,7 +216,27 @@ class FakeGitHub:
         if path == f"repos/{RULESPEC_REPO}/contents/.axiom/toolchain.toml":
             return _toml_payload(_toolchain(self.release))
         if path == f"repos/{RULESPEC_REPO}/contents/.axiom/workflow-toolchain.toml":
-            return _toml_payload(_workflow_toolchain())
+            return _toml_payload(
+                self.workflow_toolchains.get(params.get("ref", ""))
+                or _workflow_toolchain()
+            )
+        match = re.fullmatch(
+            rf"repos/{RULESPEC_REPO}/git/commits/([0-9a-f]{{40}})", path
+        )
+        if match:
+            ref = match.group(1)
+            self.git_objects.update(
+                _workflow_git_objects(
+                    ref, self.workflow_toolchains.get(ref) or _workflow_toolchain()
+                )
+            )
+        if path in self.git_objects:
+            return copy.deepcopy(self.git_objects[path])
+        match = re.fullmatch(rf"repos/{RULESPEC_REPO}/compare/(.+)", path)
+        if match:
+            if match.group(1) not in self.comparisons:
+                raise q.GitHubError(404, "Not Found")
+            return self.comparisons[match.group(1)]
         if path == f"repos/{ENCODER_REPO}/actions/workflows/{q.ENCODE_WORKFLOW}/runs":
             since = params["created"].removeprefix(">=")
             return {
@@ -895,6 +956,284 @@ def test_a_running_run_on_a_stale_main_is_cancelled_too():
     assert github.cancelled == [first]
     assert item["attempts"][0]["result"] == "stale-cancelled"
     assert q._counted(item) == 0
+
+
+def _advance(
+    github: FakeGitHub,
+    files: list[str | dict[str, str]],
+    *,
+    tip: str = "b" * 40,
+    first_parent_of_tip: str | None = None,
+    tip_tree: str = "7" * 40,
+    **overrides: Any,
+) -> str:
+    """Move the fake main from TIP to ``tip`` through one middle commit."""
+
+    middle = "0123456789" * 4
+    github.comparisons[f"{TIP}...{tip}"] = {
+        "status": "ahead",
+        "total_commits": 2,
+        "base_commit": {"sha": TIP, "commit": {"tree": {"sha": "6" * 40}}},
+        "commits": [
+            {
+                "sha": middle,
+                "parents": [{"sha": TIP}],
+                "commit": {"tree": {"sha": "8" * 40}},
+            },
+            {
+                "sha": tip,
+                "parents": [{"sha": first_parent_of_tip or middle}, {"sha": TIP}],
+                "commit": {"tree": {"sha": tip_tree}},
+            },
+        ],
+        "files": [
+            entry
+            if isinstance(entry, dict)
+            else {"filename": entry, "status": "modified"}
+            for entry in files
+        ],
+        **overrides,
+    }
+    github.tip = tip
+    return tip
+
+
+@pytest.mark.parametrize("status", ["waiting", "in_progress"])
+def test_a_run_on_a_plumbing_only_main_advance_is_kept(status: str):
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    first = _run_id(item)
+    github.runs[first]["status"] = status
+    _advance(
+        github,
+        [".github/workflows/repository-checks.yml", "tests/test_layout.py"],
+    )
+
+    _tick(state, github)
+
+    assert github.cancelled == []
+    assert item["status"] == "dispatched"
+    assert item["attempts"][-1]["run_id"] == first
+    assert len(github.dispatches) == 1
+
+
+def test_a_nonbinding_workflow_pin_advance_keeps_the_run():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    first = _run_id(item)
+    tip = _advance(github, [".axiom/workflow-toolchain.toml"])
+    github.workflow_toolchains[tip] = (
+        _workflow_toolchain() + f'axiom_artifact_rules_engine_ref = "{"9" * 40}"\n'
+    )
+
+    _tick(state, github)
+
+    assert github.cancelled == []
+    assert item["attempts"][-1]["run_id"] == first
+
+
+def test_a_net_zero_main_advance_with_an_identical_tree_keeps_the_run():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    first = _run_id(item)
+    _advance(github, [], tip_tree="6" * 40)
+
+    _tick(state, github)
+
+    assert github.cancelled == []
+    assert item["attempts"][-1]["run_id"] == first
+
+
+@pytest.mark.parametrize(
+    ("files", "extra"),
+    [
+        (["known-validation-gaps.yaml"], {}),
+        ([".axiom/toolchain.toml", "README.md"], {}),
+        (["us/statutes/7/2015/f.yaml"], {}),
+        (["tests/test_encoding_manifests.py"], {}),
+        ([".axiom/workflow-toolchain.toml"], {"binding_pin": True}),
+        # A rename out of a RuleSpec tree into plumbing still touches the tree.
+        (
+            [
+                {
+                    "filename": "tools/x.yaml",
+                    "previous_filename": "us/statutes/x.yaml",
+                    "status": "renamed",
+                }
+            ],
+            {},
+        ),
+        # GitHub truncates compare file lists at 300.
+        ([f"tests/test_{index}.py" for index in range(300)], {}),
+        # An empty file list whose trees differ is a dropped list, not a no-op.
+        ([], {}),
+        (["README.md"], {"first_parent_of_tip": "d" * 40}),
+        (["README.md"], {"total_commits": 900}),
+        (["README.md"], {"status": "diverged"}),
+    ],
+)
+def test_a_binding_or_unprovable_main_advance_still_cancels(
+    files: list[str | dict[str, str]], extra: dict[str, Any]
+):
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    first = _run_id(item)
+    binding_pin = extra.pop("binding_pin", False)
+    tip = _advance(github, files, **extra)
+    if binding_pin:
+        github.workflow_toolchains[tip] = _workflow_toolchain().replace(
+            ENGINE_REF, "9" * 40
+        )
+
+    _tick(state, github)
+
+    assert github.cancelled == [first]
+    assert item["attempts"][0]["result"] == "stale-cancelled"
+    assert github.dispatches[-1]["inputs"]["rulespec_ref"] == tip
+
+
+def test_stale_base_steps_name_real_encode_workflow_steps():
+    """A renamed or moved base check must not silently count as a failure."""
+
+    encode = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / q.ENCODE_WORKFLOW).read_text()
+    )
+    names = {
+        step.get("name")
+        for job in encode["jobs"].values()
+        for step in job.get("steps") or []
+    }
+    assert q.STALE_BASE_STEPS <= names
+    assert {
+        "Verify reviewed lane pull request base",
+        "Prepare reviewed lane pull request branch",
+    } <= q.STALE_BASE_STEPS
+
+
+@pytest.mark.parametrize("step", sorted(q.STALE_BASE_STEPS))
+def test_a_base_step_failure_after_a_plumbing_advance_is_not_counted(step: str):
+    """The workflow may still reject the lane or lose a race with a later move."""
+
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    run_id = _run_id(item)
+    _advance(github, ["tools/engine_root_load.py"])
+    github.finish(run_id, "failure")
+    github.jobs[run_id] = [
+        {
+            "name": "Queue protected signed RuleSpec re-encode",
+            "conclusion": "failure",
+            "steps": [{"name": step, "conclusion": "failure"}],
+        }
+    ]
+
+    _tick(state, github)
+
+    assert item["attempts"][0]["result"] == "stale-base"
+    assert q._counted(item) == 0
+    assert item["status"] == "dispatched"
+
+
+def test_repeated_publish_races_on_plumbing_advances_never_block_the_item():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    for index, tip in enumerate(("b" * 40, "5" * 40)):
+        run_id = _run_id(item)
+        base = github.tip
+        _advance(github, [f"tools/tool_{index}.py"], tip=tip)
+        github.comparisons[f"{base}...{tip}"] = github.comparisons.pop(f"{TIP}...{tip}")
+        github.finish(run_id, "failure")
+        github.jobs[run_id] = [
+            {
+                "name": "Queue protected signed RuleSpec re-encode",
+                "conclusion": "failure",
+                "steps": [{"name": q.PR_STEP, "conclusion": "failure"}],
+            }
+        ]
+        _tick(state, github)
+
+    assert [attempt["result"] for attempt in item["attempts"][:2]] == [
+        "stale-base",
+        "stale-base",
+    ]
+    assert q._counted(item) == 0
+    assert item["status"] == "dispatched"
+
+
+def test_base_advance_admitted_uses_the_workflow_rule():
+    github = FakeGitHub()
+    assert q.base_advance_admitted(github, RULESPEC_REPO, TIP, TIP)
+    tip = _advance(github, ["bulk/local_drain.py", "CLAUDE.md"])
+    assert q.base_advance_admitted(github, RULESPEC_REPO, TIP, tip)
+    tip = _advance(github, ["programs/us-fl/snap.yaml"], tip="5" * 40)
+    assert not q.base_advance_admitted(github, RULESPEC_REPO, TIP, tip)
+    github.fail_get.add("/compare/")
+    assert not q.base_advance_admitted(github, RULESPEC_REPO, TIP, "b" * 40)
+
+
+@pytest.mark.parametrize("base", ["main", "A" * 40, "a" * 39, None])
+def test_base_advance_admitted_rejects_malformed_refs_without_calling_github(base):
+    class NoCalls:
+        def get(self, path, params=None):
+            raise AssertionError(f"unexpected GET {path}")
+
+    assert not q.base_advance_admitted(NoCalls(), RULESPEC_REPO, base, TIP)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [OSError("network down"), TimeoutError("timed out"), q.GitHubError(502, "x")],
+)
+def test_base_advance_admitted_treats_network_errors_as_stale(error):
+    class Failing:
+        def get(self, path, params=None):
+            raise error
+
+    assert not q.base_advance_admitted(Failing(), RULESPEC_REPO, TIP, "b" * 40)
+
+
+def test_a_followed_symlink_workflow_toolchain_is_not_admitted():
+    github = FakeGitHub()
+    tip = _advance(github, [".axiom/workflow-toolchain.toml"])
+    original_get = github.get
+    tip_objects = _workflow_git_objects(tip, _workflow_toolchain())
+
+    def get(path, params=None):
+        payload = original_get(path, params)
+        if path in tip_objects and "/git/trees/" in path:
+            for entry in payload["tree"]:
+                if entry["path"] == "workflow-toolchain.toml":
+                    entry["mode"] = "120000"
+        return payload
+
+    github.get = get  # type: ignore[method-assign]
+
+    assert (
+        github.get(
+            f"repos/{RULESPEC_REPO}/contents/.axiom/workflow-toolchain.toml",
+            {"ref": tip},
+        )["type"]
+        == "file"
+    )
+    assert (
+        q._regular_file_bytes(
+            github, RULESPEC_REPO, ".axiom/workflow-toolchain.toml", TIP
+        )
+        == _workflow_toolchain().encode()
+    )
+    assert not q.base_advance_admitted(github, RULESPEC_REPO, TIP, tip)
 
 
 def test_a_failure_from_main_moving_mid_run_is_not_counted():

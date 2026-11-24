@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -53,6 +54,8 @@ import pytest
 from axiom_encode.engine_binding import (
     EngineBindingError,
     EnginePin,
+    engine_binding_receipt_path,
+    read_engine_binding_receipt,
     resolve_pinned_engine_binary,
 )
 from tests.process_limits import HANG_TIMEOUT_SECONDS
@@ -257,6 +260,37 @@ def require() -> RealEngine:
     if required():
         pytest.fail(f"{reason} ({REQUIRE_ENV}=1)", pytrace=False)
     pytest.skip(reason)
+
+
+def binding_receipt(engine: RealEngine) -> dict:
+    """The engine-binding receipt of ``engine``, for a test that pins its commit.
+
+    With ``AXIOM_RULES_ENGINE_REF`` set, ``locate`` has already verified this
+    receipt for the pin (``_usable``), so it is read with no fallback and any
+    problem fails the test. Without the ref, an engine needs no receipt to
+    resolve. A test that needs one then skips when the binary carries no
+    receipt for its exact bytes, and fails under ``AXIOM_REQUIRE_REAL_ENGINE=1``,
+    as ``require`` does.
+    """
+    if os.environ.get(REF_ENV):
+        return json.loads(engine_binding_receipt_path(engine.binary).read_text())
+    receipt = read_engine_binding_receipt(engine.binary)
+    commit = receipt.get("engine_commit") if receipt is not None else None
+    if (
+        receipt is None
+        or not isinstance(commit, str)
+        or not _FULL_SHA.fullmatch(commit)
+        or receipt.get("binary_sha256") != engine.sha256
+    ):
+        reason = (
+            f"{UNAVAILABLE}: {engine.binary} carries no engine-binding receipt "
+            f"for its bytes and {REF_ENV} is unset; bind it with "
+            "`axiom-encode engine-bind`"
+        )
+        if required():
+            pytest.fail(f"{reason} ({REQUIRE_ENV}=1)", pytrace=False)
+        pytest.skip(reason)
+    return receipt
 
 
 def describe() -> str:

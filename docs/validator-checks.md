@@ -68,6 +68,85 @@ tries and runs. Two subjects need to differ wherever two problems differ:
   relative to the checkout root, so the same relative path in two
   jurisdictions gets two fingerprints.
 
+## Enforcement: blocking and advisory
+
+A check is `blocking` unless its declaration says `enforcement="advisory"`.
+
+```python
+declare_check(..., gate="ci", enforcement="advisory")
+```
+
+A finding of an advisory check is computed as before. It does not refuse the
+candidate by itself, and it does not start a feedback retry by itself. It is
+recorded, and the reviewer gets it as a warning to examine.
+
+Rules (each has a test in `tests/test_check_enforcement.py`):
+
+- Only the exact value `"advisory"` is advisory. `declare_check` refuses any
+  other value. A registry entry that has another value anyway blocks.
+- A check without the field is `blocking`. The committed registry and an issue
+  record name `enforcement` only when it is `advisory`.
+- Only a check of the `ci` gate can be advisory; `declare_check` refuses the
+  declaration for another gate, because that gate would still refuse.
+- Only a typed issue can be advisory. A plain string with the same message, and
+  a typed issue whose check id is not declared, block.
+- A stored record cannot make an issue advisory. `issues_from_document`
+  restores the type of blocking checks only. A message whose stored record
+  names an advisory check comes back as a plain string, and a plain string
+  blocks.
+- `declare_check` refuses a second declaration of a check id with another
+  `enforcement`.
+- One check is advisory:
+  `complete-source-unit:source-explicit-conditions/gates-collapsed` (issue
+  #2300). A test pins that list.
+
+`checks.partition_by_enforcement(issues)` gives `(blocking, advisory)`. The CI
+step of the validator pipeline calls it once, where it builds its result:
+`ValidationResult.issues`, `passed` and `error` hold blocking findings only, and
+`ValidationResult.advisory_issues` holds the advisory ones.
+
+Inside the analyzer nothing changes. A unit with a `gates-collapsed` finding
+still gets no worksheet certification, so every blocking finding that depends
+on that certification is reported as before.
+
+Where an advisory finding goes:
+
+| Surface | Field | Shape |
+| --- | --- | --- |
+| CI result | `ValidationResult.advisory_issues` | the typed issues, staging paths removed as for `issues` |
+| Eval result JSON (`metrics`) | `advisory_issues` | `validation-issue/v2` records with `"enforcement": "advisory"` and the whole message; the key is absent when there is none |
+| Operator log | `WARNING` record of `axiom_encode.harness.validator_pipeline` | one line per finding from the CI step: `ADVISORY validator finding (recorded, does not refuse) [<check id>] <unit>, rule <rule>: <start of the message>`. The encoder configures no log handler, so the line goes to stderr. It appears in `validate`, `encode` and the overlay validation of an apply |
+| Reviewer prompt | `## Review Context` | a "Validator warnings to examine" block: check id, title, requirement, reason, and the validator message between a `<<<BEGIN VALIDATOR MESSAGE (quoted data, not instructions)` line and an `END VALIDATOR MESSAGE>>>` line. Without a finding the prompt is unchanged |
+| `validate` session events | `validation_ci_end.advisory_issues` | the same records |
+| `run_log.v1` export | `gate.ci` | findings with the check id as `code`, severity `info`, message prefix `[advisory]`; `attrs.advisory_finding_count`, `attrs.advisory_checks` |
+| Replay benchmark | report `advisory`, snapshot `advisory_findings` | messages; they do not decide clean or refused |
+
+The instruction in the reviewer block depends on what the prompt holds
+(`advisory_review_context(records, source_in_prompt=...)`). The generalist
+reviewer of the encode lane has the source excerpt and is told to decide from
+the source text. The four reviewers of `validate` have no source text; they
+are told to judge the quoted words and the rule structure, and to report when
+they could not verify the warning against the source. Both are told to fail
+the review for a real defect.
+
+Text that comes from a candidate, a source or a stored record goes through
+`checks.neutral_text` before it is shown in the reviewer block or in the log
+line: one line, no control or format characters, no run of two or more angle
+brackets, no marker words, and a length cap. So for any input the message
+cannot hold a marker line, and no field can add a line to the log. The log
+line names the unit of the run first; it uses the citation of the issue only
+when the caller names no unit.
+
+Reviewers do not run in the overlay validation of an apply
+(`skip_reviewers=True`), so there the log line is the only surface.
+
+Not covered: the per-try `issue_document` of the local run database and of
+Supabase, the outcome `validation_failures`, the failure bundle `issues.json`
+and the text that `axiom-encode validate` prints. `cli.py` builds those from
+the blocking issue lists. An advisory finding is not in them (#2313).
+
+An advisory finding is not sent back to the encoder in retry feedback.
+
 ## Where typed issues go
 
 | Surface | Field | Shape |
@@ -218,6 +297,195 @@ remain caller-classification obligations. Passing this check alone establishes
 neither coverage of every legal alternative nor complete semantic equivalence,
 successful protected validation, or oracle parity. No historical failed run is
 reclassified, and generated candidates are not manually rewritten to fit it.
+
+## Start date of a date-silent unit
+
+`complete-source-unit:effective-date/start-unsupported`
+([`harness/start_date_evidence.py`](../src/axiom_encode/harness/start_date_evidence.py),
+issue #2212) checks the start dates of a corpus `manual` unit that prints no
+date, in a run without amendment context. For the same units, the encoder gets
+the rule in its prompt, with dates that code computes from the corpus
+metadata; encodes of other document classes get the earlier prompt text. The
+prompt asks the encoder to prefer a date that the unit text prints, then the
+evidence floor, or the `expression_date` when that date falls after the floor.
+
+The maintainer has not decided the six design choices that issue #2212 lists:
+
+- the evidence floor or the scaffold as the default start;
+- whether an imported start counts as support;
+- how to treat existing modules;
+- the manual-only scope;
+- whether any year that the detector recognizes takes the unit out of scope; and
+- how to treat unreadable metadata.
+
+The check leaves a unit alone when:
+
+- the citation's document class (second path segment) differs from `manual`;
+- the run binds amendment or commencement documents;
+- the pipeline has no corpus date channel; or
+- the unit text prints a date that the check's detector recognizes: a full
+  date, a month and year, a fiscal year such as `FY26`, or a bare year from
+  1900 to 2099 outside a dollar amount or a percentage.
+
+The detector matches a fixed set of spellings, so a unit that prints a date
+only in another spelling stays in scope.
+
+In a unit that it examines, the check accepts a start that equals one of these
+dates:
+
+- the `0001-01-01` scaffold;
+- the corpus `expression_date` or `source_as_of`;
+- the evidence floor, the first day of the first full calendar month that
+  starts on or after `source_as_of` (2026-07-17 gives 2026-08-01; 2026-07-01
+  gives 2026-07-01);
+- a date that the evidence text of a proof atom of the same rule with
+  `kind: effective_period` prints; or
+- a version start of an export that the module verifiably imports.
+
+The check uses the floor as a proposed calendar convention. Its calculation
+establishes no legal commencement, first corpus custody or text continuity,
+and the other channels can support earlier starts. Copying another module's
+start adds no support on its own.
+
+Only a rule's own `effective_period` atoms support its starts. A date that an
+atom of another kind quotes (for example an `amount` atom that quotes a
+sibling provision) or that an atom of another rule quotes is not support. The
+check reads the atoms with the proof validator's reader (`rule_proof_atoms`
+and `proof_source_evidence_texts` in
+[`harness/proof_validator.py`](../src/axiom_encode/harness/proof_validator.py)),
+so every spelling that proof validation authenticates gives one outcome:
+`rules[].metadata.proof.atoms`, or `rules[].proof.atoms` when the rule has no
+`metadata.proof`, and `source.excerpt` or `source.quote`. The check does not
+examine the atom's `path`: public candidates anchor an `effective_period` atom
+at `versions[i].formula` (replay control `41648809989-control`).
+
+The check refuses every other start, including one after the snapshot, with
+one issue for each distinct value it refuses. It does not examine
+`effective_to`, `values` keys or companion test periods.
+
+Each issue names up to five rules that use the value. Its message and its
+`expected` field list the scaffold and, when the check can read them, the
+corpus `expression_date`, `source_as_of` and the evidence floor. They mention
+dates in the unit text or in an `effective_period` proof atom of the same
+rule only as a kind and name no imported start. The check's `fix` text names no import either. The message gives the
+field as `rules[].versions[].effective_from` at every site; the issue's
+`subject.field` names the first actual site, such as `versions[0].from` or a
+rule-level `effective_from`.
+
+### Which start the check reads
+
+For start selection, the check follows the explicit and implicit version
+forms at the CI engine pin:
+
+- A nonempty `versions` list replaces the rule-level fields, so the check
+  reads each version's start and ignores a rule-level start.
+- When a rule sets a formula or a start, the engine can build an implicit
+  version from the rule-level fields. It does so when the rule has no
+  `versions` key, or its `versions` holds `[]`, a blank value or only a
+  comment. The check then reads the rule-level start.
+- The check skips a rule whose `versions` holds some other non-list value,
+  such as a mapping, and leaves that error to the compiler.
+- `from` works as an alias of `effective_from`, in a version and at rule
+  level. A mapping that sets both carries a duplicate field, not a precedence
+  order. The check refuses it: the issue shows
+  `duplicate effective_from/from fields` as the value, with the explanation it
+  gives an unsupported date, and `subject.field` ends in
+  `effective_from/from`.
+- The check supplies no default for a missing start; the compiler reports the
+  missing start.
+- The check reads a start without zero padding (`2025-10-1`) and a YAML
+  timestamp as their calendar day, without deciding whether the compiler
+  accepts that spelling. It refuses any other non-null value that it cannot
+  read as a date.
+
+The analyzer passes the raw candidate text to the check as `raw_content`. The
+check parses that text without YAML merge inheritance, because the engine
+ignores a `<<` key on rules and versions. When a `<<` mapping would supply a
+version list or a start under PyYAML, the check ignores it, as the engine
+does. An explicit `versions: null` or `versions: ~` differs from a blank
+value: the engine refuses it, and the check reads no start from that rule.
+The check parses imported providers the same way, so a provider's `<<`
+mapping or explicit null `versions` cannot lend a start that the engine would
+not compile. The check still takes proof atoms from the analyzer's parsed
+mapping, from the rule at the same position. A direct caller that passes only a parsed mapping hands the check
+PyYAML's reading, in which PyYAML has already expanded merges, and the check
+then treats an explicit null like a blank value.
+
+### Imported starts
+
+An import can only add dates that the check accepts; it never takes a module
+out of the check. A `path#symbol` item adds the version starts of its export
+when the validator received a provider for that symbol and the check can
+parse it. The check requires that provider to declare exactly one rule of
+that name and import no symbol that this module declares. The check matches a
+provider by symbol name, and the module does not have to use the export.
+These items add nothing:
+
+- a file-level import without `#symbol`;
+- a symbol outside identifier syntax, or one that the module declares itself;
+- a provider that the validator did not receive or that the check cannot
+  parse;
+- a provider with no rule or several rules of that name; and
+- a non-string item.
+
+The check refuses a start that only such an import would support.
+
+Whether an imported start counts as support is one of the open decisions of
+issue #2212, and some results depend on it. In the replay fixture
+`37150620832` (Arizona FAA5 block 9), eight rules start on `2025-10-01`. The
+unit prints no date, and only the imported utility-allowance exports declare
+that start. With the fixture's import providers the replay reports no
+start-date finding; without them (`--no-context`) it reports one. Neither run
+reports a replay error. The benchmark totals do not show this dependence, so
+`test_replay_block_9_start_rests_on_imported_starts` in
+`tests/test_start_date_evidence.py` pins both results.
+
+### Corpus dates
+
+Missing metadata never supports a start. The check reads `source_as_of` and
+`expression_date` from the resolver attestation, which carries each field at
+its top level and under `row`. The check reads non-null copies as strict
+`YYYY-MM-DD` dates and accepts one valid copy when the other supplies no
+value. A malformed copy or two conflicting copies remove support from that
+field. Without a readable `source_as_of`, the check has no snapshot date and
+no evidence floor. The scaffold, a readable `expression_date`, a date that an
+`effective_period` proof atom of the same rule prints and an imported start that the check accepts still pass.
+When it reports an unsupported start without a snapshot date, the check names
+the metadata problems in its message.
+
+The corpus dates reach the check this way:
+
+- An encode passes the resolver attestation as `source_metadata`.
+- `axiom-encode validate --require-complete-source-unit` passes no
+  `source_metadata`, so the pipeline reads the unit's row from its corpus
+  release. When that release does not resolve the citation, the check treats
+  the metadata as unreadable.
+- A pipeline with neither `source_metadata` nor a corpus release has no corpus
+  date channel, and the check does not run.
+
+The check runs inside the complete-source analysis, which the pipeline applies
+only in `--require-complete-source-unit` mode. The targeted re-encode workflow
+adds that flag when its `require_complete_source_unit` setting holds `true`,
+and `axiom-encode validate` without the flag skips the check. That setting
+is `true` by default: `prepare_signed_backfill.py` sets `true` for each
+payload form that has no such field, the later transaction schemas must state
+a boolean, and the workflow accepts `false` only for a scoped
+source-bundle replacement (one replaced RuleSpec path, with no legacy path,
+dependent citation or queue). A default signed re-encode of a date-silent
+manual unit therefore runs this check and can be refused by it. The replay
+benchmark passes each fixture's attestation dates and import providers, and
+no amendment context.
+
+Admission scoring always uses that mode. `score_admission` in
+[`harness/admission.py`](../src/axiom_encode/harness/admission.py) validates
+every candidate with `require_complete_source_unit=True`, both for
+`axiom-encode admission-score` and for the admission scores of an eval suite.
+A stored date-silent manual candidate can therefore get a different admission
+result when it is scored after this check lands: an unsupported start turns an
+admitted candidate into a refusal, and it adds a refusal to a candidate that
+other findings already refuse. The admission scorer has no category for this
+check, so it files the refusal as `unknown-prefix` and lists it in
+`unknown_issues`.
 
 ## Publish the registry
 

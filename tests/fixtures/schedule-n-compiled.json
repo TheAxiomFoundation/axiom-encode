@@ -1,0 +1,1821 @@
+{
+  "artifact_format_version": 2,
+  "engine_version": "0.2.2",
+  "program": {
+    "module": {
+      "summary": "Complete Schedule N diagnostic: explicit Person amounts, supplied source-defined upstream results, conditional Part C and selected carry-over use, enclosure/contact/reference duties. No native clearance.",
+      "source_verification": {
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "source_sha256": "06295f18048c53e225bf0e8ba0c2581b4ac500f4702358de380a79f62acc812f"
+      }
+    },
+    "units": [
+      {
+        "name": "GBP",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "USD",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "EUR",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "CHF",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "NOK",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "GHS",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "GHp",
+        "kind": "currency",
+        "minor_units": 0
+      },
+      {
+        "name": "NGN",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "UGX",
+        "kind": "currency",
+        "minor_units": 0
+      },
+      {
+        "name": "ZMW",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "ETB",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "RWF",
+        "kind": "currency",
+        "minor_units": 0
+      },
+      {
+        "name": "TZS",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "DKK",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "AMD",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "ILS",
+        "kind": "currency",
+        "minor_units": 2
+      },
+      {
+        "name": "count",
+        "kind": "count"
+      },
+      {
+        "name": "person",
+        "kind": "count"
+      },
+      {
+        "name": "ratio",
+        "kind": "ratio"
+      },
+      {
+        "name": "status",
+        "kind": "custom",
+        "label": "judgment"
+      },
+      {
+        "name": "CAD",
+        "kind": "currency",
+        "minor_units": 2
+      }
+    ],
+    "relations": [],
+    "parameters": [
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#quebec_2025_schedule_n_resource_recovery_rate",
+        "name": "quebec_2025_schedule_n_resource_recovery_rate",
+        "unit": null,
+        "indexed_by": null,
+        "source": "Recovery of resource deductions (see line 154, point 11, in the guide)\nmultiplied by 50%",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "values": {
+              "0": {
+                "kind": "decimal",
+                "value": "0.5"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "derived": [
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_part_c_applies",
+        "name": "schedule_n_part_c_applies",
+        "entity": "Person",
+        "dtype": "bool",
+        "unit": null,
+        "period": "Year",
+        "source": "09 Adjustment of other investment expenses The amount that you deduct as investment expenses cannot exceed your investment income. If you are deducting either of the following, complete Schedule N to calculate the amount to enter on line 276 of your return: • a limited partnership loss (included on line 289 of your return); • net capital losses from other years. On line 52 of Schedule N, enter the amount from line 290 of your return.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "if",
+          "condition": {
+            "kind": "or",
+            "items": [
+              {
+                "kind": "comparison",
+                "left": {
+                  "kind": "input",
+                  "name": "limited_partnership_loss_deduction_entered"
+                },
+                "op": "eq",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "bool",
+                    "value": true
+                  }
+                }
+              },
+              {
+                "kind": "comparison",
+                "left": {
+                  "kind": "input",
+                  "name": "net_capital_loss_deduction_entered"
+                },
+                "op": "eq",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "bool",
+                    "value": true
+                  }
+                }
+              }
+            ]
+          },
+          "then_expr": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          },
+          "else_expr": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "if",
+              "condition": {
+                "kind": "or",
+                "items": [
+                  {
+                    "kind": "comparison",
+                    "left": {
+                      "kind": "input",
+                      "name": "limited_partnership_loss_deduction_entered"
+                    },
+                    "op": "eq",
+                    "right": {
+                      "kind": "literal",
+                      "value": {
+                        "kind": "bool",
+                        "value": true
+                      }
+                    }
+                  },
+                  {
+                    "kind": "comparison",
+                    "left": {
+                      "kind": "input",
+                      "name": "net_capital_loss_deduction_entered"
+                    },
+                    "op": "eq",
+                    "right": {
+                      "kind": "literal",
+                      "value": {
+                        "kind": "bool",
+                        "value": true
+                      }
+                    }
+                  }
+                ]
+              },
+              "then_expr": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              },
+              "else_expr": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": false
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_part_c_input_consistent",
+        "name": "schedule_n_part_c_input_consistent",
+        "entity": "Person",
+        "dtype": "bool",
+        "unit": null,
+        "period": "Year",
+        "source": "Complete this part only if you entered an amount on lines 289 and 290 of your return.\nLimited partnership loss\n(included on line 289 of your return)\nNet capital losses from other years (see line 276, point 9, in the guide)\nAdd lines 50 and 52.\nAmount from line 36 above\nAmount from line 18 above\nSubtract line 58 from line 56. If the result is negative, enter 0.\nSubtract line 60 from line 54. If the result is negative, enter 0.\nCarry the result to line 276 of your return.\b\n",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "if",
+          "condition": {
+            "kind": "or",
+            "items": [
+              {
+                "kind": "comparison",
+                "left": {
+                  "kind": "derived",
+                  "name": "schedule_n_part_c_applies"
+                },
+                "op": "eq",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "bool",
+                    "value": true
+                  }
+                }
+              },
+              {
+                "kind": "and",
+                "items": [
+                  {
+                    "kind": "comparison",
+                    "left": {
+                      "kind": "input",
+                      "name": "schedule_n_limited_partnership_loss_line_50"
+                    },
+                    "op": "eq",
+                    "right": {
+                      "kind": "literal",
+                      "value": {
+                        "kind": "integer",
+                        "value": 0
+                      }
+                    }
+                  },
+                  {
+                    "kind": "comparison",
+                    "left": {
+                      "kind": "input",
+                      "name": "schedule_n_net_capital_losses_other_years_line_52"
+                    },
+                    "op": "eq",
+                    "right": {
+                      "kind": "literal",
+                      "value": {
+                        "kind": "integer",
+                        "value": 0
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "then_expr": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          },
+          "else_expr": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "if",
+              "condition": {
+                "kind": "or",
+                "items": [
+                  {
+                    "kind": "comparison",
+                    "left": {
+                      "kind": "derived",
+                      "name": "schedule_n_part_c_applies"
+                    },
+                    "op": "eq",
+                    "right": {
+                      "kind": "literal",
+                      "value": {
+                        "kind": "bool",
+                        "value": true
+                      }
+                    }
+                  },
+                  {
+                    "kind": "and",
+                    "items": [
+                      {
+                        "kind": "comparison",
+                        "left": {
+                          "kind": "input",
+                          "name": "schedule_n_limited_partnership_loss_line_50"
+                        },
+                        "op": "eq",
+                        "right": {
+                          "kind": "literal",
+                          "value": {
+                            "kind": "integer",
+                            "value": 0
+                          }
+                        }
+                      },
+                      {
+                        "kind": "comparison",
+                        "left": {
+                          "kind": "input",
+                          "name": "schedule_n_net_capital_losses_other_years_line_52"
+                        },
+                        "op": "eq",
+                        "right": {
+                          "kind": "literal",
+                          "value": {
+                            "kind": "integer",
+                            "value": 0
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "then_expr": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              },
+              "else_expr": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": false
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_net_investment_income_for_carryover",
+        "name": "schedule_n_net_investment_income_for_carryover",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "If, for 2025, your investment income (line 36 of Schedule N) is greater than your investment expenses (lines 18 and 54 of Schedule N), you can deduct the unused portion of the adjustment of investment expenses (up to the difference between your investment income and your investment expenses). Unused portion of the adjustment of investment expenses (line 70 of Schedule N) The unused portion of the adjustment of investment expenses is equal to the total of the amounts entered since 2004 on lines 40 and 64 of Schedule N, minus the amount already used to reduce your investment income for a previous year. ",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "sub",
+          "left": {
+            "kind": "sub",
+            "left": {
+              "kind": "derived",
+              "name": "schedule_n_investment_income_line_36"
+            },
+            "right": {
+              "kind": "derived",
+              "name": "schedule_n_investment_expenses_line_18"
+            }
+          },
+          "right": {
+            "kind": "derived",
+            "name": "schedule_n_other_investment_expenses_line_54"
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "sub",
+              "left": {
+                "kind": "sub",
+                "left": {
+                  "kind": "derived",
+                  "name": "schedule_n_investment_income_line_36"
+                },
+                "right": {
+                  "kind": "derived",
+                  "name": "schedule_n_investment_expenses_line_18"
+                }
+              },
+              "right": {
+                "kind": "derived",
+                "name": "schedule_n_other_investment_expenses_line_54"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_maximum_allowable_return_252",
+        "name": "schedule_n_maximum_allowable_return_252",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "If, for 2025, your investment income (line 36 of Schedule N) is greater than your investment expenses (lines 18 and 54 of Schedule N), you can deduct the unused portion of the adjustment of investment expenses (up to the difference between your investment income and your investment expenses). Unused portion of the adjustment of investment expenses (line 70 of Schedule N) The unused portion of the adjustment of investment expenses is equal to the total of the amounts entered since 2004 on lines 40 and 64 of Schedule N, minus the amount already used to reduce your investment income for a previous year. ",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "if",
+          "condition": {
+            "kind": "comparison",
+            "left": {
+              "kind": "derived",
+              "name": "schedule_n_net_investment_income_for_carryover"
+            },
+            "op": "gt",
+            "right": {
+              "kind": "literal",
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            }
+          },
+          "then_expr": {
+            "kind": "min",
+            "items": [
+              {
+                "kind": "input",
+                "name": "schedule_n_unused_adjustment_prior_years_line_70"
+              },
+              {
+                "kind": "derived",
+                "name": "schedule_n_net_investment_income_for_carryover"
+              }
+            ]
+          },
+          "else_expr": {
+            "kind": "literal",
+            "value": {
+              "kind": "decimal",
+              "value": "0"
+            }
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "if",
+              "condition": {
+                "kind": "comparison",
+                "left": {
+                  "kind": "derived",
+                  "name": "schedule_n_net_investment_income_for_carryover"
+                },
+                "op": "gt",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "integer",
+                    "value": 0
+                  }
+                }
+              },
+              "then_expr": {
+                "kind": "min",
+                "items": [
+                  {
+                    "kind": "input",
+                    "name": "schedule_n_unused_adjustment_prior_years_line_70"
+                  },
+                  {
+                    "kind": "derived",
+                    "name": "schedule_n_net_investment_income_for_carryover"
+                  }
+                ]
+              },
+              "else_expr": {
+                "kind": "literal",
+                "value": {
+                  "kind": "decimal",
+                  "value": "0"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_entered_return252_within_source_upper_conditions",
+        "name": "schedule_n_entered_return252_within_source_upper_conditions",
+        "entity": "Person",
+        "dtype": "bool",
+        "unit": null,
+        "period": "Year",
+        "source": "If, for 2025, your investment income (line 36 of Schedule N) is greater than your investment expenses (lines 18 and 54 of Schedule N), you can deduct the unused portion of the adjustment of investment expenses (up to the difference between your investment income and your investment expenses). Unused portion of the adjustment of investment expenses (line 70 of Schedule N) The unused portion of the adjustment of investment expenses is equal to the total of the amounts entered since 2004 on lines 40 and 64 of Schedule N, minus the amount already used to reduce your investment income for a previous year. ",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "if",
+          "condition": {
+            "kind": "or",
+            "items": [
+              {
+                "kind": "comparison",
+                "left": {
+                  "kind": "input",
+                  "name": "schedule_n_amount_from_return_line_252_line_78"
+                },
+                "op": "eq",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "integer",
+                    "value": 0
+                  }
+                }
+              },
+              {
+                "kind": "and",
+                "items": [
+                  {
+                    "kind": "and",
+                    "items": [
+                      {
+                        "kind": "comparison",
+                        "left": {
+                          "kind": "derived",
+                          "name": "schedule_n_net_investment_income_for_carryover"
+                        },
+                        "op": "gt",
+                        "right": {
+                          "kind": "literal",
+                          "value": {
+                            "kind": "integer",
+                            "value": 0
+                          }
+                        }
+                      },
+                      {
+                        "kind": "comparison",
+                        "left": {
+                          "kind": "input",
+                          "name": "schedule_n_amount_from_return_line_252_line_78"
+                        },
+                        "op": "lte",
+                        "right": {
+                          "kind": "input",
+                          "name": "schedule_n_unused_adjustment_prior_years_line_70"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "comparison",
+                    "left": {
+                      "kind": "input",
+                      "name": "schedule_n_amount_from_return_line_252_line_78"
+                    },
+                    "op": "lte",
+                    "right": {
+                      "kind": "derived",
+                      "name": "schedule_n_net_investment_income_for_carryover"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "then_expr": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          },
+          "else_expr": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": false
+            }
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "if",
+              "condition": {
+                "kind": "or",
+                "items": [
+                  {
+                    "kind": "comparison",
+                    "left": {
+                      "kind": "input",
+                      "name": "schedule_n_amount_from_return_line_252_line_78"
+                    },
+                    "op": "eq",
+                    "right": {
+                      "kind": "literal",
+                      "value": {
+                        "kind": "integer",
+                        "value": 0
+                      }
+                    }
+                  },
+                  {
+                    "kind": "and",
+                    "items": [
+                      {
+                        "kind": "and",
+                        "items": [
+                          {
+                            "kind": "comparison",
+                            "left": {
+                              "kind": "derived",
+                              "name": "schedule_n_net_investment_income_for_carryover"
+                            },
+                            "op": "gt",
+                            "right": {
+                              "kind": "literal",
+                              "value": {
+                                "kind": "integer",
+                                "value": 0
+                              }
+                            }
+                          },
+                          {
+                            "kind": "comparison",
+                            "left": {
+                              "kind": "input",
+                              "name": "schedule_n_amount_from_return_line_252_line_78"
+                            },
+                            "op": "lte",
+                            "right": {
+                              "kind": "input",
+                              "name": "schedule_n_unused_adjustment_prior_years_line_70"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "kind": "comparison",
+                        "left": {
+                          "kind": "input",
+                          "name": "schedule_n_amount_from_return_line_252_line_78"
+                        },
+                        "op": "lte",
+                        "right": {
+                          "kind": "derived",
+                          "name": "schedule_n_net_investment_income_for_carryover"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              "then_expr": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              },
+              "else_expr": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": false
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_investment_expenses_line_18",
+        "name": "schedule_n_investment_expenses_line_18",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "Add lines 10 through 16.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "add",
+          "items": [
+            {
+              "kind": "add",
+              "items": [
+                {
+                  "kind": "add",
+                  "items": [
+                    {
+                      "kind": "input",
+                      "name": "schedule_n_specified_member_partnership_loss_line_10"
+                    },
+                    {
+                      "kind": "input",
+                      "name": "schedule_n_carrying_charges_interest_line_12"
+                    }
+                  ]
+                },
+                {
+                  "kind": "input",
+                  "name": "schedule_n_exploration_development_expenses_line_14"
+                }
+              ]
+            },
+            {
+              "kind": "input",
+              "name": "schedule_n_other_property_income_expenses_line_16"
+            }
+          ]
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "add",
+              "items": [
+                {
+                  "kind": "add",
+                  "items": [
+                    {
+                      "kind": "add",
+                      "items": [
+                        {
+                          "kind": "input",
+                          "name": "schedule_n_specified_member_partnership_loss_line_10"
+                        },
+                        {
+                          "kind": "input",
+                          "name": "schedule_n_carrying_charges_interest_line_12"
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "input",
+                      "name": "schedule_n_exploration_development_expenses_line_14"
+                    }
+                  ]
+                },
+                {
+                  "kind": "input",
+                  "name": "schedule_n_other_property_income_expenses_line_16"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_resource_deduction_recovery_line_28",
+        "name": "schedule_n_resource_deduction_recovery_line_28",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "Recovery of resource deductions (see line 154, point 11, in the guide)\nmultiplied by 50%",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "mul",
+          "left": {
+            "kind": "input",
+            "name": "schedule_n_resource_deduction_recovery_base"
+          },
+          "right": {
+            "kind": "parameter_lookup",
+            "parameter": "quebec_2025_schedule_n_resource_recovery_rate",
+            "index": {
+              "kind": "literal",
+              "value": {
+                "kind": "integer",
+                "value": 0
+              }
+            }
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "mul",
+              "left": {
+                "kind": "input",
+                "name": "schedule_n_resource_deduction_recovery_base"
+              },
+              "right": {
+                "kind": "parameter_lookup",
+                "parameter": "quebec_2025_schedule_n_resource_recovery_rate",
+                "index": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "integer",
+                    "value": 0
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_investment_income_line_36",
+        "name": "schedule_n_investment_income_line_36",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "Add lines 20 through 34.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "add",
+          "items": [
+            {
+              "kind": "add",
+              "items": [
+                {
+                  "kind": "add",
+                  "items": [
+                    {
+                      "kind": "add",
+                      "items": [
+                        {
+                          "kind": "add",
+                          "items": [
+                            {
+                              "kind": "add",
+                              "items": [
+                                {
+                                  "kind": "add",
+                                  "items": [
+                                    {
+                                      "kind": "input",
+                                      "name": "schedule_n_taxable_canadian_dividends_line_20"
+                                    },
+                                    {
+                                      "kind": "input",
+                                      "name": "schedule_n_interest_other_investment_income_line_22"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "kind": "input",
+                                  "name": "schedule_n_specified_member_partnership_income_line_24"
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "input",
+                              "name": "schedule_n_life_insurance_policy_income_line_26"
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "derived",
+                          "name": "schedule_n_resource_deduction_recovery_line_28"
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "input",
+                      "name": "schedule_n_ordinary_annuities_ro_line_30"
+                    }
+                  ]
+                },
+                {
+                  "kind": "input",
+                  "name": "schedule_n_other_trust_shareholder_property_income_line_32"
+                }
+              ]
+            },
+            {
+              "kind": "input",
+              "name": "schedule_n_taxable_capital_gains_line_34"
+            }
+          ]
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "add",
+              "items": [
+                {
+                  "kind": "add",
+                  "items": [
+                    {
+                      "kind": "add",
+                      "items": [
+                        {
+                          "kind": "add",
+                          "items": [
+                            {
+                              "kind": "add",
+                              "items": [
+                                {
+                                  "kind": "add",
+                                  "items": [
+                                    {
+                                      "kind": "add",
+                                      "items": [
+                                        {
+                                          "kind": "input",
+                                          "name": "schedule_n_taxable_canadian_dividends_line_20"
+                                        },
+                                        {
+                                          "kind": "input",
+                                          "name": "schedule_n_interest_other_investment_income_line_22"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "kind": "input",
+                                      "name": "schedule_n_specified_member_partnership_income_line_24"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "kind": "input",
+                                  "name": "schedule_n_life_insurance_policy_income_line_26"
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "derived",
+                              "name": "schedule_n_resource_deduction_recovery_line_28"
+                            }
+                          ]
+                        },
+                        {
+                          "kind": "input",
+                          "name": "schedule_n_ordinary_annuities_ro_line_30"
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "input",
+                      "name": "schedule_n_other_trust_shareholder_property_income_line_32"
+                    }
+                  ]
+                },
+                {
+                  "kind": "input",
+                  "name": "schedule_n_taxable_capital_gains_line_34"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_investment_expense_adjustment_line_260",
+        "name": "schedule_n_investment_expense_adjustment_line_260",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "Subtract line 36 from line 18. If the result is negative, enter 0.\nCarry the result to line 260 of your return.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "max",
+          "items": [
+            {
+              "kind": "literal",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              }
+            },
+            {
+              "kind": "sub",
+              "left": {
+                "kind": "derived",
+                "name": "schedule_n_investment_expenses_line_18"
+              },
+              "right": {
+                "kind": "derived",
+                "name": "schedule_n_investment_income_line_36"
+              }
+            }
+          ]
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "max",
+              "items": [
+                {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "decimal",
+                    "value": "0"
+                  }
+                },
+                {
+                  "kind": "sub",
+                  "left": {
+                    "kind": "derived",
+                    "name": "schedule_n_investment_expenses_line_18"
+                  },
+                  "right": {
+                    "kind": "derived",
+                    "name": "schedule_n_investment_income_line_36"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_other_investment_expenses_line_54",
+        "name": "schedule_n_other_investment_expenses_line_54",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "Complete this part only if you entered an amount on lines 289 and 290 of your return.\nLimited partnership loss\n(included on line 289 of your return)\nNet capital losses from other years (see line 276, point 9, in the guide)\nAdd lines 50 and 52.\nAmount from line 36 above\nAmount from line 18 above\nSubtract line 58 from line 56. If the result is negative, enter 0.\nSubtract line 60 from line 54. If the result is negative, enter 0.\nCarry the result to line 276 of your return.\b\n",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "if",
+          "condition": {
+            "kind": "comparison",
+            "left": {
+              "kind": "derived",
+              "name": "schedule_n_part_c_input_consistent"
+            },
+            "op": "eq",
+            "right": {
+              "kind": "literal",
+              "value": {
+                "kind": "bool",
+                "value": true
+              }
+            }
+          },
+          "then_expr": {
+            "kind": "add",
+            "items": [
+              {
+                "kind": "input",
+                "name": "schedule_n_limited_partnership_loss_line_50"
+              },
+              {
+                "kind": "input",
+                "name": "schedule_n_net_capital_losses_other_years_line_52"
+              }
+            ]
+          },
+          "else_expr": {
+            "kind": "no_match",
+            "subject": {
+              "kind": "derived",
+              "name": "schedule_n_part_c_input_consistent"
+            },
+            "patterns": [
+              {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            ]
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "if",
+              "condition": {
+                "kind": "comparison",
+                "left": {
+                  "kind": "derived",
+                  "name": "schedule_n_part_c_input_consistent"
+                },
+                "op": "eq",
+                "right": {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "bool",
+                    "value": true
+                  }
+                }
+              },
+              "then_expr": {
+                "kind": "add",
+                "items": [
+                  {
+                    "kind": "input",
+                    "name": "schedule_n_limited_partnership_loss_line_50"
+                  },
+                  {
+                    "kind": "input",
+                    "name": "schedule_n_net_capital_losses_other_years_line_52"
+                  }
+                ]
+              },
+              "else_expr": {
+                "kind": "no_match",
+                "subject": {
+                  "kind": "derived",
+                  "name": "schedule_n_part_c_input_consistent"
+                },
+                "patterns": [
+                  {
+                    "kind": "literal",
+                    "value": {
+                      "kind": "bool",
+                      "value": true
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_investment_income_excess_line_60",
+        "name": "schedule_n_investment_income_excess_line_60",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "Subtract line 58 from line 56. If the result is negative, enter 0.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "max",
+          "items": [
+            {
+              "kind": "literal",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              }
+            },
+            {
+              "kind": "sub",
+              "left": {
+                "kind": "derived",
+                "name": "schedule_n_investment_income_line_36"
+              },
+              "right": {
+                "kind": "derived",
+                "name": "schedule_n_investment_expenses_line_18"
+              }
+            }
+          ]
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "max",
+              "items": [
+                {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "decimal",
+                    "value": "0"
+                  }
+                },
+                {
+                  "kind": "sub",
+                  "left": {
+                    "kind": "derived",
+                    "name": "schedule_n_investment_income_line_36"
+                  },
+                  "right": {
+                    "kind": "derived",
+                    "name": "schedule_n_investment_expenses_line_18"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_other_investment_expense_adjustment_line_276",
+        "name": "schedule_n_other_investment_expense_adjustment_line_276",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "Subtract line 60 from line 54. If the result is negative, enter 0.\nCarry the result to line 276 of your return.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "max",
+          "items": [
+            {
+              "kind": "literal",
+              "value": {
+                "kind": "decimal",
+                "value": "0"
+              }
+            },
+            {
+              "kind": "sub",
+              "left": {
+                "kind": "derived",
+                "name": "schedule_n_other_investment_expenses_line_54"
+              },
+              "right": {
+                "kind": "derived",
+                "name": "schedule_n_investment_income_excess_line_60"
+              }
+            }
+          ]
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "max",
+              "items": [
+                {
+                  "kind": "literal",
+                  "value": {
+                    "kind": "decimal",
+                    "value": "0"
+                  }
+                },
+                {
+                  "kind": "sub",
+                  "left": {
+                    "kind": "derived",
+                    "name": "schedule_n_other_investment_expenses_line_54"
+                  },
+                  "right": {
+                    "kind": "derived",
+                    "name": "schedule_n_investment_income_excess_line_60"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_adjustment_available_line_76",
+        "name": "schedule_n_adjustment_available_line_76",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "Add lines 70 through 74.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "add",
+          "items": [
+            {
+              "kind": "add",
+              "items": [
+                {
+                  "kind": "input",
+                  "name": "schedule_n_unused_adjustment_prior_years_line_70"
+                },
+                {
+                  "kind": "derived",
+                  "name": "schedule_n_investment_expense_adjustment_line_260"
+                }
+              ]
+            },
+            {
+              "kind": "derived",
+              "name": "schedule_n_other_investment_expense_adjustment_line_276"
+            }
+          ]
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "add",
+              "items": [
+                {
+                  "kind": "add",
+                  "items": [
+                    {
+                      "kind": "input",
+                      "name": "schedule_n_unused_adjustment_prior_years_line_70"
+                    },
+                    {
+                      "kind": "derived",
+                      "name": "schedule_n_investment_expense_adjustment_line_260"
+                    }
+                  ]
+                },
+                {
+                  "kind": "derived",
+                  "name": "schedule_n_other_investment_expense_adjustment_line_276"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_adjustment_used_line_252",
+        "name": "schedule_n_adjustment_used_line_252",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "Amount from line 252 of your 2025 return",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "input",
+          "name": "schedule_n_amount_from_return_line_252_line_78"
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "input",
+              "name": "schedule_n_amount_from_return_line_252_line_78"
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_adjustment_carryforward_line_80",
+        "name": "schedule_n_adjustment_carryforward_line_80",
+        "entity": "Person",
+        "dtype": "decimal",
+        "unit": "CAD",
+        "period": "Year",
+        "source": "Subtract line 78 from line 76.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "scalar",
+        "expr": {
+          "kind": "sub",
+          "left": {
+            "kind": "derived",
+            "name": "schedule_n_adjustment_available_line_76"
+          },
+          "right": {
+            "kind": "derived",
+            "name": "schedule_n_adjustment_used_line_252"
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "scalar",
+            "expr": {
+              "kind": "sub",
+              "left": {
+                "kind": "derived",
+                "name": "schedule_n_adjustment_available_line_76"
+              },
+              "right": {
+                "kind": "derived",
+                "name": "schedule_n_adjustment_used_line_252"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_enclosure_required",
+        "name": "schedule_n_enclosure_required",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Year",
+        "source": "Enclose this schedule with your return.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "judgment",
+        "expr": {
+          "kind": "comparison",
+          "left": {
+            "kind": "input",
+            "name": "completing_schedule_n"
+          },
+          "op": "eq",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "judgment",
+            "expr": {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "completing_schedule_n"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_copy_guide_reference_applies",
+        "name": "schedule_n_copy_guide_reference_applies",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Year",
+        "source": "If you want to keep a copy for your records, see the guide.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "judgment",
+        "expr": {
+          "kind": "comparison",
+          "left": {
+            "kind": "input",
+            "name": "wants_copy_for_records"
+          },
+          "op": "eq",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "judgment",
+            "expr": {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "wants_copy_for_records"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#schedule_n_qualified_gain_loss_contact_required",
+        "name": "schedule_n_qualified_gain_loss_contact_required",
+        "entity": "Person",
+        "dtype": "judgment",
+        "unit": null,
+        "period": "Year",
+        "source": "However, if you are deducting a net capital loss from capital gains that qualify for the capital gains deduction, contact us.",
+        "source_url": null,
+        "corpus_citation_path": "ca/policy/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment",
+        "semantics": "judgment",
+        "expr": {
+          "kind": "comparison",
+          "left": {
+            "kind": "input",
+            "name": "deducting_net_capital_loss_from_qualified_capital_gains"
+          },
+          "op": "eq",
+          "right": {
+            "kind": "literal",
+            "value": {
+              "kind": "bool",
+              "value": true
+            }
+          }
+        },
+        "versions": [
+          {
+            "effective_from": "2025-01-01",
+            "effective_to": "2025-12-31",
+            "semantics": "judgment",
+            "expr": {
+              "kind": "comparison",
+              "left": {
+                "kind": "input",
+                "name": "deducting_net_capital_loss_from_qualified_capital_gains"
+              },
+              "op": "eq",
+              "right": {
+                "kind": "literal",
+                "value": {
+                  "kind": "bool",
+                  "value": true
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "metadata": {
+    "evaluation_order": [
+      "schedule_n_adjustment_used_line_252",
+      "schedule_n_copy_guide_reference_applies",
+      "schedule_n_enclosure_required",
+      "schedule_n_investment_expenses_line_18",
+      "schedule_n_part_c_applies",
+      "schedule_n_part_c_input_consistent",
+      "schedule_n_other_investment_expenses_line_54",
+      "schedule_n_qualified_gain_loss_contact_required",
+      "schedule_n_resource_deduction_recovery_line_28",
+      "schedule_n_investment_income_line_36",
+      "schedule_n_investment_expense_adjustment_line_260",
+      "schedule_n_investment_income_excess_line_60",
+      "schedule_n_net_investment_income_for_carryover",
+      "schedule_n_entered_return252_within_source_upper_conditions",
+      "schedule_n_maximum_allowable_return_252",
+      "schedule_n_other_investment_expense_adjustment_line_276",
+      "schedule_n_adjustment_available_line_76",
+      "schedule_n_adjustment_carryforward_line_80"
+    ],
+    "fast_path": {
+      "strategy": "generic_bulk",
+      "compatible": true,
+      "blockers": []
+    },
+    "input_catalog": [
+      {
+        "slot": "completing_schedule_n",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.completing_schedule_n",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.completing_schedule_n"
+        ]
+      },
+      {
+        "slot": "deducting_net_capital_loss_from_qualified_capital_gains",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.deducting_net_capital_loss_from_qualified_capital_gains",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.deducting_net_capital_loss_from_qualified_capital_gains"
+        ]
+      },
+      {
+        "slot": "limited_partnership_loss_deduction_entered",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.limited_partnership_loss_deduction_entered",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.limited_partnership_loss_deduction_entered"
+        ]
+      },
+      {
+        "slot": "net_capital_loss_deduction_entered",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.net_capital_loss_deduction_entered",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.net_capital_loss_deduction_entered"
+        ]
+      },
+      {
+        "slot": "schedule_n_amount_from_return_line_252_line_78",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_amount_from_return_line_252_line_78",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_amount_from_return_line_252_line_78"
+        ]
+      },
+      {
+        "slot": "schedule_n_carrying_charges_interest_line_12",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_carrying_charges_interest_line_12",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_carrying_charges_interest_line_12"
+        ]
+      },
+      {
+        "slot": "schedule_n_exploration_development_expenses_line_14",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_exploration_development_expenses_line_14",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_exploration_development_expenses_line_14"
+        ]
+      },
+      {
+        "slot": "schedule_n_interest_other_investment_income_line_22",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_interest_other_investment_income_line_22",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_interest_other_investment_income_line_22"
+        ]
+      },
+      {
+        "slot": "schedule_n_life_insurance_policy_income_line_26",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_life_insurance_policy_income_line_26",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_life_insurance_policy_income_line_26"
+        ]
+      },
+      {
+        "slot": "schedule_n_limited_partnership_loss_line_50",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_limited_partnership_loss_line_50",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_limited_partnership_loss_line_50"
+        ]
+      },
+      {
+        "slot": "schedule_n_net_capital_losses_other_years_line_52",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_net_capital_losses_other_years_line_52",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_net_capital_losses_other_years_line_52"
+        ]
+      },
+      {
+        "slot": "schedule_n_ordinary_annuities_ro_line_30",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_ordinary_annuities_ro_line_30",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_ordinary_annuities_ro_line_30"
+        ]
+      },
+      {
+        "slot": "schedule_n_other_property_income_expenses_line_16",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_other_property_income_expenses_line_16",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_other_property_income_expenses_line_16"
+        ]
+      },
+      {
+        "slot": "schedule_n_other_trust_shareholder_property_income_line_32",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_other_trust_shareholder_property_income_line_32",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_other_trust_shareholder_property_income_line_32"
+        ]
+      },
+      {
+        "slot": "schedule_n_resource_deduction_recovery_base",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_resource_deduction_recovery_base",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_resource_deduction_recovery_base"
+        ]
+      },
+      {
+        "slot": "schedule_n_specified_member_partnership_income_line_24",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_specified_member_partnership_income_line_24",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_specified_member_partnership_income_line_24"
+        ]
+      },
+      {
+        "slot": "schedule_n_specified_member_partnership_loss_line_10",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_specified_member_partnership_loss_line_10",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_specified_member_partnership_loss_line_10"
+        ]
+      },
+      {
+        "slot": "schedule_n_taxable_canadian_dividends_line_20",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_taxable_canadian_dividends_line_20",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_taxable_canadian_dividends_line_20"
+        ]
+      },
+      {
+        "slot": "schedule_n_taxable_capital_gains_line_34",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_taxable_capital_gains_line_34",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_taxable_capital_gains_line_34"
+        ]
+      },
+      {
+        "slot": "schedule_n_unused_adjustment_prior_years_line_70",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_unused_adjustment_prior_years_line_70",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.schedule_n_unused_adjustment_prior_years_line_70"
+        ]
+      },
+      {
+        "slot": "wants_copy_for_records",
+        "canonical_request_name": "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.wants_copy_for_records",
+        "request_names": [
+          "ca:policies/revenu-quebec/tp1-2025/schedule-n-investment-expense-adjustment#input.wants_copy_for_records"
+        ]
+      }
+    ]
+  }
+}

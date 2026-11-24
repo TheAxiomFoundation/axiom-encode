@@ -1257,6 +1257,24 @@ def _write_signed_change(repo: Path) -> tuple[Path, Path]:
     return rule, manifest
 
 
+def test_stage_entrypoint_checks_reviewed_repair_receipt(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _, manifest = _write_signed_change(repo)
+    payload = json.loads(manifest.read_text())
+    payload["tool"] = "axiom-encode apply-reviewed-repair"
+    manifest.write_text(json.dumps(payload))
+
+    script = Path(__file__).resolve().parents[1] / "scripts/prepare_signed_backfill.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "stage", str(repo)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert result.stderr.strip() == "error: reviewed patch receipt fields are not exact"
+    assert not _git(repo, "diff", "--cached", "--name-only")
+
+
 def _retired_inventory_replacement_repo(
     tmp_path: Path,
     *,
@@ -4367,13 +4385,29 @@ def test_validate_rulespec_base_rejects_non_main_pr_for_main_ancestor(
         )
 
 
+def test_validate_rulespec_base_admits_plumbing_only_main_advance(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    recorded_base = _add_origin_main(repo)
+    (repo / "README.md").write_text("advanced\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "advance main")
+    _git(
+        repo, "update-ref", "refs/remotes/origin/main", _git(repo, "rev-parse", "HEAD")
+    )
+    _git(repo, "checkout", "--detach", recorded_base)
+
+    assert validate_rulespec_base(repo, "us", recorded_base, open_pr=True) == "main"
+
+
 def test_validate_rulespec_base_rejects_stale_main_pr_base(
     tmp_path: Path,
 ) -> None:
     repo = _repo(tmp_path)
     stale_base = _add_origin_main(repo)
-    (repo / "README.md").write_text("advanced\n", encoding="utf-8")
-    _git(repo, "add", "README.md")
+    (repo / "known-validation-gaps.yaml").write_text("waivers: []\n", encoding="utf-8")
+    _git(repo, "add", "known-validation-gaps.yaml")
     _git(repo, "commit", "-m", "advance main")
     advanced_base = _git(repo, "rev-parse", "HEAD")
     _git(

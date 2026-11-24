@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -74,20 +75,26 @@ SNAP_MARKERS = (
     # the Utah manual that heading is "All Programs".
     re.compile(r"\bAll Programs\b"),
 )
-# Tables of contents are dense with dot leaders ("Introduction....... 12");
-# policy text almost never has them. In the Oregon notebook, contents pages
-# have 24+ leader runs and policy pages 0-2.
-TOC_LEADER = re.compile(r"\.{8,}")
-TOC_MIN_LEADERS = 10
+# Tables of contents are detected by axiom_encode.source_text_signals, which
+# the encoder's pre-encode gate shares. It is imported where it is used: the
+# tick and set-state commands run without the package installed.
 # The only step that opens a PR, and the only place the workflow closes one:
 # when main moved under it, it closes the PR it just opened and fails.
 PR_STEP = "Push lane branch and open draft pull request"
-# The encode workflow requires rulespec main to still be at the pinned tip
-# when it starts (checkout verification) and again when it opens the pull
-# request, so a run whose main moved fails at one of these steps.
+# The encode workflow requires rulespec main to still be at the pinned tip,
+# or to have moved from it only through plumbing the signed run neither
+# reads nor binds (base_advance_admitted), when it starts (checkout
+# verification) and again before it opens the pull request (the base fetch
+# and ancestry check, the token-free publication-base proof, the retired
+# metadata exact-tip check, and the PR step itself), so a run whose main
+# moved fails at one of these steps; a failure there after any move is
+# treated as stale, never counted.
 STALE_BASE_STEPS = frozenset(
     {
         "Verify immutable checkout identities",
+        "Verify reviewed lane pull request base",
+        "Prepare reviewed lane pull request branch",
+        "Verify retired source metadata pull request base",
         PR_STEP,
     }
 )
@@ -129,7 +136,9 @@ def _is_snap(text: str) -> bool:
 
 
 def _is_table_of_contents(text: str) -> bool:
-    return len(TOC_LEADER.findall(text)) >= TOC_MIN_LEADERS
+    from axiom_encode.source_text_signals import is_table_of_contents
+
+    return is_table_of_contents(text)
 
 
 def _label(record: dict[str, Any]) -> str:
@@ -836,6 +845,156 @@ def _apply_pull_request(
         item["status"] = "in_review"
 
 
+_PUBLICATION_RULES: Any = None
+
+
+def _publication_rules() -> Any:
+    """The encode workflow's own base-advance path rule (stdlib-only module)."""
+
+    global _PUBLICATION_RULES
+    if _PUBLICATION_RULES is None:
+        import importlib.util
+
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "src"
+            / "axiom_encode"
+            / "prepare_signed_backfill.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "_snap_dispatch_publication_rules", source
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("cannot load the publication base-advance rule")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _PUBLICATION_RULES = module
+    return _PUBLICATION_RULES
+
+
+def base_advance_admitted(github: GitHub, repo: str, base: str, tip: str) -> bool:
+    """Whether the encode workflow would still publish a ``base`` run on ``tip``.
+
+    Mirrors the workflow's gate (prepare_signed_backfill.py): ``base`` must be
+    a first-parent ancestor of ``tip`` and every path between them must be
+    plumbing the signed run neither reads nor binds. Anything unknown, an
+    API or network error, or a truncated comparison answers False, which
+    keeps today's stale handling; the workflow's own gates stay
+    authoritative either way.
+    """
+
+    if not (
+        isinstance(base, str)
+        and isinstance(tip, str)
+        and SHA_PATTERN.fullmatch(base)
+        and SHA_PATTERN.fullmatch(tip)
+    ):
+        return False
+    if base == tip:
+        return True
+    try:
+        comparison = github.get(f"repos/{repo}/compare/{base}...{tip}")
+        commits = comparison["commits"]
+        files = comparison["files"]
+        if (
+            comparison.get("status") != "ahead"
+            or comparison.get("total_commits") != len(commits)
+            or not 0 < len(commits) <= 250
+            or len(files) >= 300
+        ):
+            return False
+        first_parents = {
+            commit["sha"]: commit["parents"][0]["sha"] for commit in commits
+        }
+        current, steps = tip, 0
+        while current != base:
+            if current not in first_parents or steps > len(commits):
+                return False
+            current, steps = first_parents[current], steps + 1
+        if not files:
+            # An empty file list must mean an identical tree, not a dropped one.
+            tip_commit = next(commit for commit in commits if commit["sha"] == tip)
+            return (
+                comparison["base_commit"]["commit"]["tree"]["sha"]
+                == tip_commit["commit"]["tree"]["sha"]
+            )
+        paths: set[str] = set()
+        for entry in files:
+            paths.add(entry["filename"])
+            if entry.get("previous_filename"):
+                paths.add(entry["previous_filename"])
+        rules = _publication_rules()
+        toolchain = rules.WORKFLOW_TOOLCHAIN_PATH.as_posix()
+        before = after = None
+        if toolchain in paths:
+            before = _regular_file_bytes(github, repo, toolchain, base)
+            after = _regular_file_bytes(github, repo, toolchain, tip)
+        return not rules.base_advance_binding_paths(
+            paths,
+            workflow_toolchain_before=before,
+            workflow_toolchain_after=after,
+        )
+    except (
+        GitHubError,
+        OSError,
+        StopIteration,
+        KeyError,
+        IndexError,
+        TypeError,
+        ValueError,
+    ):
+        return False
+
+
+def _regular_file_bytes(github: GitHub, repo: str, path: str, ref: str) -> bytes | None:
+    """Read one mode-100644 blob through immutable, non-recursive Git trees."""
+
+    try:
+        commit = github.get(f"repos/{repo}/git/commits/{ref}")
+        if commit.get("sha") != ref:
+            return None
+        object_sha = commit["tree"]["sha"]
+        parts = path.split("/")
+        for index, part in enumerate(parts):
+            if not isinstance(object_sha, str) or not SHA_PATTERN.fullmatch(object_sha):
+                return None
+            tree = github.get(f"repos/{repo}/git/trees/{object_sha}")
+            if (
+                tree.get("sha") != object_sha
+                or tree.get("truncated") is not False
+                or not isinstance(tree.get("tree"), list)
+            ):
+                return None
+            entries = [entry for entry in tree["tree"] if entry.get("path") == part]
+            if len(entries) != 1:
+                return None
+            entry = entries[0]
+            expected = (
+                ("100644", "blob") if index == len(parts) - 1 else ("040000", "tree")
+            )
+            if (entry.get("mode"), entry.get("type")) != expected:
+                return None
+            object_sha = entry.get("sha")
+        if not isinstance(object_sha, str) or not SHA_PATTERN.fullmatch(object_sha):
+            return None
+        payload = github.get(f"repos/{repo}/git/blobs/{object_sha}")
+        if (
+            payload.get("sha") != object_sha
+            or payload.get("encoding") != "base64"
+            or not isinstance(payload.get("content"), str)
+        ):
+            return None
+        content = base64.b64decode("".join(payload["content"].split()), validate=True)
+        identity = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
+        return content if identity == object_sha else None
+    except GitHubError as exc:
+        if exc.status == 404:
+            return None
+        raise
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+
+
 def reconcile_dispatched(
     item: dict[str, Any],
     *,
@@ -880,7 +1039,12 @@ def reconcile_dispatched(
         item["status"] = "pending"
         events.append(f"requeued {item['citation']}: its run was deleted")
         return None
-    stale = (
+    # A completed failure at a base-checking step after main moved at all is
+    # never counted (bounded by MAX_STALE): the workflow may still reject a
+    # plumbing-only advance for lane-level reasons or lose a race with a
+    # later move. Only the decision to cancel an unfinished run consults the
+    # workflow's admission rule, so a run that would still publish is kept.
+    moved = (
         attempt.get("rulespec_ref") is not None
         and attempt["rulespec_ref"] != target.rulespec_ref
     )
@@ -910,7 +1074,12 @@ def reconcile_dispatched(
         return pull
 
     if run.get("status") != "completed":
-        if not stale:
+        if not moved or base_advance_admitted(
+            github,
+            target.rulespec_repo,
+            attempt["rulespec_ref"],
+            target.rulespec_ref,
+        ):
             return run
         # The encode workflow opens its PR a few steps before the run ends;
         # once it has, the PR is the result, so never cancel or redo it.
@@ -972,7 +1141,7 @@ def reconcile_dispatched(
         elif failure.budget_exhausted:
             item["status"] = "blocked"
             item["note"] = "the encode workflow's failed-attempt budget is used up"
-        elif stale and failure.step in STALE_BASE_STEPS:
+        elif moved and failure.step in STALE_BASE_STEPS:
             attempt["result"] = "stale-base"
             events.append(f"retrying {item['citation']}: rulespec main moved mid-run")
             _requeue_after_stale(item, events)

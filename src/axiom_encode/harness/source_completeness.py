@@ -23,6 +23,7 @@ import math
 import re
 import textwrap
 import unicodedata
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
@@ -45,9 +46,25 @@ from axiom_encode.bare_structure import (
     bare_outline,
     mask_bare_labels,
 )
-from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check
+from axiom_encode.bound_form_structure import (
+    BoundFormStructure,
+    printed_form_header_condition_span,
+    recognize_bound_form_structure,
+)
+from axiom_encode.bound_schedule_structure import (
+    BoundScheduleStructure,
+    recognize_bound_schedule_structure,
+)
+from axiom_encode.checks import IssueSubject, ValidationIssue, declare_check, retype
 from axiom_encode.form_numeric_structure import form_numeric_locator_spans
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.harness.bound_form_operands import (
+    OrderedFormBinding,
+    bind_ordered_form,
+    observed_form_frame,
+)
+from axiom_encode.harness.bound_schedule_execution import observe_schedule
+from axiom_encode.harness.bound_schedule_operands import ScheduleBinding, bind_schedule
 from axiom_encode.harness.imported_export_evidence import ResolvedImportedExport
 from axiom_encode.harness.manual_locator_metadata import (
     MANUAL_CONTENTS_HEADINGS,
@@ -77,6 +94,14 @@ from axiom_encode.harness.repayment_alternative_evidence import (
     certify_repayment_alternatives,
 )
 from axiom_encode.harness.reporting_route_evidence import certify_reporting_routes
+from axiom_encode.harness.reviewed_alternative_lists import (
+    ReviewedAlternativeList,
+    reviewed_alternative_lists_for,
+)
+from axiom_encode.harness.start_date_evidence import (
+    StartDateEvidence,
+    date_silent_start_issues,
+)
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.printed_source_rows import (
     PrintedRowStructure,
@@ -211,6 +236,22 @@ class _OutlineMarker:
 
 
 @dataclass(frozen=True)
+class CompanionTestObligation:
+    """One unmet companion-test demand with numeric diagnostic hints.
+
+    Values can be source boundaries or negative clamp probes. Input names
+    come from candidate formulas, not proven source-operand identities.
+    Expected values belong in model-authored companion cases.
+    """
+
+    kind: str
+    rule_names: tuple[str, ...]
+    values: tuple[float, ...] = ()
+    input_names: tuple[str, ...] = ()
+    label: str = ""
+
+
+@dataclass(frozen=True)
 class CompleteSourceUnitAnalysis:
     """Deterministic completeness results for one RuleSpec/source pair."""
 
@@ -219,6 +260,7 @@ class CompleteSourceUnitAnalysis:
     source_numeric_occurrence_count: int
     covered_source_numeric_occurrence_count: int
     missing_source_numeric_occurrence_count: int
+    companion_test_obligations: tuple[CompanionTestObligation, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -279,6 +321,9 @@ class _FormulaExecution:
     constant_environment: dict[str, Any]
     currency_rounding: _CurrencyRounding | None = None
     unrounded_value: Decimal | None = None
+    unproven_trace_start: int | None = dataclass_field(
+        default=None, compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -462,6 +507,9 @@ _INLINE_PARENTHESIZED_OUTLINE_MARKER = re.compile(
     r"(?:[ \t]*\((?:\d+[a-z]?|[a-z]|[ivxlcdm]{2,15})\))*)"
     r"(?=\s|bis\b)",
     flags=re.IGNORECASE,
+)
+_STANDALONE_ROMAN_ITEM_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9)\]])(?P<marker>\((?:i|ii)\))(?![ \t]*\()"
 )
 _INLINE_OUTLINE_REFERENCE_CONTEXT = re.compile(
     r"\b(?:section|subsection|paragraph|subparagraph|clause|subclause|item|"
@@ -2215,12 +2263,19 @@ _SOURCE_BOUND_RUNTIME_GAP_STOPWORDS = frozenset(
         "until",
     }
 )
+_IMPRECISE_DEFERRAL_RETRY_EXAMPLE = """\
+    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax
+      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded."""
+# U.S. encodes get a U.S. example: 26 U.S.C. 24(c)(1) defines a qualifying
+# child by reference to section 152(c).
+_US_IMPRECISE_DEFERRAL_RETRY_EXAMPLE = """\
+    - output: us:statutes/26/24/c/1#ctc_qualifying_child
+      reason: Cannot be computed until the qualifying child definition cited in 26 U.S.C. 152(c) is encoded."""
 _IMPRECISE_DEFERRAL_RETRY_SHAPE = """\
 Required shape (adapt the output and cited dependency to the omitted branch):
 module:
   deferred_outputs:
-    - output: de:statutes/estg/32a/6#surviving_spouse_splitting_tax
-      reason: Cannot be computed until the joint-assessment conditions cited in EStG § 26 are encoded.
+{example}
 `output` and `reason` are required; `blocked_by` is optional and, when present, \
 must list exact absolute upstream RuleSpec outputs. When no external legal dependency \
 exists, cite the exact current source branch and name its concrete source-stated missing \
@@ -2293,7 +2348,13 @@ def _imprecise_deferral_retry_shape(
                 "source-stated input); a reason naming an exact external missing "
                 "dependency need not cite it."
             )
-    return f"{_IMPRECISE_DEFERRAL_RETRY_SHAPE}{branch_hint}"
+    example = (
+        _US_IMPRECISE_DEFERRAL_RETRY_EXAMPLE
+        if _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+        else _IMPRECISE_DEFERRAL_RETRY_EXAMPLE
+    )
+    shape = _IMPRECISE_DEFERRAL_RETRY_SHAPE.replace("{example}", example)
+    return f"{shape}{branch_hint}"
 
 
 _ABSATZ_REFERENCE = re.compile(
@@ -4145,6 +4206,23 @@ def _qualified_parenthesized_legal_outline_markers(
     )
     if not matches:
         return ()
+    cue_matches = tuple(
+        heapq.merge(
+            line_matches,
+            all_inline_matches,
+            key=lambda match: match.start("marker"),
+        )
+    )
+    cue_index = {
+        match.start("marker"): index for index, match in enumerate(cue_matches)
+    }
+    token_matches = _markers_with_standalone_roman_items(source_text, cue_matches)
+    token_index = {
+        match.start("marker"): index for index, match in enumerate(token_matches)
+    }
+    scan = _LabelBesideIScan(matches)
+    cue_scan = _LabelBesideIScan(cue_matches)
+    token_scan = _LabelBesideIScan(token_matches)
 
     first_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", matches[0].group("marker")))
     outline_levels = (
@@ -4156,7 +4234,7 @@ def _qualified_parenthesized_legal_outline_markers(
     markers: list[_OutlineMarker] = []
     emitted_paths: set[tuple[str, ...]] = set()
     active: list[tuple[int, str, str, str]] = []
-    for match in matches:
+    for match_index, match in enumerate(matches):
         raw_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker")))
         if not raw_labels or not all(
             _is_parenthesized_outline_label(label) for label in raw_labels
@@ -4165,11 +4243,40 @@ def _qualified_parenthesized_legal_outline_markers(
         marker_start = match.start("marker")
         attached_parent_level: int | None = None
         for label_index, raw_label in enumerate(raw_labels):
+            # The level function applies the roman rule only to an (i) that
+            # opens a marker, so no other label gets a deciding label.
+            following_label: str | None = None
+            if label_index == 0 and raw_label == "i":
+                following_label = _label_beside_i(scan, match_index + 1, raw_labels[1:])
+                if following_label == "ii":
+                    # The reference filter can drop an inline (i) and keep the
+                    # (ii) after it, so (ii) counts only when the unfiltered
+                    # markers also put it next.
+                    unfiltered_label = _label_beside_i(
+                        cue_scan, cue_index[marker_start] + 1, raw_labels[1:]
+                    )
+                    if unfiltered_label != "ii":
+                        following_label = unfiltered_label
+                    else:
+                        # A list can open mid-sentence inside a lettered
+                        # paragraph (i), as in "(i) A grantee may not (i)
+                        # lobby; (ii) relocate." No marker regex takes the
+                        # list's (i), which follows a word, but the inline
+                        # regex takes its (ii), so both checks see (ii) next.
+                        # This check also counts the (i) and (ii) that no
+                        # marker regex takes, pairing them like nested items.
+                        # It can only withhold the roman reading.
+                        token_label = token_scan.next_label(
+                            token_index[marker_start] + 1, raw_labels[1:]
+                        )
+                        if token_label != "ii":
+                            following_label = token_label
             level, category = _parenthesized_legal_outline_level(
                 raw_label,
                 active=active,
                 attached_parent_level=attached_parent_level,
                 outline_levels=outline_levels,
+                following_label=following_label,
             )
             if (
                 marker_start in inline_marker_starts
@@ -4403,12 +4510,210 @@ def _inline_outline_marker_has_reference_context(
     )
 
 
+def _first_parenthesized_outline_label(
+    matches: Sequence[re.Match[str]],
+    index: int,
+) -> str | None:
+    """Return the first label of the marker at ``index``, if there is one."""
+
+    if index >= len(matches):
+        return None
+    labels = re.findall(r"\(([A-Za-z0-9]+)\)", matches[index].group("marker"))
+    return labels[0] if labels else None
+
+
+def _label_beside_i(
+    scan: _LabelBesideIScan,
+    start: int,
+    labels_after_i: Sequence[str],
+) -> str | None:
+    """Return the label that decides how to read an ``(i)`` that opens a marker.
+
+    ``labels_after_i`` holds the labels after ``(i)`` in its own marker, and
+    ``start`` indexes the next marker in ``scan.matches``. That label is
+    usually the next one. But ``(A)`` opens children under either reading of
+    ``(i)``, so after ``(A)`` the scan looks past them to the next marker at
+    the level of ``(i)``. A fused marker such as ``(i)(A)(i)`` carries the
+    first of those children, so the scan starts with the labels after ``(A)``.
+    """
+
+    following_label = (
+        labels_after_i[0]
+        if labels_after_i
+        else _first_parenthesized_outline_label(scan.matches, start)
+    )
+    if following_label == "A":
+        return scan.next_label(start, labels_after_i[1:])
+    return following_label
+
+
+def _label_ends_scan_beside_i(label: str) -> bool:
+    """Whether ``label`` is a lower-case letter other than ``(j)`` or a roman numeral."""
+
+    return label != "j" and _parenthesized_legal_outline_categories(label) == (
+        "lower-alpha",
+    )
+
+
+class _LabelBesideIScan:
+    """Find ``(ii)`` or ``(j)``, whichever next stands at the level of an ``(i)``.
+
+    :meth:`next_label` scans from inside the children of ``(i)``: first
+    ``leading``, the labels that follow ``(A)`` in the marker of ``(i)``,
+    then every label of each marker in ``matches`` from ``start`` on. Each
+    nested ``(i)`` pairs with a later ``(ii)``, so only an unpaired ``(ii)``
+    or ``(j)`` counts. A lower-case letter that is neither ``(j)`` nor a
+    roman numeral ends the scan: the outline has moved past the place where
+    either could stand.
+
+    Numeric and upper-case markers don't end a scan, so scanning label by
+    label for each ``(i)`` can reach the end of the outline each time, which
+    takes time quadratic in its length. A scan's only state is its count of
+    unpaired ``(i)``. Until the scan returns, that count is the count it
+    started with plus the ``(i)`` less the ``(ii)`` it has passed, since an
+    ``(ii)`` at a count of zero ends it. So the first call records, for every
+    label in ``matches``, its depth (the ``(i)`` less the ``(ii)`` before it)
+    and the next label that ends a scan, and it groups the ``(ii)`` and
+    ``(j)`` by depth. A scan from label ``p`` with ``u`` unpaired returns the
+    first ``(ii)`` or ``(j)`` at or after ``p`` whose depth is ``depth(p) -
+    u``, if that label comes before the next label that ends the scan.
+    """
+
+    def __init__(self, matches: Sequence[re.Match[str]]) -> None:
+        self.matches = matches
+        self._labels: list[str] | None = None
+        # _first_label is indexed by marker, _depths and _stops by label, and
+        # each ends with one entry for the end of the sequence.
+        self._first_label: list[int] = []
+        self._depths: list[int] = []
+        self._stops: list[int] = []
+        self._answers_by_depth: dict[int, list[int]] = {}
+
+    def _build(self) -> list[str]:
+        labels: list[str] = []
+        for match in self.matches:
+            self._first_label.append(len(labels))
+            marker_labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker"))
+            if marker_labels and all(
+                _is_parenthesized_outline_label(label) for label in marker_labels
+            ):
+                labels.extend(marker_labels)
+        self._first_label.append(len(labels))
+        depth = 0
+        for position, label in enumerate(labels):
+            self._depths.append(depth)
+            if label in {"ii", "j"}:
+                self._answers_by_depth.setdefault(depth, []).append(position)
+            if label == "i":
+                depth += 1
+            elif label == "ii":
+                depth -= 1
+        self._depths.append(depth)
+        self._stops = [len(labels)] * (len(labels) + 1)
+        for position in reversed(range(len(labels))):
+            self._stops[position] = (
+                position
+                if _label_ends_scan_beside_i(labels[position])
+                else self._stops[position + 1]
+            )
+        self._labels = labels
+        return labels
+
+    def next_label(self, start: int, leading: Sequence[str] = ()) -> str | None:
+        """Return ``(ii)``, ``(j)`` or ``None``, scanning ``leading`` then ``start`` on."""
+
+        unpaired = 0
+        if leading and all(_is_parenthesized_outline_label(label) for label in leading):
+            for label in leading:
+                if label == "i":
+                    unpaired += 1
+                elif label == "ii":
+                    if not unpaired:
+                        return label
+                    unpaired -= 1
+                elif label == "j":
+                    if not unpaired:
+                        return label
+                elif _label_ends_scan_beside_i(label):
+                    return None
+        labels = self._labels if self._labels is not None else self._build()
+        position = self._first_label[min(start, len(self.matches))]
+        answers = self._answers_by_depth.get(self._depths[position] - unpaired, [])
+        answer_index = bisect.bisect_left(answers, position)
+        if (
+            answer_index < len(answers)
+            and answers[answer_index] < self._stops[position]
+        ):
+            return labels[answers[answer_index]]
+        return None
+
+
+def _markers_with_standalone_roman_items(
+    source_text: str,
+    marker_matches: Sequence[re.Match[str]],
+) -> tuple[re.Match[str], ...]:
+    """Merge ``marker_matches`` with the ``(i)`` and ``(ii)`` no marker regex takes.
+
+    A list that opens mid-sentence, as in "may not (i) lobby; (ii) relocate",
+    leaves its ``(i)`` in running text. Such a token counts only when it is a
+    lower-case ``(i)`` or ``(ii)`` that sits outside every marker, when no
+    ASCII letter or digit, ``)`` or ``]`` comes right before it, as in
+    "(h)(1)(i)", when no ``(`` follows it, directly or after spaces or tabs,
+    as in "(i)(A)" and "(i) (A)", and when no reference context, such as
+    "clause", leads into it. ``marker_matches`` must be in document order,
+    and so is the result.
+    """
+
+    marker_spans = [
+        (match.start("marker"), match.end("marker")) for match in marker_matches
+    ]
+    marker_starts = [start for start, _end in marker_spans]
+
+    def inside_a_marker(position: int) -> bool:
+        span_index = bisect.bisect_right(marker_starts, position) - 1
+        if span_index < 0:
+            return False
+        start, end = marker_spans[span_index]
+        return start <= position < end
+
+    standalone_items = (
+        token
+        for token in _STANDALONE_ROMAN_ITEM_TOKEN.finditer(source_text)
+        if not inside_a_marker(token.start("marker"))
+        and not _inline_outline_marker_has_reference_context(source_text, token)
+    )
+    return tuple(
+        heapq.merge(
+            marker_matches,
+            standalone_items,
+            key=lambda match: match.start("marker"),
+        )
+    )
+
+
+def _outline_label_opens_roman_items(following_label: str | None) -> bool:
+    """Whether an ``(i)`` opens roman items, judged by the marker after it.
+
+    ``(i)`` is both the letter after ``(h)`` and the first roman numeral. A
+    roman ``(i)`` has ``(ii)`` as its next sibling and a lettered ``(i)`` has
+    ``(j)``, so ``(i)`` reads as roman when the next marker at its level is
+    ``(ii)``. For an ``(i)`` that opens a marker, ``following_label`` is the
+    label after it, or, when that label is a child ``(A)``, the label
+    :meth:`_LabelBesideIScan.next_label` finds. It stays ``(ii)`` only when
+    the unfiltered markers and the count of standalone items also put ``(ii)``
+    next. For every other label it is ``None``.
+    """
+
+    return following_label == "ii"
+
+
 def _parenthesized_legal_outline_level(
     raw_label: str,
     *,
     active: Sequence[tuple[int, str, str, str]],
     attached_parent_level: int | None,
     outline_levels: Sequence[str],
+    following_label: str | None = None,
 ) -> tuple[int, str]:
     categories = _parenthesized_legal_outline_categories(raw_label)
     candidate_levels = tuple(
@@ -4423,6 +4728,22 @@ def _parenthesized_legal_outline_level(
             candidate_levels[-1],
         )
         return level, outline_levels[level]
+
+    if raw_label == "i" and _outline_label_opens_roman_items(following_label):
+        # Inside paragraph (h), an (i) that opens a marker also reads as the
+        # next lettered paragraph. When the next marker at its level is (ii),
+        # not (j), it opens roman items under the innermost open marker.
+        parent_level = active[-1][0] if active else -1
+        roman_level = next(
+            (
+                level
+                for level in candidate_levels
+                if level > parent_level and outline_levels[level] == "roman"
+            ),
+            None,
+        )
+        if roman_level is not None:
+            return roman_level, "roman"
 
     continuing = [
         (level, category)
@@ -6226,6 +6547,48 @@ _SITE_ANALYZE = (
     "axiom_encode/harness/source_completeness.py:analyze_complete_source_unit"
 )
 
+CHECK_T1170_EXECUTION_EVIDENCE = declare_check(
+    "complete-source-unit:t1170-evidence/missing",
+    title="T1170 lacks complete private source execution evidence",
+    requires=(
+        "Every owned T1170 source obligation has unique, fresh typed principal "
+        "and direct or provider refusal evidence bound to the authenticated unit."
+    ),
+    why=(
+        "Generic numeric witnesses, duplicate source obligations, or unrelated "
+        "provider failures cannot prove the complete form's source conditions."
+    ),
+    fix=(
+        "Correct the complete source-bound module and companion, then rerun "
+        "ordinary validation with the authenticated release and pinned engine. "
+        "Keep source roles, exact provider lineage, and failed evidence intact."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+
+CHECK_SCHEDULE_N_EXECUTION_EVIDENCE = declare_check(
+    "complete-source-unit:schedule-n-evidence/missing",
+    title="Schedule N lacks complete private execution evidence",
+    requires=(
+        "Every owned Schedule N source obligation has unique, fresh typed "
+        "principal and refusal evidence bound to the complete authenticated unit."
+    ),
+    why=(
+        "Generic scalar witnesses, duplicate obligations, or stale execution "
+        "records cannot establish the worksheet's joint source conditions."
+    ),
+    fix=(
+        "Correct the complete companion and source-bound module, then rerun "
+        "ordinary validation with the authenticated release and pinned engine. "
+        "Preserve the source conditions and their positive and refusal witnesses."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_ANALYZE,
+)
+
 CHECK_STRUCTURE_BRANCH_UNENCODED = declare_check(
     "complete-source-unit:structure/branch-unencoded",
     title="Source branch neither encoded nor precisely deferred",
@@ -6350,8 +6713,15 @@ def analyze_complete_source_unit(
     execution_evidence: SameCaseEvidence | None = None,
     local_relation_context: object | None = None,
     referral_context: Any = None,
+    start_date_evidence: StartDateEvidence | None = None,
 ) -> CompleteSourceUnitAnalysis:
-    """Analyze one artifact against its authoritative, resolver-owned body."""
+    """Analyze one artifact against its authoritative, resolver-owned body.
+
+    ``start_date_evidence`` turns on the date-silent start-date check (#2212).
+    A caller that resolves the unit from the corpus passes it, also when the
+    corpus dates are missing; ``None`` means the caller holds no corpus
+    metadata channel at all, and the check does not run.
+    """
 
     with (
         _us_manual_prose_scope(corpus_citation_path),
@@ -6380,7 +6750,7 @@ def analyze_complete_source_unit(
         if shape_problem is not None:
             return _unanalyzable_complete_source_unit(None, reason=shape_problem)
         try:
-            return _analyze_rulespec_payload(
+            analysis = _analyze_rulespec_payload(
                 payload,
                 content=content,
                 execution_evidence=execution_evidence,
@@ -6404,6 +6774,21 @@ def analyze_complete_source_unit(
                 imported_proof_source_context=imported_proof_source_context,
                 resolved_dependency_outputs=resolved_dependency_outputs,
                 source_context=source_context,
+            )
+            if start_date_evidence is None:
+                return analysis
+            start_issues = date_silent_start_issues(
+                payload,
+                source_text,
+                corpus_citation_path=corpus_citation_path,
+                evidence=start_date_evidence,
+                imported_symbol_contents=imported_symbol_contents,
+                raw_content=content,
+            )
+            return (
+                replace(analysis, issues=(*analysis.issues, *start_issues))
+                if start_issues
+                else analysis
             )
         except (yaml.YAMLError, TypeError, ValueError) as exc:
             # A gate that cannot read its input must report it, never pass it.
@@ -6557,6 +6942,24 @@ def _analyze_rulespec_payload(
         content, imported_export_bindings
     ):
         execution_evidence = None
+    from .investment_adjustment_evidence import certify_investment_adjustment
+
+    investment_evidence = certify_investment_adjustment(
+        content,
+        raw_source_text or source_text,
+        corpus_citation_path,
+        test_cases,
+        execution_evidence,
+    )
+    from .capital_gift_evidence import certify_capital_gift
+
+    capital_evidence = certify_capital_gift(
+        content,
+        raw_source_text or source_text,
+        corpus_citation_path,
+        test_cases,
+        execution_evidence,
+    )
     local_names = {
         str(rule.get("name") or "").strip()
         for rule in payload.get("rules", [])
@@ -6600,9 +7003,11 @@ def _analyze_rulespec_payload(
         for rule in payload.get("rules", [])
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
+    execution_test_cases = test_cases
     test_cases = _typed_numeric_expected_cases(test_cases, named_rules)
     test_cases = _typed_date_cases(test_cases, payload)
     deferred_clauses: list[SourceStructureBranch] = []
+    imprecise_deferral_paths: list[tuple[int, tuple[str, ...]]] = []
     deferred_paths, imprecise_deferrals = _deferred_coverage(
         payload,
         corpus_citation_path=corpus_citation_path,
@@ -6611,6 +7016,7 @@ def _analyze_rulespec_payload(
         authenticated_same_act_aliases=authenticated_same_act_aliases,
         resolved_dependency_outputs=resolved_dependency_outputs,
         deferred_clauses=deferred_clauses,
+        imprecise_paths=imprecise_deferral_paths,
     )
     # Like a source-bound proof excerpt, a precise clause accounts for its
     # structural owner. It does not defer that owner's other obligations.
@@ -6651,7 +7057,16 @@ def _analyze_rulespec_payload(
         )
     )
     issues: list[str] = []
+    imprecise_deferral_issue_offset = len(issues)
     issues.extend(imprecise_deferrals)
+    issues.extend(
+        ValidationIssue(message, check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE)
+        for message in investment_evidence.missing()
+    )
+    issues.extend(
+        ValidationIssue(message, check=CHECK_T1170_EXECUTION_EVIDENCE)
+        for message in capital_evidence.missing()
+    )
     from axiom_encode.harness.worksheet_country_evidence import (
         certify_worksheet_country,
     )
@@ -6679,8 +7094,30 @@ def _analyze_rulespec_payload(
         is not None
         else RepaymentAlternativeCoverage()
     )
+    from .child_credit_evidence import _child_credit_context
+
+    child_credit = _child_credit_context(
+        source_text,
+        corpus_citation_path,
+        content,
+        execution_evidence,
+        execution_test_cases,
+        raw_source=raw_source_text,
+    )
+    from .retirement_transfer_evidence import _retirement_transfer_context
+
+    retirement_transfer = _retirement_transfer_context(
+        source_text,
+        corpus_citation_path,
+        content,
+        execution_evidence,
+        execution_test_cases,
+        raw_source=raw_source_text,
+    )
     source_condition_issues = _opaque_same_source_condition_input_issues(
         payload,
+        child_credit=child_credit,
+        retirement_transfer=retirement_transfer,
         consumer_content=content,
         source_text=source_text,
         care_source_text=raw_source_text,
@@ -6691,7 +7128,12 @@ def _analyze_rulespec_payload(
         certified_transfers=certified_transfers,
         certified_country=certified_country,
         repayment_alternatives=repayment_alternatives,
+        investment_evidence=investment_evidence,
+        capital_evidence=capital_evidence,
         test_cases=test_cases,
+        execution_evidence=execution_evidence,
+        source_context=source_context,
+        execution_test_cases=execution_test_cases,
     )
     issues.extend(source_condition_issues)
     from axiom_encode.harness.worksheet_operation_evidence import (
@@ -6736,6 +7178,15 @@ def _analyze_rulespec_payload(
         else None
     )
 
+    # Branches reported here as wholly unencoded cannot yet own companion
+    # boundary evidence; their boundary demands return once they are encoded.
+    structure_reported_paths: set[tuple[str, ...]] = set()
+    structure_issue_index: dict[tuple[str, ...], int] = {}
+    # A branch that only an imprecise deferral would cover repeats that
+    # deferral's finding. Report it inside the deferral finding instead; it
+    # is reported on its own again as soon as the deferral is removed, and
+    # it is covered once the deferral is precise.
+    branches_behind_imprecise_deferral: dict[int, dict[str, SourceStructureBranch]] = {}
     for branch in branches:
         if _path_covered(
             branch.path,
@@ -6794,13 +7245,36 @@ def _analyze_rulespec_payload(
                     "atom on the affected principal formula when applicable), or "
                     "precisely defer the parent; do not invent a dummy output."
                 )
+        structure_reported_paths.add(branch.path)
+        structure_message = (
+            "[complete-source-unit:structure] "
+            f"Source branch {branch.label} at "
+            f"{_branch_citation(corpus_citation_path, branch)} is neither "
+            "encoded nor precisely deferred."
+            f"{covered_descendant_detail}"
+        )
+        pending_deferral = max(
+            (
+                (len(deferral_path), finding_index)
+                for finding_index, deferral_path in imprecise_deferral_paths
+                if _path_is_deferred(branch.path, {deferral_path})
+            ),
+            default=None,
+        )
+        if pending_deferral is not None:
+            # An identical finding text is one finding, as the final
+            # de-duplication of the issue list makes it.
+            branches_behind_imprecise_deferral.setdefault(pending_deferral[1], {})[
+                structure_message
+            ] = branch
+            structure_issue_index.setdefault(
+                branch.path, imprecise_deferral_issue_offset + pending_deferral[1]
+            )
+            continue
+        structure_issue_index.setdefault(branch.path, len(issues))
         issues.append(
             ValidationIssue(
-                "[complete-source-unit:structure] "
-                f"Source branch {branch.label} at "
-                f"{_branch_citation(corpus_citation_path, branch)} is neither "
-                "encoded nor precisely deferred."
-                f"{covered_descendant_detail}",
+                structure_message,
                 check=CHECK_STRUCTURE_BRANCH_UNENCODED,
                 subject=_branch_subject(corpus_citation_path, branch),
                 expected="encoded or precisely deferred",
@@ -6811,6 +7285,11 @@ def _analyze_rulespec_payload(
                 ),
                 evidence=branch.text,
             )
+        )
+    for finding_index, pending_branches in branches_behind_imprecise_deferral.items():
+        issue_index = imprecise_deferral_issue_offset + finding_index
+        issues[issue_index] = _with_branches_behind_imprecise_deferral(
+            issues[issue_index], tuple(pending_branches.values())
         )
 
     active_branches = tuple(
@@ -6824,6 +7303,9 @@ def _analyze_rulespec_payload(
         corpus_citation_path,
         consumer_content=content,
         proof_sources=source_context,
+        root_relative=execution_evidence.root_relative
+        if execution_evidence is not None
+        else None,
     )
     all_formula_branches = _source_formula_branches(
         source_text,
@@ -6865,9 +7347,44 @@ def _analyze_rulespec_payload(
         corpus_citation_path=corpus_citation_path,
         deferred_paths=deferred_paths,
     )
+    formula_branches, investment_missing_formulas = investment_evidence.partition(
+        formula_branches, "formula"
+    )
+    control_branches, investment_missing_controls = investment_evidence.partition(
+        control_branches, "control"
+    )
+    for branch in (*investment_missing_formulas, *investment_missing_controls):
+        issues.append(
+            ValidationIssue(
+                "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
+                f"{branch.kind} occurrence at {branch.start}:{branch.end}; "
+                "private principal evidence cannot be replaced by generic fallback.",
+                check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE,
+                subject=_branch_subject(corpus_citation_path, branch),
+            )
+        )
+    formula_branches, capital_missing_formulas = capital_evidence.partition(
+        formula_branches, "formula"
+    )
+    control_branches, capital_missing_controls = capital_evidence.partition(
+        control_branches, "control"
+    )
+    for branch in (*capital_missing_formulas, *capital_missing_controls):
+        issues.append(
+            ValidationIssue(
+                "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned "
+                f"{branch.kind} occurrence at {branch.start}:{branch.end}; "
+                "private principal evidence cannot be replaced by generic fallback.",
+                check=CHECK_T1170_EXECUTION_EVIDENCE,
+                subject=_branch_subject(corpus_citation_path, branch),
+            )
+        )
     source_has_computation = source_states_explicit_computation(
         source_text, corpus_citation_path=corpus_citation_path
     )
+    # A computation with no bound principal output is reported once, here.
+    # Companion-test evidence for it is demanded after an output exists.
+    formula_output_issue_index: dict[SourceStructureBranch, int] = {}
     if source_has_computation:
         if formula_branches:
             missing_formula_branches = tuple(
@@ -6886,6 +7403,7 @@ def _analyze_rulespec_payload(
             for branch in formula_branches:
                 if principal_formula_clause_rules[branch]:
                     continue
+                formula_output_issue_index[branch] = len(issues)
                 issues.append(
                     ValidationIssue(
                         "[complete-source-unit:formula-output] "
@@ -6948,6 +7466,25 @@ def _analyze_rulespec_payload(
             )
         )
 
+    bound_form = _unconflicted_bound_form(source_text, branches, corpus_citation_path)
+    from .student_loan_schedule_evidence import _student_loan_context
+
+    student_loan = _student_loan_context(
+        source_text,
+        corpus_citation_path,
+        content,
+        execution_evidence,
+        execution_test_cases,
+    )
+    represented_form_spans = (
+        (
+            {bound_form.column_count_span, bound_form.entry_count_span}
+            if isinstance(bound_form, BoundScheduleStructure)
+            else {bound_form.table.column_count_span, bound_form.table.entry_count_span}
+        )
+        if bound_form is not None
+        else set()
+    )
     represented_annual_spans: set[tuple[int, int]] = set(
         certified_operations.annual_spans
     )
@@ -6957,6 +7494,11 @@ def _analyze_rulespec_payload(
     represented_measurement_spans: set[tuple[int, int]] = set()
     measurement_witnesses: set[ExecutedMeasurementWitness] = set()
     companion_issues: list[str] = []
+    companion_obligations: list[CompanionTestObligation] = []
+    formula_output_binding_details: dict[SourceStructureBranch, str] = {}
+    absorbed_companion_demands: list[
+        tuple[SourceStructureBranch | None, tuple[str, ...] | None]
+    ] = []
     if principal_rules:
         imported_parameters = _resolved_imported_parameter_rules(
             payload, imported_symbol_contents=imported_symbol_contents
@@ -6982,7 +7524,10 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                execution_test_cases=execution_test_cases,
                 execution_evidence=execution_evidence,
+                investment_evidence=investment_evidence,
+                capital_evidence=capital_evidence,
                 local_relation_context=local_relation_context,
                 referral_context=referral_context,
                 floor_imported_exports=imported_export_bindings,
@@ -7010,6 +7555,11 @@ def _analyze_rulespec_payload(
                 principal_rule_paths=principal_rule_paths,
                 principal_formula_clause_rules=principal_formula_clause_rules,
                 formula_branches=formula_branches,
+                formula_output_reported_branches=frozenset(formula_output_issue_index),
+                formula_output_binding_details=formula_output_binding_details,
+                structure_reported_paths=frozenset(structure_reported_paths),
+                absorbed_demand_sink=absorbed_companion_demands,
+                obligation_sink=companion_obligations,
                 branches=branches,
                 source_text=source_text,
                 raw_source_text=raw_source_text,
@@ -7040,11 +7590,77 @@ def _analyze_rulespec_payload(
                 },
             )
         )
+        # Keep the named-rule binding hint that the folded tests finding used
+        # to carry: it tells the model which existing outputs to bind.
+        for branch, detail in formula_output_binding_details.items():
+            index = formula_output_issue_index.get(branch)
+            if index is not None:
+                issues[index] = retype(issues[index], issues[index] + detail)
+        # Each folded demand still counts as residual work on the finding
+        # that absorbed it, so de-duplicated feedback does not make a less
+        # encoded candidate rank better than a more complete one.
+        absorbed_counts: Counter[int] = Counter()
+        for absorbed_branch, absorbed_path in absorbed_companion_demands:
+            index = (
+                formula_output_issue_index[absorbed_branch]
+                if absorbed_branch is not None
+                else structure_issue_index[absorbed_path]
+            )
+            absorbed_counts[index] += 1
+        for index, count in absorbed_counts.items():
+            issues[index] = _with_absorbed_obligations(issues[index], count)
+
+    if (
+        printed_operations is not None
+        and printed_operations.ordered_binding is not None
+        and execution_evidence is not None
+        and not any(
+            getattr(issue, "check", None) == CHECK_TESTS_FORMULA_BRANCH_UNWITNESSED.id
+            for issue in companion_issues
+        )
+        and (
+            observe_schedule(
+                printed_operations.ordered_binding,
+                execution_evidence,
+                content,
+                execution_test_cases,
+            )
+            is not None
+            if isinstance(printed_operations.ordered_binding, ScheduleBinding)
+            else observed_form_frame(
+                printed_operations.ordered_binding,
+                execution_evidence,
+                content,
+                execution_test_cases,
+            )
+        )
+    ):
+        # Header ownership is numeric only, after ordinary row witnesses and
+        # one actual complete selected-frame observation. Conditions stay raw.
+        represented_form_spans.add(
+            printed_operations.ordered_binding.form.header_year_span
+            if isinstance(printed_operations.ordered_binding, ScheduleBinding)
+            else printed_operations.ordered_binding.form.header.year_span
+        )
+        if isinstance(printed_operations.ordered_binding, ScheduleBinding):
+            wrapper_year = printed_operations.ordered_binding.form.wrapper_year_span
+            if wrapper_year is not None:
+                # The exact title wrapper repeats the physical header year;
+                # source re-binding and complete observed frame prove both.
+                represented_form_spans.add(wrapper_year)
+
+    if student_loan is not None:
+        represented_form_spans.update(student_loan.numeric_spans())
+    if child_credit is not None:
+        represented_form_spans.update(child_credit.numeric_spans())
+    if retirement_transfer is not None:
+        represented_form_spans.update(retirement_transfer.numeric_spans())
 
     copied_categories = _bound_copied_amount_categories(
         payload, source_text, corpus_citation_path, source_context
     )
     recall_map = _NumericRecallSourceMap(list(range(len(source_text))))
+
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path, _source_map=recall_map
     )
@@ -7055,15 +7671,20 @@ def _analyze_rulespec_payload(
     )
     unrepresented_recall_text = numeric_recall_text
     unrepresented_inventory = source_inventory
-    if represented_annual_spans or represented_measurement_spans:
+    if (
+        represented_annual_spans
+        or represented_measurement_spans
+        or represented_form_spans
+    ):
         recall_map = _NumericRecallSourceMap(list(range(len(source_text))))
+
         unrepresented_recall_text = authoritative_numeric_recall_text(
             _mask_numeric_spans(
                 source_text,
                 represented_annual_spans
                 | represented_measurement_spans
-                # Full-source locators must be established before another
-                # offset-preserving mask prevents exact layout recognition.
+                | represented_form_spans
+                # Establish full-source locators before masking their layout.
                 | set(form_numeric_locator_spans(source_text)),
             ),
             corpus_citation_path=corpus_citation_path,
@@ -7095,7 +7716,11 @@ def _analyze_rulespec_payload(
         )
     )
     unrepresented_occurrences = source_occurrences
-    if represented_annual_spans or represented_measurement_spans:
+    if (
+        represented_annual_spans
+        or represented_measurement_spans
+        or represented_form_spans
+    ):
         unrepresented_occurrences = tuple(
             occurrence
             for occurrence in (
@@ -7121,6 +7746,17 @@ def _analyze_rulespec_payload(
     missing_source_values: list[float] = []
     missing_occurrences: list[NumericOccurrenceLike] = []
     for occurrence in unrepresented_occurrences:
+        if investment_evidence.numeric_owner(occurrence) is not None:
+            covered_source_values += 1
+            continue
+        if (
+            capital_evidence.numeric_owner(
+                occurrence, recall_text=unrepresented_recall_text
+            )
+            is not None
+        ):
+            covered_source_values += 1
+            continue
         raw_span = recall_map.source_span(occurrence.start, occurrence.end)
         if local_relation_context is not None:
             from .local_relation_source_evidence import (
@@ -7195,6 +7831,7 @@ def _analyze_rulespec_payload(
         len(source_occurrences),
         covered_source_values,
         len(missing_source_values),
+        tuple(dict.fromkeys(companion_obligations)),
     )
 
 
@@ -7561,8 +8198,17 @@ def _numeric_recall_repair_context(
     budget = _NUMERIC_RECALL_CONTEXT_MAX_CHARS
     if first_value is not None:
         start, end = locations[first_value]
+        # The context rides on the issue for the smallest missing value, which
+        # can be a locator or unlocated; say so when the example differs.
+        headline = missing_values[0]
+        shown = (
+            f"{first_value:g}"
+            if first_value == headline
+            else f"another missing value, {first_value:g} ({headline:g} is "
+            "shown below with the others)"
+        )
         first = (
-            f" First source location of {first_value:g}: character (code point) "
+            f" First source location of {shown}: character (code point) "
             f"offsets {start}:{end} in source.txt, {branch_label(start)}: "
             f"`{_numeric_recall_excerpt(source_text, start, end)}`."
         )
@@ -7576,16 +8222,23 @@ def _numeric_recall_repair_context(
             )
         return "".join(parts)
 
-    operative_count = len(missing_values) - len(locator_values)
-    header = (
-        f" All {len(missing_values)} values of this source without a named "
-        "scalar, grouped by source branch, with character (code point) offsets "
-        f"in source.txt. Represent each of the {operative_count} listed first "
-        "in this attempt with a named scalar whose proof excerpt is copied "
-        "verbatim from `source.txt`, or precisely defer the branch that states "
-        "it. Displayed text is only a bounded locator."
-    )
-    budget -= len(header)
+    def header_text(operative_count: int) -> str:
+        represent = (
+            f" Represent each of the {operative_count} listed first in this "
+            "attempt with a named scalar whose proof excerpt is copied verbatim "
+            "from `source.txt`, or precisely defer the branch that states it."
+            if operative_count
+            else ""
+        )
+        return (
+            f" All {len(missing_values)} values of this source without a named "
+            "scalar, grouped by source branch, with character (code point) "
+            f"offsets in source.txt.{represent} Displayed text is only a bounded "
+            "locator."
+        )
+
+    # Reserve the longest header; the count is known only after rendering.
+    budget -= len(header_text(len(missing_values)))
     body: list[str] = []
     listed: set[float] = set()
 
@@ -7630,6 +8283,7 @@ def _numeric_recall_repair_context(
         return groups
 
     body.extend(render(split(False)))
+    header = header_text(len(listed))
     body.extend(
         render(
             split(True),
@@ -8539,6 +9193,60 @@ def _deferral_anchor_bases(corpus_citation_path: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys((base, module_root)))
 
 
+IMPRECISE_DEFERRAL_PENDING_BRANCHES = re.compile(
+    r" Until it is precise, (?P<count>\d+) source branch(?:es)? that it would "
+    r"cover (?:is|are) neither encoded nor precisely deferred and (?:is|are) "
+    r"not reported separately; encode each one or cover it with a deferral that "
+    r"names its own exact missing dependency: "
+    r"(?P<paths>`[^`\n]*`(?:, `[^`\n]*`)*)\."
+)
+
+
+def _with_branches_behind_imprecise_deferral(
+    issue: str,
+    branches: Sequence[SourceStructureBranch],
+) -> str:
+    """Name, inside an imprecise-deferral finding, the branches it leaves open.
+
+    These branches get no separate structure finding while the deferral is
+    rejected. Every one is listed, and the sentence stays parseable
+    (`IMPRECISE_DEFERRAL_PENDING_BRANCHES`, `split_imprecise_deferral_branches`)
+    so that retry ranking and dependent-regression checks still count each
+    open branch as its own obligation.
+    """
+
+    count = len(branches)
+    if not count:
+        return issue
+    paths = ", ".join(
+        f"`{'/'.join(branch.path) or '<source-unit>'}`" for branch in branches
+    )
+    plural = count != 1
+    sentence = (
+        f" Until it is precise, {count} source branch{'es' if plural else ''} "
+        f"that it would cover {'are' if plural else 'is'} neither encoded nor "
+        f"precisely deferred and {'are' if plural else 'is'} not reported "
+        "separately; encode each one or cover it with a deferral that names its "
+        f"own exact missing dependency: {paths}."
+    )
+    head, separator, tail = issue.partition("\n")
+    return retype(issue, f"{head}{sentence}{separator}{tail}")
+
+
+def split_imprecise_deferral_branches(issue: str) -> tuple[str, tuple[str, ...]]:
+    """Split a deferral finding into its own text and the branches it holds.
+
+    Returns the finding without the pending-branch sentence and the listed
+    branch paths; a finding without that sentence is returned unchanged.
+    """
+
+    match = IMPRECISE_DEFERRAL_PENDING_BRANCHES.search(issue)
+    if match is None or "[complete-source-unit:deferral]" not in issue:
+        return issue, ()
+    paths = tuple(re.findall(r"`([^`\n]*)`", match.group("paths")))
+    return issue[: match.start()] + issue[match.end() :], paths
+
+
 _SITE_DEFERRED_COVERAGE = (
     "axiom_encode/harness/source_completeness.py:_deferred_coverage"
 )
@@ -8622,7 +9330,15 @@ def _deferred_coverage(
     authenticated_same_act_aliases: Sequence[str] = (),
     resolved_dependency_outputs: Sequence[str] = (),
     deferred_clauses: list[SourceStructureBranch] | None = None,
+    imprecise_paths: list[tuple[int, tuple[str, ...]]] | None = None,
 ) -> tuple[set[tuple[str, ...]], list[str]]:
+    """Return precisely deferred paths and the deferral findings.
+
+    ``imprecise_paths`` receives ``(finding index, path)`` for each deferral
+    rejected only because its reason is imprecise: the path it would cover
+    once the reason names an exact missing dependency.
+    """
+
     module = payload.get("module")
     records = module.get("deferred_outputs") if isinstance(module, dict) else None
     if not isinstance(records, list):
@@ -8959,6 +9675,8 @@ def _deferred_coverage(
                     found=reason or "<empty reason>",
                 )
             )
+            if imprecise_paths is not None:
+                imprecise_paths.append((len(issues) - 1, path))
     return covered, issues
 
 
@@ -16121,6 +16839,91 @@ def _armenian_amendment_history_numeric_recall_spans(
         yield candidate.start("body"), candidate.end("body")
 
 
+# A cross-reference to a numbered worked example: `(See Example 1 )`, `see
+# Example 12.`, `See Examples 1, 2 and 3;`. The ordinal names the example; it
+# is not a value of the rule. Three things must hold together:
+#
+# * `See` comes directly before `Example` on the same line. A worked-example
+#   label (`Example 1: ...`) or the words `for example, 1 month` are not
+#   matched, because their numbers can be content.
+# * The ordinal is a bare integer below 100 with no sign, currency or decimal.
+# * The reference is closed right after the ordinal(s) by `)`, `]`, `.`, `;`
+#   or `,`. Other text after the ordinal (`See Example 1 month`, `See Example
+#   1 and pay 2`) leaves every number demanded.
+# * The text after a `.`, `;` or `,` closer is of a known safe kind (see
+#   `_example_cross_reference_is_closed`). This is a positive condition: the
+#   number tokenizer joins digits across separators in ways this pattern does
+#   not model (`1.５`, `1,,000`, `1,.5`, `1,\n000`), so anything that is not
+#   positively recognized keeps every demand.
+#
+# A list is read only after the plural `Examples`, and only as a whole. A
+# comma in a list needs a blank after it: `1,5` can be one number.
+_EXAMPLE_CROSS_REFERENCE_ORDINAL = r"[1-9][0-9]?"
+_EXAMPLE_CROSS_REFERENCE = re.compile(
+    r"(?<![A-Za-z0-9])See[ \t]+(?:"
+    r"Example[ \t]+(?P<one>" + _EXAMPLE_CROSS_REFERENCE_ORDINAL + r")|"
+    r"Examples[ \t]+(?P<many>" + _EXAMPLE_CROSS_REFERENCE_ORDINAL + r"(?:(?:"
+    r"[ \t]*,[ \t]+(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+)"
+    + _EXAMPLE_CROSS_REFERENCE_ORDINAL
+    + r")+))"
+    r"(?=[ \t]*(?P<closer>[)\].;,]))",
+    flags=re.IGNORECASE | re.ASCII,
+)
+_EXAMPLE_REFERENCE_END = ")]\"'”’"
+_EXAMPLE_CROSS_REFERENCE_LIST_ORDINAL = re.compile(_EXAMPLE_CROSS_REFERENCE_ORDINAL)
+
+
+def _example_cross_reference_is_closed(
+    source_text: str, reference: re.Match[str]
+) -> bool:
+    """Whether the text after the reference's closer is positively safe.
+
+    After `.` or `;` the next character is the end of the text, whitespace or
+    a closing bracket or quote. After `,` the next character, across optional
+    whitespace, is an ASCII letter or the end of the text. `)` and `]` end the
+    reference by themselves.
+    """
+
+    closer = reference.group("closer")
+    after = source_text[reference.end("closer") :]
+    if closer in ".;":
+        return not after or after[0].isspace() or after[0] in _EXAMPLE_REFERENCE_END
+    if closer == ",":
+        following = after.lstrip()[:1]
+        return not following or (following.isascii() and following.isalpha())
+    return True
+
+
+def _example_cross_reference_numeric_recall_spans(
+    source_text: str,
+) -> Iterable[tuple[int, int]]:
+    """Yield only the ordinals of a closed `See Example N` cross-reference."""
+
+    for reference in _EXAMPLE_CROSS_REFERENCE.finditer(source_text):
+        if not _example_cross_reference_is_closed(source_text, reference):
+            continue
+        if reference.group("one") is not None:
+            yield reference.span("one")
+            continue
+        for ordinal in _EXAMPLE_CROSS_REFERENCE_LIST_ORDINAL.finditer(
+            source_text, reference.start("many"), reference.end("many")
+        ):
+            yield ordinal.span()
+
+
+def mask_example_cross_references(source_text: str) -> str:
+    """Mask `See Example N` reference ordinals in place with spaces.
+
+    The eval numeric-coverage metric uses this so it agrees with complete-
+    source numeric recall. It applies only this recognizer, so every other
+    source number keeps its obligation.
+    """
+
+    return _mask_numeric_spans(
+        source_text, _example_cross_reference_numeric_recall_spans(source_text)
+    )
+
+
 def mask_armenian_amendment_history(source_text: str) -> str:
     """Mask fully validated standalone ARLIS ledgers in place with spaces.
 
@@ -17744,6 +18547,9 @@ def authoritative_numeric_recall_text(
         source_text, _english_subdivision_numeric_recall_spans(source_text)
     )
     source_text = mask(
+        source_text, _example_cross_reference_numeric_recall_spans(source_text)
+    )
+    source_text = mask(
         source_text, _contiguous_states_numeric_recall_spans(source_text)
     )
     source_text = mask(source_text, _corroborated_form_output_label_spans(source_text))
@@ -18920,6 +19726,13 @@ _SOURCE_GATE_CONJUNCTIVE_SEPARATOR = re.compile(
     r"\b(?:and|nor)\b",
     flags=re.IGNORECASE,
 )
+# ``both to and from`` coordinates two prepositions that share one object. The
+# correlative ``both`` needs two parallel parts, so its ``and`` cannot start a
+# second clause. A plain ``to and from`` has no such guarantee and stays split.
+_SOURCE_GATE_CORRELATIVE_PREPOSITION_AND = re.compile(
+    r"(?<=\bboth to )and(?= from\b)",
+    flags=re.IGNORECASE,
+)
 _SOURCE_GATE_YET = re.compile(r"\byet\b", flags=re.IGNORECASE)
 _SOURCE_GATE_YET_PREFIX_CHARACTER_LIMIT = 32
 _SOURCE_GATE_YET_SUBJECT_CHARACTER_LIMIT = 96
@@ -19107,8 +19920,14 @@ def _source_gate_replace_guarded_yet(
 
 def _source_gate_split_conjunctive_conditions(
     text: str,
+    *,
+    keep_correlative_prepositions: bool = False,
 ) -> list[tuple[str | None, str]]:
-    """Split conjunctions while retaining the connector for polarity."""
+    """Split conjunctions while retaining the connector for polarity.
+
+    With ``keep_correlative_prepositions`` the ``and`` of ``both to and from``
+    does not split: it joins two prepositions of one fact.
+    """
 
     with_yet_boundaries = _source_gate_replace_guarded_yet(
         text,
@@ -19119,7 +19938,17 @@ def _source_gate_split_conjunctive_conditions(
     for line in with_yet_boundaries.splitlines():
         prior_end = 0
         connector: str | None = None
+        kept = (
+            {
+                match.start()
+                for match in _SOURCE_GATE_CORRELATIVE_PREPOSITION_AND.finditer(line)
+            }
+            if keep_correlative_prepositions
+            else ()
+        )
         for match in _SOURCE_GATE_CONJUNCTIVE_SEPARATOR.finditer(line):
+            if match.start() in kept:
+                continue
             segments.append((connector, line[prior_end : match.start()]))
             connector = match.group(0).casefold()
             prior_end = match.end()
@@ -19815,6 +20644,58 @@ def _is_pure_physical_alternative_condition(body: str) -> bool:
     )
 
 
+def _clause_is_reviewed_alternative_list(
+    text: str,
+    body: str,
+    body_start: int,
+    text_start: int,
+    reviewed_lists: Sequence[ReviewedAlternativeList],
+) -> bool:
+    """Say whether a registry entry records exactly this clause.
+
+    There is no grammar here: ``reviewed_lists`` are the registry entries
+    already bound to this citation and this exact source text, and
+    ``text_start`` is the offset of ``text`` in that source text. The clause is
+    a reviewed list only when:
+
+    - ``body`` is the untouched rest of ``text`` after the cue at
+      ``body_start``; no earlier step cut or rewrote it;
+    - the physical line that holds the cue is the chapeau of an entry, at its
+      recorded offset; and
+    - the nonblank lines after it, to the end of ``text``, are exactly the
+      recorded lines of that entry, each at its recorded offset.
+
+    The gates-collapsed check does not examine such a clause at all. It does
+    not verify the structure of the alternatives or the other facts of the
+    clause; the entry records what an owner verified instead.
+    """
+
+    if text[body_start:] != body:
+        return False
+    line_start = text.rfind("\n", 0, body_start) + 1
+    lines = text[line_start:].split("\n")
+    for reviewed in reviewed_lists:
+        if (
+            reviewed.chapeau.physical_start != text_start + line_start
+            or reviewed.chapeau.line != lines[0]
+        ):
+            continue
+        expected = iter(reviewed.lines)
+        offset = text_start + line_start + len(lines[0]) + 1
+        for line in lines[1:]:
+            if line.strip():
+                recorded = next(expected, None)
+                if (
+                    recorded is None
+                    or recorded.physical_start != offset
+                    or recorded.line != line
+                ):
+                    return False
+            offset += len(line) + 1
+        return next(expected, None) is None
+    return False
+
+
 _SOURCE_ANY_REASON_PREFIX = "source_any_reason:"
 
 
@@ -19965,14 +20846,24 @@ def _source_conjunctive_fact_gates(
     text: str,
     *,
     care_source_text: str | None = None,
+    reviewed_alternative_lists: Sequence[ReviewedAlternativeList] = (),
+    text_start: int | None = None,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
-    """Return distinct entity/predicate signatures from one condition."""
+    """Return distinct entity/predicate signatures from one condition.
+
+    ``reviewed_alternative_lists`` are registry entries bound to the citation
+    and exact source text that ``text`` comes from, and ``text_start`` is the
+    offset of ``text`` in that source text. Without both, every bullet under
+    the cue stays a simultaneous fact. With both, a clause that an entry
+    records exactly is a reviewed exception: it has no gates here.
+    """
 
     actual_condition = _concessive_form_completion_condition(text)
     if actual_condition is not None:
         if care_source_text is None:
             care_source_text = text
         text = actual_condition
+        text_start = None
 
     if _closed_filing_return_alternatives(text):
         return ()
@@ -20049,6 +20940,18 @@ def _source_conjunctive_fact_gates(
     body = _without_flattened_pdf_alternative_list(body)
     body = _without_completed_chart_result_label(body, text)
     body = _without_worksheet_imperative_consequent(body)
+    if (
+        reviewed_alternative_lists
+        and text_start is not None
+        and _clause_is_reviewed_alternative_list(
+            text,
+            body,
+            conditional.start("body"),
+            text_start,
+            reviewed_alternative_lists,
+        )
+    ):
+        return ()
     membership_body = _shared_membership_list_body(body)
     membership_requirement = None
     if membership_body != body:
@@ -20076,7 +20979,9 @@ def _source_conjunctive_fact_gates(
                 _SOURCE_ANY_REASON_PREFIX + " ".join(sorted(tokens))
                 for tokens in signatures
             )
-    segments = _source_gate_split_conjunctive_conditions(membership_body)
+    segments = _source_gate_split_conjunctive_conditions(
+        membership_body, keep_correlative_prepositions=True
+    )
     if len(segments) < 2:
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
@@ -21218,13 +22123,30 @@ def _terminal_names_corroborate_source_gates(
 ) -> bool:
     """Require a distinct semantically related terminal for every source gate."""
 
+    return not _source_gates_without_distinct_terminal(
+        names,
+        gates,
+        terminal_evidence=terminal_evidence,
+        neutral_polarity_imports=neutral_polarity_imports,
+    )
+
+
+def _source_gates_without_distinct_terminal(
+    names: frozenset[str],
+    gates: tuple[tuple[frozenset[str], frozenset[str]], ...],
+    *,
+    terminal_evidence: Mapping[str, _TerminalGateEvidence],
+    neutral_polarity_imports: frozenset[str] = frozenset(),
+) -> tuple[int, ...]:
+    """Return the gates that a maximum distinct name matching leaves unmatched."""
+
     if not gates:
-        return True
+        return ()
     if (
         len(gates) > _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT
         or len(names) > _SOURCE_EXPLICIT_CONDITION_EXPANSION_LIMIT
     ):
-        return False
+        return tuple(range(len(gates)))
     repeated_predicates = [
         frozenset().union(
             *(
@@ -21485,8 +22407,6 @@ def _terminal_names_corroborate_source_gates(
                 continue
             matches.append(name)
         candidates.append(tuple(matches))
-    if any(not values for values in candidates):
-        return False
     order = sorted(range(len(gates)), key=lambda index: (len(candidates[index]), index))
 
     matched_gate_by_terminal: dict[str, int] = {}
@@ -21502,7 +22422,12 @@ def _terminal_names_corroborate_source_gates(
                 return True
         return False
 
-    return all(augment(gate_index, set()) for gate_index in order)
+    # Augmenting paths give a maximum matching, so the gates that stay
+    # unmatched are a true count, and none stays unmatched exactly when every
+    # gate has its own terminal.
+    return tuple(
+        sorted(gate_index for gate_index in order if not augment(gate_index, set()))
+    )
 
 
 CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
@@ -21529,12 +22454,21 @@ CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED = declare_check(
         "axiom_encode/harness/source_completeness.py:"
         "_opaque_same_source_condition_input_issues"
     ),
+    # Advisory (issue #2300): the finding is recorded and shown to the
+    # reviewer, and it does not refuse a candidate by itself. The check reads
+    # clause wording and cannot tell a faithful list of alternatives from a
+    # collapsed conjunction; every text rule that tried to tell them apart
+    # opened an escape. Inside the analysis the finding keeps its effects (a
+    # unit with one gets no worksheet certification).
+    enforcement="advisory",
 )
 
 
 def _opaque_same_source_condition_input_issues(
     payload: Mapping[str, Any],
     *,
+    child_credit: Any = None,
+    retirement_transfer: Any = None,
     source_text: str,
     consumer_content: str | None = None,
     branches: Sequence[SourceStructureBranch],
@@ -21546,10 +22480,44 @@ def _opaque_same_source_condition_input_issues(
     certified_country: Any = None,
     repayment_alternatives: RepaymentAlternativeCoverage | None = None,
     test_cases: Sequence[object] | None = None,
+    investment_evidence: Any = None,
+    capital_evidence: Any = None,
+    execution_evidence: SameCaseEvidence | None = None,
+    source_context: Mapping[str, str | None] | None = None,
+    execution_test_cases: Sequence[object] | None = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
     inputs = payload.get("inputs")
+    schedule_binding = None
+    raw_schedule = (source_context or {}).get(corpus_citation_path)
+    if (
+        consumer_content is not None
+        and execution_evidence is not None
+        and isinstance(raw_schedule, str)
+        and raw_schedule.rstrip() == source_text
+    ):
+        schedule = recognize_bound_schedule_structure(
+            raw_schedule, corpus_citation_path
+        )
+        candidate = (
+            bind_schedule(
+                schedule,
+                consumer_content,
+                source_context or {},
+                root_relative=execution_evidence.root_relative,
+            )
+            if schedule is not None
+            else None
+        )
+        if (
+            candidate is not None
+            and observe_schedule(
+                candidate, execution_evidence, consumer_content, execution_test_cases
+            )
+            is not None
+        ):
+            schedule_binding = candidate
     declared_inputs = {
         str(item.get("name") or "").strip()
         for item in inputs or ()
@@ -21630,19 +22598,58 @@ def _opaque_same_source_condition_input_issues(
     ) -> tuple[frozenset[str], ...]:
         key = (formula, include_result_leaves)
         if key not in selector_cache:
-            selector_cache[key] = _formula_control_selector_name_groups(
+            groups = _formula_control_selector_name_groups(
                 formula,
                 include_result_leaves=include_result_leaves,
             )
+            # Exact reserved names in scalar comparison operands are engine
+            # context, never caller facts. Bare Judgment names have different
+            # lowering semantics; mixed/unsupported positions remain closed.
+            expression = _parse_formula_expression(formula)
+            context_names: set[str] = set()
+            if expression is not None:
+                scalar_nodes = {
+                    id(operand)
+                    for node in ast.walk(expression)
+                    if isinstance(node, ast.Compare)
+                    for operand in (node.left, *node.comparators)
+                    if isinstance(operand, ast.Name)
+                }
+                for name in ("period_start", "period_end"):
+                    occurrences = [
+                        node
+                        for node in ast.walk(expression)
+                        if isinstance(node, ast.Name) and node.id == name
+                    ]
+                    if occurrences and all(
+                        id(node) in scalar_nodes for node in occurrences
+                    ):
+                        context_names.add(name)
+            selector_cache[key] = tuple(group - context_names for group in groups)
         return selector_cache[key]
+
+    reviewed_alternative_lists = reviewed_alternative_lists_for(
+        corpus_citation_path, source_text
+    )
 
     def source_clause_gates(
         clause: _SourceConditionClause,
     ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
         identity = (clause.branch_path, clause.start, clause.end)
         if identity not in source_gate_cache:
+            # A reviewed reading needs the clause at a known place in the
+            # exact source text; else every bullet stays a gate.
+            raw_clause = source_text[clause.start : clause.end]
             source_gate_cache[identity] = _source_conjunctive_fact_gates(
-                clause.text, care_source_text=care_source_text
+                clause.text,
+                care_source_text=care_source_text,
+                reviewed_alternative_lists=reviewed_alternative_lists,
+                text_start=(
+                    clause.start + len(raw_clause) - len(raw_clause.lstrip(" ;,"))
+                    if reviewed_alternative_lists
+                    and raw_clause.strip(" ;,") == clause.text
+                    else None
+                ),
             )
         return source_gate_cache[identity]
 
@@ -21967,6 +22974,9 @@ def _opaque_same_source_condition_input_issues(
         )
 
     findings: list[tuple[str, int, int, frozenset[str]]] = []
+    finding_details: list[
+        tuple[str, tuple[frozenset[str], ...], tuple[int, ...]] | None
+    ] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
             not reviewed_care_source
@@ -22016,12 +23026,17 @@ def _opaque_same_source_condition_input_issues(
                             ),
                         )
                     )
+                    finding_details.append(None)
                 continue
             gate_sets: dict[
                 tuple[tuple[str, ...], int, int],
                 tuple[tuple[frozenset[str], frozenset[str]], ...],
             ] = {}
+            gate_clause_texts: dict[tuple[tuple[str, ...], int, int], str] = {}
             reversed_negative_gate_keys: set[tuple[tuple[str, ...], int, int]] = set()
+            schedule_role_sets: dict[
+                tuple[tuple[str, ...], int, int], frozenset[str]
+            ] = {}
             ambiguous_ownership = False
             for excerpt in excerpts:
                 owned_clauses, ambiguous = _source_condition_clauses_owned_by_excerpt(
@@ -22033,6 +23048,29 @@ def _opaque_same_source_condition_input_issues(
                     narrow_conjunctive_excerpt=len(excerpts) == 1,
                     allow_detached_rows=True,
                 )
+                if (
+                    schedule_binding is not None
+                    and not ambiguous
+                    and version_index == 0
+                ):
+                    medical = schedule_binding.conditions.medical
+                    roles = dict(schedule_binding.roles)
+                    if (
+                        rule_name in {roles["medical"], roles["spouse_address"]}
+                        and excerpt == raw_schedule[slice(*medical.span)]
+                    ):
+                        # The complete raw reporting paragraph, exact typed AST
+                        # and actual role blockers establish its own antecedent.
+                        # Neighbouring captions/residence duties are not gates
+                        # of this permission and remain in ordinary discovery.
+                        owned_clauses = (
+                            _SourceConditionClause((), *medical.span, excerpt),
+                        )
+                        inputs_by_role = dict(schedule_binding.input_roles)
+                        schedule_role_sets[((), *medical.span)] = frozenset(
+                            inputs_by_role[r]
+                            for r in ("relationship", "separate", "medical", "date")
+                        )
                 factual_parent = _source_owned_residence_parent_clause(
                     excerpt,
                     rule=rule,
@@ -22059,6 +23097,39 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if (
+                        investment_evidence is not None
+                        and not ambiguous
+                        and investment_evidence.covers_gate(
+                            rule_name, rule, version_index, formula, start, end, clause
+                        )
+                    ):
+                        continue
+                    if (
+                        capital_evidence is not None
+                        and not ambiguous
+                        and capital_evidence.covers_gate(
+                            rule_name, rule, version_index, formula, start, end, clause
+                        )
+                    ):
+                        continue
+                    if (
+                        retirement_transfer is not None
+                        and retirement_transfer.owns_gate(
+                            rule_name,
+                            version_index,
+                            formula,
+                            start,
+                            end,
+                            clause,
+                            ambiguous,
+                        )
+                    ):
+                        continue
+                    if child_credit is not None and child_credit.owns_refund_condition(
+                        rule_name, version_index, formula, start, end, clause, ambiguous
+                    ):
+                        continue
                     if (
                         repayment_alternatives is not None
                         and consumer_content is not None
@@ -22118,11 +23189,22 @@ def _opaque_same_source_condition_input_issues(
                     ):
                         continue
                     gates = source_clause_gates(clause)
+                    schedule_roles = schedule_role_sets.get(
+                        (clause.branch_path, clause.start, clause.end)
+                    )
+                    if schedule_roles is not None:
+                        # Preserve one factual gate per independently bound
+                        # role; period_end supplies no additional fact credit.
+                        gates = tuple(
+                            (frozenset(), frozenset({name}))
+                            for name in sorted(schedule_roles)
+                        )
                     if len(gates) < 2:
                         continue
                     excerpt_has_gates = True
                     clause_key = (clause.branch_path, clause.start, clause.end)
                     gate_sets[clause_key] = gates
+                    gate_clause_texts[clause_key] = clause.text
                     if _direct_exception_reverses_negative_proposition(
                         clause.text
                     ) and _rule_has_negative_output_semantics(
@@ -22193,7 +23275,7 @@ def _opaque_same_source_condition_input_issues(
                     _TerminalGateAlternative(frozenset(), start, end, False),
                 )
             ordinary_gate_sets = tuple(
-                gates
+                (key, gates)
                 for key, gates in gate_sets.items()
                 if key not in reversed_negative_gate_keys
             )
@@ -22202,13 +23284,15 @@ def _opaque_same_source_condition_input_issues(
                 for choice in terminal_choices
                 if not choice.resolved
                 or any(
-                    not _terminal_names_corroborate_source_gates(
+                    (choice.names != schedule_role_sets[key])
+                    if key in schedule_role_sets
+                    else not _terminal_names_corroborate_source_gates(
                         choice.names,
                         gates,
                         terminal_evidence=terminal_evidence,
                         neutral_polarity_imports=frozenset(imported_names),
                     )
-                    for gates in ordinary_gate_sets
+                    for key, gates in ordinary_gate_sets
                 )
             ]
             # A negative output implementing ``No ... eligible unless A and B``
@@ -22261,6 +23345,28 @@ def _opaque_same_source_condition_input_issues(
                     tuple(sorted(value.names)),
                 ),
             )
+            # Name the clause and the facts that the weakest path leaves
+            # without an input, so a retry knows what to change.
+            weakest_detail: tuple[str, tuple[frozenset[str], ...], tuple[int, ...]]
+            weakest_detail = ("", (), ())
+            for clause_key, gates in gate_sets.items():
+                unmatched = _source_gates_without_distinct_terminal(
+                    reversed_names
+                    if clause_key in reversed_negative_gate_keys
+                    else least_supported.names,
+                    gates,
+                    terminal_evidence=terminal_evidence,
+                    neutral_polarity_imports=frozenset(imported_names),
+                )
+                if (len(unmatched), len(gates)) > (
+                    len(weakest_detail[2]),
+                    len(weakest_detail[1]),
+                ):
+                    weakest_detail = (
+                        gate_clause_texts[clause_key],
+                        tuple(predicates for _entities, predicates in gates),
+                        unmatched,
+                    )
             findings.append(
                 (
                     rule_name,
@@ -22269,15 +23375,57 @@ def _opaque_same_source_condition_input_issues(
                     direct_selectors | least_supported.names,
                 )
             )
+            finding_details.append(weakest_detail)
     if not findings:
         return []
 
-    findings.sort(key=lambda item: (item[0], item[1], tuple(sorted(item[3]))))
+    ordered = sorted(
+        zip(findings, finding_details, strict=True),
+        key=lambda pair: (pair[0][0], pair[0][1], tuple(sorted(pair[0][3]))),
+    )
+
+    def render_detail(
+        detail: tuple[str, tuple[frozenset[str], ...], tuple[int, ...]] | None,
+    ) -> str:
+        """Say which clause and which of its facts lack an input."""
+
+        if detail is None or not detail[1]:
+            return ""
+        clause_text, gate_words, unmatched = detail
+        facts = "; ".join(
+            f"fact {index} ("
+            + (
+                ", ".join(sorted(word for word in words if word.isalpha())[:8])
+                or ", ".join(
+                    sorted(word.replace("_", " ") for word in words if ":" not in word)[
+                        :8
+                    ]
+                )
+                or "no plain source words"
+            )
+            + ")"
+            for index, words in enumerate(gate_words, start=1)
+        )
+        matched = len(gate_words) - len(unmatched)
+        missing = (
+            "no input name matches the source words of "
+            + ", ".join(f"fact {index + 1}" for index in unmatched)
+            if unmatched
+            else "the facts are matched, but the clause that owns them is "
+            "ambiguous or its reviewed fact contract is not met"
+        )
+        return (
+            f' [source clause "{_bounded_source_feedback_excerpt(clause_text, limit=200)}" '
+            f"states {len(gate_words)} facts by their source words: {facts}. The "
+            f"least-supported formula path gives {matched} of {len(gate_words)} "
+            f"facts its own input; {missing}]"
+        )
+
     rendered = [
         f"`{rule_name}` versions[{version_index}] "
         f"({_bounded_identifier_feedback(tuple(evidence_names)) or 'no resolved fact selectors'} "
-        f"for {gate_count} source gates)"
-        for rule_name, version_index, gate_count, evidence_names in findings[
+        f"for {gate_count} source gates)" + render_detail(detail)
+        for (rule_name, version_index, gate_count, evidence_names), detail in ordered[
             :_SOURCE_EXPLICIT_CONDITION_DIAGNOSTIC_LIMIT
         ]
     ]
@@ -22286,7 +23434,17 @@ def _opaque_same_source_condition_input_issues(
             f"... ({len(findings) - _SOURCE_EXPLICIT_CONDITION_DIAGNOSTIC_LIMIT} "
             "additional formula versions omitted)"
         )
-    first_rule, first_version, first_gate_count, first_evidence = findings[0]
+    (first_rule, first_version, first_gate_count, first_evidence), first_detail = (
+        ordered[0]
+    )
+    if first_detail is not None and first_detail[1]:
+        first_found = (
+            f"{len(first_detail[1]) - len(first_detail[2])} of "
+            f"{len(first_detail[1])} source gates with their own terminal input "
+            "on the least-supported formula path"
+        )
+    else:
+        first_found = f"{len(first_evidence)} terminal selectors"
     return [
         ValidationIssue(
             "[complete-source-unit:source-explicit-conditions] Derived formula "
@@ -22296,7 +23454,10 @@ def _opaque_same_source_condition_input_issues(
             "as distinct local inputs or canonical imports, declare every local fact "
             "in the RuleSpec document-root `inputs` list (a sibling of `module` and "
             "`rules`, never nested under `module`), combine them in a "
-            "source-proved derived Judgment, and test each gate. Reserve aggregate "
+            "source-proved derived Judgment, and test each gate. For each fact "
+            "that a bracket names without an input, declare one input or canonical "
+            "import whose name uses that fact's source words, and use it on every "
+            "formula path that the quoted clause governs. Reserve aggregate "
             "boundary statuses for source-atomic or externally determined conditions.",
             check=CHECK_SOURCE_EXPLICIT_CONDITIONS_COLLAPSED,
             subject=IssueSubject(
@@ -22305,7 +23466,7 @@ def _opaque_same_source_condition_input_issues(
                 field=f"rules.{first_rule}.versions[{first_version}].formula",
             ),
             expected=f"{first_gate_count} distinct gate inputs",
-            found=f"{len(first_evidence)} terminal selectors",
+            found=first_found,
         )
     ]
 
@@ -22447,6 +23608,116 @@ def _selected_formula_structural_source_branches(
     )
 
 
+def _expression_reaches_direct_clamp(
+    text: str,
+    *,
+    input_name: str,
+    environment: dict[str, Any],
+) -> bool:
+    """Find a reached clamp call within one already reduced expression.
+
+    Boolean operands honor short-circuiting here. The caller owns the proof
+    that the reduced expression was reached.
+    """
+
+    def visit(node: ast.AST) -> bool:
+        if isinstance(node, ast.BoolOp):
+            for item in node.values:
+                if visit(item):
+                    return True
+                value = _evaluate_rulespec_expression(item, environment)
+                if value is _UNRESOLVED_CONDITION_VALUE:
+                    return False
+                if isinstance(node.op, ast.And) and not bool(value):
+                    return False
+                if isinstance(node.op, ast.Or) and bool(value):
+                    return False
+            return False
+        if isinstance(node, ast.Compare):
+            # RuleSpec accepts one comparison per expression. Do not infer
+            # execution from Python-only chained-comparison syntax.
+            return len(node.ops) == 1 and (
+                visit(node.left) or visit(node.comparators[0])
+            )
+        if isinstance(node, ast.Call):
+            match = _DIRECT_LOCAL_INPUT_NONNEGATIVE_CLAMP.fullmatch(
+                _formula_expression_source(node)
+            )
+            if match is not None and match.group("input") == input_name:
+                return True
+        return any(visit(child) for child in ast.iter_child_nodes(node))
+
+    try:
+        expression = _parse_formula_expression(text)
+        return (
+            expression is not None
+            and _evaluate_rulespec_expression(expression, environment)
+            is not _UNRESOLVED_CONDITION_VALUE
+            and visit(expression)
+        )
+    except RecursionError:
+        # A deeply nested formula cannot witness a clamp if its expression
+        # cannot be parsed, resolved or traversed within the recursion budget.
+        return False
+
+
+def _case_execution_may_reach_direct_clamp(
+    rule: dict[str, Any],
+    case: dict[str, Any],
+    *,
+    input_name: str,
+    principal_rules: dict[str, dict[str, Any]],
+    formula_environment: dict[str, Any],
+    dependency_environment: dict[str, Any],
+) -> bool:
+    """Whether the owner's selected formula path for a case holds the clamp.
+
+    The path is resolved from the case's asserted dependency values, then from
+    dependencies computed from its inputs. A resolved path without
+    ``max(0, input)``, or a path that cannot be resolved, never witnesses that
+    clamp (fail closed).
+    """
+
+    environments = [dependency_environment]
+    computed = _case_dependency_environment(
+        principal_rules,
+        case,
+        formula_environment=formula_environment,
+        require_asserted_value=False,
+    )
+    if computed:
+        environments.append({**computed, **dependency_environment})
+    for environment in environments:
+        execution = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=environment,
+        )
+        if execution is None:
+            continue
+        execution_environment = _case_formula_identifier_environment(
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=environment,
+        )
+        if execution_environment is None:
+            return False
+        proven_trace = execution.trace[: execution.unproven_trace_start]
+        texts = [selector for step in proven_trace for selector in step.selectors]
+        if execution.unproven_trace_start is None:
+            texts.append(execution.leaf)
+        return any(
+            _expression_reaches_direct_clamp(
+                text,
+                input_name=input_name,
+                environment=execution_environment,
+            )
+            for text in texts
+        )
+    return False
+
+
 _SITE_COMPANION_TESTS = (
     "axiom_encode/harness/source_completeness.py:_companion_test_issues"
 )
@@ -22506,15 +23777,21 @@ CHECK_TESTS_OUTPUT_UNASSERTED = _declare_companion_test_check(
 )
 CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED = _declare_companion_test_check(
     "negative-clamp-unwitnessed",
-    title="Nonnegative clamp has no below-zero companion case",
+    title="Nonnegative clamp has no below-zero case that reaches it",
     requires=(
         "Each direct `max(0, input)` clamp has an executed companion case with "
-        "the input below zero in every distinct temporal owner context."
+        "the input below zero whose selected formula path reaches the clamp "
+        "in every distinct temporal owner context."
     ),
     fix=(
         "Add a case with the clamped input below zero that asserts the clamped "
-        "rule (and the downstream principal output when one exists). A zero "
-        "input does not exercise the clamp."
+        "rule (and the downstream principal output when one exists), with a "
+        "selected formula path that reaches the clamp. A zero input does not "
+        "exercise the clamp. If guards prevent every below-zero input from "
+        "reaching it, restate the formula or remove the redundant clamp "
+        "rather than adding an impossible witness. For an entity output tested through "
+        "`tables:`, write a separate case with exactly one row, an empty "
+        "`input:`, and a one-item list assertion of the clamped rule."
     ),
     site="axiom_encode/harness/source_completeness.py:_negative_local_input_clamp_test_issues",
 )
@@ -22537,7 +23814,10 @@ CHECK_TESTS_BOUNDARY_UNEXERCISED = _declare_companion_test_check(
     requires="Every source-stated boundary value is exercised by a companion case.",
     fix=(
         "Add cases at each listed boundary value (and just across it) that "
-        "assert the affected principal output."
+        "assert the affected principal output. If the listed value is a cap "
+        "whose `min(...)` shares a formula with a comparison, move the clamp "
+        "into its own derived rule with no comparison and assert that rule in "
+        "every case that sets the capped amount."
     ),
 )
 CHECK_TESTS_EXCEPTION_PAIR_MISSING = _declare_companion_test_check(
@@ -22602,7 +23882,9 @@ def _negative_local_input_clamp_test_issues(
     corpus_citation_path: str,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    obligation_sink: list[CompanionTestObligation] | None = None,
     printed_operations: _PrintedOperationContext | None = None,
+    retirement_transfer: Any = None,
 ) -> list[str]:
     """Require negative evidence for direct max(0, local_input) clamps."""
 
@@ -23001,6 +24283,47 @@ def _negative_local_input_clamp_test_issues(
                     return None
         return tuple({"period": point} for point in sorted(change_points))
 
+    row_bound_cases: dict[tuple[int, str], dict[str, Any] | None] = {}
+
+    def row_bound_case(
+        case: dict[str, Any],
+        rule: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Return the case replay reads, or ``None`` for an unproven row case.
+
+        One list-valued assertion makes the companion runner query table rows
+        for every derived output of the case and compare each result as a
+        row-ordered list. Such a case is evidence only when every derived
+        output is asserted as a list and the row binding is proven; a scalar
+        assertion of a derived output beside a list fails in the runner. A
+        parameter output is evaluated separately and stays a scalar. A name
+        that is not a known parameter counts as a derived output. A case
+        without a list-valued assertion is returned unchanged. The rewritten
+        case is cached so that its identity stays stable for the per-case
+        caches above.
+        """
+
+        name = str(rule.get("name") or "")
+        outputs = case.get("output")
+        if not isinstance(outputs, dict) or not any(
+            isinstance(value, list) for value in outputs.values()
+        ):
+            return case
+        if not all(
+            isinstance(value, list)
+            for key, value in outputs.items()
+            if str(key).rsplit("#", 1)[-1] not in parameter_rule_names
+        ):
+            return None
+        cache_key = (id(case), name)
+        if cache_key not in row_bound_cases:
+            row_bound_cases[cache_key] = _sole_table_row_scalar_case(
+                case,
+                rule,
+                principal_rules=principal_rules,
+            )
+        return row_bound_cases[cache_key]
+
     missing_clamps: set[tuple[str, str]] = set()
     for owner, rule in principal_rules.items():
         clamped_inputs = _direct_local_input_clamps(rule, declared_input_names)
@@ -23008,6 +24331,10 @@ def _negative_local_input_clamp_test_issues(
             continue
         context_cases = temporal_context_cases(owner)
         for input_name in sorted(clamped_inputs):
+            if retirement_transfer is not None and retirement_transfer.clamp_witnessed(
+                owner, rule, input_name
+            ):
+                continue
             if context_cases is None:
                 missing_clamps.add((owner, input_name))
                 continue
@@ -23034,7 +24361,10 @@ def _negative_local_input_clamp_test_issues(
                 missing_clamps.add((owner, input_name))
                 continue
             witnessed_contexts: set[tuple[Any, ...]] = set()
-            for case in cases:
+            for stated_case in cases:
+                case = row_bound_case(stated_case, rule)
+                if case is None:
+                    continue
                 inputs = case.get("input")
                 if not isinstance(inputs, dict):
                     continue
@@ -23079,6 +24409,17 @@ def _negative_local_input_clamp_test_issues(
                     )
                 dependency_environment = asserted_dependencies_by_case[case_key]
                 if owner not in dependency_environment:
+                    continue
+                if not _case_execution_may_reach_direct_clamp(
+                    rule,
+                    case,
+                    input_name=input_name,
+                    principal_rules=principal_rules,
+                    formula_environment=formula_environment,
+                    dependency_environment=dependency_environment,
+                ):
+                    # A negative input on a path the owner never takes (for
+                    # example its `else: 0` branch) does not exercise the clamp.
                     continue
                 for principal_output in sorted(outputs & principal_outputs):
                     if principal_output == owner:
@@ -23153,6 +24494,17 @@ def _negative_local_input_clamp_test_issues(
     if not missing_clamps:
         return []
     ordered_clamps = sorted(missing_clamps)
+    if obligation_sink is not None:
+        obligation_sink.extend(
+            CompanionTestObligation(
+                "clamp",
+                (owner,),
+                values=(-1.0,),
+                input_names=(input_name,),
+                label=f"`max(0, {input_name})` in `{owner}`",
+            )
+            for owner, input_name in ordered_clamps
+        )
     shown_clamps = ordered_clamps[:_NEGATIVE_LOCAL_INPUT_CLAMP_DIAGNOSTIC_LIMIT]
     rendered_clamps = ", ".join(
         f"`max(0, {input_name})` in `{owner}`" for owner, input_name in shown_clamps
@@ -23166,15 +24518,25 @@ def _negative_local_input_clamp_test_issues(
             f"evidence is missing for {rendered_clamps}{omission}. Each requires "
             "an executed companion case in every distinct selected temporal "
             "owner/downstream claimant context, with the input below zero, that "
-            "asserts the clamped rule and, when downstream consumers exist, an "
+            "reaches the clamp and asserts the clamped rule and, when "
+            "downstream consumers exist, an "
             "unambiguous authoritative principal output with selected-version "
             "formula proof whose matching assertion and selected formula path "
             "reach it through a resolved dependency chain. A zero-valued case "
-            "does not exercise the negative clamp.",
+            "does not exercise the negative clamp. If guards prevent every "
+            "below-zero input from reaching the clamp, restate the formula "
+            "or remove the redundant clamp rather than adding an impossible "
+            "witness.",
             check=CHECK_TESTS_NEGATIVE_CLAMP_UNWITNESSED,
             subject=IssueSubject(citation=corpus_citation_path, rule=first_owner),
-            expected=f"case with {first_input} below zero",
-            found=f"{len(ordered_clamps)} clamp(s) without a below-zero case",
+            expected=(
+                f"case with {first_input} below zero whose selected path "
+                "reaches the clamp"
+            ),
+            found=(
+                f"{len(ordered_clamps)} clamp(s) without a below-zero case "
+                "that reaches the clamp"
+            ),
         )
     ]
 
@@ -23196,6 +24558,382 @@ def _formula_rule_depends_on(
         seen.add(current)
         pending.extend(dependencies.get(current, set()) - seen)
     return False
+
+
+MISSING_BOUNDARY_DETAIL_MARKER = " Boundary details:"
+_MISSING_BOUNDARY_DETAIL_LIMIT = 12
+_MISSING_BOUNDARY_NAME_LIMIT = 4
+
+
+def _boundary_value_text(value: float) -> str:
+    """Render the stored value exactly, without YAML-ambiguous exponents."""
+
+    text = format(Decimal(str(value)), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def _boundary_source_context(
+    branch: SourceStructureBranch,
+    boundary: NumericOccurrenceLike,
+) -> str | None:
+    """Return a short verbatim source window around one boundary occurrence."""
+
+    text = branch.text
+    source_map = _NumericRecallSourceMap(list(range(len(text))))
+    authoritative_numeric_recall_text(text, _source_map=source_map)
+    span = source_map.source_span(int(boundary.start), int(boundary.end))
+    if span is None:
+        return None
+    start, end = span
+    if not (0 <= start < end <= len(text)) or not text[start:end].strip():
+        return None
+    window_start = max(0, start - 90)
+    window_end = min(len(text), end + 50)
+    while window_start > 0 and not text[window_start - 1].isspace():
+        window_start += 1
+        if window_start >= start:
+            window_start = start
+            break
+    while window_end < len(text) and not text[window_end].isspace():
+        window_end -= 1
+        if window_end <= end:
+            window_end = end
+            break
+    context = _collapse_text(text[window_start:window_end])
+    if not context:
+        return None
+    prefix = "..." if window_start > 0 else ""
+    suffix = "..." if window_end < len(text) else ""
+    return f"{prefix}{context}{suffix}".replace("`", "'")
+
+
+_NON_NUMERIC_INPUT_DTYPES = frozenset(
+    {"bool", "boolean", "judgment", "date", "string", "text", "enum", "category"}
+)
+
+
+def _boundary_selector_input_names(
+    rule_names: Sequence[str],
+    *,
+    principal_rules: dict[str, dict[str, Any]],
+    numeric_input_names: set[str],
+) -> tuple[str, ...]:
+    """Return declared numeric inputs that covering formulas select on."""
+
+    return tuple(
+        sorted(
+            {
+                name
+                for rule_name in _principal_rule_closure(
+                    rule_names, principal_rules=principal_rules
+                )
+                for name in _rule_numeric_selector_names(principal_rules[rule_name])
+            }
+            & numeric_input_names
+        )
+    )
+
+
+def _missing_boundary_repair_detail(
+    missing_boundaries: Sequence[tuple[SourceStructureBranch, NumericOccurrenceLike]],
+    *,
+    direct_boundary_inputs: Mapping[int, tuple[str, ...]],
+    principal_rules: dict[str, dict[str, Any]],
+    principal_rule_paths: dict[str, set[tuple[str, ...]]],
+    numeric_input_names: set[str],
+    corpus_citation_path: str,
+) -> str:
+    """Explain, per missing boundary, the source text and the case to add.
+
+    ``direct_boundary_inputs`` holds formula-derived candidate input hints.
+    It does not establish which input represents the source quantity.
+    """
+
+    def bounded(names: Sequence[str]) -> str:
+        shown = ", ".join(f"`{name}`" for name in names[:_MISSING_BOUNDARY_NAME_LIMIT])
+        omitted = len(names) - _MISSING_BOUNDARY_NAME_LIMIT
+        return shown + (f" (+{omitted} more)" if omitted > 0 else "")
+
+    details: list[str] = []
+    for index, (branch, boundary) in enumerate(
+        missing_boundaries[:_MISSING_BOUNDARY_DETAIL_LIMIT]
+    ):
+        value = _boundary_value_text(boundary.value)
+        context = _boundary_source_context(branch, boundary)
+        parts = [
+            f"{branch.label}={value} at "
+            f"{_branch_citation(corpus_citation_path, branch)}"
+        ]
+        if context:
+            parts.append(f"source `{context}`")
+        covering = sorted(_rules_covering_branch(branch, principal_rule_paths))
+        if covering:
+            parts.append(f"covering principal output(s) {bounded(covering)}")
+            direct_inputs = direct_boundary_inputs.get(index, ())
+            if direct_inputs:
+                parts.append(
+                    f"formula-derived candidate input(s) compared directly with {value} "
+                    f"{bounded(direct_inputs)}"
+                )
+            else:
+                selector_inputs = _boundary_selector_input_names(
+                    covering,
+                    principal_rules=principal_rules,
+                    numeric_input_names=numeric_input_names,
+                )
+                parts.append(
+                    f"no input is compared directly with {value}"
+                    + (
+                        "; numeric input(s) the covering formulas select on "
+                        f"{bounded(selector_inputs)}"
+                        if selector_inputs
+                        else ""
+                    )
+                )
+        else:
+            parts.append(
+                "no principal derived output cites this source branch, so no "
+                "case can witness it yet"
+            )
+        details.append("; ".join(parts))
+    omitted = len(missing_boundaries) - len(details)
+    if omitted > 0:
+        details.append(f"{omitted} more boundary obligation(s) omitted")
+    return (
+        f"{MISSING_BOUNDARY_DETAIL_MARKER} "
+        + " | ".join(details)
+        + ". For each listed boundary, first establish from the source which "
+        "input represents its quantity; the formula-derived hints do not prove "
+        "that identity. Write a case at exactly the listed source value and "
+        "assert the covering principal output "
+        "with the value the source requires at that boundary (whether the "
+        "source includes or excludes the value itself). When no principal "
+        "output covers the branch, "
+        "first encode the source comparison in a principal derived rule whose "
+        "`versions[N].formula` proof excerpt quotes that branch, with the "
+        "threshold as a source-bound parameter or formula constant."
+    )
+
+
+_BOUNDARY_HINT_CLOSURE_LIMIT = 32
+_BOUNDARY_HINT_EXPRESSION_LIMIT = 256
+_BOOLEAN_INPUT_DTYPES = frozenset({"bool", "boolean", "judgment"})
+
+
+def _principal_rule_closure(
+    rule_names: Iterable[str],
+    *,
+    principal_rules: dict[str, dict[str, Any]],
+) -> tuple[str, ...]:
+    """Return bounded local principal dependencies reached from rule names."""
+
+    closure: list[str] = []
+    pending = sorted(set(rule_names), reverse=True)
+    while pending and len(closure) < _BOUNDARY_HINT_CLOSURE_LIMIT:
+        name = pending.pop()
+        if name in closure or name not in principal_rules:
+            continue
+        closure.append(name)
+        pending.extend(
+            sorted(
+                set(
+                    _FORMULA_IDENTIFIER.findall(
+                        _rule_formula_text(principal_rules[name])
+                    )
+                )
+                & set(principal_rules),
+                reverse=True,
+            )
+        )
+    return tuple(closure)
+
+
+@functools.lru_cache(maxsize=4096)
+def _formula_expression_texts(formula_text: str) -> tuple[str, ...]:
+    """Return the selector and leaf expressions of one RuleSpec formula."""
+
+    texts: list[str] = []
+
+    def visit(text: str, depth: int) -> None:
+        text = textwrap.dedent(text).strip()
+        if not text or depth > 32 or len(texts) >= _BOUNDARY_HINT_EXPRESSION_LIMIT:
+            return
+        node = _first_formula_branch_node(text)
+        if node is None:
+            texts.append(text)
+            return
+        texts.extend(node.selectors)
+        for choice in node.choices:
+            visit(choice, depth + 1)
+        remainder = text[: node.start] + text[node.end :]
+        if remainder.strip():
+            visit(remainder, depth + 1)
+
+    visit(formula_text, 0)
+    return tuple(texts)
+
+
+@functools.lru_cache(maxsize=4096)
+def _parsed_formula_expressions(formula_text: str) -> tuple[ast.expr, ...]:
+    """Parse each selector and leaf once; callers only read the trees."""
+
+    return tuple(
+        expression
+        for text in _formula_expression_texts(formula_text)
+        if (expression := _parse_formula_expression(text)) is not None
+    )
+
+
+def _rule_parsed_expressions(rule: dict[str, Any]) -> tuple[ast.expr, ...]:
+    return tuple(
+        expression
+        for version in rule.get("versions") or ()
+        if isinstance(version, dict) and version.get("formula") is not None
+        for expression in _parsed_formula_expressions(str(version["formula"]))
+    )
+
+
+def _constant_node_values(
+    node: ast.AST,
+    *,
+    formula_environment: Mapping[str, Any],
+) -> set[Decimal]:
+    """Return the literal or parameter values one formula operand may take."""
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return {
+            -value
+            for value in _constant_node_values(
+                node.operand, formula_environment=formula_environment
+            )
+        }
+    if isinstance(node, ast.Constant):
+        number = _rulespec_runtime_decimal(node.value)
+        return {number} if number is not None else set()
+    if isinstance(node, ast.Name) and node.id in formula_environment:
+        value = formula_environment[node.id]
+        candidates = (
+            [candidate for _start, _end, candidate in value.versions]
+            if isinstance(value, _TemporalFormulaValue)
+            else [value]
+        )
+        return {
+            number
+            for candidate in candidates
+            if (number := _rulespec_runtime_decimal(candidate)) is not None
+        }
+    return set()
+
+
+def _direct_threshold_input_names(
+    rule_names: Iterable[str],
+    *,
+    principal_rules: dict[str, dict[str, Any]],
+    formula_environment: Mapping[str, Any],
+    numeric_input_names: set[str],
+    values: Iterable[float],
+) -> tuple[str, ...]:
+    """Return candidate formula inputs compared with one source value.
+
+    These are formula-derived hints. They do not establish which input is the
+    quantity named in the source; model-authored cases must establish that.
+    """
+
+    targets = {
+        number
+        for value in values
+        if (number := _rulespec_runtime_decimal(float(value))) is not None
+    }
+    found: set[str] = set()
+    for name in _principal_rule_closure(rule_names, principal_rules=principal_rules):
+        for expression in _rule_parsed_expressions(principal_rules[name]):
+            for node in ast.walk(expression):
+                pairs: list[tuple[ast.expr, ast.expr]] = []
+                if isinstance(node, ast.Compare):
+                    operands = [node.left, *node.comparators]
+                    pairs = list(zip(operands, operands[1:]))
+                elif (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in {"min", "max"}
+                    and not node.keywords
+                ):
+                    pairs = [
+                        (first, second)
+                        for first in node.args
+                        for second in node.args
+                        if first is not second
+                    ]
+                for left, right in pairs:
+                    for operand, threshold in ((left, right), (right, left)):
+                        if (
+                            isinstance(operand, ast.Name)
+                            and operand.id in numeric_input_names
+                            and _constant_node_values(
+                                threshold,
+                                formula_environment=formula_environment,
+                            )
+                            & targets
+                        ):
+                            found.add(operand.id)
+    return tuple(sorted(found))
+
+
+_INTEGRAL_INPUT_DTYPES = frozenset({"integer", "int", "count"})
+
+
+def _values_for_boundary_input_hints(
+    values: Iterable[float],
+    input_names: Sequence[str],
+    input_declarations: Mapping[str, dict[str, Any]],
+) -> tuple[float, ...]:
+    """Drop fractional selector values for inputs declared as integers."""
+
+    integral_only = bool(input_names) and all(
+        str((input_declarations.get(name) or {}).get("dtype") or "").strip().lower()
+        in _INTEGRAL_INPUT_DTYPES
+        for name in input_names
+    )
+    return tuple(
+        float(value)
+        for value in values
+        if not integral_only or float(value).is_integer()
+    )
+
+
+def _companion_case_input_classes(
+    input_declarations: Mapping[str, dict[str, Any]],
+    declared_input_names: set[str],
+) -> tuple[set[str], set[str]]:
+    """Split declared inputs into numeric and boolean names by declared dtype."""
+
+    numeric: set[str] = set()
+    boolean: set[str] = set()
+    for name in declared_input_names:
+        dtype = (
+            str((input_declarations.get(name) or {}).get("dtype") or "").strip().lower()
+        )
+        if dtype in _BOOLEAN_INPUT_DTYPES:
+            boolean.add(name)
+        elif dtype and dtype not in _NON_NUMERIC_INPUT_DTYPES:
+            numeric.add(name)
+    return numeric, boolean
+
+
+def _with_absorbed_obligations(issue: str, count: int) -> str:
+    """Add ``count`` folded companion demands to one finding's residual work."""
+
+    if not isinstance(issue, ValidationIssue):
+        return issue
+    return ValidationIssue(
+        str(issue),
+        check=issue.check,
+        subject=issue.subject,
+        expected=issue.expected,
+        found=issue.found,
+        evidence=issue.evidence,
+        absorbed_obligations=issue.absorbed_obligations + count,
+    )
 
 
 def _companion_test_issues(
@@ -23228,16 +24966,63 @@ def _companion_test_issues(
     certified_replacement: BoundWorksheetReplacement | None = None,
     certified_composition: BoundWorksheetComposition | None = None,
     raw_source_text: str | None = None,
+    formula_output_reported_branches: frozenset[SourceStructureBranch] = frozenset(),
+    formula_output_binding_details: dict[SourceStructureBranch, str] | None = None,
+    structure_reported_paths: frozenset[tuple[str, ...]] = frozenset(),
+    absorbed_demand_sink: list[
+        tuple[SourceStructureBranch | None, tuple[str, ...] | None]
+    ]
+    | None = None,
+    obligation_sink: list[CompanionTestObligation] | None = None,
     partnership_content: str | None = None,
     printed_operations: _PrintedOperationContext | None = None,
     execution_evidence: SameCaseEvidence | None = None,
+    investment_evidence: Any = None,
+    capital_evidence: Any = None,
+    execution_test_cases: Sequence[object] | None = None,
     local_relation_context: object | None = None,
     floor_imported_exports: Sequence[ResolvedImportedExport] = (),
     floor_source_context: Mapping[str, str | None] | None = None,
     local_floor_source_context: Mapping[str, str | None] | None = None,
     referral_context: Any = None,
 ) -> list[str]:
+    from .student_loan_schedule_evidence import _student_loan_context
+
+    student_loan = _student_loan_context(
+        source_text,
+        corpus_citation_path,
+        partnership_content,
+        execution_evidence,
+        execution_test_cases,
+    )
+    from .child_credit_evidence import _child_credit_context
+
+    child_credit = _child_credit_context(
+        source_text,
+        corpus_citation_path,
+        partnership_content,
+        execution_evidence,
+        execution_test_cases,
+        raw_source=raw_source_text,
+    )
+    from .retirement_transfer_evidence import _retirement_transfer_context
+
+    retirement_transfer = _retirement_transfer_context(
+        source_text,
+        corpus_citation_path,
+        partnership_content,
+        execution_evidence,
+        execution_test_cases,
+        raw_source=raw_source_text,
+    )
     issues: list[str] = []
+    obligations: list[CompanionTestObligation] = (
+        obligation_sink if obligation_sink is not None else []
+    )
+    numeric_input_names, _boolean_input_names = _companion_case_input_classes(
+        input_declarations or {},
+        declared_input_names,
+    )
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
     if not cases:
         return [
@@ -23290,6 +25075,7 @@ def _companion_test_issues(
     issues.extend(
         _negative_local_input_clamp_test_issues(
             principal_rules,
+            retirement_transfer=retirement_transfer,
             printed_operations=printed_operations,
             parameter_rules=parameter_rules,
             principal_formula_clause_rules=principal_formula_clause_rules,
@@ -23300,6 +25086,7 @@ def _companion_test_issues(
             corpus_citation_path=corpus_citation_path,
             extract_numeric_occurrences=extract_numeric_occurrences,
             numeric_value_is_grounded=numeric_value_is_grounded,
+            obligation_sink=obligations,
         )
     )
     for name, asserted_cases in asserted_by_rule.items():
@@ -23307,6 +25094,9 @@ def _companion_test_issues(
             certified_transfers is not None
             and certified_transfers.owns_output(name, principal_rules[name])
         ):
+            obligations.append(
+                CompanionTestObligation("principal-output", (name,), label=name)
+            )
             issues.append(
                 ValidationIssue(
                     "[complete-source-unit:tests] Principal output "
@@ -23327,8 +25117,29 @@ def _companion_test_issues(
         for branch in branches
         if not _path_is_deferred(branch.path, deferred_paths)
     ]
+    student_formula_branches = tuple(
+        branch
+        for branch in formula_branches
+        if student_loan is not None and student_loan.formula_owned(branch)
+    )
+    child_formula_branches = tuple(
+        b
+        for b in formula_branches
+        if child_credit is not None and child_credit.formula_owned(b)
+    )
+    retirement_formula_branches = tuple(
+        b
+        for b in formula_branches
+        if retirement_transfer is not None and retirement_transfer.formula_owned(b)
+    )
     missing_formula_branches = _unwitnessed_formula_branches(
-        formula_branches,
+        tuple(
+            branch
+            for branch in formula_branches
+            if branch not in student_formula_branches
+            and branch not in child_formula_branches
+            and branch not in retirement_formula_branches
+        ),
         execution_evidence=execution_evidence,
         local_relation_context=local_relation_context,
         execution_content=partnership_content,
@@ -23354,6 +25165,26 @@ def _companion_test_issues(
         dependency_cache=formula_dependency_cache,
         execution_cache=formula_execution_cache,
     )
+    if student_loan is not None:
+        missing_formula_branches = (
+            *missing_formula_branches,
+            *_unmatched_evidence_obligations(
+                {
+                    branch: student_loan.witnesses(branch)
+                    for branch in student_formula_branches
+                }
+            ),
+        )
+    if child_credit is not None:
+        missing_formula_branches = (
+            *missing_formula_branches,
+            *child_credit.unmatched(child_formula_branches),
+        )
+    if retirement_transfer is not None:
+        missing_formula_branches = (
+            *missing_formula_branches,
+            *retirement_transfer.unmatched(retirement_formula_branches),
+        )
     if measurement_roles is not None:
         # These exact source operations are not necessarily formula branches in
         # the generic inventory. Validate them with the same ordinary witness;
@@ -23392,8 +25223,6 @@ def _companion_test_issues(
                 },
             )
     for branch in missing_formula_branches:
-        source_excerpt = _bounded_source_feedback_excerpt(branch.text)
-        source_location = f"characters {branch.start}:{branch.end}"
         unbound_diagnostic = _unbound_matching_formula_rules(
             branch,
             printed_operations=printed_operations,
@@ -23411,6 +25240,21 @@ def _companion_test_issues(
             unbound_diagnostic,
             corpus_citation_path=corpus_citation_path,
         )
+        if (
+            branch in formula_output_reported_branches
+            and not principal_formula_clause_rules[branch]
+        ):
+            # The formula-output finding already rejects this unbound
+            # computation; a second tests finding would only crowd retry
+            # feedback. The tests demand applies again once an output binds.
+            # The caller moves any named-rule binding hint onto that finding.
+            if source_binding_detail and formula_output_binding_details is not None:
+                formula_output_binding_details[branch] = source_binding_detail
+            if absorbed_demand_sink is not None:
+                absorbed_demand_sink.append((branch, None))
+            continue
+        source_excerpt = _bounded_source_feedback_excerpt(branch.text)
+        source_location = f"characters {branch.start}:{branch.end}"
         dependency_diagnostic = _uncorroborated_formula_dependency_diagnostic(
             branch,
             printed_operations=printed_operations,
@@ -23533,6 +25377,7 @@ def _companion_test_issues(
         for branch, boundary, interval, polarity in conjoined_thresholds
     }
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
+    direct_boundary_inputs: dict[int, tuple[str, ...]] = {}
     for branch, boundary in (
         *boundary_obligations,
         *(
@@ -23576,16 +25421,69 @@ def _companion_test_issues(
                 source_branches=branches,
             ):
                 continue
+        if not _rules_covering_branch(branch, principal_rule_paths) and (
+            branch in formula_output_reported_branches
+            or branch.path in structure_reported_paths
+        ):
+            # No principal output can witness a boundary in a branch that the
+            # structure or formula-output finding already reports as
+            # unencoded. The boundary demand returns once an output covers it,
+            # and until then it counts as residual work on that finding.
+            if absorbed_demand_sink is not None:
+                absorbed_demand_sink.append(
+                    (branch, None)
+                    if branch in formula_output_reported_branches
+                    else (None, branch.path)
+                )
+            continue
         missing_boundaries.append((branch, boundary))
+        covering_rule_names = tuple(
+            sorted(_rules_covering_branch(branch, principal_rule_paths))
+        )
+        boundary_input_names = (
+            _direct_threshold_input_names(
+                covering_rule_names,
+                principal_rules=principal_rules,
+                formula_environment=formula_environment,
+                numeric_input_names=numeric_input_names,
+                values=(float(boundary.value),),
+            )
+            if covering_rule_names
+            else ()
+        )
+        direct_boundary_inputs[len(missing_boundaries) - 1] = boundary_input_names
+        boundary_values = _values_for_boundary_input_hints(
+            (float(boundary.value),),
+            boundary_input_names,
+            input_declarations or {},
+        )
+        if boundary_input_names and boundary_values:
+            obligations.append(
+                CompanionTestObligation(
+                    "boundary",
+                    covering_rule_names,
+                    values=boundary_values,
+                    input_names=boundary_input_names,
+                    label=f"{branch.label}={_boundary_value_text(boundary.value)}",
+                )
+            )
     if missing_boundaries:
         rendered = ", ".join(
-            f"{branch.label}={occurrence.value:g}"
+            f"{branch.label}={_boundary_value_text(occurrence.value)}"
             for branch, occurrence in missing_boundaries
         )
         issues.append(
             ValidationIssue(
                 "[complete-source-unit:tests] Companion tests do not exercise every "
-                f"source-stated boundary input; missing: {rendered}.",
+                f"source-stated boundary input; missing: {rendered}."
+                + _missing_boundary_repair_detail(
+                    missing_boundaries,
+                    direct_boundary_inputs=direct_boundary_inputs,
+                    principal_rules=principal_rules,
+                    principal_rule_paths=principal_rule_paths,
+                    numeric_input_names=numeric_input_names,
+                    corpus_citation_path=corpus_citation_path,
+                ),
                 check=CHECK_TESTS_BOUNDARY_UNEXERCISED,
                 subject=_branch_subject(corpus_citation_path, missing_boundaries[0][0]),
                 # Name only the subject's own boundary: the fingerprint must not
@@ -23593,7 +25491,7 @@ def _companion_test_issues(
                 expected=(
                     "case at "
                     f"{missing_boundaries[0][0].label}="
-                    f"{missing_boundaries[0][1].value:g}"
+                    f"{_boundary_value_text(missing_boundaries[0][1].value)}"
                 ),
                 found=f"no case at {rendered}",
             )
@@ -23611,6 +25509,86 @@ def _companion_test_issues(
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
         corpus_citation_path=corpus_citation_path,
     )
+    if investment_evidence is not None:
+        exception_branches, investment_missing = investment_evidence.partition(
+            exception_branches, "control"
+        )
+        for branch in investment_missing:
+            issues.append(
+                ValidationIssue(
+                    "[complete-source-unit:schedule-n-evidence] Missing or duplicate source-owned "
+                    f"control occurrence at {branch.start}:{branch.end}; "
+                    "private principal evidence cannot be replaced by generic fallback.",
+                    check=CHECK_SCHEDULE_N_EXECUTION_EVIDENCE,
+                    subject=_branch_subject(corpus_citation_path, branch),
+                )
+            )
+    if capital_evidence is not None:
+        exception_branches, capital_missing = capital_evidence.partition(
+            exception_branches, "control"
+        )
+        for branch in capital_missing:
+            issues.append(
+                ValidationIssue(
+                    "[complete-source-unit:t1170-evidence] Missing or duplicate source-owned "
+                    f"control occurrence at {branch.start}:{branch.end}; "
+                    "private principal evidence cannot be replaced by generic fallback.",
+                    check=CHECK_T1170_EXECUTION_EVIDENCE,
+                    subject=_branch_subject(corpus_citation_path, branch),
+                )
+            )
+    if student_loan is not None:
+        # These source-owned duties stay explicit even if generic discovery
+        # regards a guide referral or an enclosure command as non-conditional.
+        for role in ("enclosure", "guide_referral"):
+            start, end = student_loan.span(role)
+            if not any((b.start, b.end) == (start, end) for b in exception_branches):
+                exception_branches = (
+                    *exception_branches,
+                    SourceStructureBranch(
+                        (),
+                        "exception-clause",
+                        "source unit",
+                        source_text[start:end],
+                        start,
+                        end,
+                    ),
+                )
+    if child_credit is not None:
+        for role in ("volunteer", "paper_attachment", "receipts"):
+            start, end = child_credit.owned_spans()[role]
+            if not any((b.start, b.end) == (start, end) for b in exception_branches):
+                exception_branches = (
+                    *exception_branches,
+                    SourceStructureBranch(
+                        (),
+                        "exception-clause",
+                        "source unit",
+                        source_text[start:end],
+                        start,
+                        end,
+                    ),
+                )
+    if retirement_transfer is not None:
+        for role in (
+            "enclosure",
+            "identification",
+            "recipient_income_duty",
+            "recipient_withholding_duty",
+        ):
+            start, end = retirement_transfer.owned_spans()[role]
+            if not any((b.start, b.end) == (start, end) for b in exception_branches):
+                exception_branches = (
+                    *exception_branches,
+                    SourceStructureBranch(
+                        (),
+                        "exception-clause",
+                        "source unit",
+                        source_text[start:end],
+                        start,
+                        end,
+                    ),
+                )
     if exception_branches:
         independently_covered_paths = {
             path
@@ -23621,7 +25599,19 @@ def _companion_test_issues(
         paired_exception_branches = tuple(
             branch
             for branch in exception_branches
-            if _source_exception_requires_paired_witness(
+            if (
+                student_loan is not None
+                and student_loan.branch_role(branch) is not None
+            )
+            or (
+                child_credit is not None
+                and child_credit.branch_role(branch) is not None
+            )
+            or (
+                retirement_transfer is not None
+                and retirement_transfer.branch_role(branch) is not None
+            )
+            or _source_exception_requires_paired_witness(
                 branch.text,
                 branch_path=branch.path,
                 independently_covered_paths=independently_covered_paths,
@@ -23637,6 +25627,22 @@ def _companion_test_issues(
             asserted_by_rule=asserted_by_rule,
             formula_environment=formula_environment,
             calendar_date_declarations=calendar_date_declarations,
+        )
+        student_exception_branches = tuple(
+            branch
+            for branch in paired_exception_branches
+            if student_loan is not None and student_loan.branch_role(branch) is not None
+        )
+        child_exception_branches = tuple(
+            b
+            for b in paired_exception_branches
+            if child_credit is not None and child_credit.branch_role(b) is not None
+        )
+        retirement_exception_branches = tuple(
+            b
+            for b in paired_exception_branches
+            if retirement_transfer is not None
+            and retirement_transfer.branch_role(b) is not None
         )
         if local_relation_context is not None and partnership_content is not None:
             from .local_relation_source_evidence import (
@@ -23684,12 +25690,10 @@ def _companion_test_issues(
         ordinary_exception_branches = tuple(
             branch
             for branch in paired_exception_branches
-            if not (
-                reserves_signed_copy_branch(branch, source_text, corpus_citation_path)
-                or reserves_chart_duty(branch, source_text, corpus_citation_path)
-                or reserves_chart_line1(branch, source_text, corpus_citation_path)
-                or reserves_expense_group(branch, source_text, corpus_citation_path)
-            )
+            if branch not in student_exception_branches
+            and branch not in child_exception_branches
+            and branch not in retirement_exception_branches
+            and branch not in reserved_signed_branches
         )
         missing_exception_branches = _unwitnessed_exception_branches(
             ordinary_exception_branches,
@@ -23710,6 +25714,32 @@ def _companion_test_issues(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
+        if (
+            missing_exception_branches
+            and execution_evidence is not None
+            and partnership_content is not None
+            and printed_operations is not None
+            and printed_operations.ordered_binding is not None
+        ):
+            from .bound_form_operands import observed_form_condition_witnesses
+            from .bound_schedule_execution import observed_schedule_condition_witnesses
+
+            missing_exception_branches = _unmatched_evidence_obligations(
+                (
+                    observed_schedule_condition_witnesses
+                    if isinstance(printed_operations.ordered_binding, ScheduleBinding)
+                    else observed_form_condition_witnesses
+                )(
+                    printed_operations.ordered_binding,
+                    execution_evidence,
+                    partnership_content,
+                    execution_test_cases,
+                    missing_exception_branches,
+                    source_text=source_text,
+                    corpus_citation_path=corpus_citation_path,
+                    principal_rules=principal_rules,
+                )
+            )
         if local_relation_context is not None and partnership_content is not None:
             from .local_relation_source_evidence import paired_branch_witnesses
 
@@ -24008,6 +26038,29 @@ def _companion_test_issues(
                     for branch in missing_exception_branches
                 }
             )
+        if student_loan is not None:
+            # Owned obligations never enter generic candidate allocation or its
+            # fallback chains. Missing/stale observation cannot borrow a guide
+            # or enclosure token to erase a historical-provider obligation.
+            missing_exception_branches = (
+                *missing_exception_branches,
+                *_unmatched_evidence_obligations(
+                    {
+                        branch: student_loan.witnesses(branch)
+                        for branch in student_exception_branches
+                    }
+                ),
+            )
+        if child_credit is not None:
+            missing_exception_branches = (
+                *missing_exception_branches,
+                *child_credit.unmatched(child_exception_branches),
+            )
+        if retirement_transfer is not None:
+            missing_exception_branches = (
+                *missing_exception_branches,
+                *retirement_transfer.unmatched(retirement_exception_branches),
+            )
         if missing_exception_branches:
             unsupported_row_outputs = [
                 f"case `{case.get('name') or '<unnamed>'}` output `{key}` "
@@ -24254,10 +26307,12 @@ class _PrintedArithmeticProjection:
 class _PrintedOperationContext:
     source_text: str
     citation_path: str
-    structure: PrintedRowStructure
+    structure: PrintedRowStructure | None
     source_branches: tuple[SourceStructureBranch, ...] = ()
     consumer_content: str = ""
     proof_sources: tuple[tuple[str, str | None], ...] = ()
+    bound_form: BoundFormStructure | BoundScheduleStructure | None = None
+    ordered_binding: OrderedFormBinding | ScheduleBinding | None = None
 
     def local_operands_bind(
         self,
@@ -24277,7 +26332,12 @@ class _PrintedOperationContext:
             _source,
         )
 
-        if rule is None or principal_rules is None or case is None:
+        if (
+            self.structure is None
+            or rule is None
+            or principal_rules is None
+            or case is None
+        ):
             return False
         payload = _payload(self.consumer_content)
         if payload is None:
@@ -24511,6 +26571,8 @@ class _PrintedOperationContext:
         return _PrintedArithmeticProjection("".join(projected), spans)
 
     def operation_kinds(self, clause: SourceStructureBranch) -> frozenset[str] | None:
+        if self.structure is None:
+            return None
         if self.source_text[clause.start : clause.end] != clause.text:
             return None
         if any(
@@ -24520,6 +26582,8 @@ class _PrintedOperationContext:
         return None
 
     def covers(self, clause: SourceStructureBranch, excerpt: str) -> bool:
+        if self.structure is None:
+            return False
         if not excerpt or self.source_text.count(excerpt) != 1:
             return False
         start = self.source_text.index(excerpt)
@@ -24539,6 +26603,7 @@ def _printed_operation_context(
     *,
     consumer_content: str = "",
     proof_sources: Mapping[str, str | None] | None = None,
+    root_relative: str | None = None,
 ) -> _PrintedOperationContext | None:
     structure = _unconflicted_printed_rows(
         source_text,
@@ -24546,6 +26611,23 @@ def _printed_operation_context(
         corpus_citation_path=citation_path,
         allow_detached=True,
         allow_multipage=True,
+    )
+    raw_form_source = (proof_sources or {}).get(citation_path)
+    form = _unconflicted_bound_form(
+        raw_form_source
+        if isinstance(raw_form_source, str) and raw_form_source.rstrip() == source_text
+        else source_text,
+        branches,
+        citation_path,
+    )
+    binding = (
+        (
+            bind_schedule
+            if isinstance(form, BoundScheduleStructure)
+            else bind_ordered_form
+        )(form, consumer_content, proof_sources or {}, root_relative=root_relative)
+        if form is not None
+        else None
     )
     return (
         _PrintedOperationContext(
@@ -24555,8 +26637,10 @@ def _printed_operation_context(
             tuple(branches),
             consumer_content,
             tuple(proof_sources.items()) if proof_sources is not None else (),
+            form,
+            binding,
         )
-        if structure is not None
+        if structure is not None or form is not None
         else None
     )
 
@@ -24572,6 +26656,37 @@ def _printed_operation_proof(
         and context.citation_path == citation_path.strip("/").casefold()
         and context.covers(clause, excerpt)
     )
+
+
+def _unconflicted_bound_form(source_text, branches, citation):
+    structure = recognize_bound_form_structure(source_text, citation)
+    if structure is None:
+        structure = recognize_bound_schedule_structure(source_text, citation)
+    if structure is None:
+        return None
+    labels = bare_outline(source_text, corpus_citation_path=citation) or ()
+    points = {
+        *(point for branch in branches for point in (branch.start, branch.end)),
+        *(point for label in labels for point in (label.start, label.marker_end)),
+        *(start for start, _term in bare_definition_headers(source_text, labels)),
+    }
+    owned = (
+        (
+            structure.header_span,
+            structure.note_span,
+            *(row.span for row in structure.rows),
+        )
+        if isinstance(structure, BoundScheduleStructure)
+        else (
+            structure.header.span,
+            structure.table.note_span,
+            *structure.table.field_spans,
+            *(row.span for row in structure.rows),
+        )
+    )
+    if any(a < point < b for a, b in owned for point in points):
+        return None
+    return structure
 
 
 def _unconflicted_printed_rows(
@@ -24685,6 +26800,17 @@ def _source_formula_branches(
         ),
         start=1,
     ):
+        schedule = (
+            printed_operations.bound_form if printed_operations is not None else None
+        )
+        if isinstance(schedule, BoundScheduleStructure) and schedule.bound(
+            source_text, corpus_citation_path
+        ):
+            caption_span = schedule.entered_table_caption_span()
+            if caption_span == (start, end):
+                # This classifies only exact field headings as non-computational;
+                # applicability and document obligations still see the raw text.
+                continue
         if _span_is_deferred(
             start,
             end,
@@ -25296,6 +27422,8 @@ def _source_clause_spans(
         allow_detached=True,
         allow_multipage=True,
     )
+    bound_form = _unconflicted_bound_form(source_text, branches, corpus_citation_path)
+    bound_rows = tuple(row.span for row in bound_form.rows) if bound_form else ()
     bare_labels = (
         bare_outline(source_text, corpus_citation_path=corpus_citation_path) or ()
     )
@@ -25311,6 +27439,7 @@ def _source_clause_spans(
         match
         for match in boundary.finditer(boundary_text)
         if not _source_clause_boundary_splits_state_code_citation(source_text, match)
+        and not any(a < match.end() < b for a, b in bound_rows)
         and not (
             match.group() == "."
             and re.search(r"(?<!\w)\d+\.$", source_text[: match.end()])
@@ -25379,6 +27508,19 @@ def _source_clause_spans(
             point
             for point in printed_rows.boundaries
             if not any(a < point < b for a, b in printed_rows.atomic_spans)
+        )
+    if bound_form is not None:
+        # Only rows and the transcriber note gain boundaries; preamble and all
+        # separated prose remain ordinary clauses and condition obligations.
+        split_points.update(
+            point
+            for span in (
+                *bound_rows,
+                bound_form.note_span
+                if isinstance(bound_form, BoundScheduleStructure)
+                else bound_form.table.note_span,
+            )
+            for point in span
         )
     for start, end in zip(sorted(split_points), sorted(split_points)[1:]):
         raw = boundary_text[start:end]
@@ -28633,6 +30775,25 @@ def _formula_execution_matches_source_branch(
 ) -> bool:
     """Bind a reached leaf to numeric evidence in its exact source formula."""
 
+    # Row segmentation is not an operand certificate. A recognized form row
+    # must satisfy the ordered source/AST gate before any generic witness path.
+    if printed_operations is not None and printed_operations.bound_form is not None:
+        form = printed_operations.bound_form
+        if any(
+            a < branch.end and branch.start < b
+            for a, b in (row.span for row in form.rows)
+        ):
+            binding = printed_operations.ordered_binding
+            if binding is None or not binding.matches(
+                content=printed_operations.consumer_content,
+                branch=branch,
+                rule=source_rule,
+                principal_rules=principal_rules,
+                case=case,
+                leaf=execution.leaf,
+                trace=execution.trace,
+            ):
+                return False
     projection = (
         printed_operations.operation_projection(
             branch, source_text=source_text, citation_path=corpus_citation_path
@@ -30030,6 +32191,7 @@ def _execute_formula_text(
 
     selected_text = formula_text.strip()
     trace: list[_FormulaTraceStep] = []
+    unproven_trace_start: int | None = None
     for _depth in range(32):
         node = _first_formula_branch_node(selected_text)
         if node is None:
@@ -30062,6 +32224,7 @@ def _execute_formula_text(
                 value_signature,
                 evaluates_to_zero,
                 constant_environment,
+                unproven_trace_start=unproven_trace_start,
             )
         if not all(
             _formula_text_has_executable_branch_tree(selector)
@@ -30083,6 +32246,12 @@ def _execute_formula_text(
         selected_body = textwrap.dedent(node.choices[choice]).strip()
         if not selected_body:
             return None
+        # Reduction finds embedded branches before the surrounding expression
+        # runs. A lazy operand can skip that branch and its selectors entirely.
+        if unproven_trace_start is None and (
+            selector_trace or not _formula_branch_spans_expression(selected_text, node)
+        ):
+            unproven_trace_start = len(trace)
         trace.extend(selector_trace)
         trace.append(
             _FormulaTraceStep(
@@ -30095,6 +32264,16 @@ def _execute_formula_text(
             selected_text[: node.start] + selected_body + selected_text[node.end :]
         )
     return None
+
+
+def _formula_branch_spans_expression(text: str, node: _FormulaBranchNode) -> bool:
+    """Accept a whole branch expression with comments and enclosing parentheses."""
+    if node.start == 0 and node.end == len(text):
+        return True
+    uncommented = _mask_formula_comments(text)
+    opening = "".join(uncommented[: node.start].split())
+    closing = "".join(uncommented[node.end :].split())
+    return opening == "(" * len(opening) and closing == ")" * len(opening)
 
 
 def _first_formula_branch_node(text: str) -> _FormulaBranchNode | None:
@@ -34779,13 +36958,24 @@ def _source_exception_or_applicability_matches(
 ) -> tuple[re.Match[str], ...]:
     """Return ordered, de-duplicated negative and positive condition cues."""
 
+    raw_source = source_text if raw_source_text is None else raw_source_text
+    header_cue = None
+    if raw_source == source_text:
+        header_cue = printed_form_header_condition_span(raw_source)
+    elif raw_source.strip() == source_text:
+        raw_cue = printed_form_header_condition_span(raw_source)
+        if raw_cue is not None:
+            offset = len(raw_source) - len(raw_source.lstrip())
+            header_cue = (raw_cue[0] - offset, raw_cue[1] - offset)
+
     matches = tuple(
         match
         for match in (
             *_EXCEPTION_LANGUAGE.finditer(source_text),
             *_APPLICABILITY_LANGUAGE.finditer(source_text),
         )
-        if not _is_concessive_condition_cue(source_text, match)
+        if match.span() != header_cue
+        and not _is_concessive_condition_cue(source_text, match)
         and not _is_english_verb_falls(match)
         and not _is_uk_reference_title_cue(source_text, match)
         and not _is_coordinated_parenthetical_if_any_cue(
@@ -39529,6 +41719,67 @@ def _exception_witness_satisfies_requirement(
     return True
 
 
+def _sole_table_row_inputs(
+    case: Mapping[str, Any],
+    entity: str,
+) -> dict[Any, Any] | None:
+    """Return the facts of the only ``tables`` row the runner queries."""
+
+    tables = case.get("tables")
+    rows = tables.get(entity) if isinstance(tables, dict) else None
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        return None
+    # Drop only the companion runner's row-identity keys. Every other key is
+    # kept verbatim, so a flat ``input`` repeats the row only under the same
+    # legal input IDs. Once a row is read as flat facts, replay resolves its
+    # keys by short name exactly as it does for a scalar case: a same-named
+    # input of another module is not told apart there.
+    snake_entity = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", entity)
+    snake_entity = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", snake_entity)
+    row_id_keys = {
+        "id",
+        "entity_id",
+        snake_entity.replace("-", "_").lower() + "_id",
+    }
+    return {key: value for key, value in rows[0].items() if key not in row_id_keys}
+
+
+def _sole_table_row_scalar_case(
+    case: dict[str, Any],
+    rule: dict[str, Any],
+    *,
+    principal_rules: Mapping[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Rewrite a proven sole-row case as the scalar case replay can read.
+
+    Replay reads flat ``input`` facts and scalar assertions. A table-row case
+    states its facts in the row and asserts row-ordered lists, so it is
+    rewritten only when the binding is exact: the flat ``input`` is empty or
+    repeats the row, and the row is the only one the runner queries for every
+    asserted output. Any other row shape returns ``None``.
+    """
+
+    inputs = case.get("input")
+    candidate = case
+    if inputs is None or inputs == {}:
+        row_inputs = _sole_table_row_inputs(case, str(rule.get("entity") or "Case"))
+        if row_inputs is None:
+            return None
+        candidate = {**case, "input": row_inputs}
+    name = str(rule.get("name") or "")
+    if not _asserted_cases_with_bound_formula_inputs(
+        principal_rules, {name: [candidate]}
+    ).get(name):
+        return None
+    return {
+        **candidate,
+        "output": {
+            key: value[0] if isinstance(value, list) else value
+            for key, value in candidate["output"].items()
+        },
+    }
+
+
 def _asserted_cases_with_bound_formula_inputs(
     principal_rules: Mapping[str, dict[str, Any]],
     asserted_by_rule: dict[str, list[dict[str, Any]]],
@@ -39567,26 +41818,9 @@ def _asserted_cases_with_bound_formula_inputs(
             for name in _test_case_output_names(case) & principal_rules.keys()
         ):
             return False
-        tables = case.get("tables")
-        rows = tables.get(entity) if isinstance(tables, dict) else None
-        if (
-            not isinstance(rows, list)
-            or len(rows) != 1
-            or not isinstance(rows[0], dict)
-        ):
+        row_inputs = _sole_table_row_inputs(case, entity)
+        if row_inputs is None:
             return False
-        # Match the companion runner's metadata keys, retaining legal input IDs
-        # verbatim so same-named inputs in other modules cannot establish binding.
-        snake_entity = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", entity)
-        snake_entity = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", snake_entity)
-        row_id_keys = {
-            "id",
-            "entity_id",
-            snake_entity.replace("-", "_").lower() + "_id",
-        }
-        row_inputs = {
-            key: value for key, value in rows[0].items() if key not in row_id_keys
-        }
         inputs = case.get("input")
         return (
             isinstance(inputs, dict)

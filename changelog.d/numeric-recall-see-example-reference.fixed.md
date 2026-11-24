@@ -1,0 +1,1 @@
+Stop numeric recall and the eval numeric-coverage count from demanding the ordinal of a closed `See Example N` cross-reference, such as `(See Example 1 )`, as a policy value. Worked-example labels, open references and every other number keep their demand.

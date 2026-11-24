@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from axiom_encode import cli
+from axiom_encode.validation_waiver_scope import WaiverAuditScope
 from tests.test_validation_waiver_audit_cli import (
     _audit_args,
     _entry,
@@ -153,7 +154,140 @@ def test_explicit_full_and_default_reports_are_identical(audit_repo, capsys):
     assert default == explicit
 
 
-@pytest.mark.parametrize("changed", [[], ["README.md"], ["docs/guide.md"]])
+def test_incremental_empty_change_set_audits_every_waiver(audit_repo, capsys):
+    code, report, executed = _run_audit(
+        audit_repo, capsys, changed=[], scope="incremental"
+    )
+
+    assert code == 0
+    assert executed == list(audit_repo.paths)
+    assert report["scope"] == "full"
+    assert report["checked"] == report["selected"] == report["total_waivers"] == 4
+    assert report["fallback_reason"] == "no changed path was given"
+
+
+def test_incremental_audits_everything_when_the_ledger_left_the_protected_base(
+    audit_repo, capsys
+):
+    """The head ledger drops an active waiver whose module still fails.
+
+    The protected base keeps the record and the caller's changed paths name
+    only a document. The full scope fails on the dropped waiver; the
+    incremental scope must not pass with nothing checked.
+    """
+
+    dropped = audit_repo.paths[2]
+    head = _waiver_set(
+        {
+            path: entry
+            for path, entry in audit_repo.waivers.entries.items()
+            if path != dropped
+        }
+    )
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+
+    def recheck(paths, **kwargs):
+        # The isolated recheck of a discrepancy confirms the same failure.
+        return [
+            {
+                "path": path.as_posix(),
+                "passed": False,
+                "fingerprint": audit_repo.waivers.entries[
+                    path.as_posix()
+                ].active.fingerprint,
+                "outcome": {},
+            }
+            for path in paths
+        ]
+
+    reports = {}
+    for scope in ("full", "incremental"):
+        with patch.object(
+            cli, "_fingerprint_validation_waiver_modules", side_effect=recheck
+        ):
+            code, reports[scope], executed = _run_audit(
+                audit_repo, capsys, changed=["README.md"], scope=scope, head=head
+            )
+        assert code == 1
+        assert executed == list(audit_repo.paths)
+        assert reports[scope]["errors"] == [
+            f"{dropped}: removed active waiver still has a failing module"
+        ]
+
+    incremental = reports["incremental"]
+    assert incremental["scope"] == "full"
+    assert incremental["checked"] == incremental["selected"] == 4
+    assert incremental["fallback_reason"] == (
+        "known-validation-gaps.yaml differs from the protected base ledger and "
+        "is not among the changed paths"
+    )
+    assert sorted(incremental["selection_reasons"]) == list(audit_repo.paths)
+
+
+def test_incremental_compares_ledger_bytes_as_well_as_records(audit_repo, capsys):
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+    # Same parsed records (the loader is the fixture's), different bytes.
+    (audit_repo.root / "known-validation-gaps.yaml").write_text(
+        "validate_failures: {}\n# edited\n", encoding="utf-8"
+    )
+
+    code, report, executed = _run_audit(
+        audit_repo, capsys, changed=["README.md"], scope="incremental"
+    )
+
+    assert code == 0
+    assert report["scope"] == "full"
+    assert executed == list(audit_repo.paths)
+    assert "differs from the protected base ledger" in report["fallback_reason"]
+
+
+def test_incremental_unreadable_ledger_file_counts_as_a_difference(audit_repo, capsys):
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+    audit_repo.base_file.unlink()
+
+    code, report, executed = _run_audit(
+        audit_repo, capsys, changed=["README.md"], scope="incremental"
+    )
+
+    assert code == 0
+    assert report["scope"] == "full"
+    assert executed == list(audit_repo.paths)
+
+
+def test_ledger_guard_keeps_each_partition_to_what_it_owns(audit_repo, capsys):
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+    (audit_repo.root / "known-validation-gaps.yaml").write_text(
+        "validate_failures: {}\n# edited\n", encoding="utf-8"
+    )
+
+    code, report, executed = _run_audit(
+        audit_repo,
+        capsys,
+        changed=["README.md"],
+        scope="incremental",
+        partition_key="shard-b",
+    )
+
+    assert code == 0
+    assert report["scope"] == "full"
+    assert executed == [audit_repo.paths[1], audit_repo.paths[3]]
+    assert report["selected"] == 2
+
+
+def test_unchanged_ledger_keeps_the_incremental_scope(audit_repo, capsys):
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+
+    code, report, executed = _run_audit(
+        audit_repo, capsys, changed=["README.md"], scope="incremental"
+    )
+
+    assert code == 0
+    assert report["scope"] == "incremental"
+    assert executed == []
+    assert "fallback_reason" not in report
+
+
+@pytest.mark.parametrize("changed", [["README.md"], ["docs/guide.md"]])
 def test_incremental_inert_changes_report_zero_without_fingerprinting(
     audit_repo,
     capsys,
@@ -313,6 +447,188 @@ def test_partitioning_uses_complete_ledger_and_is_exhaustive(audit_repo, capsys)
     assert reports[1]["selected"] == 1
     assert executed_parts[0].isdisjoint(executed_parts[1])
     assert set.union(*executed_parts) == set(audit_repo.paths[:3])
+
+
+def _signed_change(repo, module: str) -> list[str]:
+    _module(repo.root, module)
+    companion = module.removesuffix(".yaml") + ".test.yaml"
+    (repo.root / companion).write_text("[]\n", encoding="utf-8")
+    manifest = f".axiom/encoding-manifests/{module.removesuffix('.yaml')}.json"
+    (repo.root / manifest).parent.mkdir(parents=True, exist_ok=True)
+    (repo.root / manifest).write_text("{}\n", encoding="utf-8")
+    return [module, companion, manifest]
+
+
+def test_signed_pull_request_change_audits_only_its_jurisdiction(audit_repo, capsys):
+    changed = _signed_change(audit_repo, "us-ny/statutes/new.yaml")
+
+    code, report, executed = _run_audit(
+        audit_repo, capsys, changed=changed, scope="incremental"
+    )
+
+    assert code == 0
+    assert executed == ["us-ny/statutes/z.yaml"]
+    assert report["scope"] == "incremental"
+    assert "fallback_reason" not in report
+    assert report["selected"] == report["checked"] == 1
+    assert report["total_waivers"] == 4
+    assert report["selection_reasons"] == {
+        "us-ny/statutes/z.yaml": [
+            "validation searches changed module: us-ny/statutes/new.yaml"
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ".axiom/toolchain.toml",
+        ".axiom/workflow-toolchain.toml",
+        ".axiom/pending-validation-fingerprints.json",
+        ".axiom/encoding-manifests/statutes/26/1.json",
+        "known-validation-gaps.yaml",
+    ],
+)
+def test_signed_change_with_a_shared_axiom_path_still_audits_everything(
+    audit_repo, capsys, extra
+):
+    changed = [*_signed_change(audit_repo, "us-ny/statutes/new.yaml"), extra]
+
+    code, report, executed = _run_audit(
+        audit_repo, capsys, changed=changed, scope="incremental"
+    )
+
+    assert code == 0
+    assert executed == list(audit_repo.paths)
+    assert report["scope"] == "full"
+    assert report["fallback_reason"] == (
+        f"unclassified or shared validation input changed: {extra}"
+    )
+
+
+def test_each_partition_selects_only_among_the_waivers_it_owns(audit_repo, capsys):
+    changed = _signed_change(audit_repo, "us-ca/statutes/new.yaml")
+    seen: dict[str, list[str]] = {}
+    original = cli.select_validation_waiver_scope
+
+    def spy(paths, **kwargs):
+        seen[key] = list(paths)
+        return original(paths, **kwargs)
+
+    reports = {}
+    with patch.object(cli, "select_validation_waiver_scope", side_effect=spy):
+        for key in ("shard-a", "shard-b"):
+            code, reports[key], executed = _run_audit(
+                audit_repo,
+                capsys,
+                changed=changed,
+                scope="incremental",
+                partition_key=key,
+            )
+            assert code == 0
+            assert executed == sorted(reports[key]["selection_reasons"])
+
+    # Round-robin ownership over the sorted complete ledger.
+    assert seen == {
+        "shard-a": [audit_repo.paths[0], audit_repo.paths[2]],
+        "shard-b": [audit_repo.paths[1], audit_repo.paths[3]],
+    }
+    assert set(reports["shard-a"]["selection_reasons"]) == {
+        audit_repo.paths[0],
+        audit_repo.paths[2],
+    }
+    assert set(reports["shard-b"]["selection_reasons"]) == {audit_repo.paths[1]}
+    code, whole, _executed = _run_audit(
+        audit_repo, capsys, changed=changed, scope="incremental"
+    )
+    assert code == 0
+    assert whole["selection_reasons"] == {
+        **reports["shard-a"]["selection_reasons"],
+        **reports["shard-b"]["selection_reasons"],
+    }
+
+
+def test_selection_can_never_widen_the_partition_a_job_owns(audit_repo, capsys):
+    everything = WaiverAuditScope(
+        "full",
+        tuple(audit_repo.paths),
+        {path: ["full audit fallback: uncertain"] for path in audit_repo.paths},
+        "uncertain",
+    )
+    with patch.object(cli, "select_validation_waiver_scope", return_value=everything):
+        code, report, executed = _run_audit(
+            audit_repo,
+            capsys,
+            changed=[audit_repo.paths[0]],
+            scope="incremental",
+            partition_key="shard-b",
+        )
+
+    owned = [audit_repo.paths[1], audit_repo.paths[3]]
+    assert code == 0
+    assert executed == owned
+    assert report["selected"] == report["checked"] == 2
+    assert sorted(report["selection_reasons"]) == owned
+
+
+def test_unreadable_waiver_is_audited_by_its_own_partition_only(audit_repo, capsys):
+    broken = audit_repo.paths[3]
+    (audit_repo.root / broken).write_text(
+        "format: rulespec/v1\nimports:\n  - data/terminal#value\nrules: []\n",
+        encoding="utf-8",
+    )
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+
+    reports = {}
+    executed = {}
+    for key in ("shard-a", "shard-b"):
+        code, reports[key], executed[key] = _run_audit(
+            audit_repo,
+            capsys,
+            changed=["README.md"],
+            scope="incremental",
+            partition_key=key,
+        )
+        assert code == 0
+        assert reports[key]["scope"] == "incremental"
+        assert "fallback_reason" not in reports[key]
+
+    assert executed == {"shard-a": [], "shard-b": [broken]}
+    assert reports["shard-a"]["selected"] == 0
+    assert reports["shard-b"]["selected"] == 1
+    assert reports["shard-b"]["selection_reasons"][broken][0].startswith(
+        "validation read set could not be established: unclassifiable import"
+    )
+
+
+def test_partition_arguments_are_checked_before_selection(audit_repo):
+    audit_repo.changed_file.write_text("")
+    args = _audit_args(
+        audit_repo.root,
+        audit_repo.base_file,
+        audit_repo.changed_file,
+        audit_repo.root / "corpus",
+    )
+    args.scope = "incremental"
+    args.partition_key = "shard-a"
+    args.partition_keys_json = None
+    with (
+        patch.object(cli, "select_validation_waiver_scope") as selector,
+        patch.object(
+            cli._validation_waivers,
+            "load_validation_waivers",
+            side_effect=[audit_repo.waivers, audit_repo.waivers],
+        ),
+        patch.object(
+            cli._validation_waivers,
+            "protected_base_transition_issues",
+            return_value=(),
+        ),
+        pytest.raises(ValueError, match="must be provided together"),
+    ):
+        cli._cmd_validation_waivers_audit(args)
+
+    selector.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -513,6 +829,56 @@ def test_fingerprint_exception_preserves_partitioned_selection_report(
         for path in expected_paths:
             assert path in output.err
         assert ("Full audit fallback:" in output.err) == (expected_scope == "full")
+
+
+def test_error_report_names_only_the_partition_even_if_selection_named_more(
+    audit_repo, capsys
+):
+    audit_repo.changed_file.write_text(f"{audit_repo.paths[0]}\n", encoding="utf-8")
+    args = _audit_args(
+        audit_repo.root,
+        audit_repo.base_file,
+        audit_repo.changed_file,
+        audit_repo.root / "corpus",
+    )
+    args.validation_waivers_command = "audit"
+    args.scope = "incremental"
+    args.partition_key = "shard-b"
+    args.partition_keys_json = '["shard-b", "shard-a"]'
+    args.json = True
+    everything = WaiverAuditScope(
+        "full",
+        tuple(audit_repo.paths),
+        {path: ["full audit fallback: uncertain"] for path in audit_repo.paths},
+        "uncertain",
+    )
+
+    with (
+        patch.object(
+            cli._validation_waivers,
+            "load_validation_waivers",
+            return_value=audit_repo.waivers,
+        ),
+        patch.object(
+            cli._validation_waivers,
+            "protected_base_transition_issues",
+            return_value=(),
+        ),
+        patch.object(cli, "select_validation_waiver_scope", return_value=everything),
+        patch.object(
+            cli,
+            "_fingerprint_validation_waiver_modules_parallel",
+            side_effect=RuntimeError("fingerprint worker failed"),
+        ),
+        pytest.raises(SystemExit),
+    ):
+        cli.cmd_validation_waivers(args)
+
+    report = json.loads(capsys.readouterr().out)
+    owned = [audit_repo.paths[1], audit_repo.paths[3]]
+    assert report["errors"] == ["fingerprint worker failed"]
+    assert report["selected"] == 2
+    assert sorted(report["selection_reasons"]) == owned
 
 
 def test_reused_args_default_full_clears_incremental_exception_metadata(

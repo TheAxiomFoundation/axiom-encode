@@ -1,0 +1,1 @@
+Register the exact reviewed Schedule M repair for failed run 43445779735. Restore the source-bound seven-rule graph while retaining all 30 seed cases and the original 18 required contracts; unrelated packages and altered seed, source, contract or postimage bytes remain refused.

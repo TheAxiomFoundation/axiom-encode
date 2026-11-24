@@ -90,6 +90,34 @@ def _issue_finding(issue: Any, *, code: str, severity: Severity) -> Finding:
     return Finding(code=code, severity=severity, message=issue)
 
 
+def _advisory_findings(metrics: Any) -> list[Finding]:
+    """Advisory CI findings of the metrics, labeled and at ``info`` severity.
+
+    They do not decide the gate status. The message starts with
+    ``[advisory]`` so a reader of the findings list can tell them from the
+    blocking ones without the stage attributes.
+    """
+    findings: list[Finding] = []
+    for record in getattr(metrics, "advisory_issues", None) or []:
+        if not (
+            isinstance(record, dict)
+            and record.get("enforcement") == "advisory"
+            and isinstance(record.get("check"), str)
+            and isinstance(record.get("message"), str)
+        ):
+            continue
+        findings.append(
+            Finding(
+                code=record["check"],
+                severity=Severity.info,
+                message=f"[advisory] {record['message']}",
+                locator=record.get("locator"),
+                evidence=record.get("evidence"),
+            )
+        )
+    return findings
+
+
 def _severity_for(kind: str) -> Severity:
     return {
         "critical": Severity.critical,
@@ -155,15 +183,29 @@ def _gate_events_from_metrics(metrics: Any) -> list[dict[str, Any]]:
 
     ci_pass = getattr(metrics, "ci_pass", None)
     if ci_pass is not None:
+        advisory_findings = _advisory_findings(metrics)
         events.append(
             {
                 "stage": "gate.ci",
                 "status": StageStatus.passed if ci_pass else StageStatus.failed,
                 "reason_code": None if ci_pass else "ci_failure",
+                **(
+                    {
+                        "attrs": {
+                            "advisory_finding_count": len(advisory_findings),
+                            "advisory_checks": sorted(
+                                {finding.code for finding in advisory_findings}
+                            ),
+                        }
+                    }
+                    if advisory_findings
+                    else {}
+                ),
                 "findings": [
                     _issue_finding(m, code="ci_failure", severity=Severity.critical)
                     for m in (getattr(metrics, "ci_issues", None) or [])
-                ],
+                ]
+                + advisory_findings,
             }
         )
 
@@ -320,6 +362,50 @@ def emit_live_encode_events(
     return writer
 
 
+def emit_pre_encode_blocked_events(
+    run_id: str,
+    outcome: dict[str, Any],
+    *,
+    citation: Optional[str] = None,
+    backend: Optional[str] = None,
+    model: Optional[str] = None,
+    log_dir: Optional[Path] = None,
+) -> RunLogWriter:
+    """Emit the events of an encode the pre-encode gate stopped.
+
+    Nothing was generated, validated or applied, so each stage is skipped
+    with the gate's reason. Never raises: the writer swallows its own errors.
+    """
+    writer = RunLogWriter(run_id, log_dir=log_dir)
+    identity = {"citation": citation, "backend": backend, "model": model}
+    for stage in _PRE_ENCODE_SKIPPED_STAGES:
+        writer.emit(**_pre_encode_skipped_event(stage, outcome, identity))
+    return writer
+
+
+_PRE_ENCODE_BLOCKED_STATUS = "pre_encode_blocked"
+_PRE_ENCODE_SKIPPED_STAGES = ("generate", "apply")
+
+
+def _pre_encode_skipped_event(
+    stage: str, outcome: dict[str, Any], identity: dict[str, Any]
+) -> dict[str, Any]:
+    attrs: dict[str, Any] = {
+        "status": outcome.get("status"),
+        "pre_encode_gate": outcome.get("pre_encode_gate"),
+    }
+    if stage == "generate":
+        # fold_run reads the run's identity from the generate event.
+        attrs.update({"legal_id": None, **identity})
+    return {
+        "stage": stage,
+        "status": StageStatus.skipped,
+        "reason_code": _PRE_ENCODE_BLOCKED_STATUS,
+        "reason": outcome.get("primary_error"),
+        "attrs": attrs,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Backfill (source-backed only; absent -> null, never fabricated)
 # ---------------------------------------------------------------------------
@@ -422,6 +508,19 @@ def synthesize_backfill_events(
         seq += 1
 
     outcome = getattr(run, "outcome", None) or {}
+    if outcome.get("status") == _PRE_ENCODE_BLOCKED_STATUS:
+        # The gate stopped the encode before a model call: nothing ran.
+        identity = {
+            "citation": getattr(run, "citation", None),
+            "backend": getattr(run, "agent_type", None),
+            "model": getattr(run, "agent_model", None),
+        }
+        for stage in _PRE_ENCODE_SKIPPED_STAGES:
+            event = _pre_encode_skipped_event(stage, outcome, identity)
+            event["attrs"]["backfilled"] = True
+            stage_name = event.pop("stage")
+            _event(stage_name, event.pop("status"), **event)
+        return events
     # Only claim generate=passed when it is sourced. The recorded outcome status
     # `apply_blocked_generation` is the one historical signal that generation
     # itself failed; every other status (validated/applied/blocked-at-validation

@@ -1628,6 +1628,7 @@ _SCAN_SCHEMA_NAMES = (
     "_MODEL_APPLY_MANIFEST_FIELDS",
     "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
     "_REVIEWED_CANDIDATE_MANIFEST_FIELDS",
+    "_REVIEWED_REPAIR_MANIFEST_FIELDS",
     "_RETIRE_APPLY_MANIFEST_FIELDS",
     "_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS",
     "_PATH_MIGRATION_APPLY_MANIFEST_FIELDS",
@@ -1639,6 +1640,10 @@ _SCAN_SCHEMA_NAMES = (
     "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
     "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
     "_REVIEWED_CANDIDATE_PER_FILE_WAIVER_MANIFEST_FIELDS",
+    "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+    "_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
 )
 # Independent audited sets: adding a field requires an explicit classification.
 _EXPECTED_COMMON_SCANNED = frozenset(
@@ -1678,6 +1683,17 @@ _EXPECTED_MANIFEST_CLASSES = {
         | {
             "citation",
             "reviewed_rulespec_ref",
+            "applied_files",
+            "source_attestation",
+            "validation_execution",
+        },
+    ),
+    "_REVIEWED_REPAIR_MANIFEST_FIELDS": (
+        frozenset({"run_id"}),
+        _EXPECTED_COMMON_SCANNED
+        | {
+            "citation",
+            "reviewed_repair",
             "applied_files",
             "source_attestation",
             "validation_execution",
@@ -1757,8 +1773,51 @@ for _set_name, _per_file_name in (
         (_EXPECTED_MANIFEST_CLASSES[_set_name][1] - {"validation_waiver_set_sha256"})
         | {"validation_waiver_bindings"},
     )
+# Generalist review record variants (#2146): the model shapes, in either waiver
+# shape, plus the record, which is scanned. It holds digests and enumerated
+# words only.
+for _per_file_name, _review_name in (
+    ("_MODEL_APPLY_MANIFEST_FIELDS", "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS"),
+    (
+        "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
+        "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+    ),
+    (
+        "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+        "_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
+    ),
+    (
+        "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+        "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
+    ),
+):
+    _EXPECTED_MANIFEST_CLASSES[_review_name] = (
+        _EXPECTED_MANIFEST_CLASSES[_per_file_name][0],
+        _EXPECTED_MANIFEST_CLASSES[_per_file_name][1] | {"generalist_review"},
+    )
 _EXPECTED_DESCRIPTIVE_FIELDS = frozenset({"reason", "run_id", "runner", "model"})
 _SCAN_SCHEMAS = {name: getattr(cli, name) for name in _SCAN_SCHEMA_NAMES}
+# Explicit opt-in model variants: the entire preservation record is scanned,
+# never classified as descriptive text or allowed to conceal a covered path.
+for _model_name in (
+    "_MODEL_APPLY_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
+    "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+    "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+    "_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
+    "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
+):
+    _preserved_name = _model_name + "_WITH_COMPANION_PRESERVATION"
+    _SCAN_SCHEMAS[_preserved_name] = _SCAN_SCHEMAS[_model_name] | {
+        "repair_companion_preservation"
+    }
+    _EXPECTED_MANIFEST_CLASSES[_preserved_name] = (
+        _EXPECTED_MANIFEST_CLASSES[_model_name][0],
+        _EXPECTED_MANIFEST_CLASSES[_model_name][1] | {"repair_companion_preservation"},
+    )
+    _SCAN_SCHEMA_NAMES += (_preserved_name,)
 _SCAN_PATH = "us/policies/council/second.yaml"
 _SCAN_NESTED_POSITIONS = (
     ("_RETIRE_APPLY_MANIFEST_FIELDS", "retired_manifest"),
@@ -1824,6 +1883,7 @@ def test_manifest_scan_classes_cover_each_schema_and_all_schema_constants():
 
 _SCAN_ADMISSION_TOOLS = {
     "_REVIEWED_CANDIDATE_MANIFEST_FIELDS": cli.APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+    "_REVIEWED_REPAIR_MANIFEST_FIELDS": cli.APPLIED_ENCODING_REVIEWED_REPAIR_TOOL,
     "_RETIRE_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_RETIRE_TOOL,
     "_UNRECEIPTED_RETIRE_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_UNRECEIPTED_RETIRE_TOOL,
     "_PATH_MIGRATION_APPLY_MANIFEST_FIELDS": cli.APPLIED_ENCODING_PATH_MIGRATION_TOOL,
@@ -1939,21 +1999,32 @@ def test_manifest_scan_recognition_matches_direct_schema_admission(schema_name):
             )
         )
         assert admitted == (keys in recognized), (schema_name, sorted(keys))
+    # Opt-in preservation leaves the existing backend/provenance contract intact.
+    base_schema_name = schema_name.removesuffix("_WITH_COMPANION_PRESERVATION")
     for backend in backends:
         assert (
             not _admission_shape_issues(schema, schema_name, backend)
             or (
-                schema_name
+                base_schema_name
                 in {
                     "_MODEL_CODEX_APPLY_MANIFEST_FIELDS",
                     "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+                    "_MODEL_CODEX_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+                    "_MODEL_CODEX_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
                 }
                 and backend != "codex"
             )
             or (
                 # A per-file Codex manifest must carry CLI provenance; only
                 # historical set-digest Codex receipts may omit it.
-                schema_name == "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS"
+                base_schema_name
+                in {
+                    "_MODEL_APPLY_PER_FILE_WAIVER_MANIFEST_FIELDS",
+                    # A review record is new, so a Codex manifest with one
+                    # carries CLI provenance on either waiver shape.
+                    "_MODEL_APPLY_REVIEW_RECORD_MANIFEST_FIELDS",
+                    "_MODEL_APPLY_PER_FILE_WAIVER_REVIEW_RECORD_MANIFEST_FIELDS",
+                }
                 and backend == "codex"
             )
         )

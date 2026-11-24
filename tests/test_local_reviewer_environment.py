@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import pwd
 import sys
@@ -16,6 +17,7 @@ from axiom_encode.cli import (
     _review_results_from_eval_metrics,
 )
 from axiom_encode.cli import main as cli_main
+from axiom_encode.codex_cli import CODEX_AUTH_REDACTION
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.eval_evidence import scrub_attestation_signing_keys
 from axiom_encode.toolchain import (
@@ -403,7 +405,105 @@ def test_protected_codex_reviewer_call_is_unchanged(
 
     cmd, kwargs = calls[0]
     assert cmd[0] == "codex"
-    assert set(kwargs) == {"timeout", "idle_timeout", "cwd"}
+    assert set(kwargs) == {
+        "timeout",
+        "idle_timeout",
+        "cwd",
+        "include_supervisor_codex_home",
+    }
+    assert kwargs["include_supervisor_codex_home"] is True
+
+
+def test_local_codex_reviewer_redacts_its_own_codex_home_tokens(
+    tmp_path, monkeypatch, local_context
+):
+    """The local reviewer reads the caller's Codex home, so its auth tokens
+    are redacted from the reviewer text just as the supervisor's are."""
+    token = "eyJhbGciOiJSUzI1NiJ9.invented-local-access-token.signature"
+    home = tmp_path / "local-codex-home"
+    home.mkdir()
+    (home / "auth.json").write_text(
+        json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": token}})
+    )
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    codex = _fake_bin(tmp_path, "codex")
+    monkeypatch.setattr(validator_pipeline, "resolve_codex_cli", lambda: str(codex))
+    event = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": f"leaked {token}"},
+        }
+    )
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(kwargs)
+        return validator_pipeline._SubprocessRunResult(output=event, returncode=0)
+
+    monkeypatch.setattr(
+        validator_pipeline, "_run_subprocess_with_idle_timeout", fake_run
+    )
+
+    text, returncode = validator_pipeline._run_codex_reviewer_cli(
+        "review", cwd=tmp_path
+    )
+
+    assert returncode == 0
+    assert calls[0]["env_is_final"] is True
+    assert calls[0]["env"]["CODEX_HOME"] == str(home)
+    assert "include_supervisor_codex_home" not in calls[0]
+    assert token not in text
+    assert text == f"leaked {CODEX_AUTH_REDACTION}"
+
+
+def test_local_codex_reviewer_redacts_tokens_from_the_account_codex_home(
+    tmp_path, monkeypatch, local_context
+):
+    """Without CODEX_HOME, the child's Codex reads ``.codex`` under the
+    account's home, so the redaction reads that ``auth.json`` too, even when
+    the caller's HOME points elsewhere."""
+    token = "eyJhbGciOiJSUzI1NiJ9.invented-account-home-token.signature"
+    account_home = tmp_path / "account-home"
+    (account_home / ".codex").mkdir(parents=True)
+    (account_home / ".codex" / "auth.json").write_text(
+        json.dumps({"auth_mode": "chatgpt", "tokens": {"access_token": token}})
+    )
+    account = SimpleNamespace(
+        pw_dir=str(account_home), pw_name=pwd.getpwuid(os.getuid()).pw_name
+    )
+    monkeypatch.setattr(pwd, "getpwuid", lambda uid: account)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    caller_home = tmp_path / "caller-home"
+    (caller_home / ".codex").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(caller_home))
+    codex = _fake_bin(tmp_path, "codex")
+    monkeypatch.setattr(validator_pipeline, "resolve_codex_cli", lambda: str(codex))
+    event = json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": f"leaked {token}"},
+        }
+    )
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(kwargs)
+        return validator_pipeline._SubprocessRunResult(output=event, returncode=0)
+
+    monkeypatch.setattr(
+        validator_pipeline, "_run_subprocess_with_idle_timeout", fake_run
+    )
+
+    text, returncode = validator_pipeline._run_codex_reviewer_cli(
+        "review", cwd=tmp_path
+    )
+
+    assert returncode == 0
+    assert calls[0]["env_is_final"] is True
+    assert calls[0]["env"]["HOME"] == str(account_home)
+    assert "CODEX_HOME" not in calls[0]["env"]
+    assert token not in text
+    assert text == f"leaked {CODEX_AUTH_REDACTION}"
 
 
 def test_unscrubbed_environment_requires_explicit_env():

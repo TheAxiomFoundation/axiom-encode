@@ -2445,11 +2445,11 @@ def test_policyengine_version_guard_allows_local_us_override(monkeypatch):
     require_policyengine_versions(allow_policyengine_us_version=True)
 
 
-def test_policyengine_data_certification_override_not_required_for_populace():
+def test_policyengine_data_certification_override_not_required_for_microcosm():
     assert policyengine_data_certification_override_required() is False
 
 
-def test_policyengine_data_certification_override_noop_for_populace(monkeypatch):
+def test_policyengine_data_certification_override_noop_for_microcosm(monkeypatch):
     monkeypatch.delenv("POLICYENGINE_SKIP_COUNTRY_IMPORTS", raising=False)
 
     ecps_tax._install_policyengine_data_certification_override()

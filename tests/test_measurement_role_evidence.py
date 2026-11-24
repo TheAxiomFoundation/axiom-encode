@@ -10,6 +10,7 @@ import yaml
 from axiom_encode.harness import source_completeness as s
 from axiom_encode.harness import validator_pipeline as v
 from axiom_encode.harness.measurement_role_evidence import bind_measurement_roles
+from axiom_encode.harness.reporting_route_evidence import certify_reporting_routes
 
 FIXTURE = Path(__file__).parent / "fixtures" / "measurement_roles"
 CITATION = "ca/policy/revenu-quebec/tp1-2025/schedule-m-student-loan-interest"
@@ -50,13 +51,89 @@ def issues(doc, cases, source):
     ).issues
 
 
+def scoped_evidence(doc, cases, source):
+    """Exercise component witnesses, without granting complete-source authority."""
+    context = bind_measurement_roles(doc, source, CITATION)
+    if context is None:
+        return set(), None
+    rules = {rule["name"]: rule for rule in doc["rules"]}
+    environment = s._constant_rule_environment(doc)
+    structure = s.recognize_source_structure(source, corpus_citation_path=CITATION)
+    printed = s._printed_operation_context(
+        source,
+        structure,
+        CITATION,
+        consumer_content=yaml.safe_dump(doc, sort_keys=False),
+        proof_sources={CITATION: source},
+    )
+    branches = s._source_formula_branches(
+        source,
+        corpus_citation_path=CITATION,
+        branches=structure,
+        active_branches=structure,
+        deferred_paths=set(),
+        printed_operations=printed,
+    )
+    # These component-owned operations are independently bound to exact source
+    # spans. They are not a substitute for the complete schedule's obligations.
+    branches += tuple(
+        s.SourceStructureBranch(
+            (), "formula-clause", "scoped operation", source[start:end], start, end
+        )
+        for binding in context.current
+        for start, end in (binding.operation_span,)
+    )
+    spans, records = set(), set()
+    profile = v._numeric_profile_for_citation_path(CITATION)
+    for branch in branches:
+        s._formula_branch_test_witnesses(
+            branch,
+            corpus_citation_path=CITATION,
+            principal_rules=rules,
+            rule_names=set(rules),
+            asserted_by_rule={
+                name: [
+                    case for case in cases if name in s._test_case_output_names(case)
+                ]
+                for name in rules
+            },
+            extract_numeric_occurrences=functools.partial(
+                v.extract_typed_numeric_inventory_occurrences_from_text, profile=profile
+            ),
+            numeric_value_is_grounded=v.numeric_value_is_grounded,
+            formula_environment=environment,
+            dependency_cache={},
+            execution_cache={},
+            source_text=source,
+            measurement_roles=context,
+            represented_measurement_spans=spans,
+            measurement_witnesses=records,
+            printed_operations=printed,
+            operand_declarations={
+                **rules,
+                **{item["name"]: item for item in doc.get("inputs", [])},
+            },
+        )
+    return spans, certify_reporting_routes(
+        context, records, principal_rules=rules, formula_environment=environment
+    )
+
+
+def assert_partial_schedule_is_not_complete(doc, cases, source):
+    found = issues(doc, cases, source)
+    for span in ("226:386", "387:720"):
+        assert any("formula branch" in issue and span in issue for issue in found)
+    conditions = next(issue for issue in found if "paired positive/blocking" in issue)
+    assert "Enclose this schedule" in conditions
+    assert "keep a copy" in conditions
+
+
 def test_actual_proof_copy_ordinary_witnesses_preserve_remaining_obligations():
     doc, cases, source = material()
-    found = issues(doc, cases, source)
-    assert len(found) == 2
-    assert "numeric value 2025" in found[0]
-    assert "paired positive/blocking" in found[1]
-    assert not any("formula clause" in issue for issue in found)
+    spans, routes = scoped_evidence(doc, cases, source)
+    assert {source[start:end] for start, end in spans} == {"1997", "1998", "2024"}
+    assert routes is None  # Current measurement roles have not been proved.
+    assert_partial_schedule_is_not_complete(doc, cases, source)
 
 
 @pytest.mark.parametrize(
@@ -135,6 +212,8 @@ def test_no_full_witness_means_no_measurement_consumption(mutation):
     else:
         cases = cases[:5]  # Only prior-carryforward branch; no historical witness.
     found = issues(doc, cases, source)
+    spans, _ = scoped_evidence(doc, cases, source)
+    assert not any(source[start:end] == "1997" for start, end in spans)
     assert any("numeric value 1997" in issue for issue in found)
     assert any("formula" in issue for issue in found)
 
@@ -210,8 +289,10 @@ def current_material():
 
 def test_current_roles_need_their_own_ordinary_principal_execution():
     doc, cases, source = current_material()
-    found = issues(doc, cases, source)
-    assert found == ()  # Separately certified sparse reporting routes also execute.
+    spans, routes = scoped_evidence(doc, cases, source)
+    assert {(187, 191), (895, 899), (1072, 1076)} <= spans
+    assert routes is not None
+    assert_partial_schedule_is_not_complete(doc, cases, source)
 
 
 @pytest.mark.parametrize("index", [1, 2])
@@ -266,6 +347,9 @@ def test_current_role_refusal_restores_its_year_obligation(index, mutation):
                 next(k for k in case["output"] if k.endswith("#" + name))
             ]
     assert (doc, cases, source) != before
+    spans, _ = scoped_evidence(doc, cases, source)
+    required = {(187, 191), (895, 899)} if index == 1 else {(1072, 1076)}
+    assert not required <= spans
     assert any("numeric value 2025" in issue for issue in issues(doc, cases, source))
 
 

@@ -332,6 +332,34 @@ action; live RuleSpec changes should come from a new encode run. When
 if standalone validation failed before the generated file was checked in the
 policy-repo overlay, and no repair manifest is written.
 
+When a generated `source:` or `excerpt:` value has an unquoted `:` that YAML
+rejects, the eval-time repair puts that one value in quotes and the eval result
+records it. `auto_repaired_unquoted_source_scalars` lists each quoted line (for
+example `excerpt:102`, the line number when the encoder quoted it) and
+`generated_output_repaired_by_encoder` is `true`. The two fields are set
+together, and both are absent when the repair did not run.
+`generated_output_sha256` is then the digest of the repaired file. The encode
+outcome (`encoding_runs.outcome_json` in the local database, `outcome` in the
+synced table) copies both fields. The `--apply` repair of
+the same class writes its own lines under the same outcome key, without the
+flag. Signed eval-suite verdict evidence includes both fields of the eval
+result, so a persisted result whose record was deleted or changed fails suite
+admission.
+
+The record covers the edits of one invocation only. It does not follow the
+file. A retry that keeps or overlays an earlier attempt's RuleSpec file (a
+tests-only repair, an accepted `--repair-candidate-root` candidate, a repair
+overlay) starts with no entries, although the file can hold quotes that the
+earlier attempt added. A repair-overlay retry parses the model's new output
+before this repair runs, so there the repair does not quote that output: an
+unquoted `:` fails the overlay and the retained candidate is restored. An eval suite never retains a candidate, so the record
+of a suite result covers every quote that this repair added to its file. Absent
+fields mean only that this repair did not run; other deterministic repairs do
+not set them. The result keeps no copy of the text before the repair. The
+`claude` and `openai` traces hold the model's response text and the `codex`
+trace holds its event stream. The `claude-api` trace is metadata only, so a
+`claude-api` run keeps no pre-repair text.
+
 ## Applying generated RuleSpec
 
 Generated concept names are reviewed against the naming contract in
@@ -839,10 +867,10 @@ record to `artifacts/eval-suites/index.jsonl`.
 ## PolicyEngine population oracles
 
 Use `snap-populace-compare` to compare a SNAP composition module against
-PolicyEngine over Populace records:
+PolicyEngine over Microcosm records:
 
 ```bash
-uv run --with "$HOME/PolicyEngine/populace/packages/populace-data[us]" \
+uv run --with "$HOME/PolicyEngine/microcosm/packages/microcosm-data[us]" \
   --with numpy \
   axiom-encode snap-populace-compare \
   --jurisdiction us-ny \
@@ -850,15 +878,15 @@ uv run --with "$HOME/PolicyEngine/populace/packages/populace-data[us]" \
   --positive-snap-only
 ```
 
-The command runs `axiom-rules-engine` once over projected Populace records and
+The command runs `axiom-rules-engine` once over projected Microcosm records and
 compares `us:statutes/7/2017/a#snap_regular_month_allotment` to PolicyEngine
 `snap_normal_allotment`. Use `--jurisdiction us-co` or `--jurisdiction us-ny`;
 add `--fail-on-mismatch` in CI when exact parity is expected, or
 `--min-match-rate` when a documented upstream oracle gap makes a population
 threshold more appropriate.
 
-Populace oracle commands prefer a local engine-native H5 artifact before using
-the `populace-data` package loader. To force a local dataset, set the most
+Microcosm oracle commands prefer a local engine-native H5 artifact before using
+the `microcosm-data` package loader. To force a local dataset, set the most
 specific available environment variable, for example
 `AXIOM_POPULACE_US_2024_H5=/path/to/populace_us_2024.h5`. The loader also
 checks `AXIOM_POPULACE_US_H5`, `AXIOM_POPULACE_H5`,
