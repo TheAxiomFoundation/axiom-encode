@@ -31213,8 +31213,10 @@ def _temporal_occurrence_is_formula_applicability_preface(
 # no check binds a version's end to the source, so numeric recall keeps the
 # end year demanded.
 _FORMULA_APPLICABILITY_RANGE_END_PATTERN = re.compile(
-    rf"{_FORMULA_APPLICABILITY_RANGE_END}|"
-    rf"(?:\s+(?:through|to)\s+|\s*[-–]\s*){_FORMULA_APPLICABILITY_YEAR}",
+    # Only directly after the start date or year: `prior to 2027` alone, or
+    # `subsequent to 2025`, is a single boundary, not a range end.
+    rf"(?<=\d)(?:{_FORMULA_APPLICABILITY_RANGE_END}|"
+    rf"(?:\s+(?:through|to)\s+|\s*[-–]\s*){_FORMULA_APPLICABILITY_YEAR})",
     flags=re.IGNORECASE,
 )
 
