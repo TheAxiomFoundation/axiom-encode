@@ -837,6 +837,13 @@ def select_validation_waiver_scope(
             reason,
         )
 
+    if not changed_paths:
+        # An empty change set cannot be told from a change set that was never
+        # computed (a failed diff, a wrong base, an empty file). Selecting
+        # nothing would then pass with no waiver checked. A true empty diff is
+        # rare, and the full audit is correct for it.
+        return full("no changed path was given")
+
     shared_input_candidates: set[Path] = set()
     try:
         for raw_input in shared_execution_inputs:
@@ -951,8 +958,6 @@ def select_validation_waiver_scope(
             )
             if config_changes:
                 return full(f"Git configuration input changed: {config_changes[0]}")
-            if not changed_paths:
-                return WaiverAuditScope("incremental", (), {})
             # This reader contains only fixed-tree dependency discovery;
             # fingerprints retain their independent validation scopes.
             changed_keys = {

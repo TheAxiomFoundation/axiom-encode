@@ -1024,3 +1024,64 @@ def test_unclassifiable_country_walk_selects_each_composition_and_runs_once(
             "unclassifiable import 'data/terminal#value' in us-tx/statutes/odd.yaml"
         ]
     assert len(walks) == 1
+
+
+def test_absent_candidate_is_a_dependency_with_a_name_key(tmp_path: Path):
+    root = (tmp_path / "rulespec-us").resolve()
+    module = _module(root, "us-ca/statutes/a.yaml", imports=("us-ny:statutes/gone",))
+    absent = root / "us-ny/statutes/gone.yaml"
+    with _rulespec_routing_cache_scope(), _rulespec_resolution_cache_scope():
+        reader = _ReadSets(root, ())
+        node = reader.node(module, root / "us-ca")
+        keys = reader.node_keys(module, root / "us-ca")
+
+    # A target that does not exist yet stays a dependency: adding it changes
+    # what validation reads. An existing changed path is compared with it by
+    # name, which is how a case-sensitive filesystem spells a case alias.
+    assert absent in node.dependencies
+    assert node.targets == ()
+    assert ("name", os.path.abspath(absent).casefold()) in keys
+    assert keys == frozenset({("name", os.path.abspath(absent).casefold())})
+
+
+def test_target_in_a_dependency_checkout_is_read_from_that_checkout(tmp_path: Path):
+    root = (tmp_path / "rulespec-us").resolve()
+    dependency = (tmp_path / "dependencies" / "rulespec-uk").resolve()
+    _module(dependency, "uk/statutes/shared.yaml", imports=("uk:statutes/base",))
+    _module(dependency, "uk/statutes/base.yaml")
+    waived = "us-ca/statutes/reader.yaml"
+    plain = "us-ca/statutes/plain.yaml"
+    module = _module(root, waived, imports=("uk:statutes/shared#value",))
+    _module(root, plain)
+    (root / "README.md").write_text("# Notes\n", encoding="utf-8")
+
+    with _rulespec_routing_cache_scope(), _rulespec_resolution_cache_scope():
+        reader = _ReadSets(root, (dependency,))
+        candidates = reader.target_candidates(
+            ("rulespec-uk", "uk", Path("statutes/shared.yaml")), root / "us-ca"
+        )
+        closure = reader.closure(module, root / "us-ca")
+        expected = _resolver_closure(reader, module, root / "us-ca")
+    without = select_validation_waiver_scope(
+        [waived, plain], root=root, changed_paths={"README.md"}
+    )
+    with_root = select_validation_waiver_scope(
+        [waived, plain],
+        root=root,
+        changed_paths={"README.md"},
+        rulespec_dependency_roots=(dependency,),
+    )
+
+    # One checkout owns a jurisdiction's namespace, so a target has exactly
+    # one candidate root. Taking only the first of them changes nothing.
+    assert candidates == (dependency / "uk/statutes/shared.yaml",)
+    assert {
+        dependency / "uk/statutes/shared.yaml",
+        dependency / "uk/statutes/base.yaml",
+    } <= closure
+    assert closure == expected
+    # Without the dependency checkout the import has no candidate at all.
+    assert without.paths == (waived,)
+    assert "unclassifiable import" in without.reasons[waived][0]
+    assert with_root.scope == "incremental"
+    assert with_root.paths == ()

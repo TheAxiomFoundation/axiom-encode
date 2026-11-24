@@ -71,20 +71,29 @@ def test_unprefixed_import_resolver_preserves_unsafe_candidate_behavior(
         "us/statutes/module.yml",
         "us/statutes/module.source.json",
         "us-ca/README.md",
+        "us/README.md",
+        "us-ca/policies/notes.md",
+        "us-ca/statutes/section/guide.md",
+        "tools/README.md",
         "uk/statutes/new.yaml",
         "uk/statutes/new.test.yaml",
         "uk/README.md",
         "scripts/validate.py",
     ],
 )
+@pytest.mark.parametrize("present", [True, False], ids=["present", "absent"])
 def test_unclassified_or_shared_change_falls_back_to_all_waivers(
-    tmp_path: Path,
-    changed: str,
+    tmp_path: Path, changed: str, present: bool
 ):
     root = tmp_path / "rulespec-us"
     paths = ("us-ca/statutes/one.yaml", "us-ny/statutes/two.yaml")
     for path in paths:
         _module(root, path)
+    if present:
+        # An absent path falls back for a second reason (no identity). The
+        # classification must refuse the path when the file is really there.
+        (root / changed).parent.mkdir(parents=True, exist_ok=True)
+        (root / changed).write_text("# Changed\n", encoding="utf-8")
 
     selection = select_validation_waiver_scope(
         paths,
@@ -100,8 +109,23 @@ def test_unclassified_or_shared_change_falls_back_to_all_waivers(
     assert all(selection.reasons.values())
 
 
-@pytest.mark.parametrize("changed", [set(), {"README.md"}, {"docs/guide.md"}])
-def test_inert_docs_and_empty_changes_select_nothing(tmp_path: Path, changed: set[str]):
+def test_empty_change_set_forces_the_full_audit(tmp_path: Path):
+    root = tmp_path / "rulespec-us"
+    paths = ("us-ca/statutes/one.yaml", "us-ny/statutes/two.yaml")
+    for path in paths:
+        _module(root, path)
+
+    selection = select_validation_waiver_scope(paths, root=root, changed_paths=set())
+
+    # No changed path is not evidence that nothing changed.
+    assert selection.scope == "full"
+    assert selection.paths == paths
+    assert selection.fallback_reason == "no changed path was given"
+    assert set(selection.reasons) == set(paths)
+
+
+@pytest.mark.parametrize("changed", [{"README.md"}, {"docs/guide.md"}])
+def test_inert_docs_changes_select_nothing(tmp_path: Path, changed: set[str]):
     root = tmp_path / "rulespec-us"
     path = "us-ca/statutes/one.yaml"
     _module(root, path)
@@ -895,3 +919,47 @@ def test_changed_path_stat_failure_falls_back(tmp_path: Path, monkeypatch):
     assert selection.scope == "full"
     assert selection.paths == (path,)
     assert "identity unavailable" in selection.fallback_reason
+
+
+def test_inline_import_list_is_read_like_a_block_list(tmp_path: Path):
+    root = tmp_path / "rulespec-us"
+    inline = "us-ca/statutes/inline.yaml"
+    block = "us-ca/statutes/block.yaml"
+    plain = "us-ny/statutes/plain.yaml"
+    # The static line extractor reads block sequences only. An unprefixed
+    # inline item is found only through the parsed imports list.
+    _module(root, inline).write_text(
+        "format: rulespec/v1\nimports: [statutes/other.test#value]\nrules: []\n",
+        encoding="utf-8",
+    )
+    _module(root, block, imports=("statutes/other.test#value",))
+    _module(root, plain)
+    _module(root, "us-ca/statutes/other.yaml")
+    companion = "us-ca/statutes/other.test.yaml"
+    (root / companion).write_text("[]\n", encoding="utf-8")
+
+    selection = select_validation_waiver_scope(
+        [inline, block, plain], root=root, changed_paths={companion}
+    )
+
+    assert selection.scope == "incremental"
+    assert selection.paths == (block, inline)
+    assert selection.reasons[inline] == [f"validation reads changed path: {companion}"]
+    assert companion in validation_waiver_read_set(inline, root=root)
+
+
+def test_unclassifiable_inline_import_selects_the_waiver(tmp_path: Path):
+    root = tmp_path / "rulespec-us"
+    path = "us-ca/statutes/waived.yaml"
+    _module(root, path).write_text(
+        "format: rulespec/v1\nimports: [data/terminal#value]\nrules: []\n",
+        encoding="utf-8",
+    )
+    (root / "README.md").write_text("# Notes\n", encoding="utf-8")
+
+    selection = select_validation_waiver_scope(
+        [path], root=root, changed_paths={"README.md"}
+    )
+
+    assert selection.paths == (path,)
+    assert "unclassifiable import 'data/terminal#value'" in selection.reasons[path][0]

@@ -154,7 +154,140 @@ def test_explicit_full_and_default_reports_are_identical(audit_repo, capsys):
     assert default == explicit
 
 
-@pytest.mark.parametrize("changed", [[], ["README.md"], ["docs/guide.md"]])
+def test_incremental_empty_change_set_audits_every_waiver(audit_repo, capsys):
+    code, report, executed = _run_audit(
+        audit_repo, capsys, changed=[], scope="incremental"
+    )
+
+    assert code == 0
+    assert executed == list(audit_repo.paths)
+    assert report["scope"] == "full"
+    assert report["checked"] == report["selected"] == report["total_waivers"] == 4
+    assert report["fallback_reason"] == "no changed path was given"
+
+
+def test_incremental_audits_everything_when_the_ledger_left_the_protected_base(
+    audit_repo, capsys
+):
+    """The head ledger drops an active waiver whose module still fails.
+
+    The protected base keeps the record and the caller's changed paths name
+    only a document. The full scope fails on the dropped waiver; the
+    incremental scope must not pass with nothing checked.
+    """
+
+    dropped = audit_repo.paths[2]
+    head = _waiver_set(
+        {
+            path: entry
+            for path, entry in audit_repo.waivers.entries.items()
+            if path != dropped
+        }
+    )
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+
+    def recheck(paths, **kwargs):
+        # The isolated recheck of a discrepancy confirms the same failure.
+        return [
+            {
+                "path": path.as_posix(),
+                "passed": False,
+                "fingerprint": audit_repo.waivers.entries[
+                    path.as_posix()
+                ].active.fingerprint,
+                "outcome": {},
+            }
+            for path in paths
+        ]
+
+    reports = {}
+    for scope in ("full", "incremental"):
+        with patch.object(
+            cli, "_fingerprint_validation_waiver_modules", side_effect=recheck
+        ):
+            code, reports[scope], executed = _run_audit(
+                audit_repo, capsys, changed=["README.md"], scope=scope, head=head
+            )
+        assert code == 1
+        assert executed == list(audit_repo.paths)
+        assert reports[scope]["errors"] == [
+            f"{dropped}: removed active waiver still has a failing module"
+        ]
+
+    incremental = reports["incremental"]
+    assert incremental["scope"] == "full"
+    assert incremental["checked"] == incremental["selected"] == 4
+    assert incremental["fallback_reason"] == (
+        "known-validation-gaps.yaml differs from the protected base ledger and "
+        "is not among the changed paths"
+    )
+    assert sorted(incremental["selection_reasons"]) == list(audit_repo.paths)
+
+
+def test_incremental_compares_ledger_bytes_as_well_as_records(audit_repo, capsys):
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+    # Same parsed records (the loader is the fixture's), different bytes.
+    (audit_repo.root / "known-validation-gaps.yaml").write_text(
+        "validate_failures: {}\n# edited\n", encoding="utf-8"
+    )
+
+    code, report, executed = _run_audit(
+        audit_repo, capsys, changed=["README.md"], scope="incremental"
+    )
+
+    assert code == 0
+    assert report["scope"] == "full"
+    assert executed == list(audit_repo.paths)
+    assert "differs from the protected base ledger" in report["fallback_reason"]
+
+
+def test_incremental_unreadable_ledger_file_counts_as_a_difference(audit_repo, capsys):
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+    audit_repo.base_file.unlink()
+
+    code, report, executed = _run_audit(
+        audit_repo, capsys, changed=["README.md"], scope="incremental"
+    )
+
+    assert code == 0
+    assert report["scope"] == "full"
+    assert executed == list(audit_repo.paths)
+
+
+def test_ledger_guard_keeps_each_partition_to_what_it_owns(audit_repo, capsys):
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+    (audit_repo.root / "known-validation-gaps.yaml").write_text(
+        "validate_failures: {}\n# edited\n", encoding="utf-8"
+    )
+
+    code, report, executed = _run_audit(
+        audit_repo,
+        capsys,
+        changed=["README.md"],
+        scope="incremental",
+        partition_key="shard-b",
+    )
+
+    assert code == 0
+    assert report["scope"] == "full"
+    assert executed == [audit_repo.paths[1], audit_repo.paths[3]]
+    assert report["selected"] == 2
+
+
+def test_unchanged_ledger_keeps_the_incremental_scope(audit_repo, capsys):
+    (audit_repo.root / "README.md").write_text("# Notes\n", encoding="utf-8")
+
+    code, report, executed = _run_audit(
+        audit_repo, capsys, changed=["README.md"], scope="incremental"
+    )
+
+    assert code == 0
+    assert report["scope"] == "incremental"
+    assert executed == []
+    assert "fallback_reason" not in report
+
+
+@pytest.mark.parametrize("changed", [["README.md"], ["docs/guide.md"]])
 def test_incremental_inert_changes_report_zero_without_fingerprinting(
     audit_repo,
     capsys,

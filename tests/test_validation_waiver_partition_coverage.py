@@ -33,6 +33,8 @@ def _partition_audits(root, paths, affected, outcomes):
     )
     base = root / "base.yaml"
     base.write_text("validate_failures: {}\n")
+    # The head ledger is the protected base ledger: only the companions change.
+    (root / "known-validation-gaps.yaml").write_text("validate_failures: {}\n")
     changed = root / "changed.txt"
     changed.write_text(
         "".join(path.replace(".yaml", ".test.yaml") + "\n" for path in affected)

@@ -586,7 +586,7 @@ from .toolchain import (
     protected_process_signal_active,
     verify_rulespec_validation_waiver_set,
 )
-from .validation_waiver_scope import select_validation_waiver_scope
+from .validation_waiver_scope import WaiverAuditScope, select_validation_waiver_scope
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
@@ -5734,6 +5734,27 @@ def _validation_waiver_audit_partition(
     return selected, partition_index, len(partition_keys)
 
 
+def _validation_waiver_ledger_differs(
+    head: _validation_waivers.ValidationWaiverSet,
+    base: _validation_waivers.ValidationWaiverSet,
+    *,
+    head_file: Path,
+    base_file: Path,
+) -> bool:
+    """Return whether the head ledger is anything but the protected base ledger.
+
+    Both the parsed records and the bytes are compared. An unreadable file
+    counts as a difference.
+    """
+
+    if dict(head.entries) != dict(base.entries):
+        return True
+    try:
+        return head_file.read_bytes() != base_file.read_bytes()
+    except OSError:
+        return True
+
+
 def _cmd_validation_waivers_audit(args) -> int:
     if hasattr(args, "_validation_waiver_audit_selection"):
         del args._validation_waiver_audit_selection
@@ -5869,6 +5890,24 @@ def _cmd_validation_waivers_audit(args) -> int:
                 if isinstance(value, (str, Path))
             ),
         )
+        if selection.scope == "incremental" and _validation_waiver_ledger_differs(
+            head, base, head_file=waiver_file, base_file=Path(protected_base_path)
+        ):
+            # The incremental scope proves only that unselected waivers kept
+            # their result. A ledger that differs from the protected base
+            # changes what every result is compared with, so nothing may stay
+            # unchecked. This reads the two ledgers themselves: the changed
+            # paths come from the caller, and the list may omit the ledger.
+            reason = (
+                f"{waiver_path} differs from the protected base ledger and is "
+                "not among the changed paths"
+            )
+            selection = WaiverAuditScope(
+                "full",
+                tuple(classified),
+                {path: [f"full audit fallback: {reason}"] for path in classified},
+                reason,
+            )
         scope = selection.scope
         selection_reasons = selection.reasons
         fallback_reason = selection.fallback_reason
