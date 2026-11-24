@@ -76,6 +76,12 @@ class Reviewed(Run):
         self.events: list[tuple[str, str]] = []
         self.staged: dict[str, tuple[bytes, bytes]] = {}
         self.cwds: dict[str, Path] = {}
+        # For each review: which units' primary and companion the reviewer
+        # could read from its working directory, at the time of the review.
+        self.visible: dict[str, list[str]] = {}
+        self.sources: dict[str, str] = {}
+        self.trees: dict[str, list[str]] = {}
+        self.crlf = False
         self.outputs: dict[str, object] = {}
         self.raise_for: str | None = None
         self.truncate_for: str | None = None
@@ -94,7 +100,23 @@ class Reviewed(Run):
         def review(rulespec_file, **kwargs):
             name = Path(rulespec_file).stem
             self.events.append(("review", name))
-            self.cwds[name] = Path(kwargs["cwd"])
+            cwd = Path(kwargs["cwd"])
+            self.cwds[name] = cwd
+            self.trees[name] = sorted(
+                path.relative_to(cwd.parent).as_posix()
+                for path in cwd.parent.rglob("*")
+                if path.is_file()
+            )
+            self.visible[name] = [
+                other
+                for other in NAMES
+                for suffix in (".yaml", ".test.yaml")
+                if (
+                    cwd
+                    / Path(*Path(primary(other)).parts[1:]).parent
+                    / f"{other}{suffix}"
+                ).exists()
+            ]
             self.staged[name] = (
                 Path(rulespec_file).read_bytes(),
                 Path(rulespec_file).with_name(f"{name}.test.yaml").read_bytes(),
@@ -104,6 +126,7 @@ class Reviewed(Run):
             return real_review(rulespec_file, **kwargs)
 
         def source(text, **kwargs):
+            self.sources[_unit_of(text)] = text
             if self.truncate_for is not None and _unit_of(text) == self.truncate_for:
                 text = text + "word\n" * (MAX_CHUNKS_PER_FILE * CHUNK_SOURCE_CHARS)
             return real_source(text, **kwargs)
@@ -116,6 +139,11 @@ class Reviewed(Run):
         monkeypatch.setattr(evals_module, "generalist_review_source", source)
         monkeypatch.setattr(validator_pipeline, "run_claude_code", reviewer)
         super().__call__(monkeypatch)
+
+    def source_body(self, cited: str) -> str:
+        if self.crlf:
+            return f"source text of {cited}\r\nsecond line\rthird line\r\n"
+        return super().source_body(cited)
 
     def reviews(self) -> list[str]:
         return [name for kind, name in self.events if kind == "review"]
@@ -157,8 +185,13 @@ def test_every_unit_is_reviewed_on_its_own_bytes_before_any_signature(
             rule.with_name(f"{name}.test.yaml").read_bytes(),
         )
         assert manifest_of(reviewed.repo, name).exists()
-        # The reviewer runs in the content root of the unit, as for one unit.
-        assert reviewed.cwds[name] == reviewed.repo / primary(name).split("/")[0]
+        # The reviewer starts in the content root of a copy of the checkout,
+        # not in the checkout, and sees its own unit's files only.
+        cwd = reviewed.cwds[name]
+        assert cwd.name == primary(name).split("/")[0]
+        assert cwd != reviewed.repo / cwd.name
+        assert reviewed.repo not in cwd.parents
+        assert reviewed.visible[name] == [name, name]
     records = _review_records(capsys.readouterr().out)
     assert [record["applied"]["rulespec_path"] for record in records] == [
         primary(name) for name in NAMES
@@ -278,6 +311,75 @@ def test_a_review_record_file_with_a_batch_of_one_writes_its_one_record(
     assert run.events == [("review", "a"), ("sign", "a")]
 
 
+def test_a_review_record_file_with_a_batch_of_two_is_refused(tmp_path, on, monkeypatch):
+    repo, head = candidate(tmp_path)
+    run = Reviewed(tmp_path, repo, head, batch_admission(repo, head, ("a", "b")))
+    record_dir = tmp_path / "records"
+    record_dir.mkdir()
+    run.args.require_review = True
+    run.args.review_record_file = str(record_dir / "review.json")
+    run.args.run_attempt = "1"
+
+    with pytest.raises(ValueError) as refused:
+        run(monkeypatch)
+
+    assert "the review record file holds one record" in str(refused.value)
+    assert "2 units" in str(refused.value)
+    assert run.validated == []
+    assert run.events == []
+    assert not (record_dir / "review.json").exists()
+
+
+# --- the reviewer of a unit does not see the other units ----------------------
+
+
+def test_the_reviewer_of_a_unit_starts_in_a_tree_without_the_other_units(
+    reviewed, monkeypatch
+):
+    reviewed.args.require_review = True
+    checkout = sorted(
+        subprocess.run(
+            ["git", "-C", str(reviewed.repo), "ls-files"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+    reviewed(monkeypatch)
+
+    for name in NAMES:
+        others = {
+            path
+            for other in NAMES
+            if other != name
+            for path in (primary(other), primary(other)[: -len(".yaml")] + ".test.yaml")
+        }
+        assert others <= set(checkout)
+        # The tree of a candidate that holds this unit alone: every file of
+        # the checkout except the other units' primaries and companions.
+        assert reviewed.trees[name] == [path for path in checkout if path not in others]
+        assert reviewed.visible[name] == [name, name]
+    # Only copies were changed: the checkout still holds every unit.
+    assert all(manifest_of(reviewed.repo, name).exists() for name in NAMES)
+    for name in NAMES:
+        assert (reviewed.repo / primary(name)).is_file()
+
+
+# --- the reviewer reads the normalized source text ----------------------------
+
+
+def test_each_review_reads_the_normalized_source_text(reviewed, monkeypatch):
+    reviewed.args.require_review = True
+    reviewed.crlf = True
+    reviewed(monkeypatch)
+
+    assert reviewed.reviews() == list(NAMES)
+    for name in NAMES:
+        assert reviewed.sources[name] == (
+            f"source text of {citation(name)}\nsecond line\nthird line\n"
+        )
+
+
 # --- (e) the source pin of every unit -----------------------------------------
 
 
@@ -387,6 +489,56 @@ def test_the_script_refuses_a_batch_while_the_switch_is_off():
     )
     assert status == 1
     assert "multi-unit promotion is switched off" in message
+
+
+def test_the_switched_off_refusal_has_its_own_title(monkeypatch, capsys):
+    """Switch off: the one accepted difference from ``main``.
+
+    ``main``'s script ignores a ``units`` key and checks the lead primary only
+    (exit 0 when it carries its pin). Here a wrapper with ``units`` is refused
+    before any read, under its own title. The protected wrapper parser refuses
+    the key later anyway, so this is stricter and fail-closed.
+    """
+    assert admission.MULTI_UNIT_PROMOTION_ENABLED is False
+    fetch, calls = _serving()
+    environment = _batch_environment()
+
+    real_evaluate = pin_mod.evaluate
+
+    def evaluate(_env):
+        return real_evaluate(environment, fetch=fetch, admission=admission)
+
+    monkeypatch.setattr(pin_mod, "evaluate", evaluate)
+    assert pin_mod.main() == 1
+    captured = capsys.readouterr()
+    assert captured.out == (
+        f"::error title=Multi-unit promotion is switched off::"
+        f"{pin_mod.SWITCHED_OFF_REFUSAL}\n"
+    )
+    assert "Could not read" not in captured.out
+    assert calls == []
+
+    # The same dispatch without the units key is checked as on main.
+    wrapper = json.loads(environment["SOURCE_BUNDLE_JSON"])
+    del wrapper["units"]
+    environment["SOURCE_BUNDLE_JSON"] = json.dumps(wrapper)
+    assert pin_mod.main() == 0
+    assert calls == [("TheAxiomFoundation/rulespec-us", HEAD, UNITS3[0][1])]
+
+
+def test_a_batch_unit_without_its_pin_has_the_no_pin_title(on, monkeypatch, capsys):
+    fetch, _calls = _serving(unbound_path=UNITS3[1][1])
+    environment = _batch_environment()
+    real_evaluate = pin_mod.evaluate
+    monkeypatch.setattr(
+        pin_mod,
+        "evaluate",
+        lambda _env: real_evaluate(environment, fetch=fetch, admission=admission),
+    )
+    assert pin_mod.main() == 1
+    assert capsys.readouterr().out.startswith(
+        "::error title=Candidate has no source pin::"
+    )
 
 
 @pytest.mark.parametrize(

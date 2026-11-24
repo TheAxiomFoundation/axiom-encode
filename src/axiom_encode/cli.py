@@ -10614,6 +10614,40 @@ def _write_promotion_review_record(
         handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
+def _promotion_batch_isolated_paths(
+    units: Sequence[Mapping[str, object]], unit: Mapping[str, object]
+) -> tuple[Path, ...]:
+    """The primary and companion of every other unit of a batch, in order."""
+
+    return tuple(
+        member
+        for other in units
+        if other is not unit
+        for member in (other["rulespec_relative"], other["companion_relative"])
+    )
+
+
+@contextlib.contextmanager
+def _promotion_batch_review_cwd(
+    repo_path: Path, rulespec_relative: Path, isolate_from: Sequence[Path]
+):
+    """The reviewer's working directory for one unit of a multi-unit batch.
+
+    The generalist reviewer CLI starts in this directory. For a unit of a
+    batch it is the content root of a temporary copy of the checkout from
+    which the primary and the companion of every other unit are removed, as
+    for the unit's validation (``_isolate_promotion_batch_overlay``). The
+    reviewer of one unit so starts in the tree of a candidate that holds that
+    unit alone. Only the copy is changed, never the checkout.
+    """
+
+    with tempfile.TemporaryDirectory() as temporary:
+        overlay_repo = Path(temporary) / repo_path.name
+        _stage_apply_overlay_dependency_root(source=repo_path, target=overlay_repo)
+        _isolate_promotion_batch_overlay(overlay_repo, isolate_from)
+        yield overlay_repo / rulespec_relative.parts[0]
+
+
 def _promotion_generalist_review_record(
     *,
     source_text: str,
@@ -11053,15 +11087,7 @@ def cmd_promote_reviewed_candidate(args):
                         # A unit of a batch is validated without the files
                         # of the other units: its verdict is the verdict of
                         # a single-unit promotion of it.
-                        isolate_from=tuple(
-                            member
-                            for other in units
-                            if other is not unit
-                            for member in (
-                                other["rulespec_relative"],
-                                other["companion_relative"],
-                            )
-                        ),
+                        isolate_from=_promotion_batch_isolated_paths(units, unit),
                     )
 
             # Validation of every unit is complete. The reviewer runs after it
@@ -11071,10 +11097,25 @@ def cmd_promote_reviewed_candidate(args):
             # passed review stops the batch; no unit is signed.
             if _promotion_requires_review(args):
                 for unit in units:
-                    with unit_scope(unit["target"]):
+                    with contextlib.ExitStack() as review_scope:
+                        review_scope.enter_context(unit_scope(unit["target"]))
+                        if batch:
+                            # The reviewer of a batch unit starts in a copy of
+                            # the checkout without the other units' files.
+                            review_cwd = review_scope.enter_context(
+                                _promotion_batch_review_cwd(
+                                    repo_path,
+                                    unit["rulespec_relative"],
+                                    isolate_from=_promotion_batch_isolated_paths(
+                                        units, unit
+                                    ),
+                                )
+                            )
+                        else:
+                            review_cwd = repo_path / unit["rulespec_relative"].parts[0]
                         review_record = _promotion_generalist_review_record(
                             source_text=unit["normalized_source"],
-                            cwd=repo_path / unit["rulespec_relative"].parts[0],
+                            cwd=review_cwd,
                             applied=unit["before"],
                             rulespec_relative=unit["rulespec_relative"],
                         )

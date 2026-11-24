@@ -190,6 +190,10 @@ class Run:
             run_id="12345",
         )
 
+    def source_body(self, cited: str) -> str:
+        """The corpus source text of one unit."""
+        return f"source text of {cited}\n"
+
     def _validate(self, result, **_kwargs):
         name = result.citation.rsplit("/", 1)[1]
         self.validated.append(name)
@@ -257,7 +261,7 @@ class Run:
             },
             "resolve_corpus_source_unit": {
                 "side_effect": lambda cited, _release: SimpleNamespace(
-                    body=f"source text of {cited}\n",
+                    body=self.source_body(cited),
                     amendment_documents=(),
                     source_attestation={"requested_corpus_citation_path": cited},
                 )

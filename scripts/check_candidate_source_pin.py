@@ -231,6 +231,21 @@ def fetch_candidate_primary(repository: str, ref: str, path: str, token: str) ->
 
 TITLE_NO_PIN = "Candidate has no source pin"
 TITLE_NOT_READ = "Could not read the candidate"
+TITLE_SWITCHED_OFF = "Multi-unit promotion is switched off"
+# The refusal of a dispatch that names promotion units while the multi-unit
+# switch is off. ``main`` reports it under its own title.
+SWITCHED_OFF_REFUSAL = (
+    "source-pin: REFUSED before the signing approval: the dispatch names "
+    "promotion units, but multi-unit promotion is switched off. Nothing was "
+    "read, approved or signed. Dispatch one unit, without the units key."
+)
+
+
+def error_title(message: str) -> str:
+    """The annotation title of one refusal message of ``evaluate``."""
+    if message == SWITCHED_OFF_REFUSAL:
+        return TITLE_SWITCHED_OFF
+    return TITLE_NOT_READ if "could not read" in message else TITLE_NO_PIN
 
 
 def evaluate(
@@ -284,6 +299,11 @@ def _evaluate_units(
     paths,
 ) -> tuple[int, str]:
     """Check the primary of every unit of a multi-unit promotion."""
+    # With the switch off the protected wrapper parser refuses the units key.
+    # Refuse here too, before any read: stricter than a single-unit check of
+    # the lead primary, and fail-closed.
+    if admission.MULTI_UNIT_PROMOTION_ENABLED is not True:
+        return 1, SWITCHED_OFF_REFUSAL
     try:
         repository, ref, path, citation = candidate_selector(environment)
         units = promotion_units(environment["SOURCE_BUNDLE_JSON"], admission)
@@ -331,7 +351,7 @@ def main() -> int:
     status, message = evaluate(os.environ)
     if status:
         print(message, file=sys.stderr)
-        title = TITLE_NOT_READ if "could not read" in message else TITLE_NO_PIN
+        title = error_title(message)
         print(f"::error title={title}::{message}")
     else:
         print(message)
