@@ -97,10 +97,12 @@ from axiom_encode.constants import (
 from axiom_encode.corpus_resolver import (
     CorpusResolutionError,
     CorpusSourceNotFoundError,
+    CorpusSourceSliceError,
     InvalidCorpusCitationError,
     LocalCorpusRelease,
     UnsafeCorpusPathError,
     local_corpus_row_is_repealed,
+    normalize_corpus_identifier,
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
 )
@@ -35817,6 +35819,199 @@ def _find_source_text_value_issues(
     ]
 
 
+_SITE_CITATION_SLICE = (
+    "axiom_encode/harness/validator_pipeline.py:_citation_slice_failure_issues"
+)
+CHECK_PROOF_SOURCE_PATH_UNSLICEABLE = declare_check(
+    "proof:source-evidence/path-unsliceable",
+    title="Cited corpus path cannot be sliced from its parent provision",
+    requires=(
+        "Each `corpus_citation_path` that the RuleSpec cites, other than the "
+        "unit's own path, resolves to one provision in the bound corpus "
+        "release, including a child path that the resolver slices from its "
+        "parent provision."
+    ),
+    why=(
+        "A proof excerpt or a numeric value can only be checked against text "
+        "that the resolver can isolate. When it cannot isolate the cited "
+        "child path, nothing proves the rule, so the candidate is refused; the "
+        "unit itself still has its source text."
+    ),
+    fix=(
+        "In the field that cites the child path (a proof atom's "
+        "`source.corpus_citation_path` or an interpretation's "
+        "`module.interpretations[].texts[].corpus_citation_path`), cite the "
+        "unit's own corpus path instead, and copy a short contiguous verbatim "
+        "excerpt from that provision. Keep the subsection in the rule's own "
+        "`source` label."
+    ),
+    # The candidate is judged and refused, and the encoder can clear it by
+    # citing the unit path; the slicer defect behind it is #2088.
+    cause="encoder_output",
+    gate="ci",
+    site=_SITE_CITATION_SLICE,
+)
+
+
+@dataclass
+class _CitationSliceFailures:
+    """Cited paths the resolver could not slice, apart from the unit's own path."""
+
+    own_path: str
+    failures: dict[str, str] = field(default_factory=dict)
+
+
+_CITATION_SLICE_FAILURES: ContextVar[_CitationSliceFailures | None] = ContextVar(
+    "axiom_citation_slice_failures",
+    default=None,
+)
+
+
+@contextlib.contextmanager
+def _citation_slice_failure_scope(
+    own_path: str | None,
+) -> Iterator[_CitationSliceFailures | None]:
+    """Record unsliceable cited paths instead of raising, for one validation.
+
+    Only a scope with the unit's own canonical path records. The unit's own
+    path, and every lookup outside such a scope, still raise: a unit whose own
+    source cannot be sliced is a corpus or resolver defect, not a finding.
+    ``own_path=None`` suspends recording for a nested lookup.
+    """
+
+    collector = (
+        _CitationSliceFailures(own_path=own_path) if own_path is not None else None
+    )
+    token = _CITATION_SLICE_FAILURES.set(collector)
+    try:
+        yield collector
+    finally:
+        _CITATION_SLICE_FAILURES.reset(token)
+
+
+def _record_citation_slice_failure(
+    citation_path: str, error: CorpusSourceSliceError
+) -> bool:
+    """Record a cited path's slice failure; False means the caller re-raises."""
+
+    collector = _CITATION_SLICE_FAILURES.get()
+    if collector is None:
+        return False
+    try:
+        canonical_path = normalize_corpus_identifier(citation_path)
+    except CorpusResolutionError:
+        return False
+    if canonical_path == collector.own_path:
+        return False
+    collector.failures.setdefault(canonical_path, str(error))
+    return True
+
+
+_PROOF_ATOM_CITATION_FIELD = (
+    "rules[].metadata.proof.atoms[].source.corpus_citation_path"
+)
+_INTERPRETATION_CITATION_FIELD = "module.interpretations[].texts[].corpus_citation_path"
+_SOURCE_VERIFICATION_CITATION_FIELD = "module.source_verification.corpus_citation_path"
+
+
+def _citation_fields_by_path(content: str | None) -> dict[str, list[str]]:
+    """Map each canonical cited path to the RuleSpec fields that cite it."""
+
+    fields: dict[str, list[str]] = {}
+
+    def add(raw_path: object, field_name: str) -> None:
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return
+        try:
+            path = normalize_corpus_identifier(raw_path)
+        except CorpusResolutionError:
+            return
+        names = fields.setdefault(path, [])
+        if field_name not in names:
+            names.append(field_name)
+
+    try:
+        payload = yaml.safe_load(content or "")
+    except (yaml.YAMLError, ValueError):
+        return fields
+    if not isinstance(payload, dict):
+        return fields
+    rules = payload.get("rules")
+    for rule in rules if isinstance(rules, list) else ():
+        if not isinstance(rule, dict):
+            continue
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        if not isinstance(proof, dict):
+            proof = rule.get("proof")
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        for atom in atoms if isinstance(atoms, list) else ():
+            source = atom.get("source") if isinstance(atom, dict) else None
+            if isinstance(source, dict):
+                add(source.get("corpus_citation_path"), _PROOF_ATOM_CITATION_FIELD)
+    for path in interpretation_source_citation_paths(payload):
+        add(path, _INTERPRETATION_CITATION_FIELD)
+    verification = _source_verification_block(payload)
+    if verification is not None:
+        add(
+            verification.get("corpus_citation_path"),
+            _SOURCE_VERIFICATION_CITATION_FIELD,
+        )
+    return fields
+
+
+def _citation_slice_failure_issues(
+    collector: _CitationSliceFailures | None,
+    *,
+    content: str | None = None,
+) -> list[ValidationIssue]:
+    """One blocking typed issue per cited path that could not be sliced.
+
+    The message names the RuleSpec field(s) of ``content`` that cite the path,
+    so the retry text points at the field to change.
+    """
+
+    if collector is None or not collector.failures:
+        return []
+    fields_by_path = _citation_fields_by_path(content)
+    issues: list[ValidationIssue] = []
+    for citation_path, detail in sorted(collector.failures.items()):
+        fields = fields_by_path.get(citation_path) or ["corpus_citation_path"]
+        named = " and ".join(f"`{name}`" for name in fields)
+        issues.append(
+            ValidationIssue(
+                "Proof source path unsliceable: "
+                f"`{citation_path}` cannot be sliced from its parent provision "
+                f"in the bound corpus release ({detail}). In {named}, cite the "
+                f"unit's own path `{collector.own_path}` instead and copy a "
+                "short verbatim excerpt from that provision.",
+                check=CHECK_PROOF_SOURCE_PATH_UNSLICEABLE,
+                subject=IssueSubject(citation=citation_path, field=fields[0]),
+                expected=(
+                    f"a sliceable path or the unit's own path {collector.own_path}"
+                ),
+                found=detail,
+            )
+        )
+    return issues
+
+
+def _refuse_on_citation_slice_failures(
+    result: "ValidationResult",
+    collector: _CitationSliceFailures | None,
+    *,
+    content: str | None = None,
+) -> None:
+    """Make every recorded slice failure a blocking finding of ``result``."""
+
+    slice_issues = _citation_slice_failure_issues(collector, content=content)
+    if not slice_issues:
+        return
+    result.issues = [*slice_issues, *result.issues]
+    result.passed = False
+    result.error = result.issues[0]
+
+
 def _fetch_corpus_source_text(citation_path: str) -> str | None:
     """Fetch a body from the one authoritative named local corpus release."""
 
@@ -35841,6 +36036,10 @@ def _fetch_corpus_proof_evidence_text(citation_path: str) -> str | None:
         ).proof_evidence_text
     except CorpusSourceNotFoundError:
         return None
+    except CorpusSourceSliceError as exc:
+        if _record_citation_slice_failure(normalized_path, exc):
+            return None
+        raise
     except UnsafeCorpusPathError as exc:
         raise UnsafeRulespecContextPath(str(exc)) from exc
 
@@ -35862,6 +36061,10 @@ def _fetch_local_corpus_source_text(
         return resolve_local_corpus_source(normalized_path, release).body
     except CorpusSourceNotFoundError:
         return None
+    except CorpusSourceSliceError as exc:
+        if _record_citation_slice_failure(normalized_path, exc):
+            return None
+        raise
     except UnsafeCorpusPathError as exc:
         raise UnsafeRulespecContextPath(str(exc)) from exc
 
@@ -38364,9 +38567,12 @@ class ValidatorPipeline:
                 return None
         combined = dict(consumer_context or {})
         for _digest, content in snapshots.values():
-            provider = self._proof_source_texts_for_rulespec_content(
-                content, source_texts=None
-            )
+            # Imported modules' citations are not this candidate's text: a
+            # slice failure there stays an error, as for the unit's own path.
+            with _citation_slice_failure_scope(None):
+                provider = self._proof_source_texts_for_rulespec_content(
+                    content, source_texts=None
+                )
             for citation, body in provider.items():
                 if not isinstance(body, str) or (
                     citation in combined and combined[citation] != body
@@ -41159,8 +41365,34 @@ class ValidatorPipeline:
                         error=yaml_issue,
                     )
                 else:
-                    result = self._run_rulespec_ci(canonical_file)
+                    with _citation_slice_failure_scope(
+                        self._citation_slice_refusal_own_path()
+                    ) as slice_failures:
+                        result = self._run_rulespec_ci(canonical_file)
+                    _refuse_on_citation_slice_failures(
+                        result,
+                        slice_failures,
+                        content=canonical_file.read_text()
+                        if slice_failures is not None and slice_failures.failures
+                        else None,
+                    )
             return self._normalize_validation_staging_result(result)
+
+    def _citation_slice_refusal_own_path(self) -> str | None:
+        """The unit path that bounds slice-failure refusals, or None for none.
+
+        Refusals need the trusted unit path and the trusted source text: CI
+        then resolves the unit's own path first, so a unit whose own source
+        cannot be sliced still stops validation as it does without this.
+        Without the source text the own path may never be resolved, and an
+        unsliceable descendant of an unsliceable unit path would hide that
+        defect behind a refusal. Both callers already require a bound
+        ``LocalCorpusRelease`` (``_authoritative_corpus_scope``).
+        """
+
+        if self.source_citation_path is None or self.source_text is None:
+            return None
+        return self.source_citation_path
 
     def _copy_validation_import_closure(
         self,

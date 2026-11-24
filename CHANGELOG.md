@@ -1,3 +1,7 @@
+## 0.2.2394
+
+- Bind every candidate to its source at generation and refuse an unbound candidate before approval (#2323)
+
 ## 0.2.2393
 
 - Review a large candidate in ordered chunks, and let the promotion lane require the generalist review (#2252) (#2318)

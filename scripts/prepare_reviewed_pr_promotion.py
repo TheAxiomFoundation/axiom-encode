@@ -71,21 +71,62 @@ def main():
             raise ValueError(
                 "live PR promotion must run on the central main dispatch workflow"
             )
-        selector = admission.PromotionSelector(
-            country=dispatch["country"],
-            pr=transaction["rulespec_pr"],
-            head=dispatch["rulespec_ref"],
-            citation=dispatch["citation"],
-            rulespec_path=dispatch["replace_rulespec_path"],
-            branch=dispatch["pr_base_branch"],
-            actor=os.environ["DISPATCH_ACTOR"],
-            run_id=os.environ["GITHUB_RUN_ID"],
-        )
-        if (
-            str(helper.citation_rulespec_path(selector.citation))
-            != selector.rulespec_path
-        ):
-            raise ValueError("live PR promotion requires its canonical source path")
+        batch_citations = transaction.get("promotion_units")
+        if batch_citations is None:
+            selector = admission.PromotionSelector(
+                country=dispatch["country"],
+                pr=transaction["rulespec_pr"],
+                head=dispatch["rulespec_ref"],
+                citation=dispatch["citation"],
+                rulespec_path=dispatch["replace_rulespec_path"],
+                branch=dispatch["pr_base_branch"],
+                actor=os.environ["DISPATCH_ACTOR"],
+                run_id=os.environ["GITHUB_RUN_ID"],
+            )
+            if (
+                str(helper.citation_rulespec_path(selector.citation))
+                != selector.rulespec_path
+            ):
+                raise ValueError("live PR promotion requires its canonical source path")
+            selector_payload = selector.__dict__
+        else:
+            # Several units in one candidate. The list names every unit; the
+            # admission requires it to equal the candidate's change set, so it
+            # cannot select a part of the candidate. The citation and path
+            # inputs name one of the units.
+            if admission.MULTI_UNIT_PROMOTION_ENABLED is not True:
+                raise ValueError("multi-unit promotion is switched off")
+            if dispatch["citation"] not in batch_citations or (
+                str(helper.citation_rulespec_path(dispatch["citation"]))
+                != dispatch["replace_rulespec_path"]
+            ):
+                raise ValueError(
+                    "multi-unit promotion requires the citation input to be one "
+                    "of its units, with its canonical source path"
+                )
+            selector = admission.selector_from_payload(
+                {
+                    "country": dispatch["country"],
+                    "pr": transaction["rulespec_pr"],
+                    "head": dispatch["rulespec_ref"],
+                    "branch": dispatch["pr_base_branch"],
+                    "actor": os.environ["DISPATCH_ACTOR"],
+                    "run_id": os.environ["GITHUB_RUN_ID"],
+                    "units": sorted(
+                        (
+                            {
+                                "citation": citation,
+                                "rulespec_path": str(
+                                    helper.citation_rulespec_path(citation)
+                                ),
+                            }
+                            for citation in batch_citations
+                        ),
+                        key=lambda unit: unit["rulespec_path"],
+                    ),
+                }
+            )
+            selector_payload = selector.payload()
         if (
             subprocess.check_output(
                 ["git", "-C", str(args.repo), "rev-parse", "HEAD"], text=True
@@ -97,7 +138,7 @@ def main():
             )
         admission.verify_reviewed_pr(selector)
         with args.selector.open("x") as stream:
-            json.dump(selector.__dict__, stream, sort_keys=True)
+            json.dump(selector_payload, stream, sort_keys=True)
             stream.write("\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
         stream.write(f"enabled={'true' if enabled else 'false'}\n")
