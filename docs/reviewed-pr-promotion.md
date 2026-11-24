@@ -484,8 +484,11 @@ Other properties:
 - The cost: a batch of `k` units runs `2k` validations (a batch of one runs
   one).
 - The record: `metadata.json` of the run carries `promotion_validation`
-  (`axiom-encode/promotion-batch-validation/v1`): the passes, and for each
-  unit its `hidden_paths`. With `rulespec_base` (the candidate head) the tree
+  (`axiom-encode/promotion-batch-validation/v1`): the planned passes, and for
+  each unit its `hidden_paths`. It is a plan computed from the unit citations
+  (citation, primary, companion, hidden paths, planned passes), not evidence
+  that the passes ran; the evidence is the run's success and the signed
+  manifests. With `rulespec_base` (the candidate head) the tree
   of each isolated pass can be rebuilt. The signed manifests are unchanged.
 
 ### Imports between units of one batch

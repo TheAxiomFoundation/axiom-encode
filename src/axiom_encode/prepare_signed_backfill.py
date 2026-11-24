@@ -1262,7 +1262,13 @@ def citation_rulespec_path(citation: str) -> PurePosixPath:
 
 
 def promotion_validation_record(citations: Sequence[str]) -> dict[str, object]:
-    """What validation read for each unit of a multi-unit promotion.
+    """The validation plan of a multi-unit promotion, from its citations.
+
+    This is a plan, not evidence: it is computed from the unit citations
+    alone (citation, primary, companion, hidden paths, planned passes),
+    before and independent of any validation. It does not show that a pass
+    ran or what it found; the signing run's success and the signed
+    manifests are the evidence.
 
     ``passes`` names the validation passes of every unit: ``isolated`` (the
     candidate head without the unit's ``hidden_paths``) and ``batch`` (the

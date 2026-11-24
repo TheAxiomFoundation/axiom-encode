@@ -11563,9 +11563,20 @@ def _validate_reviewed_candidate_unit(
     (``--require-review``). It writes nothing to the checkout.
 
     ``isolate_from`` names the checkout-relative files of the other units of
-    a multi-unit promotion. They are removed from the temporary validation
-    overlay, never from the checkout, so validation sees the tree of a
-    candidate that holds this unit alone.
+    a multi-unit promotion. A unit of a batch is then validated twice, and
+    both passes must pass:
+
+    - pass 1, isolated: those files are removed from the temporary
+      validation overlay, never from the checkout, so validation sees the
+      tree of a candidate that holds this unit alone. Its verdict is the
+      verdict of a single-unit promotion of the unit, and its validation
+      execution is what the unit's signed manifest records;
+    - pass 2, with the other units of the batch present: the whole candidate
+      head, the tree after the batch lands. It catches a unit that is valid
+      alone but is refused beside its siblings.
+
+    With an empty ``isolate_from`` (a single-unit promotion, or a batch of
+    one) it runs one pass, as before.
     """
 
     rulespec_file = repo_path / rulespec_relative

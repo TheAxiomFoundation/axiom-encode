@@ -5381,9 +5381,11 @@ jobs:
               payload["promotion_units"] = split_atomic_source_input(
                   os.environ["ATOMIC_SOURCE_JSON"]
               )["promotion_units"]
-              # What each unit's validation read: the candidate head
-              # (rulespec_base) without the unit's hidden paths, and then
-              # the whole head. The signed manifests do not carry this.
+              # The validation plan, computed from the unit citations only
+              # (not evidence that a pass ran): each unit's isolated pass
+              # reads the candidate head (rulespec_base) without its hidden
+              # paths, then the whole head. The signed manifests do not
+              # carry this.
               payload["promotion_validation"] = promotion_validation_record(
                   payload["promotion_units"]
               )
