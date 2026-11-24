@@ -32,7 +32,10 @@ executes the companion tests or the proofs.
 | 6 | Candidate PR, now with the manifest, runs full CI | CI | green candidate PR |
 | 7 | Merge the candidate PR | a person | — |
 
-Facts about this order:
+Facts about this order, as they were when this proposal was written. Since
+#2301 step 2 is no longer required: admission rests on an enrolled owner's
+dispatch (`docs/reviewed-pr-promotion.md`, "Admission basis"), and the lane has
+no enforced control that needs a second account.
 
 - Step 2 is the only human control that is **enforced**. The lane document
   asks for an independent review of the final head, but RuleSpec main requires

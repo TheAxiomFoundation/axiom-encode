@@ -45,6 +45,10 @@ from typing import Final
 #   the guard check not required, an enrolled dispatcher lands their own
 #   unreviewed candidate with no approval, and any account with write access
 #   re-lands signed v6 bytes from a closed pull request.
+# #2301 (an owner decision) since accepted the first of these for the earlier
+# lane: ``reviewed_pr_admission.OWNER_APPROVAL_REQUIRED`` is ``False``, so an
+# enrolled dispatcher lands their own candidate with no approval. That switch
+# does not turn this reader on and does not emit v6.
 # Turning this on is a policy change on encoder main, not a runtime option:
 # there is deliberately no environment variable, CLI flag or repository
 # setting.
@@ -225,8 +229,12 @@ def owner_review_state(payload: Mapping[str, object]) -> str:
     """Name the owner-review claim of a promotion manifest.
 
     ``"none"`` for v6: validated, not reviewed; the merge guard supplies the
-    approval. ``"before-signing"`` for the earlier promotion lane, whose
-    admission checked the approval before the signing run.
+    approval. ``"not-recorded"`` for the earlier promotion lane: its manifest
+    does not say how the candidate was admitted. Since #2301 that lane admits
+    on an enrolled owner's dispatch with no approval
+    (``reviewed_pr_admission.OWNER_APPROVAL_REQUIRED``); before, its admission
+    checked an owner approval before the signing run. The basis of one landing
+    is in the signing run's retained runtime attestation, not in the manifest.
     """
 
-    return "none" if is_v6_labelled(payload) else "before-signing"
+    return "none" if is_v6_labelled(payload) else "not-recorded"
