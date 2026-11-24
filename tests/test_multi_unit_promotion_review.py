@@ -75,6 +75,7 @@ class Reviewed(Run):
         super().__init__(*args, **kwargs)
         self.events: list[tuple[str, str]] = []
         self.staged: dict[str, tuple[bytes, bytes]] = {}
+        self.cwds: dict[str, Path] = {}
         self.outputs: dict[str, object] = {}
         self.raise_for: str | None = None
         self.truncate_for: str | None = None
@@ -93,6 +94,7 @@ class Reviewed(Run):
         def review(rulespec_file, **kwargs):
             name = Path(rulespec_file).stem
             self.events.append(("review", name))
+            self.cwds[name] = Path(kwargs["cwd"])
             self.staged[name] = (
                 Path(rulespec_file).read_bytes(),
                 Path(rulespec_file).with_name(f"{name}.test.yaml").read_bytes(),
@@ -155,6 +157,8 @@ def test_every_unit_is_reviewed_on_its_own_bytes_before_any_signature(
             rule.with_name(f"{name}.test.yaml").read_bytes(),
         )
         assert manifest_of(reviewed.repo, name).exists()
+        # The reviewer runs in the content root of the unit, as for one unit.
+        assert reviewed.cwds[name] == reviewed.repo / primary(name).split("/")[0]
     records = _review_records(capsys.readouterr().out)
     assert [record["applied"]["rulespec_path"] for record in records] == [
         primary(name) for name in NAMES
