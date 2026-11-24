@@ -294,6 +294,17 @@ def test_a_manifest_with_another_citation_fails_the_run(tmp_path, wrong):
     assert not (packaging.artifact / "apply-manifests.json").exists()
 
 
+def test_two_manifests_at_each_others_position_fail_the_run(tmp_path):
+    """Each manifest is right in itself; each sits where the other belongs."""
+    packaging = Packaging(tmp_path)
+    packaging.write("b", at="c")
+    packaging.write("c", at="b")
+    completed = packaging.run(ALL)
+    assert completed.returncode != 0
+    assert "does not cover exactly the pair of its unit" in completed.stderr
+    assert not (packaging.artifact / "apply-manifests.json").exists()
+
+
 def test_a_manifest_of_another_schema_fails_the_run(tmp_path):
     packaging = Packaging(tmp_path)
     packaging.write("b", schema_version="axiom-encode/applied-rulespec/v4")
@@ -337,6 +348,7 @@ def test_every_unit_gets_the_promotion_evidence_check(tmp_path, name, change):
         [{"path": "us/statutes/7/2015/zz.yaml"}],
         [{"path": primary("X")}, {"path": "us/statutes/7/2015/X.test.yaml"}],
         "pair-and-extra",
+        "pair-and-non-mapping",
         "primary-only",
         "not-a-list",
     ],
@@ -349,6 +361,8 @@ def test_every_manifest_covers_exactly_the_pair_of_its_unit(tmp_path, name, file
     ]
     if files == "pair-and-extra":
         files = [*pair, {"path": "README.md"}]
+    elif files == "pair-and-non-mapping":
+        files = [*pair, "README.md"]
     elif files == "primary-only":
         files = pair[:1]
     elif files == "not-a-list":

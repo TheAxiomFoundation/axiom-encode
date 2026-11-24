@@ -4931,8 +4931,7 @@ jobs:
                       # Each unit's manifest sits at the unit's canonical
                       # position and covers exactly the unit's own pair.
                       if (
-                          primary_paths != [expected_primary_path]
-                          or relative_path.as_posix() != expected_manifest_path
+                          relative_path.as_posix() != expected_manifest_path
                           or len(applied_files) != 2
                           or sorted(
                               str(item.get("path"))
