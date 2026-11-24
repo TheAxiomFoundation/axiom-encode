@@ -4,6 +4,7 @@ import random
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ import yaml
 from axiom_encode import cli, version_provenance
 from axiom_encode.ci_parity import encoder_version_at_pin
 from axiom_encode.cli import _latest_axiom_encode_version_commit
+from tests.environment_assertions import changed_names, hides_environment
 
 SCRIPT = Path(version_provenance.__file__)
 ROOT = Path(__file__).parents[1]
@@ -799,9 +801,10 @@ def test_the_apply_guard_reads_main_history_in_its_own_environment(
 ):
     monkeypatch.setattr(cli, "__version__", "0.2.10")
     monkeypatch.setenv("CANARY_SECRET", "x")
-    seen: list[dict[str, str] | None] = []
+    seen: list[Mapping[str, str] | None] = []
     real = version_provenance.main_history_changes
 
+    @hides_environment
     def spy(*args, environment=None, **kwargs):
         seen.append(environment)
         return real(*args, environment=environment, **kwargs)
@@ -809,7 +812,8 @@ def test_the_apply_guard_reads_main_history_in_its_own_environment(
     monkeypatch.setattr(version_provenance, "main_history_changes", spy)
     cli._require_axiom_encode_version_provenance(repo)
     assert seen and seen[0] is not None
-    assert seen[0] == cli._read_only_git_environment()
+    changed = changed_names(cli._read_only_git_environment(), seen[0])
+    assert changed == []
 
 
 def test_signatures_stay_off_in_every_copy_of_the_rule():
@@ -830,6 +834,7 @@ def test_a_git_failure_in_main_history_is_the_guards_refusal(
 ):
     monkeypatch.setattr(cli, "__version__", "0.2.10")
 
+    @hides_environment
     def fail(*args, **kwargs):
         raise subprocess.CalledProcessError(128, ["git", "log"])
 

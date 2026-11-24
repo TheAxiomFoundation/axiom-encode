@@ -18,6 +18,7 @@ from axiom_encode import cli
 from axiom_encode import validation_waiver_partition as _waiver_partition
 from axiom_encode.harness import validator_pipeline
 from axiom_encode.validation_waiver_scope import WaiverAuditScope
+from tests.environment_assertions import hides_environment
 from tests.test_validation_waiver_audit_cli import (
     _audit_args,
     _bound_corpus,
@@ -148,6 +149,7 @@ def standalone_repo(tmp_path, monkeypatch):
     _ScopeCheckingPipeline.scopes = []
     monkeypatch.setattr(cli, "ValidatorPipeline", _ScopeCheckingPipeline)
 
+    @hides_environment
     def compile_stub(**kwargs):
         if "e-compile" in kwargs["program"].name:
             return subprocess.CompletedProcess(

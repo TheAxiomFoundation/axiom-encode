@@ -12,6 +12,7 @@ from axiom_encode.notary.provenance import REPORT_ARTIFACT
 from axiom_encode.notary.signatures import verify_detached
 from axiom_encode.notary.signer import NotarySigner, ReceiptInputs, make_candidate
 from axiom_encode.notary.verification import verify_snapshots
+from tests.environment_assertions import hides_environment
 
 from .test_identity import API as IdentityAPI
 from .test_identity import claims, token
@@ -155,6 +156,7 @@ def test_personal_codex_emission_reaches_receipt_without_regeneration(
     candidate = make_candidate(api, identity, reader.packet, require_recompute=True)
     reader.packet = replace(reader.packet, candidate_raw=candidate)
 
+    @hides_environment
     def refuse_regeneration(**kwargs):
         pytest.fail("Notary verification must never call the generation runtime")
 

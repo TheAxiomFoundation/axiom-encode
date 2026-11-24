@@ -18,6 +18,7 @@ from axiom_encode.codex_cli import (
     redact_codex_auth_secrets,
 )
 from axiom_encode.harness import evals, validator_pipeline
+from tests.environment_assertions import hides_environment
 
 ACCESS = "eyJhbGciOiJSUzI1NiJ9.invented-access-token.signature"
 REFRESH = 'rt_invented"refresh\\token/value'
@@ -163,7 +164,7 @@ def _fake_reviewer_run(monkeypatch, tmp_path, *, output, extractor):
     monkeypatch.setattr(
         validator_pipeline,
         "_run_subprocess_with_idle_timeout",
-        lambda *a, **k: SimpleNamespace(output=output, returncode=0),
+        hides_environment(lambda *a, **k: SimpleNamespace(output=output, returncode=0)),
     )
     monkeypatch.setattr(validator_pipeline, "_extract_codex_text_output", extractor)
     return validator_pipeline._run_codex_reviewer_cli("review", timeout=30)
@@ -211,6 +212,7 @@ def test_generation_output_carries_no_auth_token(tmp_path, monkeypatch):
     class FakePopen:
         returncode = 1
 
+        @hides_environment
         def __init__(self, cmd, **kwargs):
             home = Path(kwargs["env"]["CODEX_HOME"])
             data = json.loads((home / "auth.json").read_text())
@@ -273,6 +275,7 @@ def test_unreadable_last_message_file_is_still_deleted(tmp_path, monkeypatch):
     class FakePopen:
         returncode = 0
 
+        @hides_environment
         def __init__(self, cmd, **kwargs):
             # Not valid UTF-8, with a token in it: the text read raises.
             Path(cmd[cmd.index("-o") + 1]).write_bytes(

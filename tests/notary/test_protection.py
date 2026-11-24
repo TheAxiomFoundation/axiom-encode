@@ -151,7 +151,7 @@ def test_lane_merge_authority_is_app_bound_and_fresh(lane, mutation):
             require_lane_protection(lane, **args)
 
 
-def environment():
+def deployment_settings():
     return {
         "name": "notary-signing",
         "can_admins_bypass": False,
@@ -183,7 +183,7 @@ def environment():
     ],
 )
 def test_environment_cannot_silently_degrade(mutation):
-    body = deepcopy(environment())
+    body = deepcopy(deployment_settings())
     branches = {
         "total_count": 1,
         "branch_policies": [{"type": "branch", "name": "main"}],

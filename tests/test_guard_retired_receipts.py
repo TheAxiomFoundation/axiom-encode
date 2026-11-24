@@ -12,6 +12,7 @@ import pytest
 
 from axiom_encode import cli
 from scripts.provision_verification_supervisor import _install_trusted_git_wrapper
+from tests.environment_assertions import environment_variable
 from tests.test_cli import TEST_APPLY_SIGNING_BROKER, TEST_PINNED_ENCODER_IDENTITY
 from tests.test_cli import TestGuardGenerated as _GuardFixtures
 from tests.test_retired_apply_paths import (
@@ -35,7 +36,7 @@ frozen_repo = _frozen_repo
 def _system_git(monkeypatch):
     """Use the same root-owned Git admitted by the production supervisor."""
 
-    monkeypatch.setenv("PATH", "/usr/bin" + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", "/usr/bin" + os.pathsep + environment_variable("PATH"))
 
 
 def _guard(fixture, monkeypatch, *, repo=None, **options):
@@ -47,7 +48,7 @@ def _guard(fixture, monkeypatch, *, repo=None, **options):
             tools, Path(sys.executable).resolve(), Path("/usr/bin/git")
         )
     with monkeypatch.context() as wrapped:
-        wrapped.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+        wrapped.setenv("PATH", str(tools) + os.pathsep + environment_variable("PATH"))
         return cli.guard_generated_change_issues(
             repo, corpus_path=fixture.corpus, **options
         )

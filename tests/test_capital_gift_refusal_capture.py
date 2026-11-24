@@ -11,6 +11,7 @@ import yaml
 
 from axiom_encode.harness import capital_gift_capture as c
 from tests import test_capital_gift_execution_capture as positive_fixture
+from tests.environment_assertions import hides_environment
 from tests.test_capital_gift_refusals import REFUSALS
 
 
@@ -151,6 +152,7 @@ def test_cli_actual_request_builder_and_mixed_result_contract(mixed, monkeypatch
     parameters = {r["id"]: r for r in artifact["program"]["parameters"]}
     by_request = {json.dumps(r["request"], sort_keys=True): r for r in calls}
 
+    @hides_environment
     def run(command, **kwargs):
         assert command[1] == "run-compiled"
         request = json.loads(kwargs["input"])
@@ -196,6 +198,7 @@ def test_pipeline_actual_request_builder_and_mixed_result_contract(mixed, monkey
     cap, cases, calls = mixed
     by_request = {json.dumps(r["request"], sort_keys=True): r for r in calls}
 
+    @hides_environment
     def run(command, **kwargs):
         assert command[1] == "run-compiled"
         record = by_request[json.dumps(json.loads(kwargs["input"]), sort_keys=True)]
@@ -348,8 +351,10 @@ def test_pipeline_failure_clears_owned_positive_and_refusal_evidence(
     monkeypatch.setattr(
         v.subprocess,
         "run",
-        lambda *args, **kwargs: SimpleNamespace(
-            returncode=0, stdout=json.dumps(response), stderr=""
+        hides_environment(
+            lambda *args, **kwargs: SimpleNamespace(
+                returncode=0, stdout=json.dumps(response), stderr=""
+            )
         ),
     )
     issues = pipe._run_rulespec_test_cases(

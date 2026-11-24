@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from axiom_encode.harness import same_case_execution as e
+from tests.environment_assertions import hides_environment
 from tests.test_bound_form_operands import CITATION, CONTENT, FIXTURE, ROOT, SOURCE
 
 
@@ -44,7 +45,9 @@ def local_world(tmp_path):
         _rulespec_test_path=lambda _: companion,
         _complete_source_unit_import_bindings=lambda _: (),
         _source_texts_for_rulespec_content=lambda _: {CITATION: SOURCE},
-        _proof_source_texts_for_rulespec_content=lambda *a, **k: {CITATION: SOURCE},
+        _proof_source_texts_for_rulespec_content=hides_environment(
+            lambda *a, **k: {CITATION: SOURCE}
+        ),
         _axiom_rules_binary=lambda: binary,
     )
     return pipe, target

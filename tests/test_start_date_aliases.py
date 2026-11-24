@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import functools
 import json
-import os
 from datetime import date
 from pathlib import Path
 
@@ -17,6 +16,7 @@ import pytest
 import yaml
 
 from axiom_encode.harness import start_date_evidence as sde
+from tests.environment_assertions import environment_variable
 from tests.real_engine import binding_receipt
 from tests.test_start_date_evidence import (
     CITATION,
@@ -180,7 +180,7 @@ def compile_control(real_engine, tmp_path, payload):
         rulespec_roots=[checkout],
         output=output,
         cwd=real_engine.root,
-        env=os.environ.copy(),
+        env={"PATH": environment_variable("PATH")},
     )
     return completed, output
 
@@ -414,7 +414,7 @@ def compile_raw_control(real_engine, tmp_path, content):
         rulespec_roots=[checkout],
         output=output,
         cwd=real_engine.root,
-        env=os.environ.copy(),
+        env={"PATH": environment_variable("PATH")},
     )
     return completed, output
 
@@ -552,7 +552,7 @@ def test_real_engine_public_raw_merge_preserves_the_program_and_companion(
             rulespec_roots=[checkout],
             output=output,
             cwd=real_engine.root,
-            env=os.environ.copy(),
+            env={"PATH": environment_variable("PATH")},
         )
         assert compiled.returncode == 0, compiled.stderr or compiled.stdout
         payload = json.loads(output.read_text())

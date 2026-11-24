@@ -34,6 +34,10 @@ from axiom_encode.ci_parity import (
     verify_dependency_checkout,
     verify_python_version,
 )
+from tests.environment_assertions import (
+    environment_variable,
+    hides_environment,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 CURRENT_KEY = base64.b64encode(bytes(range(32))).decode("ascii")
@@ -76,9 +80,10 @@ def test_repository_tests_run_without_pytest_or_git_overrides(
 
     environment = _repository_test_environment()
 
-    assert "PYTEST_ADDOPTS" not in environment
-    assert "PYTEST_PLUGINS" not in environment
-    assert "GIT_DIR" not in environment
+    names = set(environment)
+    assert "PYTEST_ADDOPTS" not in names
+    assert "PYTEST_PLUGINS" not in names
+    assert "GIT_DIR" not in names
     assert environment["KEEP_ME"] == "1"
 
 
@@ -392,6 +397,7 @@ def test_isolated_worker_receives_signing_roots_on_stdin(
 ) -> None:
     seen: dict[str, Any] = {}
 
+    @hides_environment
     def fake_run(command: list[str], **kwargs: Any):
         seen["command"] = command
         seen["request"] = json.loads(kwargs["input"])
@@ -508,7 +514,7 @@ def test_rulespec_us_caller_without_workflow_context_still_resolves(
     )
 
     assert caller.refs["encode"] == "f856cfcb886d9bd050b228aa60aeb4b96939f739"
-    assert os.environ["NEXT_PUBLIC_SUPABASE_ANON_KEY"] == "anon"
+    assert environment_variable("NEXT_PUBLIC_SUPABASE_ANON_KEY") == "anon"
 
 
 def test_optimized_interpreter_is_a_python_mismatch(
@@ -571,7 +577,6 @@ def test_python_build_label_is_bare_only_for_release_cpython_with_the_gil() -> N
 
 def test_python_build_probe_matches_the_in_process_label() -> None:
     """Differential: the subprocess probe and verify_python_version agree."""
-    import os
     import sysconfig
 
     in_process = ci_parity._python_build_label(
@@ -581,7 +586,10 @@ def test_python_build_probe_matches_the_in_process_label() -> None:
         sysconfig.get_config_var("Py_GIL_DISABLED"),
         sysconfig.get_config_var("Py_DEBUG"),
     )
-    assert ci_parity._python_build_of(Path(sys.executable), os.environ) == in_process
+    probed = ci_parity._python_build_of(
+        Path(sys.executable), {"PATH": environment_variable("PATH")}
+    )
+    assert probed == in_process
 
 
 def test_debug_or_other_implementation_is_a_python_mismatch(

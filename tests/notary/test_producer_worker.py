@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from axiom_encode.notary.producer_runtime import expected_outputs, read_encoder_outputs
 from axiom_encode.notary.producer_worker import main
+from tests.environment_assertions import environment_variable
 
 
 def test_worker_cli_arguments_and_output_match_real_cli_helpers(tmp_path, monkeypatch):
@@ -48,10 +49,8 @@ def test_worker_cli_arguments_and_output_match_real_cli_helpers(tmp_path, monkey
             == "/opt/axiom/rulespec-uk"
         )
         assert "--apply" not in sys.argv
-        import os
-
-        assert os.environ["AXIOM_ENCODE_CODEX_BIN"] == request["codex_binary"]
-        assert os.environ["CODEX_HOME"] == str(job / "work/codex-home")
+        assert environment_variable("AXIOM_ENCODE_CODEX_BIN") == request["codex_binary"]
+        assert environment_variable("CODEX_HOME") == str(job / "work/codex-home")
         mapping = expected_outputs(request["citation"], request["model"])
         paths = list(mapping.values())
         for relative in paths:

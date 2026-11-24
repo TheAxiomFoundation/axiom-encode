@@ -846,10 +846,10 @@ def _run(paths, *, costs=None, workers=2, wait=None):
             {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
         ]
     stderr = io.StringIO()
-    with contextlib.ExitStack() as stack:
-        stack.enter_context(
-            patch.dict(os.environ, {cli._WAIVER_AUDIT_WORKERS_ENV: str(workers)})
-        )
+    with (
+        patch.dict(os.environ, {cli._WAIVER_AUDIT_WORKERS_ENV: str(workers)}),
+        contextlib.ExitStack() as stack,
+    ):
         stack.enter_context(
             patch.object(
                 cli, "load_rulespec_local_corpus_release", return_value=_release_stub()

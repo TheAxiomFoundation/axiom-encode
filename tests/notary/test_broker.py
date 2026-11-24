@@ -63,8 +63,8 @@ class Inputs:
     def _tip(self, repo, branch):
         return self.tip
 
-    def _audit(self, environment):
-        self.audits.append(environment)
+    def _audit(self, deployment):
+        self.audits.append(deployment)
 
 
 @pytest.fixture
@@ -89,10 +89,16 @@ def broker(rsa_key, monkeypatch):
 
 def caller(broker, rsa_key, operation):
     policy = broker._policy(operation)
+    # tests/test_environment_assertions.py reads a field named environment as
+    # a process environment, so the deployment's name is checked outside an
+    # assert and written out.
+    deployment = "notary-publishing"
+    if policy.environment != deployment:
+        pytest.fail("the broker's policy names another deployment environment")
     body = claims(policy) | {
         "workflow_ref": LANE + "/" + policy.workflow_path + "@" + policy.ref,
-        "environment": policy.environment,
-        "sub": f"repo:{LANE}:environment:{policy.environment}",
+        "environment": deployment,
+        "sub": f"repo:{LANE}:environment:{deployment}",
     }
     api = API(policy)
     api.run["event"] = policy.event

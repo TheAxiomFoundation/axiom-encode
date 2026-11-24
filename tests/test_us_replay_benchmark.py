@@ -19,7 +19,6 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
-import os
 import re
 import subprocess
 from pathlib import Path
@@ -67,6 +66,7 @@ from scripts.replay_us_failure_bundles import (
     snapshot_from_report,
     unneeded_allowances,
 )
+from tests.environment_assertions import environment_variable
 from tests.real_engine import binding_receipt
 
 FIXTURES = DEFAULT_FIXTURE_ROOT
@@ -490,7 +490,7 @@ def test_real_engine_public_proof_alias_preserves_program_and_companion(
             rulespec_roots=[checkout],
             output=output,
             cwd=real_engine.root,
-            env=os.environ.copy(),
+            env={"PATH": environment_variable("PATH")},
         )
         assert compiled.returncode == 0, compiled.stderr or compiled.stdout
         payloads.append(output.read_bytes())

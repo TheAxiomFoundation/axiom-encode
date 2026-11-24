@@ -20,6 +20,7 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline,
     find_test_input_assignment_issues,
 )
+from tests.environment_assertions import Names
 
 TARGET = "us:policies/example/lazy_inputs"
 
@@ -295,7 +296,7 @@ def test_default_compile_rejection_and_ir_static_fallback(
             str(root),
         ],
         cwd=real_engine.root,
-        env=os.environ.copy(),
+        env=Names(os.environ.copy()),
         capture_output=True,
         text=True,
     )

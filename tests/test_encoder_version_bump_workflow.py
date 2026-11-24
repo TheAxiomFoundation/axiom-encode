@@ -17,6 +17,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.environment_assertions import environment_variable, hides_environment
+
 ROOT = Path(__file__).parents[1]
 WORKFLOW = ROOT / ".github/workflows/encoder-version-bump.yml"
 SCRIPT = ROOT / "src/axiom_encode/version_provenance.py"
@@ -122,6 +124,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@hides_environment
 def _git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
     return subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -198,7 +201,7 @@ def _run(tmp_path: Path, remote: Path, state: Path, run: int):
     # Each run commits at its own time, as reruns do.
     date = f"2026-11-06T0{run}:00:00+00:00"
     env = {
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "PATH": f"{bin_dir}{os.pathsep}{environment_variable('PATH')}",
         "HOME": str(tmp_path),
         "GITHUB_OUTPUT": str(output),
         "GITHUB_REPOSITORY": "o/r",
@@ -503,7 +506,7 @@ def test_the_run_stops_without_the_bump_app(client_id: str, key_set: str, ok: bo
     result = subprocess.run(
         ["bash", "-c", _steps()["Require the bump App"]],
         env={
-            "PATH": os.environ["PATH"],
+            "PATH": environment_variable("PATH"),
             "APP_CLIENT_ID": client_id,
             "APP_KEY_SET": key_set,
         },

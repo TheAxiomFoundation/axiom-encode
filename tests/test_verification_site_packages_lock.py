@@ -84,6 +84,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from tests import workflow_shell
+from tests.environment_assertions import Names, environment_variable
 from tests.test_workflow_toolchain_pins import _script_commands, _strings
 from tests.workflow_shell import Command
 
@@ -1937,7 +1938,7 @@ def _run_staging_step(
     build_log = tmp_path / "uv-build-constraints.jsonl"
     env = {
         **os.environ,
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "PATH": f"{bin_dir}{os.pathsep}{environment_variable('PATH')}",
         "RUNNER_TEMP": str(runner_temp),
         "FAKE_UV_LOG": str(log),
         "FAKE_UV_BUILD_LOG": str(build_log),
@@ -1958,7 +1959,7 @@ def _run_staging_step(
     result = subprocess.run(
         ["/bin/bash", "-e", "-c", _staging_step(workflow)["run"]],
         cwd=tmp_path,
-        env=env,
+        env=Names(env),
         capture_output=True,
         text=True,
         check=False,

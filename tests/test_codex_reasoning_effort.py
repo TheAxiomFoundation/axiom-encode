@@ -9,6 +9,7 @@ import pytest
 
 from axiom_encode import cli
 from axiom_encode.harness import evals
+from tests.environment_assertions import hides_environment
 
 
 @pytest.mark.parametrize("effort", [None, "low", "high", "ultra"])
@@ -136,6 +137,7 @@ def test_codex_subprocess_uses_model_reasoning_effort_and_records_trace(
     class FakePopen:
         returncode = 0
 
+        @hides_environment
         def __init__(self, cmd, **kwargs):
             observed["cmd"] = cmd
             kwargs["stdout"].write(

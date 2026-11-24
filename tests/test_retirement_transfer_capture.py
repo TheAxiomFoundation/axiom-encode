@@ -17,6 +17,7 @@ from axiom_encode.harness.same_case_execution import (
     case_key,
     digest,
 )
+from tests.environment_assertions import hides_environment
 
 FIXTURE = Path(__file__).parent / "fixtures/retirement_transfer/observed-graph.json"
 ROOT = "ca/policies/revenu-quebec/tp1-2025/schedule-q-retirement-income-transfer.yaml"
@@ -858,9 +859,9 @@ def q_snapshot_world(tmp_path):
         _rulespec_test_path=lambda _: companion,
         _complete_source_unit_import_bindings=lambda _: (),
         _source_texts_for_rulespec_content=lambda _: {CITATION: d["source"]},
-        _proof_source_texts_for_rulespec_content=lambda *a, **k: {
-            CITATION: d["source"]
-        },
+        _proof_source_texts_for_rulespec_content=hides_environment(
+            lambda *a, **k: {CITATION: d["source"]}
+        ),
         _axiom_rules_binary=lambda: binary,
     )
     return pipe, target

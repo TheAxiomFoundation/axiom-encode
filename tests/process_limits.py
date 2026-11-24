@@ -8,11 +8,14 @@ import subprocess
 import time
 from collections.abc import Mapping, Sequence
 
+from tests.environment_assertions import hides_environment
+
 # Catch hangs, not slowness: scheduling delays in shared runners and lanes can
 # dominate elapsed time, so ordinary completion has a generous five minutes.
 HANG_TIMEOUT_SECONDS = 300
 
 
+@hides_environment
 def run_with_progress_timeout(
     args: Sequence[str],
     *,

@@ -38,6 +38,7 @@ from axiom_encode.engine_binding import (
 )
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from tests import real_engine
+from tests.environment_assertions import Names, hides_environment
 from tests.process_limits import HANG_TIMEOUT_SECONDS
 
 REPO = Path(__file__).resolve().parents[1]
@@ -600,6 +601,7 @@ def test_plain():
 """
 
 
+@hides_environment
 def _run_sample(
     tmp_path: Path,
     env: dict[str, str],
@@ -642,11 +644,13 @@ def _run_sample(
             *args,
         ],
         cwd=project,
-        env={
-            **base,
-            "PYTHONPATH": os.pathsep.join([str(REPO), str(REPO / "src")]),
-            **env,
-        },
+        env=Names(
+            {
+                **base,
+                "PYTHONPATH": os.pathsep.join([str(REPO), str(REPO / "src")]),
+                **env,
+            }
+        ),
         capture_output=True,
         text=True,
         timeout=HANG_TIMEOUT_SECONDS,

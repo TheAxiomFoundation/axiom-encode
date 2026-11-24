@@ -6,6 +6,7 @@ import pytest
 
 from axiom_encode.harness import source_completeness as c
 from axiom_encode.harness import validator_pipeline as v
+from tests.environment_assertions import hides_environment
 
 SOURCE = (Path(__file__).parent / "fixtures/t2036_operand_gates/source.txt").read_text()
 CLAUSE = "If you paid tax to more than one jurisdiction in 2025, calculate this amount according to note (3) of Form T2209."
@@ -72,6 +73,7 @@ def fixture():
     return rule, cases, inputs
 
 
+@hides_environment
 def run(rule, cases, inputs, source=SOURCE, clause=CLAUSE, environment=None):
     start = source.index(clause)
     branch = c.SourceStructureBranch(
