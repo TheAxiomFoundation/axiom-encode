@@ -7385,23 +7385,33 @@ def prepare_eval_workspace(
                 _reject_composition_spec_eval_context(path)
                 selected.append(path)
                 explicit_context_paths.add(path)
-        selected.extend(
-            _select_cited_cfr_section_context_files(
-                citation,
-                source_text,
-                context_corpus_root,
-                base_selected=selected,
-                target_rel=target_rel,
-                explicit_context_paths=explicit_context_paths,
-            )
-        )
-
-        expanded_context = _expand_context_files(
-            selected,
+        cited_cfr_modules = _select_cited_cfr_section_context_files(
+            citation,
+            source_text,
             context_corpus_root,
-            target_rel,
+            base_selected=selected,
+            target_rel=target_rel,
             explicit_context_paths=explicit_context_paths,
         )
+        cited_cfr_tests = _cited_cfr_context_added_tests(
+            context_corpus_root,
+            base_selected=selected,
+            cited_modules=cited_cfr_modules,
+            target_rel=target_rel,
+            explicit_context_paths=explicit_context_paths,
+        )
+        selected.extend(cited_cfr_modules)
+
+        expanded_context = [
+            (path, kind)
+            for path, kind in _expand_context_files(
+                selected,
+                context_corpus_root,
+                target_rel,
+                explicit_context_paths=explicit_context_paths,
+            )
+            if path.resolve() not in cited_cfr_tests
+        ]
 
         for source_path, kind in expanded_context:
             relative_target = _context_import_relative_target(
@@ -8316,14 +8326,33 @@ _CFR_SOURCE_CITATION_RE = re.compile(
     r"(?![\w(-]|\.\d)"
 )
 # A sentence ends at `.`, `;` or `:` after a lower-case letter, a digit or `)`
-# and before white space and an upper-case letter or `(`, or at a line break.
-# `C.F.R.` and `e.g.` do not end a sentence.
-_CFR_SOURCE_SENTENCE_END_RE = re.compile(r"(?<=[a-z0-9)])[.;:]\s+(?=[A-Z(])|\n")
+# and before white space and an upper-case letter, `(` or `§`, or at a blank
+# line. A single line break is white space. `C.F.R.` does not end a sentence.
+_CFR_SOURCE_SENTENCE_END_RE = re.compile(
+    r"(?<=[a-z0-9)])[.;:]\s+(?=[A-Z(§])|\n[ \t]*\n"
+)
+# `§§ P.S, P.S and P.S` and `§§ P.S through P.S`: each listed section (range
+# endpoints only) is read as a bare `§ P.S` citation.
+_CFR_SOURCE_SECTION_LIST_RE = re.compile(r"(?<![\w§.])§§\s*")
+_CFR_SOURCE_LIST_ITEM_RE = re.compile(
+    r"(?P<part>\d{1,4})\.(?P<section>\d{1,4})"
+    r"(?P<fragments>(?:\([A-Za-z0-9]{1,8}\))*)"
+    r"(?![\w(-]|\.\d)"
+)
+_CFR_SOURCE_LIST_SEPARATOR_RE = re.compile(
+    r"\s*(?:,\s*(?:(?:and|or)\s+)?|\s(?:and|or|through|to)\s+)\s*"
+)
+# `of this chapter`, `of this part` or `of this subpart` after a bare `§`
+# citation binds it to the unit's title.
+_CFR_SOURCE_SAME_TITLE_SUFFIX_RE = re.compile(
+    r"\s*,?\s*of\s+this\s+(?:chapter|part|subpart)\b"
+)
 # Bounds for the cited-CFR context. At most 8 sections, ordered by citation
 # count, then first citation; per section at most 4 modules (modules for cited
 # paragraphs first, then the section file, then its live subdirectory modules
-# by depth and path); at most 12 candidate modules. After transitive expansion (companion tests and
-# imports) the feature adds at most 16 files and 32,000 characters.
+# by depth and path); at most 12 candidate modules. After transitive
+# expansion (imports; companion tests of added modules are not copied) the
+# feature adds at most 16 files and 32,000 characters.
 _MAX_CITED_CFR_CONTEXT_SECTIONS = 8
 _MAX_CITED_CFR_CONTEXT_MODULES_PER_SECTION = 4
 _MAX_CITED_CFR_CONTEXT_MODULES = 12
@@ -8395,6 +8424,45 @@ def _us_cfr_unit_section_key(citation: str) -> tuple[str, str, str] | None:
     return (title, part, section)
 
 
+def _cfr_source_citation_hits(
+    source_text: str,
+) -> list[tuple[int, int, str | None, str, str, str]]:
+    """Return (start, end, title, part, section, fragments) hits in order.
+
+    Single citations come from `_CFR_SOURCE_CITATION_RE`; each item of a
+    `§§` list is a bare hit (no title).
+    """
+    hits = [
+        (
+            match.start(),
+            match.end(),
+            match.group("title"),
+            match.group("part"),
+            match.group("section"),
+            match.group("fragments"),
+        )
+        for match in _CFR_SOURCE_CITATION_RE.finditer(source_text)
+    ]
+    for list_start in _CFR_SOURCE_SECTION_LIST_RE.finditer(source_text):
+        position = list_start.end()
+        while item := _CFR_SOURCE_LIST_ITEM_RE.match(source_text, position):
+            hits.append(
+                (
+                    item.start(),
+                    item.end(),
+                    None,
+                    item.group("part"),
+                    item.group("section"),
+                    item.group("fragments"),
+                )
+            )
+            separator = _CFR_SOURCE_LIST_SEPARATOR_RE.match(source_text, item.end())
+            if separator is None:
+                break
+            position = separator.end()
+    return sorted(hits)
+
+
 def _iter_cited_cfr_sections(
     source_text: str,
     unit_title: str,
@@ -8404,21 +8472,29 @@ def _iter_cited_cfr_sections(
         match.end() for match in _CFR_SOURCE_SENTENCE_END_RE.finditer(source_text)
     ]
     explicit_titles_by_sentence: dict[int, set[str]] = defaultdict(set)
-    for match in _CFR_SOURCE_CITATION_RE.finditer(source_text):
-        sentence = bisect.bisect_right(sentence_ends, match.start())
-        explicit_title = match.group("title")
+    for (
+        start,
+        end,
+        explicit_title,
+        part,
+        section,
+        raw_fragments,
+    ) in _cfr_source_citation_hits(source_text):
+        sentence = bisect.bisect_right(sentence_ends, start)
         if explicit_title is not None:
             explicit_titles_by_sentence[sentence].add(explicit_title)
             title = explicit_title
+        elif _CFR_SOURCE_SAME_TITLE_SUFFIX_RE.match(source_text, end):
+            title = unit_title
         elif explicit_titles_by_sentence[sentence] - {unit_title}:
             continue
         else:
             title = unit_title
-        fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("fragments")))
+        fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", raw_fragments))
         cited = _CitedCfrSection(
             title=title,
-            part=match.group("part"),
-            section=match.group("section"),
+            part=part,
+            section=section,
             fragments=fragments,
         )
         try:
@@ -8597,11 +8673,12 @@ def _select_cited_cfr_section_context_files(
 ) -> list[Path]:
     """Select cited-CFR modules whose expanded context fits the added bound.
 
-    Candidates are tried in order. A candidate is kept when the context it
-    adds after `_expand_context_files` (the module, its companion test and
-    its transitive imports, minus files already in context) keeps the total
-    added by this feature within 16 files and 32,000 characters; otherwise
-    it is skipped and the next one is tried.
+    Candidates are tried in order. A candidate is kept when the modules it
+    adds after `_expand_context_files` (the module and its transitive
+    imports, minus files already in context) keep the total added by this
+    feature within 16 files and 32,000 characters; otherwise it is skipped
+    and the next one is tried. Companion tests of the added modules are not
+    copied (`_cited_cfr_context_added_tests`), so they do not count.
     """
     candidates = _cited_cfr_context_candidates(citation, source_text, policy_root)
     if not candidates:
@@ -8621,7 +8698,11 @@ def _select_cited_cfr_section_context_files(
     base = expanded(base_selected)
     accepted: list[Path] = []
     for candidate in candidates:
-        added = expanded([*base_selected, *accepted, candidate]) - base
+        added = {
+            path
+            for path in expanded([*base_selected, *accepted, candidate]) - base
+            if not path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+        }
         added_chars = sum(len(path.read_text()) for path in added)
         if (
             len(added) <= _MAX_CITED_CFR_CONTEXT_ADDED_FILES
@@ -8629,6 +8710,41 @@ def _select_cited_cfr_section_context_files(
         ):
             accepted.append(candidate)
     return accepted
+
+
+def _cited_cfr_context_added_tests(
+    policy_root: Path,
+    *,
+    base_selected: list[Path],
+    cited_modules: list[Path],
+    target_rel: Path | None,
+    explicit_context_paths: set[Path] | None = None,
+) -> set[Path]:
+    """Return companion tests that only the cited-CFR modules bring in.
+
+    These are left out of the copied context: the cited module and its
+    imports are importable without their tests, and tests were 40-60% of the
+    bytes the feature added.
+    """
+    if not cited_modules:
+        return set()
+
+    def expanded(paths: list[Path]) -> set[Path]:
+        return {
+            path.resolve()
+            for path, _kind in _expand_context_files(
+                paths,
+                policy_root,
+                target_rel,
+                explicit_context_paths=explicit_context_paths,
+            )
+        }
+
+    return {
+        path
+        for path in expanded([*base_selected, *cited_modules]) - expanded(base_selected)
+        if path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+    }
 
 
 def _section_for_eval_identifier(citation: str) -> str | None:
