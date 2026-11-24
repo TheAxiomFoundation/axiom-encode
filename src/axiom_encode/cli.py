@@ -601,6 +601,12 @@ from .toolchain import (
     verify_rulespec_validation_waiver_set,
 )
 from .validation_waiver_scope import WaiverAuditScope, select_validation_waiver_scope
+from .validation_waiver_shadow import (
+    append_shadow_summary,
+    compare_incremental_shadow,
+    shadow_summary_line,
+    write_shadow_record,
+)
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
@@ -2272,6 +2278,23 @@ def main():
         choices=("full", "incremental"),
         default="full",
         help="Audit all waivers (default) or conservatively select changed read sets",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--incremental-shadow-report",
+        type=Path,
+        help=(
+            "Report only, with --scope full: after the full audit, compute the "
+            "incremental selection of the same partition and write a JSON "
+            "comparison here; never changes the exit code"
+        ),
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--incremental-shadow-summary",
+        type=Path,
+        help=(
+            "With --incremental-shadow-report: also append one Markdown line "
+            "here, for example $GITHUB_STEP_SUMMARY"
+        ),
     )
     validation_waivers_audit_parser.add_argument(
         "--verifier-restate",
@@ -5860,6 +5883,8 @@ def _validation_waiver_ledger_differs(
 def _cmd_validation_waivers_audit(args) -> int:
     if hasattr(args, "_validation_waiver_audit_selection"):
         del args._validation_waiver_audit_selection
+    if hasattr(args, "_validation_waiver_shadow_done"):
+        del args._validation_waiver_shadow_done
     root = Path(args.root).resolve()
     requested_scope = getattr(args, "scope", "full")
     if requested_scope not in {"full", "incremental"}:
@@ -5926,6 +5951,11 @@ def _cmd_validation_waivers_audit(args) -> int:
                 fallback_reason="protected base transition checks failed",
             )
         _print_validation_waiver_audit_report(report, as_json=args.json)
+        _validation_waiver_incremental_shadow(
+            args,
+            full_report=report,
+            unavailable="protected base transition checks failed",
+        )
         return 1
 
     active_paths = set(head.active_paths)
@@ -5970,15 +6000,12 @@ def _cmd_validation_waivers_audit(args) -> int:
             # Without a table the report keeps its legacy bytes.
             partition["cost_table_sha256"] = costs.sha256
 
-    scope = "full"
-    selection_reasons: dict[str, list[str]] = {}
-    fallback_reason = None
-    if requested_scope == "incremental":
+    def _select_incremental(owned: Sequence[str]) -> WaiverAuditScope:
         # Select within this job's own partition only. Each waiver is decided
         # from its own read set, so the partition's selection is its share of
         # the whole ledger's selection, at a cost that follows the partition.
         selection = select_validation_waiver_scope(
-            list(classified),
+            list(owned),
             root=root,
             changed_paths=changed_paths,
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
@@ -6006,10 +6033,17 @@ def _cmd_validation_waivers_audit(args) -> int:
             )
             selection = WaiverAuditScope(
                 "full",
-                tuple(classified),
-                {path: [f"full audit fallback: {reason}"] for path in classified},
+                tuple(owned),
+                {path: [f"full audit fallback: {reason}"] for path in owned},
                 reason,
             )
+        return selection
+
+    scope = "full"
+    selection_reasons: dict[str, list[str]] = {}
+    fallback_reason = None
+    if requested_scope == "incremental":
+        selection = _select_incremental(list(classified))
         scope = selection.scope
         selection_reasons = selection.reasons
         fallback_reason = selection.fallback_reason
@@ -6222,7 +6256,96 @@ def _cmd_validation_waivers_audit(args) -> int:
     if partition is not None:
         report["partition"] = partition
     _print_validation_waiver_audit_report(report, as_json=args.json)
+    # Report-only: the selection runs after the full audit has finished and
+    # printed, so it cannot change the audit's results, report or exit code.
+    if requested_scope != "full":
+        shadow_unavailable = "the shadow compares a --scope full audit"
+    elif verifier_restate:
+        shadow_unavailable = "a verifier restate requires the full audit"
+    else:
+        shadow_unavailable = None
+    _validation_waiver_incremental_shadow(
+        args,
+        full_report=report,
+        select=lambda: _select_incremental(list(classified)),
+        unavailable=shadow_unavailable,
+    )
     return 0 if report["success"] else 1
+
+
+def _validation_waiver_incremental_shadow(
+    args,
+    *,
+    full_report: dict[str, Any] | None,
+    select: Callable[[], WaiverAuditScope] | None = None,
+    unavailable: str | None = None,
+) -> None:
+    """Write the report-only comparison of the incremental selection.
+
+    It runs only when `--incremental-shadow-report` is given. It never raises
+    and never changes the audit's exit code: every failure becomes an
+    `inconclusive` record, or, if even the record cannot be written, one
+    diagnostic line.
+    """
+
+    record_path = getattr(args, "incremental_shadow_report", None)
+    if record_path is None or getattr(args, "_validation_waiver_shadow_done", False):
+        return
+    args._validation_waiver_shadow_done = True
+    try:
+        selection: dict[str, Any] | None = None
+        selection_error = unavailable
+        seconds: float | None = None
+        if selection_error is None and select is None:
+            selection_error = "incremental selection was not computed"
+        if selection_error is None and select is not None:
+            started = time.monotonic()
+            try:
+                chosen = select()
+                selection = {"scope": chosen.scope, "paths": list(chosen.paths)}
+                if chosen.fallback_reason is not None:
+                    selection["fallback_reason"] = chosen.fallback_reason
+            except Exception as error:
+                selection_error = f"{type(error).__name__}: {error}"
+            seconds = time.monotonic() - started
+        record = compare_incremental_shadow(
+            full_report=full_report,
+            selection=selection,
+            selection_error=selection_error,
+            selection_seconds=seconds,
+        )
+        if unavailable is not None and not any(
+            unavailable in error for error in record["errors"]
+        ):
+            record["errors"].append(unavailable)
+    except Exception as error:
+        record = {
+            "verdict": "inconclusive",
+            "unsafe": True,
+            "report_only": True,
+            "errors": [f"shadow comparison failed: {type(error).__name__}: {error}"],
+        }
+    line = "validation-waivers " + shadow_summary_line(record)
+    try:
+        write_shadow_record(Path(record_path), record)
+    except Exception as error:
+        line += f"; record not written: {error}"
+    summary_path = getattr(args, "incremental_shadow_summary", None)
+    if summary_path is not None:
+        try:
+            append_shadow_summary(Path(summary_path), record)
+        except Exception as error:
+            line += f"; summary not written: {error}"
+    try:
+        _waiver_partition.write_audit_line(line)
+        # The same record in the log, for a run whose record file cannot be
+        # written or collected.
+        _waiver_partition.write_audit_line(
+            "validation-waivers incremental shadow record: "
+            + json.dumps(record, sort_keys=True, separators=(",", ":"))
+        )
+    except Exception:
+        pass
 
 
 def _print_validation_waiver_audit_report(
@@ -6275,6 +6398,12 @@ def cmd_validation_waivers(args) -> None:
     except Exception as error:
         _emit_validation_waiver_error(args, error)
         exit_code = 2
+        if getattr(args, "validation_waivers_command", None) == "audit":
+            _validation_waiver_incremental_shadow(
+                args,
+                full_report=None,
+                unavailable=f"the full audit did not complete: {error}",
+            )
     sys.exit(exit_code)
 
 

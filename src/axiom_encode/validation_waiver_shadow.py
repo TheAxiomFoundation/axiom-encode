@@ -1,0 +1,252 @@
+"""Report-only comparison of the incremental waiver selection with the full audit.
+
+The shadow period before `--scope incremental` gates a pull request runs the
+full audit as today and, next to it, computes the incremental selection of the
+same partition. This module compares the two and writes a record. It never
+decides an exit code.
+
+The dangerous direction is a waiver that the full audit flags and the
+incremental audit would not flag: the incremental gate would then pass what the
+full gate fails. Any input that this module cannot read as a complete report
+gives the verdict ``inconclusive``, which counts as unsafe in the record.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+SHADOW_SCHEMA = "axiom-encode/validation-waiver-incremental-shadow/v1"
+
+VERDICT_AGREE = "agree"
+VERDICT_MISSED = "incremental_missed"
+VERDICT_EXTRA = "incremental_extra"
+VERDICT_INCONCLUSIVE = "inconclusive"
+
+
+class ShadowInputError(ValueError):
+    """A report or selection that cannot be compared."""
+
+
+def _report_outcomes(report: object, *, label: str) -> tuple[set[str], set[str]]:
+    """Return the checked and the flagged waiver paths of one audit report.
+
+    A report is complete only when every error it states belongs to one of its
+    results. An error with no result (a ledger transition failure, a systemic
+    discrepancy) says nothing about which waivers either scope flags.
+    """
+
+    if not isinstance(report, Mapping):
+        raise ShadowInputError(f"{label} is not an object")
+    results = report.get("results")
+    if not isinstance(results, list):
+        raise ShadowInputError(f"{label}.results is not a list")
+    errors = report.get("errors")
+    if not isinstance(errors, list) or any(
+        not isinstance(error, str) for error in errors
+    ):
+        raise ShadowInputError(f"{label}.errors is not a list of strings")
+    success = report.get("success")
+    if not isinstance(success, bool):
+        raise ShadowInputError(f"{label}.success is not a boolean")
+    checked: set[str] = set()
+    flagged: set[str] = set()
+    result_errors: set[str] = set()
+    for index, result in enumerate(results):
+        where = f"{label}.results[{index}]"
+        if not isinstance(result, Mapping):
+            raise ShadowInputError(f"{where} is not an object")
+        path = result.get("path")
+        if not isinstance(path, str) or not path:
+            raise ShadowInputError(f"{where}.path is not a non-empty string")
+        if path in checked:
+            raise ShadowInputError(f"{where}.path {path} occurs twice")
+        result_success = result.get("success")
+        if not isinstance(result_success, bool):
+            raise ShadowInputError(f"{where}.success is not a boolean")
+        checked.add(path)
+        if not result_success:
+            flagged.add(path)
+        error = result.get("error")
+        if error is not None:
+            if not isinstance(error, str):
+                raise ShadowInputError(f"{where}.error is not a string")
+            result_errors.add(error)
+    unattributed = [error for error in errors if error not in result_errors]
+    if unattributed:
+        raise ShadowInputError(
+            f"{label} has {len(unattributed)} error(s) that belong to no "
+            f"waiver result, first: {unattributed[0]}"
+        )
+    if success != (not flagged and not errors):
+        raise ShadowInputError(f"{label}.success disagrees with its results")
+    return checked, flagged
+
+
+def _selection_paths(selection: object, *, checked: set[str]) -> tuple[str, set[str]]:
+    if not isinstance(selection, Mapping):
+        raise ShadowInputError("selection is not an object")
+    scope = selection.get("scope")
+    if scope not in {"full", "incremental"}:
+        raise ShadowInputError("selection.scope must be full or incremental")
+    paths = selection.get("paths")
+    if not isinstance(paths, (list, tuple)) or any(
+        not isinstance(path, str) or not path for path in paths
+    ):
+        raise ShadowInputError("selection.paths is not a list of paths")
+    selected = set(paths)
+    if len(selected) != len(paths):
+        raise ShadowInputError("selection.paths has a duplicate path")
+    outside = sorted(selected - checked)
+    if outside:
+        # A selection can only narrow the partition the full audit checked.
+        raise ShadowInputError(
+            f"selection holds {len(outside)} path(s) the full audit did not "
+            f"check, first: {outside[0]}"
+        )
+    if scope == "full" and selected != checked:
+        raise ShadowInputError("a full selection must hold every checked path")
+    return scope, selected
+
+
+def compare_incremental_shadow(
+    *,
+    full_report: object,
+    selection: object | None,
+    incremental_report: object | None = None,
+    selection_error: str | None = None,
+    selection_seconds: float | None = None,
+) -> dict[str, Any]:
+    """Compare one partition's full audit with its incremental selection.
+
+    Without ``incremental_report`` the incremental verdicts are derived from
+    the full audit: a selected waiver is flagged exactly when the full audit
+    flags it, because both runs fingerprint the same tree with the same
+    verifier. With ``incremental_report`` (a separate incremental run) its own
+    results are compared as well.
+    """
+
+    record: dict[str, Any] = {
+        "schema": SHADOW_SCHEMA,
+        "report_only": True,
+        "verdict": VERDICT_INCONCLUSIVE,
+        "unsafe": True,
+        "missed": [],
+        "extra": [],
+        "errors": [],
+    }
+    if isinstance(full_report, Mapping) and isinstance(
+        full_report.get("partition"), Mapping
+    ):
+        record["partition"] = dict(full_report["partition"])
+    if selection_seconds is not None:
+        record["selection_seconds"] = round(float(selection_seconds), 3)
+    try:
+        if not isinstance(full_report, Mapping):
+            raise ShadowInputError("full report is not an object")
+        if full_report.get("scope") != "full":
+            raise ShadowInputError("full report scope is not full")
+        checked, full_flagged = _report_outcomes(full_report, label="full report")
+        record["full"] = {
+            "checked": len(checked),
+            "flagged": len(full_flagged),
+            "success": not full_flagged,
+        }
+        if selection_error is not None:
+            raise ShadowInputError(f"incremental selection failed: {selection_error}")
+        if selection is None:
+            raise ShadowInputError("incremental selection was not computed")
+        scope, selected = _selection_paths(selection, checked=checked)
+        incremental: dict[str, Any] = {
+            "scope": scope,
+            "selected": len(selected),
+            "unselected": len(checked - selected),
+            "derived": incremental_report is None,
+        }
+        fallback_reason = selection.get("fallback_reason")
+        if fallback_reason is not None:
+            if not isinstance(fallback_reason, str):
+                raise ShadowInputError("selection.fallback_reason is not a string")
+            incremental["fallback_reason"] = fallback_reason
+        if incremental_report is None:
+            incremental_flagged = full_flagged & selected
+        else:
+            incremental_checked, incremental_flagged = _report_outcomes(
+                incremental_report, label="incremental report"
+            )
+            if incremental_checked != selected:
+                raise ShadowInputError(
+                    "incremental report did not check exactly the selected paths"
+                )
+        incremental["flagged"] = len(incremental_flagged)
+        record["incremental"] = incremental
+    except ShadowInputError as error:
+        record["errors"].append(str(error))
+        return record
+
+    missed = sorted(full_flagged - incremental_flagged)
+    extra = sorted(incremental_flagged - full_flagged)
+    record["missed"] = missed
+    record["missed_unselected"] = sorted(full_flagged - selected)
+    record["extra"] = extra
+    if missed:
+        record["verdict"] = VERDICT_MISSED
+    elif extra:
+        record["verdict"] = VERDICT_EXTRA
+    else:
+        record["verdict"] = VERDICT_AGREE
+    # Failing more than the full audit is a disagreement to investigate, not
+    # an unsound pass; an inconclusive record stays unsafe (set above).
+    record["unsafe"] = missed != []
+    return record
+
+
+def shadow_summary_line(record: Mapping[str, Any]) -> str:
+    """One line for a log or a job summary."""
+
+    verdict = record.get("verdict", VERDICT_INCONCLUSIVE)
+    parts = [f"incremental waiver audit shadow (report only): {verdict}"]
+    partition = record.get("partition")
+    if isinstance(partition, Mapping) and "key" in partition:
+        parts.append(f"partition {partition['key']}")
+    incremental = record.get("incremental")
+    full = record.get("full")
+    if isinstance(incremental, Mapping) and isinstance(full, Mapping):
+        parts.append(
+            f"scope {incremental.get('scope')}, selected "
+            f"{incremental.get('selected')} of {full.get('checked')}"
+        )
+        parts.append(f"full audit flagged {full.get('flagged')}")
+        if "fallback_reason" in incremental:
+            parts.append(f"fallback: {incremental['fallback_reason']}")
+    missed = record.get("missed") or []
+    extra = record.get("extra") or []
+    if missed:
+        parts.append(f"missed {len(missed)}, first {missed[0]}")
+    if extra:
+        parts.append(f"extra {len(extra)}, first {extra[0]}")
+    errors = record.get("errors") or []
+    if errors:
+        parts.append(f"error: {errors[0]}")
+    return "; ".join(parts)
+
+
+def write_shadow_record(path: Path, record: Mapping[str, Any]) -> None:
+    """Write the record atomically as deterministic JSON."""
+
+    path = Path(path)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    temporary.replace(path)
+
+
+def append_shadow_summary(path: Path, record: Mapping[str, Any]) -> None:
+    """Append one Markdown line, for example to ``$GITHUB_STEP_SUMMARY``."""
+
+    with Path(path).open("a", encoding="utf-8") as handle:
+        handle.write(f"- {shadow_summary_line(record)}\n")

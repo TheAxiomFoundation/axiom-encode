@@ -304,7 +304,9 @@ incremental audit the gate. These six things come first.
 
 1. **A shadow period.** Pull requests keep `--scope full`. Each leg also
    computes the selection (3 to 5 s) and fails, or alerts, when the full audit
-   flags a waiver that the selection does not hold.
+   flags a waiver that the selection does not hold. The encoder side is
+   `--incremental-shadow-report` (see "Shadow comparison" below); the
+   workflow side and the period itself are still open.
 2. **Canary pull requests**, never merged, that must change other waivers: a
    duplicate executable rule in `us`, a companion-only edit, a manifest-only
    backfill, an edit of a module that another state imports. Each must show
@@ -327,3 +329,44 @@ TheAxiomFoundation/rulespec-us#2059 proposes to replace the daily full
 validation with an event-driven drift run. If it lands, "the full audit stays
 on the scheduled run" is no longer true as written, and the control for
 verifier drift must be named again.
+
+## Shadow comparison (report only)
+
+`validation-waivers audit --scope full --incremental-shadow-report <file>`
+runs the full audit exactly as without the option. After the full audit has
+printed its report, it computes the incremental selection of the same
+partition, with the same guards as `--scope incremental` (empty change set,
+ledger that differs from the protected base), and compares the two. The option
+is off by default. It never changes the report on standard output or the exit
+code.
+
+The comparison is per partition. A selected waiver is flagged by the
+incremental audit exactly when the full audit flags it, because both would
+fingerprint the same tree with the same verifier; so the full audit's results
+are reused and nothing runs twice. The record (schema
+`axiom-encode/validation-waiver-incremental-shadow/v1`) has one verdict:
+
+| Verdict | Meaning | `unsafe` |
+|---|---|---|
+| `agree` | Every waiver the full audit flags is selected | false |
+| `incremental_missed` | The full audit flags a waiver that the incremental audit would not: the incremental gate would pass what the full gate fails. `missed` lists them | true |
+| `incremental_extra` | The incremental audit flags a waiver that the full audit does not (only possible with a separate incremental report) | false |
+| `inconclusive` | No comparison: the selection raised, the full audit did not finish or failed before its results (ledger transition, systemic discrepancy), the run used `--scope incremental` or `--verifier-restate`, or an input was malformed | true |
+
+The record also holds the partition, the full audit's checked and flagged
+counts, the selection's scope, size, fallback reason and time in seconds.
+`--incremental-shadow-summary <file>` appends one Markdown line to a file, for
+example `$GITHUB_STEP_SUMMARY` (the signing supervisor does not pass that
+variable to the audit, so the workflow passes the path). The same summary line
+and the record as one JSON line are written to standard error, prefixed
+`validation-waivers incremental shadow record: `, so a run whose record file
+cannot be written or collected still has the record in its log.
+
+A later change of the reusable workflow can use it in the step "Enforce
+validation waiver ratchet": when the verifier's `audit --help` lists
+`--incremental-shadow-report`, add
+`--incremental-shadow-report "$RUNNER_TEMP/waiver-shadow-${{ matrix.shard }}.json"`
+on `pull_request` events, keep `--scope full`, and upload the record as an
+artifact. A separate job can then collect all partitions and fail or alert on
+any `unsafe` record. Whether an `incremental_missed` record fails the pull
+request or only alerts is that workflow's decision; this option only reports.
