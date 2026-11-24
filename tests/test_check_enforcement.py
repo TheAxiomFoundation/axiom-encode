@@ -997,8 +997,8 @@ def _evaluate(tmp_path, monkeypatch, ci_result, *, prompts=None, **kwargs):
     def fake_reviewer_cli(prompt, **_kwargs):
         if prompts is not None:
             prompts.append(prompt)
-            # Keys that every reviewer prompt asks for: one fake serves all types.
-            return json.dumps({"score": 9, "passed": True}), 0
+        # Keys that every reviewer prompt asks for: one fake serves all types.
+        return json.dumps({"score": 9, "passed": True}), 0
 
     monkeypatch.setattr(validator_pipeline, "run_claude_code", fake_reviewer_cli)
     kwargs.setdefault("skip_reviewers", prompts is None)

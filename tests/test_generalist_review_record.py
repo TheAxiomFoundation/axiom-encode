@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
+import itertools
 import json
+import random
 import re
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -5682,3 +5686,511 @@ def test_an_overflowing_float_never_has_the_content_of_infinity(overflow, infini
         evidence=_evidence(rulespec=_rule(overflow)),
     )
     assert same["status"] == "passed"
+
+
+# --- the verdict reader: value types, strict JSON, prompt and backends ------
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        # A contradiction one level down, under a schema key.
+        '{"passed": true, "score": 9, "non_blocking_issues": [{"pass": false}]}',
+        '{"passed": true, "score": 9, "non_blocking_issues": [{"failed": true}]}',
+        '{"passed": true, "score": 9, "non_blocking_issues": [{"verdict": "fail"}]}',
+        '{"passed": true, "score": 9, "blocking_issues": [], '
+        '"non_blocking_issues": [{"blocking": true, "issue": "wrong rate"}]}',
+        '{"passed": true, "score": 9, "reasoning": {"verdict": "fail", "pass": false}}',
+        '{"passed": true, "score": 9, "reasoning": {"final": {"result": "REJECT"}}}',
+        '{"passed": true, "score": 9, "reasoning": {"score": 1}}',
+        '{"passed": true, "score": 9, "reasoning": {"issues": ["x"]}}',
+        '{"passed": true, "score": 9, "reasoning": [{"reasoning": "nested"}]}',
+        # Another type where the schema has a string or a list of strings.
+        '{"passed": true, "score": 9, "reasoning": ["ok"]}',
+        '{"passed": true, "score": 9, "reasoning": null}',
+        '{"passed": true, "score": 9, "reasoning": 1}',
+        '{"passed": true, "score": 9, "blocking_issues": "none"}',
+        '{"passed": true, "score": 9, "blocking_issues": null}',
+        '{"passed": true, "score": 9, "blocking_issues": {}}',
+        '{"passed": true, "score": 9, "non_blocking_issues": [1]}',
+        '{"passed": true, "score": 9, "non_blocking_issues": [null]}',
+        '{"passed": true, "score": 9, "non_blocking_issues": [true]}',
+        '{"passed": true, "score": 9, "non_blocking_issues": [["nit"]]}',
+        '{"passed": true, "score": 9, "non_blocking_issues": ["nit", {"x": "y"}]}',
+        # No score.
+        '{"passed": true}',
+        '{"passed": true, "blocking_issues": [], "reasoning": "ok"}',
+        # Not strict JSON.
+        '{"passed": true, "score": 9, "blocking_issues": [,]}',
+        '{"passed": true, "score": 9, "blocking_issues": [ , ]}',
+        '{"passed": true, "score": 9, "blocking_issues": ["a",,]}',
+        '{"passed": true, "score": 9,, "blocking_issues": []}',
+        '{,"passed": true, "score": 9}',
+        '{"passed": true, "score": 9, "non_blocking_issues": [NaN]}',
+        '{"passed": true, "score": NaN}',
+        '{"passed": true, "score": Infinity}',
+        '{"passed": true, "score": -Infinity}',
+        '{"passed": true, "score": 9, "reasoning": "a\nb"}',
+        '{"passed": true, "score": 9, "reasoning": "a\tb"}',
+        '{"passed": true, "score": 9, "reasoning": "x\n```\nThis fails.\n```json\ny"}',
+        '```json\n{"passed": true, "score": 9, "reasoning": "x\n```\nFAIL\n```json\ny"}\n```',
+        '{"passed": true,\u3000"score": 9}',
+        '{"passed": true,\u00a0"score": 9}',
+        '{"passed": true, "score": 9}\u3000',
+        '\u3000{"passed": true, "score": 9}',
+        '{"passed": true, "score": 9}\u200b',
+        '{"passed": true, "score": 9}\x00',
+        '{"passed": true, "score": 9}\x0c',
+        '\x0b{"passed": true, "score": 9}\x1c',
+        '```json\n{"passed": true, "score": 9}\n```\u200b',
+        '```json\n\u3000{"passed": true, "score": 9}\n```',
+        '```json\n{"passed": true, "score": 9}\u00a0\n```',
+        # A byte order mark that is not the first character.
+        ' \ufeff{"passed": true, "score": 9}',
+        '\n\ufeff{"passed": true, "score": 9}',
+        '```json\n\ufeff{"passed": true, "score": 9}\n```',
+        # A fence whose body is not on its own lines.
+        '```json {"passed": true, "score": 9}\n```',
+        '```{"passed": true, "score": 9}\n```',
+        '```json\n{"passed": true, "score": 9}```',
+        '```json\n{"passed": true, "score": 9} ```',
+        '```json{"passed": true, "score": 9}```',
+    ],
+)
+def test_output_outside_the_strict_typed_schema_never_records_a_pass(
+    tmp_path, monkeypatch, output
+):
+    rule, result = _review(tmp_path, monkeypatch, output)
+    record = _record_for(result, rule, required=True)
+
+    assert result.passed is False
+    assert result.score is None
+    assert "reviewer_parse_failed" in result.issues
+    assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
+    assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        '```json\r\n{"passed": true, "score": 9}\r\n```',
+        '```\r\n{"passed": true, "score": 9}\r\n```\r\n',
+        '{\r\n  "passed": true,\r\n  "score": 9\r\n}\r\n',
+        '\t{"passed": true, "score": 9}\t',
+        '{"passed": true, "score": 9, "reasoning": "a\\nb, } and ,] stay"}',
+        '{"passed": true, "score": 9, "non_blocking_issues": ["a", "b",],}',
+        '{"passed": true, "score": 9, "non_blocking_issues": ["a" , ] , }',
+        '{"passed": true, "score": 9.0, "blocking_issues": [], "reasoning": ""}',
+    ],
+)
+def test_strict_typed_schema_object_records_a_pass(tmp_path, monkeypatch, output):
+    rule, result = _review(tmp_path, monkeypatch, output)
+    record = _record_for(result, rule, required=True)
+
+    assert result.passed is True
+    assert record["status"] == "passed"
+
+
+def test_a_failure_without_a_score_is_unreadable_not_failed(tmp_path, monkeypatch):
+    rule, result = _review(tmp_path, monkeypatch, '{"passed": false}')
+    record = _record_for(result, rule, required=True)
+
+    assert "reviewer_parse_failed" in result.issues
+    assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
+
+
+@pytest.mark.parametrize("reviewer_type", _REVIEWER_TYPES)
+def test_each_reviewer_type_reads_only_the_value_types_of_its_schema(
+    tmp_path, monkeypatch, reviewer_type
+):
+    schema = validator_pipeline._reviewer_schema(reviewer_type)
+    own = {key: _SCHEMA_VALUES[key] for key in sorted(schema)}
+    wrong = {
+        "number": ["9", True, None, [9], {"value": 9}],
+        "boolean": [1, 0, "true", None, [True]],
+        "string": [None, 1, True, ["ok"], {"text": "ok"}],
+        "string list": ["fatal: wrong", None, {}, [1], [None], [["x"]], [{"a": "b"}]],
+    }
+    assert set(schema.values()) == set(wrong)
+
+    for key, kind in schema.items():
+        for value in wrong[kind]:
+            _rule_path, result = _review(
+                tmp_path,
+                monkeypatch,
+                json.dumps({**own, key: value}),
+                reviewer=reviewer_type,
+            )
+            assert result.passed is False, (key, value)
+            assert result.score is None, (key, value)
+            assert "reviewer_parse_failed" in result.issues, (key, value)
+    _rule_path, result = _review(
+        tmp_path, monkeypatch, json.dumps(own), reviewer=reviewer_type
+    )
+    assert result.passed is True
+    without_score = {key: value for key, value in own.items() if key != "score"}
+    _rule_path, result = _review(
+        tmp_path, monkeypatch, json.dumps(without_score), reviewer=reviewer_type
+    )
+    assert "reviewer_parse_failed" in result.issues
+
+
+def test_reviewer_schema_types_are_exact():
+    assert dict(validator_pipeline._reviewer_schema("generalist-reviewer")) == {
+        "score": "number",
+        "passed": "boolean",
+        "blocking_issues": "string list",
+        "non_blocking_issues": "string list",
+        "reasoning": "string",
+    }
+    for reviewer_type in _REVIEWER_TYPES[1:] + ["any other reviewer"]:
+        assert dict(validator_pipeline._reviewer_schema(reviewer_type)) == {
+            "score": "number",
+            "passed": "boolean",
+            "issues": "string list",
+            "reasoning": "string",
+        }
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"a": 1, "a": 2}',
+        '{"a": {"b": 1, "b": 2}}',
+        '[{"a": 1, "a": 1}]',
+        "NaN",
+        "[Infinity]",
+        '{"a": -Infinity}',
+        '"a\nb"',
+        "[1] [2]",
+        "[1,,]",
+        "[,]",
+        "",
+        "```json\n```",
+    ],
+)
+def test_whole_output_decoder_refuses_what_strict_json_refuses(text):
+    with pytest.raises(ValueError):
+        validator_pipeline._decode_whole_reviewer_output(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("[1,]", "[1]"),
+        ('{"a": 1 , }', '{"a": 1  }'),
+        ('{"a": [1,\n],}', '{"a": [1\n]}'),
+        ('["a,]", "b,}",]', '["a,]", "b,}"]'),
+        ('["a\\",]",]', '["a\\",]"]'),
+        ("[,]", "[,]"),
+        ("[1,,]", "[1,,]"),
+        ("{,}", "{,}"),
+        ('{"a":,}', '{"a":,}'),
+        ("[1,\u3000]", "[1,\u3000]"),
+        ("[1, 2]", "[1, 2]"),
+    ],
+)
+def test_only_a_comma_between_a_value_and_its_closer_is_dropped(text, expected):
+    assert validator_pipeline._drop_trailing_json_commas(text) == expected
+
+
+_REPLY_SHAPE = (
+    "Your whole reply must be exactly one JSON object with exactly these keys: "
+    "no text before or after it and no other key. `score` is a number, `passed` "
+    "is true or false, every issue is one string and `reasoning` is one string. "
+    "One ```json code fence around the object is allowed."
+)
+
+
+@pytest.mark.parametrize("reviewer_type", _REVIEWER_TYPES)
+def test_every_reviewer_prompt_states_the_reply_shape_once(
+    tmp_path, monkeypatch, reviewer_type
+):
+    prompts = []
+
+    def reviewer(prompt, **_kwargs):
+        prompts.append(prompt)
+        return '{"score": 9, "passed": true}', 0
+
+    monkeypatch.setattr(validator_pipeline, "run_claude_code", reviewer)
+    _pipeline(tmp_path)._run_reviewer(reviewer_type, _candidate(tmp_path))
+    (prompt,) = prompts
+
+    assert validator_pipeline._REVIEW_REPLY_SHAPE == _REPLY_SHAPE
+    assert prompt.count(_REPLY_SHAPE) == 1
+    # Directly after the JSON object that the prompt asks for.
+    assert '"reasoning": "<brief explanation>"\n}\n\n' + _REPLY_SHAPE in prompt
+
+
+def _subprocess_result(stdout, stderr, returncode):
+    script = (
+        "import sys; sys.stdout.write(sys.argv[1]); "
+        "sys.stderr.write(sys.argv[2]); sys.exit(int(sys.argv[3]))"
+    )
+    return validator_pipeline._run_subprocess_with_idle_timeout(
+        [sys.executable, "-c", script, stdout, stderr, str(returncode)],
+        timeout=60,
+        idle_timeout=60,
+        poll_interval=0.01,
+    )
+
+
+def test_claude_reply_is_stdout_alone_when_the_cli_exits_zero(caplog):
+    result = _subprocess_result(_GENERALIST_PASS, "warning: slow start\n", 0)
+
+    assert result.stdout == _GENERALIST_PASS
+    assert result.output == _GENERALIST_PASS + "warning: slow start\n"
+    with caplog.at_level("WARNING", logger=validator_pipeline.logger.name):
+        reply = validator_pipeline._claude_reviewer_reply(result)
+    assert reply == _GENERALIST_PASS
+    assert "stderr" in caplog.text
+    assert validator_pipeline._read_reviewer_verdict(reply, "generalist-reviewer")
+    # Stderr alone is never a reply.
+    quiet = _subprocess_result("", _GENERALIST_PASS, 0)
+    assert validator_pipeline._claude_reviewer_reply(quiet) == ""
+    # A failed run keeps both streams, for the error message of the caller.
+    failed = _subprocess_result("out", "err", 3)
+    assert validator_pipeline._claude_reviewer_reply(failed) == "outerr"
+
+
+def test_claude_run_with_stderr_noise_records_a_pass_and_a_failed_run_does_not(
+    tmp_path, monkeypatch
+):
+    rule = _candidate(tmp_path)
+    runs = iter(
+        [
+            _subprocess_result(_GENERALIST_PASS, "warning: slow start\n", 0),
+            # A stale passing verdict on stdout of a run that failed.
+            _subprocess_result(_GENERALIST_PASS, "fatal\n", 3),
+            _subprocess_result(_GENERALIST_PASS, "", 3),
+        ]
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_run_subprocess_with_idle_timeout",
+        lambda *_a, **_k: next(runs),
+    )
+    monkeypatch.delenv("AXIOM_ENCODE_REVIEWER_CLI", raising=False)
+    monkeypatch.setattr(
+        validator_pipeline, "_local_reviewer_context_active", lambda: False
+    )
+
+    passed = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    assert passed.passed is True
+    assert _record_for(passed, rule, required=True)["status"] == "passed"
+    for _ in range(2):
+        failed = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+        record = _record_for(failed, rule, required=True)
+        assert failed.passed is False
+        assert (record["status"], record["reason"]) == (
+            "unavailable",
+            "reviewer_error",
+        )
+
+
+def _codex_stream(*messages):
+    return "\n".join(
+        json.dumps(
+            {"type": "item.completed", "item": {"type": "agent_message", "text": text}}
+        )
+        for text in messages
+    )
+
+
+def test_codex_reply_is_the_last_agent_message():
+    extract = validator_pipeline._extract_codex_text_output
+
+    assert extract(_codex_stream(_GENERALIST_PASS)) == _GENERALIST_PASS
+    assert (
+        extract(_codex_stream("I will review the file now.", _GENERALIST_PASS))
+        == _GENERALIST_PASS
+    )
+    assert (
+        extract(_codex_stream("First.", "Second.", " " + _GENERALIST_PASS + "\n"))
+        == _GENERALIST_PASS
+    )
+
+
+@pytest.mark.parametrize(
+    "earlier",
+    [
+        '{"passed": false, "score": 1}',
+        "The map `{` is open.",
+        'I set "passed": false first.',
+        "passed: false,\nPassed: true",
+        "{\n  passed: false\n}",
+    ],
+)
+def test_codex_earlier_message_that_may_hold_a_verdict_stays_and_is_refused(earlier):
+    reply = validator_pipeline._extract_codex_text_output(
+        _codex_stream("Start.", earlier, _GENERALIST_PASS)
+    )
+
+    assert earlier in reply
+    assert reply.endswith(_GENERALIST_PASS)
+    with pytest.raises(ValueError):
+        validator_pipeline._read_reviewer_verdict(reply, "generalist-reviewer")
+
+
+# The strict reading of a reviewer output, written apart from the reader.
+_FUZZ_FENCE = re.compile(r"```(?:json)?[ \t]*\r?\n(.*)\r?\n[ \t]*```", re.S | re.I)
+_FUZZ_TYPES = {
+    "score": lambda v: type(v) in (int, float),
+    "passed": lambda v: type(v) is bool,
+    "reasoning": lambda v: type(v) is str,
+    "blocking_issues": lambda v: type(v) is list and all(type(i) is str for i in v),
+    "non_blocking_issues": lambda v: type(v) is list and all(type(i) is str for i in v),
+}
+
+
+def _fuzz_strict_load(text):
+    def pairs(items):
+        keys = [key for key, _value in items]
+        if len(set(keys)) != len(keys):
+            raise ValueError("repeated key")
+        return dict(items)
+
+    def constant(name):
+        raise ValueError(name)
+
+    return json.loads(text, object_pairs_hook=pairs, parse_constant=constant)
+
+
+def _fuzz_strict_verdicts(output):
+    """Every verdict that strict JSON gives for ``output``: none or one.
+
+    The body is the output without one leading byte order mark, JSON
+    whitespace and one optional fence. It is read as it is, and with each
+    choice of commas dropped from before a closer, when a value stands
+    before the comma.
+    """
+    body = output.removeprefix("\ufeff").strip(" \t\n\r")
+    fenced = _FUZZ_FENCE.fullmatch(body)
+    if fenced:
+        body = fenced.group(1).strip(" \t\n\r")
+    commas = [
+        match.start()
+        for match in re.finditer(r",(?=[ \t\n\r]*[}\]])", body)
+        if body[: match.start()].rstrip(" \t\n\r")[-1:] not in ("", "[", "{", ",", ":")
+    ]
+    # The fewest dropped commas that give valid JSON: a comma inside a string
+    # is never one of them, so the strings stay as the reviewer wrote them.
+    for count in range(min(len(commas), 6) + 1):
+        decoded = []
+        for dropped in itertools.combinations(commas[:6], count):
+            text = "".join(c for i, c in enumerate(body) if i not in dropped)
+            with contextlib.suppress(ValueError, RecursionError):
+                decoded.append(_fuzz_strict_load(text))
+        if decoded:
+            return [
+                data
+                for data in decoded
+                if type(data) is dict
+                and "score" in data
+                and all(k in _FUZZ_TYPES and _FUZZ_TYPES[k](v) for k, v in data.items())
+            ]
+    return []
+
+
+_FUZZ_BASES = [
+    _GENERALIST_PASS,
+    '{"passed": true, "score": 9}',
+    '{"score": 8.5, "passed": true, "blocking_issues": [], '
+    '"non_blocking_issues": ["nit",], "reasoning": "fine, {really},}",}',
+    json.dumps(json.loads(_GENERALIST_PASS), indent=2),
+    '{"score": 2, "passed": false, "blocking_issues": ["bad"], "reasoning": "no"}',
+    "```json\n" + _GENERALIST_PASS + "\n```",
+]
+_FUZZ_FRAGMENTS = [
+    *'{}[],:"\\\n\t\r ',
+    "\ufeff",
+    "\u3000",
+    "\u200b",
+    "\x00",
+    "\x0b",
+    "true",
+    "false",
+    "null",
+    "1",
+    '"9"',
+    "NaN",
+    "Infinity",
+    "1e999",
+    '"passed"',
+    '"score"',
+    '"pass"',
+    '"verdict"',
+    '"Passed"',
+    '"issues"',
+    '"passed": false',
+    ', "passed": false',
+    ', "pass": false',
+    ', "verdict": "fail"',
+    "```",
+    "```json\n",
+    "\n```",
+    "```json\r\n",
+    "\r\n```",
+    "/* c */",
+    "// c\n",
+    '{"passed": false}',
+    '[{"passed": false}]',
+    " ,",
+    ",}",
+    ",]",
+    '"x": ',
+    "Looks fine.",
+    '"score": "9"',
+    '"reasoning": {"passed": false}',
+    '"non_blocking_issues": [{"pass": false}]',
+    '"reasoning": "',
+]
+
+
+def _fuzz_mutate(rng, text):
+    for _ in range(rng.choice([1, 1, 1, 2, 2, 3])):
+        operation = rng.randrange(8)
+        index = rng.randrange(len(text) + 1)
+        fragment = rng.choice(_FUZZ_FRAGMENTS)
+        if operation <= 2:
+            text = text[:index] + fragment + text[index:]
+        elif operation == 3:
+            text = text[:index] + text[index + rng.choice([1, 1, 2, 8]) :]
+        elif operation == 4:
+            text = text[:index] + fragment + text[index + 1 :]
+        elif operation == 5:
+            text = rng.choice(["```json\n", "```\n", "```json\r\n", "``` json\n"]) + (
+                text + rng.choice(["\n```", "```", "\r\n```\n", "\n```\nDone."])
+            )
+        elif operation == 6:
+            text = rng.choice([" ", "\n", "\ufeff", "\ufeff ", " \ufeff"]) + text
+        else:
+            text = text + rng.choice([" ", "\n", ",", fragment])
+    return text
+
+
+def test_reader_gives_a_verdict_only_where_strict_json_gives_that_verdict():
+    """Fixed-seed fuzz: the reader never reads more than strict JSON does."""
+
+    rng = random.Random(2229)
+    outputs = set(_FUZZ_BASES)
+    while len(outputs) < 4000:
+        outputs.add(_fuzz_mutate(rng, rng.choice(_FUZZ_BASES)))
+    read = passes = 0
+    for output in sorted(outputs):
+        try:
+            verdict = validator_pipeline._read_reviewer_verdict(
+                output, "generalist-reviewer"
+            )
+        except ValueError:
+            continue
+        read += 1
+        passes += verdict.get("passed") is True
+        assert _fuzz_strict_verdicts(output) == [verdict], output
+    for base in _FUZZ_BASES:
+        assert _fuzz_strict_verdicts(base) == [
+            validator_pipeline._read_reviewer_verdict(base, "generalist-reviewer")
+        ]
+    # The property is not empty: the fuzz reads verdicts and refuses outputs.
+    assert passes >= 50
+    assert len(outputs) - read >= 1000
