@@ -533,6 +533,10 @@ def test_the_record_names_what_each_unit_was_isolated_from(tmp_path, monkeypatch
 def test_the_record_of_a_batch_of_one_has_one_pass_and_hides_nothing():
     record = helper.promotion_validation_record([citation("a")])
     assert record["passes"] == ["batch"]
+    # Two units already have both passes.
+    assert helper.promotion_validation_record([citation("a"), citation("b")])[
+        "passes"
+    ] == ["isolated", "batch"]
     assert record["units"] == [
         {
             "citation": citation("a"),
