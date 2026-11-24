@@ -836,3 +836,212 @@ def test_a_git_failure_in_main_history_is_the_guards_refusal(
     monkeypatch.setattr(version_provenance, "main_history_changes", fail)
     with pytest.raises(RuntimeError, match="first-parent encoder version history"):
         cli._require_axiom_encode_version_provenance(repo)
+
+
+# --- Signing from the newest versioned main commit ---------------------------
+# A merge that no bump covers yet no longer closes signing: a run at main head
+# executes the newest versioned commit of main's first-parent history, when it
+# carries the same signing workflow. version_provenance picks the commit in the
+# workflow; the provisioner proves the choice again from root-owned history.
+
+WORKFLOW = version_provenance.SIGNING_WORKFLOW
+
+
+def _signing_repo(repo: Path) -> str:
+    """The fixture plus the signing workflow, then a bump: a versioned head."""
+    (repo / WORKFLOW).parent.mkdir(parents=True)
+    (repo / WORKFLOW).write_text("name: signing\n")
+    _commit(repo, "add the signing workflow")
+    _write_version(repo, "0.2.11")
+    return _commit(repo, "Bump encoder version to 0.2.11")
+
+
+def _merge(repo: Path, branch: str, write) -> str:
+    """Merge a one-commit feature branch with --no-ff, as the merge queue does."""
+    _git(repo, "checkout", "-qb", branch)
+    write()
+    _commit(repo, f"{branch} change")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "-q", "--no-ff", branch, "-m", f"Merge {branch}")
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _provisioner_accepts(repo: Path, home: Path, workflow: str, encoder: str) -> bool:
+    try:
+        provisioner._require_newest_versioned_commit(
+            Path(shutil.which("git")), repo / ".git", home, workflow, encoder
+        )
+    except SystemExit:
+        return False
+    return True
+
+
+def test_signing_constants_match_the_provisioner():
+    assert provisioner._SIGNING_WORKFLOW == version_provenance.SIGNING_WORKFLOW
+    assert provisioner._SIGNING_SEARCH_DEPTH == version_provenance.SIGNING_SEARCH_DEPTH
+    workflow = ROOT / version_provenance.SIGNING_WORKFLOW
+    assert workflow.is_file()
+
+
+def test_a_versioned_head_signs_from_itself(repo: Path, tmp_path: Path):
+    head = _signing_repo(repo)
+
+    assert version_provenance.signing_commit(repo) == head
+    assert version_provenance.signing_commit(repo, head_only=True) == head
+    assert _provisioner_accepts(repo, tmp_path / "home", head, head)
+
+
+def test_an_unversioned_head_signs_from_the_latest_bump(repo: Path, tmp_path: Path):
+    bump = _signing_repo(repo)
+    head = _merge(
+        repo,
+        "encoder",
+        lambda: (repo / "src/axiom_encode/cli.py").write_text("MARKER = 1\n"),
+    )
+    assert version_provenance.unversioned_changes(repo, head)
+
+    assert version_provenance.signing_commit(repo, head) == bump
+    assert _provisioner_accepts(repo, tmp_path / "home", head, bump)
+    # The provisioner refuses the unversioned head itself.
+    assert not _provisioner_accepts(repo, tmp_path / "home2", head, head)
+
+    completed = _run_script("signing-commit", "--repo", str(repo), "--ref", head)
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == bump
+
+
+def test_head_only_refuses_an_unversioned_head(repo: Path):
+    _signing_repo(repo)
+    head = _change_encoder(repo, 1)
+
+    with pytest.raises(ValueError, match="signs only from the dispatched head"):
+        version_provenance.signing_commit(repo, head, head_only=True)
+    refused = _run_script(
+        "signing-commit", "--repo", str(repo), "--ref", head, "--head-only"
+    )
+    assert refused.returncode == 1
+    assert refused.stdout == ""
+    assert "signs only from the dispatched head" in refused.stderr
+
+
+def test_the_newest_versioned_commit_wins_over_the_bump(repo: Path, tmp_path: Path):
+    # A merge that changes no encoder file after the bump is itself versioned,
+    # and newer non-encoder code (scripts, tests) must not be skipped.
+    bump = _signing_repo(repo)
+    scripts = _merge(
+        repo,
+        "scripts",
+        lambda: (repo / "fix.sh").write_text("echo fixed\n"),
+    )
+    head = _merge(
+        repo,
+        "encoder",
+        lambda: (repo / "src/axiom_encode/cli.py").write_text("MARKER = 1\n"),
+    )
+
+    assert version_provenance.signing_commit(repo, head) == scripts
+    assert _provisioner_accepts(repo, tmp_path / "home", head, scripts)
+    # An older versioned commit is never accepted.
+    assert not _provisioner_accepts(repo, tmp_path / "home2", head, bump)
+
+
+def test_a_changed_signing_workflow_refuses_until_the_bump(repo: Path, tmp_path: Path):
+    bump = _signing_repo(repo)
+    encoder = _merge(
+        repo,
+        "encoder",
+        lambda: (repo / "src/axiom_encode/cli.py").write_text("MARKER = 1\n"),
+    )
+    head = _merge(
+        repo,
+        "workflow",
+        lambda: (repo / WORKFLOW).write_text("name: signing v2\n"),
+    )
+
+    # The run executes the head's workflow file; the latest bump has another.
+    with pytest.raises(ValueError, match="has another"):
+        version_provenance.signing_commit(repo, head)
+    assert not _provisioner_accepts(repo, tmp_path / "home", head, bump)
+    # Before the workflow change, the bump still served.
+    assert version_provenance.signing_commit(repo, encoder) == bump
+
+
+def test_a_workflow_change_on_a_versioned_head_needs_no_bump(repo: Path):
+    _signing_repo(repo)
+    head = _merge(
+        repo,
+        "workflow",
+        lambda: (repo / WORKFLOW).write_text("name: signing v2\n"),
+    )
+
+    assert version_provenance.signing_commit(repo, head) == head
+
+
+def test_no_versioned_commit_within_the_depth_refuses(repo: Path, tmp_path: Path):
+    bump = _signing_repo(repo)
+    for marker in range(1, 4):
+        head = _change_encoder(repo, marker)
+
+    with pytest.raises(ValueError, match="no versioned encoder commit among the 3"):
+        version_provenance.signing_commit(repo, head, max_depth=3)
+    assert version_provenance.signing_commit(repo, head, max_depth=4) == bump
+    with pytest.raises(ValueError, match="at least 1"):
+        version_provenance.signing_commit(repo, head, max_depth=0)
+
+
+def test_the_provisioner_refuses_a_commit_off_the_first_parent_chain(
+    repo: Path, tmp_path: Path
+):
+    # The feature branch's own commit is versioned and reachable from head, but
+    # it never was main: only main's first-parent history counts.
+    _signing_repo(repo)
+    _git(repo, "checkout", "-qb", "side")
+    (repo / "notes.md").write_text("side\n")
+    side = _commit(repo, "side commit")
+    _git(repo, "checkout", "-q", "main")
+    (repo / "src/axiom_encode/cli.py").write_text("MARKER = 1\n")
+    _commit(repo, "encoder change on main")
+    _git(repo, "merge", "-q", "--no-ff", "side", "-m", "Merge side")
+    head = _git(repo, "rev-parse", "HEAD")
+
+    assert version_provenance.signing_commit(repo, head) != side
+    assert not _provisioner_accepts(repo, tmp_path / "home", head, side)
+
+
+def test_the_provisioner_refuses_a_malformed_or_unknown_workflow_commit(
+    repo: Path, tmp_path: Path
+):
+    head = _signing_repo(repo)
+
+    assert not _provisioner_accepts(repo, tmp_path / "home", "HEAD", head)
+    assert not _provisioner_accepts(repo, tmp_path / "home2", "0" * 40, head)
+
+
+def test_a_missing_signing_workflow_refuses(repo: Path):
+    with pytest.raises(ValueError, match="is absent"):
+        version_provenance.signing_commit(repo)
+
+
+def test_signing_commit_refuses_a_shallow_clone(repo: Path, tmp_path: Path):
+    _signing_repo(repo)
+    _change_encoder(repo, 1)
+    shallow = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", f"file://{repo}", str(shallow)],
+        check=True,
+    )
+
+    with pytest.raises(ValueError, match="shallow"):
+        version_provenance.signing_commit(shallow)
+
+
+def test_signing_commit_ignores_history_rewrites(repo: Path):
+    # A replace ref that makes the unversioned head look like the bump must not
+    # turn the head itself into the signing commit.
+    bump = _signing_repo(repo)
+    head = _change_encoder(repo, 1)
+    _git(repo, "replace", head, bump)
+
+    assert version_provenance.signing_commit(repo, head) == bump
+    with pytest.raises(ValueError):
+        version_provenance.signing_commit(repo, head, head_only=True)

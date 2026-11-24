@@ -6,8 +6,9 @@ file may not change after the latest commit that increased the version. The
 This module checks the same rule at any ref, so that
 
 - ``ci_parity`` can refuse an encoder pin whose code is newer than its version,
-- the re-encode workflow can refuse an unversioned ``main`` before the encode
-  job starts (and before the attempt budget counts the run), and
+- the re-encode workflow can pick the newest versioned commit of ``main``
+  to sign from (``signing_commit``), and refuse before the encode job starts
+  when there is none (and before the attempt budget counts the run), and
 - the post-merge bump workflow can tell whether ``main`` needs a bump, and make
   it (axiom-encode#2048).
 
@@ -47,6 +48,11 @@ _BUMP_BRANCH = "automation/encoder-version-"
 # The bump workflow's GitHub App, as a pull request's author login.
 BUMP_APP_LOGIN = "axiom-encoder-version-bump[bot]"
 BUMP_WORKFLOW = ".github/workflows/encoder-version-bump.yml"
+# The signed re-encode workflow, and how far back on main's first-parent
+# history a run may look for its versioned encoder commit. The provisioner
+# keeps its own copy of both values; a test keeps them equal.
+SIGNING_WORKFLOW = ".github/workflows/targeted-signed-reencode.yml"
+SIGNING_SEARCH_DEPTH = 30
 _PR_MERGE = re.compile(r"^Merge pull request #(\d+) from \S+?/(\S+)$")
 
 
@@ -284,6 +290,83 @@ def unversioned_changes(repo: Path, ref: str = "HEAD") -> list[str]:
     return sorted(changed)
 
 
+def signing_commit(
+    repo: Path,
+    ref: str = "HEAD",
+    *,
+    head_only: bool = False,
+    max_depth: int = SIGNING_SEARCH_DEPTH,
+    workflow: str = SIGNING_WORKFLOW,
+) -> str:
+    """The encoder commit that a signed run dispatched at ``ref`` executes.
+
+    The newest commit on ``ref``'s first-parent history (``ref`` itself first,
+    at most ``max_depth`` commits) at which ``unversioned_changes`` is empty.
+    A merge to main that no bump covers yet therefore leaves signing on the
+    latest versioned main state, instead of closing it until the bump merges.
+
+    Fail-closed:
+
+    - the chosen commit must carry ``workflow`` byte for byte as ``ref`` does.
+      GitHub runs the workflow file of ``ref``, so the run executes exactly the
+      chosen commit's workflow and code;
+    - ``head_only`` refuses every commit but ``ref`` itself (the old rule);
+    - no versioned commit within ``max_depth`` refuses;
+    - only the newest versioned commit is chosen, never an older one.
+
+    Raises ``ValueError`` with the reason.
+    """
+    if _git(repo, "rev-parse", "--is-shallow-repository").strip() == "true":
+        raise ValueError(f"{repo} is a shallow clone; the check needs full history")
+    if max_depth < 1:
+        raise ValueError("the signing search depth must be at least 1")
+    try:
+        head = _git(
+            repo, "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"
+        ).strip()
+    except subprocess.CalledProcessError:
+        raise ValueError(f"{ref} does not name a commit in {repo}") from None
+    expected = _blob(repo, head, workflow)
+    if expected is None:
+        raise ValueError(f"{workflow} is absent at {head[:12]}")
+    candidates = _git(
+        repo, "rev-list", "--first-parent", f"--max-count={max_depth}", head
+    ).split()
+    for commit in candidates:
+        try:
+            versioned = not unversioned_changes(repo, commit)
+        except ValueError:
+            versioned = False
+        if versioned:
+            if _blob(repo, commit, workflow) != expected:
+                raise ValueError(
+                    f"the newest versioned commit {commit[:12]} has another "
+                    f"{workflow} than {head[:12]}; re-dispatch once the version "
+                    "bump has landed"
+                )
+            return commit
+        if head_only:
+            raise ValueError(
+                f"encoder-affecting files changed at {head[:12]} after the "
+                "latest encoder version bump, and this run signs only from the "
+                "dispatched head; re-dispatch once the version bump has landed"
+            )
+    raise ValueError(
+        f"no versioned encoder commit among the {len(candidates)} newest "
+        f"first-parent commits of {head[:12]}; re-dispatch once the version "
+        "bump has landed"
+    )
+
+
+def _blob(repo: Path, commit: str, path: str) -> str | None:
+    try:
+        return _git(
+            repo, "rev-parse", "--verify", "--end-of-options", f"{commit}:{path}"
+        ).strip()
+    except subprocess.CalledProcessError:
+        return None
+
+
 def main_history_changes(
     repo: Path,
     ref: str,
@@ -463,6 +546,17 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="write needs_bump=true|false here and exit 0 instead of failing",
     )
+    signing = sub.add_parser(
+        "signing-commit",
+        help="print the encoder commit a signed run at --ref executes, or exit 1",
+    )
+    signing.add_argument("--repo", type=Path, default=Path("."))
+    signing.add_argument("--ref", default="HEAD")
+    signing.add_argument(
+        "--head-only",
+        action="store_true",
+        help="refuse unless --ref itself is versioned",
+    )
     do_bump = sub.add_parser(
         "bump", help="write the next version and a changelog header"
     )
@@ -483,6 +577,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "bump":
         print(bump(args.repo, args.ref))
+        return 0
+    if args.command == "signing-commit":
+        try:
+            print(signing_commit(args.repo, args.ref, head_only=args.head_only))
+        except ValueError as exc:
+            print(f"encoder version provenance: {exc}", file=sys.stderr)
+            return 1
         return 0
     if args.command == "pull-request":
         try:

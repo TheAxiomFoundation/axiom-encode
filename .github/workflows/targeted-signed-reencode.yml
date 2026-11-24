@@ -150,14 +150,25 @@ jobs:
 
       # The encoder version is assigned after merge (axiom-encode#2048), so
       # main can briefly hold encoder changes that no bump covers yet. The
-      # provisioner refuses that head inside the encode job, after the
-      # production-signing approval, and the budget below would count the run.
-      # Refusing it here skips the encode job instead: no approval is used and
-      # enforce_attempt_budget.py treats the run as neutral.
+      # encode job then signs from the newest versioned commit of main's
+      # first-parent history ("Select the versioned encoder commit"). When no
+      # such commit qualifies, the provisioner would refuse inside the encode
+      # job, after the production-signing approval, and the budget below would
+      # count the run. Refusing it here skips the encode job instead: no
+      # approval is used and enforce_attempt_budget.py treats the run as
+      # neutral. The same rule as the encode job's selection step.
       - name: Refuse an encoder head that no version bump covers
+        env:
+          HEAD_ONLY: ${{ vars.AXIOM_SIGNING_HEAD_ONLY == 'true' }}
         run: |
+          set -euo pipefail
+          head_only=()
+          if [ "$HEAD_ONLY" = "true" ]; then
+            head_only+=(--head-only)
+          fi
           python3 -I "$GITHUB_WORKSPACE/axiom-encode/src/axiom_encode/version_provenance.py" \
-            check --repo "$GITHUB_WORKSPACE/axiom-encode" --ref HEAD
+            signing-commit --repo "$GITHUB_WORKSPACE/axiom-encode" --ref "$GITHUB_SHA" \
+            ${head_only[@]+"${head_only[@]}"}
 
       # Before the production-signing gate: a run that cannot fetch its pinned
       # corpus would fail after approval and waste the signing review. Only the
@@ -273,6 +284,43 @@ jobs:
           path: axiom-encode
           fetch-depth: 0
           persist-credentials: false
+
+      # The encoder version is assigned after merge (axiom-encode#2048). While
+      # the bump for the latest merges is pending, the run executes the newest
+      # versioned commit of main's first-parent history instead of the head.
+      # The selected commit carries this workflow file byte for byte, so the
+      # run is exactly a run of that commit; every later step uses its code,
+      # and the provisioner proves the choice again from root-owned history
+      # (--workflow-commit). A queue run keeps the old rule: its finalizer
+      # binds the signed artifact to the run head. AXIOM_SIGNING_HEAD_ONLY=true
+      # restores the old rule for every run, for example while a security fix
+      # waits for its bump.
+      - name: Select the versioned encoder commit
+        env:
+          HEAD_ONLY: ${{ inputs.queue_id != '' || vars.AXIOM_SIGNING_HEAD_ONLY == 'true' }}
+        run: |
+          set -euo pipefail
+          test "$(git -C axiom-encode rev-parse HEAD)" = "$GITHUB_SHA"
+          head_only=()
+          if [ "$HEAD_ONLY" = "true" ]; then
+            head_only+=(--head-only)
+          fi
+          encoder_commit="$(python3 -I axiom-encode/src/axiom_encode/version_provenance.py \
+            signing-commit --repo axiom-encode --ref "$GITHUB_SHA" \
+            ${head_only[@]+"${head_only[@]}"})"
+          if [[ ! "$encoder_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "selected encoder commit is not a full lowercase commit SHA" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:select-the-versioned-encoder-commit "selected encoder commit is not a full lowercase commit SHA" || true
+            exit 1
+          fi
+          git -C axiom-encode merge-base --is-ancestor "$encoder_commit" "$GITHUB_SHA"
+          git -C axiom-encode -c advice.detachedHead=false checkout --quiet --detach "$encoder_commit"
+          test "$(git -C axiom-encode rev-parse HEAD)" = "$encoder_commit"
+          test -z "$(git -C axiom-encode status --porcelain --untracked-files=all)"
+          echo "AXIOM_ENCODER_COMMIT=$encoder_commit" >> "$GITHUB_ENV"
+          if [ "$encoder_commit" != "$GITHUB_SHA" ]; then
+            echo "::notice::Signing from versioned encoder commit $encoder_commit; main head $GITHUB_SHA waits for its version bump."
+          fi
 
       - name: Validate country routing input
         env:
@@ -451,7 +499,7 @@ jobs:
         working-directory: axiom-encode
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$AXIOM_ENCODER_COMMIT"
           uv sync --no-config --locked --python 3.13 --extra api --no-dev
 
       - name: Preflight live reviewed PR promotion
@@ -504,7 +552,8 @@ jobs:
             python axiom-encode/scripts/infra_issue.py record infra:verify-immutable-checkout-identities "GITHUB_SHA must be a full lowercase commit SHA" || true
             exit 1
           fi
-          test "$(git -C axiom-encode rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C axiom-encode rev-parse HEAD)" = "$AXIOM_ENCODER_COMMIT"
+          git -C axiom-encode merge-base --is-ancestor "$AXIOM_ENCODER_COMMIT" "$GITHUB_SHA"
           verify_checkout "rulespec-$COUNTRY" "$RULESPEC_REF" "$RULESPEC_CHECKOUT"
           verify_checkout axiom-corpus "$CORPUS_REF" axiom-corpus
           verify_checkout axiom-rules-engine "$RULES_ENGINE_REF" axiom-rules-engine
@@ -722,7 +771,7 @@ jobs:
           from pathlib import Path
           from axiom_encode.producer_review_guidance import validate_workflow_guidance_input
           event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-          validate_workflow_guidance_input(event["inputs"], producer_commit=os.environ["GITHUB_SHA"])
+          validate_workflow_guidance_input(event["inputs"], producer_commit=os.environ["AXIOM_ENCODER_COMMIT"])
           PYGUIDANCE
 
       - name: Resolve registered reviewed repair request
@@ -1721,7 +1770,8 @@ jobs:
             --retired-corpus-release-root "$TRUST_RETIRED_CORPUS_RELEASE_ROOT" \
             --git /usr/bin/git \
             --encoder-git-root "$GITHUB_WORKSPACE/axiom-encode" \
-            --encoder-commit "$GITHUB_SHA" \
+            --encoder-commit "$AXIOM_ENCODER_COMMIT" \
+            --workflow-commit "$GITHUB_SHA" \
             --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode \
             "${reviewed_pr_args[@]}"
           sudo install -o root -g root -m 0755 \
@@ -3718,7 +3768,7 @@ jobs:
           original_event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
           original_guidance_inputs = original_event["inputs"]
           primary_guidance_descriptor = validate_workflow_guidance_input(
-              original_guidance_inputs, producer_commit=os.environ["GITHUB_SHA"]
+              original_guidance_inputs, producer_commit=os.environ["AXIOM_ENCODER_COMMIT"]
           )
           guidance_guard_payload = None
           if primary_guidance_descriptor is not None:
@@ -4926,7 +4976,7 @@ jobs:
                       raise SystemExit("producer guidance packaging requires the sole primary target")
                   guidance_content = verify_packaged_producer_guidance(
                       original_inputs=original_guidance_inputs,
-                      producer_commit=os.environ["GITHUB_SHA"],
+                      producer_commit=os.environ["AXIOM_ENCODER_COMMIT"],
                       encoder_checkout=Path(os.environ["GITHUB_WORKSPACE"]) / "axiom-encode",
                       context_root=generated_root / "target",
                       manifest_path=relative_path.as_posix(),
@@ -6142,6 +6192,9 @@ jobs:
               "corpus_ref": os.environ["CORPUS_REF"],
               "country": os.environ["COUNTRY"],
               "dependent_citation": os.environ.get("DEPENDENT_CITATION") or None,
+              # The run head, which extract_repair_candidate.py binds to the
+              # repair run's head_sha; the executed encoder may be an older
+              # versioned commit (AXIOM_ENCODER_COMMIT).
               "encoder_commit": os.environ["GITHUB_SHA"],
               "existing_signed_imports_input": os.environ.get(
                   "EXISTING_SIGNED_IMPORTS_JSON", "[]"

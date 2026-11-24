@@ -81,6 +81,7 @@ def _run_targeted_inline_package(*args, **kwargs):
     event_path.write_text(json.dumps({"inputs": inputs}), encoding="utf-8")
     env["GITHUB_EVENT_PATH"] = str(event_path)
     env["GITHUB_SHA"] = "a" * 40
+    env["AXIOM_ENCODER_COMMIT"] = "a" * 40
     return subprocess.run(*args, **{**kwargs, "env": env})
 
 
@@ -2823,7 +2824,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert (
         '--encoder-git-root "$GITHUB_WORKSPACE/axiom-encode"' in provision_step["run"]
     )
-    assert '--encoder-commit "$GITHUB_SHA"' in provision_step["run"]
+    # The newest versioned main commit, proven again against the run head.
+    assert '--encoder-commit "$AXIOM_ENCODER_COMMIT"' in provision_step["run"]
+    assert '--workflow-commit "$GITHUB_SHA"' in provision_step["run"]
     assert (
         "--encoder-origin-repository "
         "github.com/TheAxiomFoundation/axiom-encode" in provision_step["run"]
@@ -4405,6 +4408,7 @@ def test_targeted_signed_reencode_packages_bounded_failure_diagnostics(
         "GITHUB_RUN_ATTEMPT": "1",
         "GITHUB_RUN_ID": "1234",
         "GITHUB_SHA": "encoder-ref",
+        "AXIOM_ENCODER_COMMIT": "encoder-ref",
         "ENCODE_APPLY_CONCLUSION": "failure",
         "ENCODE_APPLY_OUTCOME": "failure",
         "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": '["us/statutes/old.yaml"]',
@@ -4552,6 +4556,7 @@ def test_failed_reencode_metadata_uses_consumed_identity_after_evidence_mutation
             "GITHUB_RUN_ATTEMPT": "1",
             "GITHUB_RUN_ID": "5678",
             "GITHUB_SHA": "encoder-ref",
+            "AXIOM_ENCODER_COMMIT": "encoder-ref",
             "REPAIR_CANDIDATE_CONCLUSION": "success",
             "REPAIR_CANDIDATE_OUTCOME": "success",
             "REPAIR_CANDIDATE_PATH": (
@@ -4662,6 +4667,7 @@ def test_targeted_signed_reencode_rejects_unsafe_guard_diagnostics(
             "GITHUB_RUN_ATTEMPT": "1",
             "GITHUB_RUN_ID": "1234",
             "GITHUB_SHA": "encoder-ref",
+            "AXIOM_ENCODER_COMMIT": "encoder-ref",
             "RULES_ENGINE_REF": "rules-engine-ref",
             "RULESPEC_REF": "rulespec-ref",
             "RUNNER_TEMP": str(tmp_path),
@@ -4718,6 +4724,7 @@ def test_targeted_signed_reencode_rejects_unsafe_raw_guard_diagnostics(
             "GITHUB_RUN_ATTEMPT": "1",
             "GITHUB_RUN_ID": "1234",
             "GITHUB_SHA": "encoder-ref",
+            "AXIOM_ENCODER_COMMIT": "encoder-ref",
             "RULES_ENGINE_REF": "rules-engine-ref",
             "RULESPEC_REF": "rulespec-ref",
             "RUNNER_TEMP": str(tmp_path),
@@ -4886,6 +4893,7 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
             "GITHUB_RUN_ATTEMPT": "1",
             "GITHUB_RUN_ID": "31017990537",
             "GITHUB_SHA": "encoder-ref",
+            "AXIOM_ENCODER_COMMIT": "encoder-ref",
             "PROVISION_SIGNING_SUPERVISOR_CONCLUSION": "success",
             "RULES_ENGINE_REF": "rules-engine-ref",
             "RULESPEC_REF": "rulespec-ref",
@@ -4944,6 +4952,7 @@ def test_targeted_signed_reencode_rejects_symlinked_failure_diagnostics(
         "GITHUB_RUN_ATTEMPT": "1",
         "GITHUB_RUN_ID": "1234",
         "GITHUB_SHA": "encoder-ref",
+        "AXIOM_ENCODER_COMMIT": "encoder-ref",
         "ENCODE_APPLY_CONCLUSION": "failure",
         "ENCODE_APPLY_OUTCOME": "failure",
         "RULES_ENGINE_REF": "rules-engine-ref",

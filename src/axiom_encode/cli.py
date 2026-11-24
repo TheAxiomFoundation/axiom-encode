@@ -10665,15 +10665,17 @@ def cmd_promote_reviewed_candidate(args):
     live_admission = None
     if os.environ.get(_TRUSTED_RUNTIME_ENV) == "1":
         runtime = _load_trusted_runtime_attestation()
-        live_admission = json.loads(Path(runtime["path"]).read_text()).get(
-            "reviewed_pr_admission"
-        )
+        attestation = json.loads(Path(runtime["path"]).read_text())
+        live_admission = attestation.get("reviewed_pr_admission")
+        # The run's commit: the attested encoder commit, or the run head whose
+        # newest versioned commit the provisioner proved it to be.
+        workflow_commit = attestation.get("workflow_commit", runtime["commit"])
     if live_admission is not None:
         from .reviewed_pr_admission import revalidate_admission, selector_from_payload
 
         selector = selector_from_payload(live_admission.get("selector"))
         if (
-            live_admission.get("workflow_commit") != runtime["commit"]
+            live_admission.get("workflow_commit") != workflow_commit
             or selector.country != country
             or selector.head != reviewed_ref
             or selector.citation != str(args.citation)
