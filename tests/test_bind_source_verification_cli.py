@@ -319,3 +319,13 @@ def test_a_result_without_an_attestation_is_unbound(tmp_path):
     assert outcome["source_binding"] == "unbound"
     assert outcome["final_success"] is False
     assert result.success is False
+
+
+def test_a_result_whose_file_cannot_be_read_has_nothing_to_promote(tmp_path, capsys):
+    result = _result(tmp_path, UNBOUND)
+    result.output_file = str(tmp_path / "absent.yaml")
+    outcome = _outcome(result)
+    assert outcome["source_binding"] == "unverified"
+    assert outcome["status"] == "standalone_validated"
+    assert result.success is True
+    assert capsys.readouterr().out == "  source_binding=unverified\n"

@@ -71885,11 +71885,15 @@ _SOURCE_UNBOUND_ERROR = (
 def _record_encode_source_binding(result, outcome: dict) -> None:
     """Record whether a non-apply candidate is promotable as it stands.
 
-    The eval step binds the candidate before validation. This reads the final
-    bytes again, so the outcome states the binding of the file the encode
-    leaves behind. An unbound candidate is never a clean result: the outcome
-    gets ``source_binding: unbound``, ``final_success: False`` and, unless the
-    file is not readable YAML at all, the status ``source_unbound``.
+    The eval step binds the candidate before validation and fails the try when
+    it cannot. This reads the final bytes again, so the outcome states the
+    binding of the file the encode leaves behind. An unbound candidate is
+    never a clean result: the outcome gets ``source_binding: unbound`` and
+    ``final_success: False``, the result is failed, and the status is
+    ``source_unbound`` unless the file is not YAML at all (the validation
+    status then already says so). A result without a readable candidate file
+    has nothing to promote; it is recorded as ``no_candidate`` or
+    ``unverified`` and its verdict is left alone.
     """
 
     from .source_verification_binding import (
@@ -71902,13 +71906,18 @@ def _record_encode_source_binding(result, outcome: dict) -> None:
         outcome["source_binding"] = "no_candidate"
         return
     try:
+        raw = Path(output_file).read_bytes()
+    except OSError:
+        outcome["source_binding"] = "unverified"
+        print("  source_binding=unverified")
+        return
+    try:
         attestation = getattr(result, "source_attestation", None)
         if not isinstance(attestation, dict):
             raise SourceBindingError("the encode has no resolver source attestation")
-        check_source_verification(Path(output_file).read_bytes(), attestation)
-    except (SourceBindingError, OSError) as exc:
-        kind = getattr(exc, "kind", "unreadable")
-        message = str(exc) if isinstance(exc, SourceBindingError) else "unreadable"
+        check_source_verification(raw, attestation)
+    except SourceBindingError as exc:
+        kind, message = exc.kind, str(exc)
     else:
         outcome["source_binding"] = "bound"
         print("  source_binding=bound")
@@ -71922,9 +71931,7 @@ def _record_encode_source_binding(result, outcome: dict) -> None:
         result.success = False
         result.error = _SOURCE_UNBOUND_ERROR
         outcome["primary_error"] = _SOURCE_UNBOUND_ERROR
-    if kind not in {"invalid_input", "unreadable"} or outcome["status"] == (
-        "standalone_validated"
-    ):
+    if kind != "invalid_input" or outcome["status"] == "standalone_validated":
         outcome["status"] = _SOURCE_UNBOUND_STATUS
     print(f"  outcome={outcome['status']} final_success=False source_binding=unbound")
 
