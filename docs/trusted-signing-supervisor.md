@@ -138,14 +138,59 @@ With the flag, the encode applies only when the reviewer ran, passed, and was
 shown the whole content of every applied file; otherwise it ends
 `apply_blocked_review` with a non-zero exit and nothing applied.
 
-The reviewer prompt has size limits, and they decide "whole content": it shows
-at most the first 6,000 characters of the module and the first 3,000 characters
-of the companion test file. A larger file is recorded as `partial`
-(`review_saw_truncated_file`), so the flag refuses it. Most real modules are
-larger: of the 65 replay-benchmark candidates in this repository, 57 modules
-and 53 companions exceed these limits. Without the flag the record of such a
-file says `partial`, which is accurate. Do not turn the flag on for a signed
-lane before the limits are raised or removed (#2252).
+One reviewer call shows at most the first 6,000 characters of the module, the
+first 3,000 characters of the companion test file and the first 4,000
+characters of the source excerpt. A candidate within all three limits gets
+that one call, and its prompt did not change. A larger candidate is reviewed
+in ordered chunks, so the reviewer still sees the whole content:
+
+- The module and the companion test file are cut at the start of a root-level
+  entry: a top-level key, one rule, one test case. The positions come from the
+  YAML parser. The source excerpt is cut after a blank line, and a paragraph
+  larger than one chunk is cut after a line break. A cut is never inside a
+  line, a rule or a test case.
+- A chunk has at most 24,000 characters. One call shows one module chunk, at
+  most one source chunk and at most one companion chunk, each between two
+  marker lines that carry the SHA-256 of that chunk. The calls together show
+  every module chunk beside every source chunk, and every companion chunk
+  once.
+- A module with several chunks also gets an outline in every call: one line
+  for each input and each rule of the whole module (name, kind, entity, dtype,
+  period). Each name is reduced to one line of plain text, because it comes
+  from the candidate. The companion chunks of such a module are judged against
+  the outline, not against the rule bodies.
+- The review passes only when every call returns its own `"passed": true`.
+  The calls run in order and stop at the first call that does not pass. A
+  call that fails makes the record `failed`. A call with no readable verdict
+  makes it `unavailable`. The score of the review is the lowest score of its
+  calls.
+
+The cost has two caps: at most 8 chunks for one text and at most 12 reviewer
+calls for one unit. Above a cap, with one rule, test case or source line
+larger than a chunk, with a file the YAML parser cannot read, or with a prompt
+above 120,000 bytes, the reviewer makes the one call on the start of each
+file, as before. The record is then `partial` (`review_saw_truncated_file`, or
+`review_saw_truncated_source` when only the source excerpt was cut), and the
+flag refuses it. Of the 65 replay-benchmark candidates in this repository, 62
+are reviewed in full under these caps (4 in the one unchanged call), with a
+median of 1 call, a mean of 2.4 and a maximum of 11. The other 3 have a companion test file above 180,000 characters.
+
+The record (`axiom-encode/generalist-review/v2`) has a `coverage` block for
+this. It holds the number of planned and made calls and, for the module, the
+companion test file and the source excerpt, the size and SHA-256 of the
+reviewed text and the byte range and SHA-256 of every chunk. A file is
+`complete` only when its chunks cover every byte of the reviewed text exactly
+once, in order, within the caps, with every planned call made. A reader
+refuses a record of another schema version. The byte ranges are of the
+reviewed file. When the apply stamp changes the bytes, the content digest
+binds the reviewed file to the applied file, as described below.
+
+Limits of a chunked review, to weigh before a lane requires it. A call judges
+what it shows, so a defect that needs two parts at once can pass every call:
+a test case against a rule body in another chunk, or, when the source excerpt
+itself is split, a rule that no part of the source supports. The measured
+effect of chunking on review verdicts is unknown: no model call was made to
+build or test this.
 
 A pass is the
 reviewer's own JSON boolean `"passed": true` in its one verdict object, with a
@@ -237,6 +282,28 @@ Turn it on only where a reviewer CLI can start under the supervisor: the local
 trusted lane (#2037), after the trusted runtime is re-provisioned at a commit
 that has the flag. The hosted signed workflow has no reviewer CLI on its
 runner, so the flag would block every run there.
+
+The promotion lane has the same switch. `promote-reviewed-candidate` signs a
+reviewed candidate after validation and runs no model reviewer. With
+`--require-review` it also runs the generalist reviewer on the exact candidate
+bytes, after validation and before the signature request:
+
+```text
+  -- /opt/axiom/python/bin/axiom-encode promote-reviewed-candidate ... --require-review
+```
+
+The command builds the same record, with the rules above, against the two
+files it signs. It prints the record on one line and signs only when the
+status is `passed`. Otherwise it ends with a non-zero exit, signs nothing and
+installs no manifest. The flag is the only switch, it is read when the command
+runs, and it defaults to off: without it no reviewer runs and the promotion is
+unchanged. The promotion manifest does not carry the record; the printed line
+is its only trace. The reviewer gets the source text of the citation and no
+advisory validator findings. `targeted-signed-reencode.yml` does not pass the
+flag and has no input for it, because its runner has no reviewer CLI. To use
+it there, a later change must provision a reviewer CLI for the supervisor,
+add a workflow input that defaults to `false`, and append `--require-review`
+to `promotion_args` when that input is `true`.
 
 The Python environment is constructed from empty. It contains fixed locale,
 bytecode/isolation controls, a fixed path containing only the validated runtime
