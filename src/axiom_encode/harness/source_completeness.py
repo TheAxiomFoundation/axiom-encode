@@ -3272,9 +3272,7 @@ _JURISDICTION_SET_LABEL = re.compile(
 # the caption, and at least two sibling rows of the same closed jurisdiction
 # set, each with an amount, follow within 400 characters (`Area Maximum Amount
 # 48 States and D.C. $769 Alaska $1,229 Hawaii $1,036 ...`).
-_JURISDICTION_SET_ROW_AREA_CAPTION = re.compile(
-    r"(?<![\w$])Area\b[^$]{0,200}\Z", re.IGNORECASE
-)
+_JURISDICTION_SET_ROW_AREA_CAPTION = re.compile(r"(?<![\w$])Area\b[^$]*\Z")
 _JURISDICTION_SET_ROW_FIRST_CELL = re.compile(r"[ \t]*\$[ \t]*\d")
 _JURISDICTION_SET_SIBLING_ROW = re.compile(
     r"(?<![\w$])(?P<name>Alaska|Hawaii|Guam|Virgin[ \t]+Islands)[ \t]+\$[ \t]*\d"
@@ -6645,15 +6643,22 @@ def _without_manual_typography_operators(source_text: str) -> str:
     return "".join(masked)
 
 
-# The header row of a household-size table whose column labels are ranges:
-# `Household Size ... Area 1-2 3 4 5 6+ 48 States`. After a `Household Size`
-# or `Area` caption (either order, the caption repeated as in a flattened
-# header), only range labels (`3`, `1-2`, `1 -2`) separate it from the `N+`
-# label, so `6+` is the last column, not addition.
+# The header row of a USDA household-size table whose column labels are
+# ranges and whose next cell is a jurisdiction column: `Household Size ...
+# Area 1-2 3 4 5 6+ 48 States and D.C.`. The table captions are capitalized
+# cells (`Household Size`, `Area`, in either order, repeated as a flattened
+# header prints them), only range labels (`3`, `1-2`, `1 -2`) follow them up
+# to the `N+` label, and the cell after `N+` is the closed jurisdiction set of
+# `_JURISDICTION_SET_LABEL` or a sibling area. Then `6+` is the last column,
+# not addition; lower-case prose (`service area 2 3+ 4`) is not a caption.
 _HOUSEHOLD_SIZE_RANGE_HEADER_ROW = re.compile(
-    r"(?:\bhousehold\s+size|\barea)(?:\s+(?:household\s+size|area))*"
-    r"(?:\s+\d+(?:\s*-\s*\d+)?)+\s+$",
-    flags=re.IGNORECASE,
+    r"(?<![\w$])(?:Household[ \t]+Size|Area)(?:\s+(?:Household[ \t]+Size|Area))*"
+    r"(?:\s+\d+(?:\s*-\s*\d+)?)+\s+$"
+)
+_HOUSEHOLD_SIZE_RANGE_HEADER_NEXT_CELL = re.compile(
+    r"\d+\+\s+(?=48 States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
+    r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
+    r"Virgin[ \t]+Islands\b)|(?:Alaska|Hawaii|Guam|Virgin[ \t]+Islands)\b)"
 )
 
 
@@ -6706,7 +6711,12 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
                 title_prefix,
                 flags=re.IGNORECASE,
             )
-            or _HOUSEHOLD_SIZE_RANGE_HEADER_ROW.search(title_prefix)
+            or (
+                _HOUSEHOLD_SIZE_RANGE_HEADER_ROW.search(title_prefix)
+                and _HOUSEHOLD_SIZE_RANGE_HEADER_NEXT_CELL.match(
+                    masked_source_text, match.start()
+                )
+            )
         ):
             # An age threshold ("age 60+ or disabled") or the last column
             # of a household-size table ("1 2 3 4 5 6+ 48 States") is a

@@ -59,6 +59,19 @@ DEMANDED = (
     "Area Maximum Amount 48 States and D.C. pay 769. Alaska $1,229 Hawaii $1,036",
     # A currency sign between caption and label: not the first row.
     "Area Maximum Amount $5 48 States and D.C. $769 Alaska $1,229 Hawaii $1,036",
+    # Siblings outside the closed jurisdiction set.
+    "Area Maximum Amount 48 States and D.C. $5 Texas $6 Ohio $7",
+    # The same sibling twice is one sibling.
+    "Area Maximum Amount 48 States and D.C. $5 Alaska $6 Alaska $7",
+    # Another caption word.
+    "Region Maximum Amount 48 States and D.C. $5 Alaska $6 Hawaii $7",
+    # The `Area` caption more than 200 characters back.
+    "Area " + "x " * 110 + "48 States and D.C. $5 Alaska $6 Hawaii $7",
+    # Siblings more than 400 characters after the label.
+    "Area Maximum Amount 48 States and D.C. $5 " + "x " * 210 + "Alaska $6 Hawaii $7",
+    # Words between the title and the `Household Size` caption.
+    "Maximum SNAP Allotments for 48 States and D.C. are listed Household Size 48 "
+    "States and D.C. 1 $306 2 $562",
     # A title not followed by the masked column label.
     "Maximum SNAP Allotments for 48 States and D.C. Household Size 1 $306",
     "Maximum SNAP Allotments for 48 States and D.C. are $306 per person.",
@@ -85,8 +98,14 @@ def test_amounts_of_a_masked_row_stay_demanded():
 @pytest.mark.parametrize(
     "source_text",
     (
-        "Household Size Household Size Area 1-2 3 4 5 6+ 48 States and D.C. $217",
-        "Area Household Size 1 -2 3 4 5 6+ 48 States and DC $198 $198",
+        # The three COLA headers (FY2027 page 6, FY2024 page 4, FY2026 memo
+        # page 6) and the FY2026 two-page memo's header.
+        "Standard Deductions Household Size Household Size Household Size Area "
+        "1-2 3 4 5 6+ 48 States and D.C. $217",
+        "Standard Deductions Area Household Size 1 -2 3 4 5 6+ 48 States and DC "
+        "$198 $198",
+        "Household Size Household Size Household Size Area 1 -2 3 4 5 6+ 48 "
+        "States and D.C. $209",
         "Household Size 1 2 3 4 5 6+ 48 States & District of Columbia $209",
     ),
 )
@@ -103,6 +122,15 @@ def test_range_header_plus_label_is_not_arithmetic(source_text):
         "Area 1-2 3 equals 6 + 48 dollars.",
         # Words between the caption and `6+`: not a header row of range labels.
         "Household size 3 members add 6+ 48 dollars.",
+        # No caption: a run of numbers alone is not a header.
+        "1-2 3 4 5 6+ 48 States and D.C. $217",
+        # Lower-case prose is not a table caption.
+        "In each service area 2 3+ 4 additional units are allowed.",
+        "the area 4 5+ 2 = 7",
+        "household size 1-2 6+ 48 dollars",
+        # A caption whose `N+` is not followed by a jurisdiction column.
+        "Area 10 20+ 30 percent of income",
+        "Zone 1-2 3 4 5 6+ 48 States and D.C. $217",
     ),
 )
 def test_real_addition_stays_arithmetic(source_text):
