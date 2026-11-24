@@ -50,6 +50,37 @@ MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_PAGES = 10
 INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 
+# --- Several units in one candidate ("batch"). SWITCHED OFF. ------------------
+#
+# Issue #2301; ``docs/reviewed-pr-promotion.md``, "Several units in one
+# candidate". With the switch on, one candidate pull request may carry up to
+# ``MAX_PROMOTION_UNITS`` new modules, each with its own primary and its own
+# companion. One protected run admits, validates and signs all of them, and
+# writes one signed manifest per unit in the form of a single-unit promotion.
+#
+# The switch is a constant on encoder main, read at call time: no environment
+# variable, CLI flag, dispatch input or repository setting turns it. While it
+# is not exactly ``True`` this module does not know the batch forms: a selector
+# with ``units`` and an admission with ``records`` are refused with the errors
+# they had before the switch existed, and every single-unit read, result and
+# error is unchanged.
+MULTI_UNIT_PROMOTION_ENABLED: Final[bool] = False
+# The most units of one batch. The bound is the anonymous GitHub API budget of
+# one signing run (60 requests an hour for one address; the signing runtime
+# holds no token). One admission of ``k`` units reads ``11 + 2k`` times with
+# one page per list (two content reads per unit); a revalidation reads 4
+# times. One run admits twice (preflight, root provisioner) and revalidates
+# three times (before validation, before signing, before publication):
+#   2 x (11 + 2k) + 3 x 4 = 34 + 4k <= 60 gives k <= 6.
+# A single-unit promotion costs 38 of the 60. A larger batch needs fewer or
+# authenticated reads first, in a reviewed change of this constant.
+# ``tests/test_multi_unit_promotion_admission.py`` pins the arithmetic.
+MAX_PROMOTION_UNITS: Final[int] = 6
+ANONYMOUS_REQUESTS_PER_HOUR: Final = 60
+BATCH_SCHEMA: Final = "axiom-encode/live-reviewed-pr-batch-admission/v1"
+# The root provisioner reads at most this many bytes of a selector file.
+MAX_SELECTOR_BYTES: Final = 4096
+
 
 class AdmissionError(ValueError):
     """The requested candidate has no current authorization."""
@@ -133,6 +164,123 @@ class PromotionSelector:
         return self.rulespec_path.removesuffix(".yaml") + ".test.yaml"
 
 
+_BATCH_SELECTOR_FIELDS: Final = frozenset(
+    {"country", "pr", "head", "branch", "actor", "run_id", "units"}
+)
+
+
+@dataclass(frozen=True)
+class BatchPromotionSelector:
+    """One candidate pull request and every unit it carries.
+
+    ``units`` is ``((citation, rulespec_path), ...)`` in strictly ascending
+    order of ``rulespec_path``, so no primary is named twice and one batch has
+    one selector. Every unit is checked as the selector of a single-unit
+    promotion is.
+    """
+
+    country: str
+    pr: int
+    head: str
+    branch: str
+    actor: str
+    units: tuple[tuple[str, str], ...]
+    run_id: str = ""
+
+    def __post_init__(self):
+        if (
+            not isinstance(self.units, tuple)
+            or not self.units
+            or any(
+                not isinstance(unit, tuple)
+                or len(unit) != 2
+                or not all(isinstance(value, str) for value in unit)
+                for unit in self.units
+            )
+        ):
+            raise AdmissionError("batch selector must name at least one unit")
+        selectors = self.unit_selectors()
+        paths = [unit.rulespec_path for unit in selectors]
+        if any(left >= right for left, right in zip(paths, paths[1:])):
+            raise AdmissionError(
+                "batch units must be in ascending path order and name no "
+                "primary twice"
+            )
+        citations = [unit.citation for unit in selectors]
+        if len(set(citations)) != len(citations):
+            raise AdmissionError("batch units must not name a citation twice")
+
+    def unit_selectors(self) -> tuple[PromotionSelector, ...]:
+        """Each unit as the selector of a single-unit promotion of it."""
+        return tuple(
+            PromotionSelector(
+                country=self.country,
+                pr=self.pr,
+                head=self.head,
+                citation=citation,
+                rulespec_path=rulespec_path,
+                branch=self.branch,
+                actor=self.actor,
+                run_id=self.run_id,
+            )
+            for citation, rulespec_path in self.units
+        )
+
+    @property
+    def repository(self) -> str:
+        return f"TheAxiomFoundation/rulespec-{self.country}"
+
+    def payload(self) -> dict:
+        """The JSON form: what ``selector_from_payload`` reads back."""
+        return {
+            "country": self.country,
+            "pr": self.pr,
+            "head": self.head,
+            "branch": self.branch,
+            "actor": self.actor,
+            "run_id": self.run_id,
+            "units": [
+                {"citation": citation, "rulespec_path": rulespec_path}
+                for citation, rulespec_path in self.units
+            ],
+        }
+
+
+def _require_batch_in_force(selector: BatchPromotionSelector) -> None:
+    """Refuse a batch while the switch is off, and one over the unit limit."""
+    if MULTI_UNIT_PROMOTION_ENABLED is not True:
+        raise AdmissionError("multi-unit promotion is switched off")
+    limit = MAX_PROMOTION_UNITS
+    if type(limit) is not int or len(selector.units) > limit:
+        raise AdmissionError(
+            f"batch names {len(selector.units)} units; the limit is {limit}"
+        )
+    if (
+        len(json.dumps(selector.payload(), sort_keys=True).encode()) + 1
+        > MAX_SELECTOR_BYTES
+    ):
+        raise AdmissionError("batch selector exceeds the provisioner's size bound")
+
+
+def _batch_selector_from_payload(payload: dict) -> BatchPromotionSelector:
+    if set(payload) != _BATCH_SELECTOR_FIELDS or not isinstance(
+        payload["units"], list
+    ):
+        raise AdmissionError("batch promotion selector has unexpected fields")
+    units = []
+    for unit in payload["units"]:
+        unit = _object(unit, "batch unit")
+        if set(unit) != {"citation", "rulespec_path"}:
+            raise AdmissionError("batch unit has unexpected fields")
+        units.append((unit["citation"], unit["rulespec_path"]))
+    selector = BatchPromotionSelector(
+        **{key: value for key, value in payload.items() if key != "units"},
+        units=tuple(units),
+    )
+    _require_batch_in_force(selector)
+    return selector
+
+
 def _object(value: object, label: str) -> dict:
     if not isinstance(value, dict):
         raise AdmissionError(f"GitHub {label} is not an object")
@@ -209,8 +357,12 @@ def _require_immutable_delta(
     return head_entries
 
 
-def selector_from_payload(value: object) -> PromotionSelector:
+def selector_from_payload(
+    value: object,
+) -> PromotionSelector | BatchPromotionSelector:
     payload = _object(value, "promotion selector")
+    if MULTI_UNIT_PROMOTION_ENABLED is True and "units" in payload:
+        return _batch_selector_from_payload(payload)
     if set(payload) != set(PromotionSelector.__dataclass_fields__):
         raise AdmissionError("promotion selector has unexpected fields")
     return PromotionSelector(**payload)
@@ -269,22 +421,26 @@ def revalidate_admission(
     basis = payload.get("admission_basis")
     if not isinstance(basis, str) or basis not in _BASIS_EVIDENCE_FIELD:
         raise AdmissionError("unknown admission basis")
+    # The batch form exists only while its switch is on.
+    batch = MULTI_UNIT_PROMOTION_ENABLED is True and "records" in payload
     if (
         set(payload)
         != {
             "schema",
             "selector",
-            "record",
+            "records" if batch else "record",
             "workflow_commit",
             "admission_basis",
             _BASIS_EVIDENCE_FIELD[basis],
         }
-        or payload.get("schema") != SCHEMA
+        or payload.get("schema") != (BATCH_SCHEMA if batch else SCHEMA)
     ):
         raise AdmissionError("invalid provisioned admission")
     if basis != _admission_basis():
         raise AdmissionError("admission basis is not the policy in force")
     selector = selector_from_payload(payload["selector"])
+    if isinstance(selector, BatchPromotionSelector) is not batch:
+        raise AdmissionError("invalid provisioned admission")
     root = "/repos/" + selector.repository
     run = _object(
         fetch(f"/repos/TheAxiomFoundation/axiom-encode/actions/runs/{selector.run_id}"),
@@ -316,7 +472,12 @@ def revalidate_admission(
             _approved_reviews(reviews, selector, author_id) == payload["approvals"]
         )
     if (
-        base != payload["record"]["base_sha"]
+        base
+        != (
+            _batch_records_base(payload["records"], selector)
+            if batch
+            else payload["record"]["base_sha"]
+        )
         or _object(main.get("object"), "main object").get("sha") != base
         or not evidence_unchanged
     ):
@@ -327,6 +488,64 @@ def revalidate_admission(
     # the root provisioner. The signer separately rehashes the local primary
     # and companion; re-fetch only mutable authorization, not all source bytes.
     return payload
+
+
+def _batch_records_base(records: object, selector: BatchPromotionSelector) -> str:
+    """The one main base of a batch admission's records, or refuse.
+
+    One record per unit, in the selector's order, each bound to its unit, all
+    on one base.
+    """
+    if not isinstance(records, list) or len(records) != len(selector.units):
+        raise AdmissionError("batch admission lacks one record per unit")
+    bases = set()
+    for record, (citation, rulespec_path) in zip(records, selector.units):
+        binding = _object(_object(record, "batch record").get("binding"), "binding")
+        if (
+            binding.get("citation") != citation
+            or binding.get("rulespec_path") != rulespec_path
+        ):
+            raise AdmissionError(
+                f"batch record is not bound to its unit {citation} ({rulespec_path})"
+            )
+        bases.add(record.get("base_sha"))
+    if len(bases) != 1 or not isinstance(next(iter(bases)), str):
+        raise AdmissionError("batch records differ in their main base")
+    return bases.pop()
+
+
+def _batch_scope_issue(
+    units: tuple[PromotionSelector, ...], files: list[dict]
+) -> str | None:
+    """Name the unit or the file that makes a batch's change set wrong.
+
+    The change set of the candidate must be exactly the named units: each
+    unit's primary and companion, both added, and at most the derived index
+    besides. A unit the operator did not name shows as a file of no named
+    unit; a named unit the candidate lacks shows as a missing file.
+    """
+    status = {}
+    for item in files:
+        path = item.get("filename")
+        if not isinstance(path, str) or path in status:
+            return "candidate PR lists an invalid or duplicate changed file"
+        status[path] = item.get("status")
+    owned = {}
+    for unit in units:
+        for path in (unit.rulespec_path, unit.companion):
+            owned[path] = unit
+            label = f"unit {unit.citation} ({unit.rulespec_path})"
+            if path not in status:
+                return f"candidate PR lacks {path} of {label}"
+            if status[path] != "added":
+                return f"candidate PR does not add {path} of {label}"
+    for path in sorted(status):
+        if path not in owned and path != INDEX_PATH:
+            return (
+                f"candidate PR changes {path}, which belongs to no unit named "
+                "in the dispatch"
+            )
+    return None
 
 
 def _pages(fetch: Callable[[str], object], path: str) -> list[dict]:
@@ -420,7 +639,7 @@ def _approved_reviews(
 
 
 def verify_reviewed_pr(
-    selector: PromotionSelector,
+    selector: PromotionSelector | BatchPromotionSelector,
     *,
     fetch: Callable[[str], object] = github_json,
 ) -> dict:
@@ -433,7 +652,17 @@ def verify_reviewed_pr(
     New modules only. The exact primary/companion and optional derived index
     are the only allowed changes. No fork, stacked base, deleted/renamed file,
     signed-manifest change, workflow change or unrelated candidate is admitted.
+
+    A ``BatchPromotionSelector`` (``MULTI_UNIT_PROMOTION_ENABLED``) names every
+    unit of the candidate. The same reads and rules apply; the change set must
+    be exactly the primaries and companions of the named units, and the
+    admission carries one record per unit, each equal to the record of a
+    single-unit admission of that unit.
     """
+    batch = isinstance(selector, BatchPromotionSelector)
+    if batch:
+        _require_batch_in_force(selector)
+    units = selector.unit_selectors() if batch else (selector,)
     run = _object(
         fetch(f"/repos/TheAxiomFoundation/axiom-encode/actions/runs/{selector.run_id}"),
         "protected run",
@@ -475,12 +704,23 @@ def verify_reviewed_pr(
     if _object(tip.get("object"), "candidate object").get("sha") != selector.head:
         raise AdmissionError("candidate branch moved")
     files = _pages(fetch, pr_path + "/files")
-    expected = {selector.rulespec_path, selector.companion}
+    expected = {path for unit in units for path in (unit.rulespec_path, unit.companion)}
     base_tree = _object(fetch(f"{root}/git/trees/{base}?recursive=1"), "base tree")
     if base_tree.get("truncated") is not False or not isinstance(
         base_tree.get("tree"), list
     ):
         raise AdmissionError("base tree cannot be inspected completely")
+    if batch:
+        on_main = {
+            entry.get("path") for entry in base_tree["tree"] if isinstance(entry, dict)
+        }
+        for unit in units:
+            for path in (unit.rulespec_path, unit.companion):
+                if path in on_main:
+                    raise AdmissionError(
+                        f"{path} of unit {unit.citation} ({unit.rulespec_path}) "
+                        "already exists on main"
+                    )
     if any(
         entry.get("path") in expected
         for entry in base_tree["tree"]
@@ -488,6 +728,11 @@ def verify_reviewed_pr(
     ):
         raise AdmissionError("new candidate paths already exist on main")
     paths = [item.get("filename") for item in files]
+    if batch:
+        # The same rules as below, with the unit or the file named.
+        issue = _batch_scope_issue(units, files)
+        if issue is not None:
+            raise AdmissionError(issue)
     if (
         len(set(paths)) != len(paths)
         or not expected.issubset(paths)
@@ -556,26 +801,39 @@ def verify_reviewed_pr(
         raise AdmissionError("candidate PR moved during admission")
     if _pages(fetch, pr_path + "/reviews") != reviews:
         raise AdmissionError("candidate reviews changed during admission")
+
+    def record(unit: PromotionSelector) -> dict:
+        return {
+            "schema": "axiom-encode/reviewed-rulespec-admission/v1",
+            "country": unit.country,
+            "rulespec_ref": unit.head,
+            "rulespec_pr": unit.pr,
+            "pr_base_branch": unit.branch,
+            "base_sha": base,
+            "binding": {
+                "citation": unit.citation,
+                "rulespec_path": unit.rulespec_path,
+                "rulespec_sha256": digests[unit.rulespec_path],
+                "companion_sha256": digests[unit.companion],
+            },
+            "declared": None,
+            "purpose": purpose,
+        }
+
+    if batch:
+        return {
+            "schema": BATCH_SCHEMA,
+            "workflow_commit": run["head_sha"],
+            "selector": selector.payload(),
+            "admission_basis": basis,
+            _BASIS_EVIDENCE_FIELD[basis]: evidence,
+            "records": [record(unit) for unit in units],
+        }
     return {
         "schema": SCHEMA,
         "workflow_commit": run["head_sha"],
         "selector": selector.__dict__,
         "admission_basis": basis,
         _BASIS_EVIDENCE_FIELD[basis]: evidence,
-        "record": {
-            "schema": "axiom-encode/reviewed-rulespec-admission/v1",
-            "country": selector.country,
-            "rulespec_ref": selector.head,
-            "rulespec_pr": selector.pr,
-            "pr_base_branch": selector.branch,
-            "base_sha": base,
-            "binding": {
-                "citation": selector.citation,
-                "rulespec_path": selector.rulespec_path,
-                "rulespec_sha256": digests[selector.rulespec_path],
-                "companion_sha256": digests[selector.companion],
-            },
-            "declared": None,
-            "purpose": purpose,
-        },
+        "record": record(selector),
     }
