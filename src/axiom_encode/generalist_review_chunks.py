@@ -170,24 +170,33 @@ def yaml_entry_cuts(text: str) -> list[int] | None:
         root = yaml.compose(text, Loader=yaml.SafeLoader)
     except (yaml.YAMLError, RecursionError, ValueError):
         return None
-    marks: list[int] = []
+    # Each root-level node in text order, and whether it starts an entry.
+    # The value of a root key is not an entry of its own, but an entry after
+    # it must start after it ends.
+    nodes: list[tuple[yaml.Node, bool]] = []
     if isinstance(root, yaml.MappingNode):
         for key, value in root.value:
-            marks.append(key.start_mark.index)
+            nodes.append((key, True))
             if isinstance(value, yaml.SequenceNode):
-                marks.extend(item.start_mark.index for item in value.value)
+                nodes.extend((item, True) for item in value.value)
+            else:
+                nodes.append((value, False))
     elif isinstance(root, yaml.SequenceNode):
-        marks.extend(item.start_mark.index for item in root.value)
+        nodes.extend((item, True) for item in root.value)
     cuts: list[int] = []
-    latest = -1
-    for mark in marks:
-        # An alias has the position of its anchor, which is earlier in the
-        # text and may be inside another entry: it is not an entry start.
-        if mark <= latest:
+    # Where the nodes before this one end. An alias has the position of its
+    # anchor, which is inside an earlier entry: it starts before that end,
+    # and a cut there would split the earlier entry.
+    floor = 0
+    for node, is_entry in nodes:
+        start = node.start_mark.index
+        if start < floor:
             continue
-        latest = mark
-        line_start = text.rfind("\n", 0, mark) + 1
-        if _ENTRY_PREFIX.fullmatch(text, line_start, mark) is None:
+        floor = max(floor, node.end_mark.index)
+        if not is_entry:
+            continue
+        line_start = text.rfind("\n", 0, start) + 1
+        if _ENTRY_PREFIX.fullmatch(text, line_start, start) is None:
             continue
         if line_start > 0 and (not cuts or line_start > cuts[-1]):
             cuts.append(line_start)

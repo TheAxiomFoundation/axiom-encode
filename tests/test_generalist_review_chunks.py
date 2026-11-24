@@ -251,6 +251,38 @@ def test_an_alias_item_is_not_an_entry_start():
     ]
 
 
+def test_an_alias_of_an_anchor_inside_the_entry_before_it_is_not_an_entry_start():
+    text = (
+        "- name: one\n"
+        "  data:\n"
+        "    - &shared\n"
+        "      key: value\n"
+        "    - last nested item\n"
+        "- *shared\n"
+        "- name: three\n"
+    )
+
+    cuts = yaml_entry_cuts(text)
+
+    # The alias has the position of `&shared`, a line that starts with a
+    # dash inside the first test case.
+    assert [text[cut:].splitlines()[0] for cut in cuts] == ["- name: three"]
+    chunked = chunk_yaml(text, budget=90)
+    assert [chunk.text for chunk in chunked.chunks] == [
+        text[: text.index("- name: three")],
+        "- name: three\n",
+    ]
+
+
+def test_an_entry_that_starts_on_the_last_line_of_another_is_not_a_cut():
+    text = "rules: [\n  {name: a,\n   kind: x}, {name: b},\n  {name: c}]\n"
+
+    assert [text[cut:].splitlines()[0] for cut in yaml_entry_cuts(text)] == [
+        "  {name: a,",
+        "  {name: c}]",
+    ]
+
+
 def test_flow_items_on_one_line_are_one_entry():
     text = "rules: [{name: a}, {name: b},\n  {name: c}]\nother: 1\n"
 
@@ -829,6 +861,9 @@ def test_one_failing_chunk_fails_the_whole_review(tmp_path, monkeypatch, failing
     assert result.issues == [f"[review call {failing} of {planned}] a defect"]
     record = _record(result, rule)
     assert (record["status"], record["reason"]) == ("failed", None)
+    assert record["coverage"]["calls_made"] == failing
+    assert record["coverage"]["calls_planned"] == planned
+    assert not any(entry["complete"] for entry in record["files"])
     assert review_requirement_refusal(record) is not None
     assert generalist_review_record_issues(record, _manifest_files(record)) != []
     assert (
