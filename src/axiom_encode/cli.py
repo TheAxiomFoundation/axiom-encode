@@ -3849,7 +3849,7 @@ def main():
         "--require-review",
         action="store_true",
         help=(
-            "Use with --apply; do not combine with --skip-reviewers. The flag requires a passed generalist review record with whole-file coverage of every file the model manifest applies and matching reviewed and applied canonical digests. The encoder refuses if a canonical digest changes; a dump-derived digest cannot substitute. A missing, unreadable, failed or incomplete review also blocks apply. The flag refuses legacy replacements that would rewrite exact dependents, because the model manifest's review does not cover them. The flag defaults to off; no other switch enables it."
+            "Use with --apply; do not combine with --skip-reviewers. The flag requires a passed generalist review record with whole-file coverage of every file the model manifest applies and matching reviewed and applied canonical digests. The encoder refuses if a canonical digest changes; a dump-derived digest cannot substitute. A missing, unreadable, failed or incomplete review also blocks apply. The flag refuses legacy replacements that would rewrite exact dependents, because the model manifest's review does not cover them. The reviewer prompt shows at most the first 6,000 characters of the module and the first 3,000 of the companion test file; a larger file counts as incomplete, so the flag refuses it. The flag defaults to off; no other switch enables it."
         ),
     )
     encode_parser.add_argument(

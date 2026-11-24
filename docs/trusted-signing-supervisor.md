@@ -136,7 +136,18 @@ apply. To make it stop, add `--require-review` to the supervised command:
 
 With the flag, the encode applies only when the reviewer ran, passed, and was
 shown the whole content of every applied file; otherwise it ends
-`apply_blocked_review` with a non-zero exit and nothing applied. A pass is the
+`apply_blocked_review` with a non-zero exit and nothing applied.
+
+The reviewer prompt has size limits, and they decide "whole content": it shows
+at most the first 6,000 characters of the module and the first 3,000 characters
+of the companion test file. A larger file is recorded as `partial`
+(`review_saw_truncated_file`), so the flag refuses it. Most real modules are
+larger: of the 65 replay-benchmark candidates in this repository, 57 modules
+and 53 companions exceed these limits. Without the flag the record of such a
+file says `partial`, which is accurate. Do not turn the flag on for a signed
+lane before the limits are raised or removed (#2252).
+
+A pass is the
 reviewer's own JSON boolean `"passed": true` in its one verdict object, with a
 JSON number as `score`. A score without that field, a non-boolean `passed`, a
 non-number `score`, or another spelling of a verdict key (`passed`, `score`,
