@@ -1142,6 +1142,18 @@
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
     },
     {
+      "category": "proof:source-evidence",
+      "cause": "validator",
+      "fix": "Cite the unit's own corpus path in `source.corpus_citation_path` instead of the child path, and copy a short contiguous verbatim excerpt from that provision. Keep the subsection in the rule's own `source` label.",
+      "gate": "ci",
+      "id": "proof:source-evidence/path-unsliceable",
+      "requires": "Each `corpus_citation_path` that the RuleSpec cites, other than the unit's own path, resolves to one provision in the bound corpus release, including a child path that the resolver slices from its parent provision.",
+      "severity": "important",
+      "site": "axiom_encode/harness/validator_pipeline.py:_citation_slice_failure_issues",
+      "title": "Cited corpus path cannot be sliced from its parent provision",
+      "why": "A proof excerpt or a numeric value can only be checked against text that the resolver can isolate. When it cannot isolate the cited child path, nothing proves the rule, so the candidate is refused; the unit itself still has its source text."
+    },
+    {
       "category": "repair:companion-preservation",
       "cause": "encoder_output",
       "fix": "Preserve every original companion case and assertion, then regenerate and verify the signed repair with its exact seed hashes.",
@@ -1226,6 +1238,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "248fce960d2d4e97fda21688a6e6f1ee95efd1d4c3c05f777c9c399c11bb0002",
+  "registry_sha256": "4113b7ca587b2381f9aa00b822d4a72d14796e8140dcb4b6c12739ac6d240231",
   "schema": "axiom-encode/check-registry/v1"
 }
