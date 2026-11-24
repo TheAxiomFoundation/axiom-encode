@@ -94,6 +94,7 @@ CHECK_MODULES: tuple[str, ...] = (
     "axiom_encode.producer_review_guidance",
     "axiom_encode.repair_companion",
     "axiom_encode.reviewed_repair_patch",
+    "axiom_encode.source_verification_binding",
     "axiom_encode.validation_waivers",
 )
 

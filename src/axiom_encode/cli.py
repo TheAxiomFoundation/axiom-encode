@@ -3253,6 +3253,70 @@ def main():
         help="Optional protected workflow run identifier recorded in the manifest",
     )
 
+    bind_source_parser = subparsers.add_parser(
+        "bind-source-verification",
+        help=(
+            "Set module.source_verification.corpus_citation_path and "
+            "source_sha256 of one existing candidate module to the "
+            "resolver-attested values by a minimal text edit (no model, no "
+            "network write, no signing)"
+        ),
+    )
+    bind_source_parser.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="RuleSpec policy checkout that holds the candidate module",
+    )
+    bind_source_parser.add_argument(
+        "--citation",
+        required=True,
+        help="Exact canonical corpus citation of the candidate module",
+    )
+    _add_required_corpus_path_argument(bind_source_parser)
+    bind_source_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify only: exit 1 when the module is not bound; write nothing",
+    )
+    bind_source_parser.add_argument(
+        "--expect-source-sha256",
+        default=None,
+        metavar="HEX",
+        help=(
+            "The source_sha256 of the source attestation that the encode run "
+            "recorded for this candidate. The command refuses unless the corpus "
+            "release pinned by the checkout still attests exactly this source "
+            "body. Use it for every existing candidate: without it the pin "
+            "attests the current corpus release, which may hold another body "
+            "than the one the candidate was encoded from"
+        ),
+    )
+    bind_source_parser.add_argument(
+        "--corpus-release-public-key",
+        default=None,
+        help=(
+            "Verification-only local run: verify the pinned corpus release "
+            "with this public root, as encode --corpus-release-public-key does"
+        ),
+    )
+    bind_source_parser.add_argument(
+        "--corpus-release-retired-public-key",
+        action="append",
+        default=[],
+        help="With --corpus-release-public-key, a retired corpus release key",
+    )
+    bind_source_parser.add_argument(
+        "--apply-public-key",
+        default=None,
+        help="With --corpus-release-public-key, the apply-manifest public root",
+    )
+    bind_source_parser.add_argument(
+        "--eval-public-key",
+        default=None,
+        help="With --corpus-release-public-key, the eval-evidence public root",
+    )
+
     signed_import_parser = subparsers.add_parser(
         "signed-import-inventory",
         help=(
@@ -4661,6 +4725,8 @@ def main():
         apply_reviewed_repair(args)
     elif args.command == "promote-reviewed-candidate":
         cmd_promote_reviewed_candidate(args)
+    elif args.command == "bind-source-verification":
+        sys.exit(cmd_bind_source_verification(args))
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
     elif args.command == "checks":
@@ -13122,6 +13188,135 @@ def _manifest_census_badge(census: dict[str, object]) -> dict[str, object]:
         "message": f"{pct}% ({census.get('encoder', 0)}/{total})",
         "color": color,
     }
+
+
+def cmd_bind_source_verification(args) -> int:
+    """Bind one existing candidate module to its resolver-attested source."""
+
+    try:
+        local_roots = _local_verification_encode_roots(args)
+        if local_roots is None:
+            return _bind_source_verification_in_checkout(args)
+        with local_corpus_release_verification(
+            local_roots.corpus_release_public_key,
+            retired_public_keys=local_roots.retired_corpus_release_public_keys,
+            apply_public_key=local_roots.apply_public_key,
+            eval_public_key=local_roots.eval_public_key,
+        ):
+            return _bind_source_verification_in_checkout(args)
+    except (ValueError, RuntimeError, OSError) as exc:
+        # A wrong checkout, corpus or citation is an operator error, not a
+        # crash: one line, nothing written, a status apart from "unbound".
+        print("status=error")
+        print(f"error={exc}")
+        return 2
+
+
+def _bind_source_verification_in_checkout(args) -> int:
+    """Resolve the attestation as a promotion does, then bind by a minimal edit.
+
+    The corpus release is the one the checkout's toolchain lock pins, and the
+    source is resolved by the resolver the promotion uses, so the pin written
+    here is the pin the protected binding check recomputes. The module is the
+    citation's canonical path. Only that file can change, and only in the two
+    lines of ``module.source_verification``.
+    """
+
+    from .corpus_resolver import require_canonical_corpus_citation_path
+    from .prepare_signed_backfill import citation_rulespec_path
+    from .source_verification_binding import (
+        SourceBindingError,
+        bind_source_verification,
+    )
+
+    repo_path = _resolve_explicit_existing_directory(
+        args.repo,
+        label="RuleSpec checkout",
+    )
+    corpus_path = _resolve_explicit_existing_directory(
+        args.corpus_path,
+        label="Axiom Corpus",
+    )
+    citation = require_canonical_corpus_citation_path(str(args.citation))
+    expected_pin = getattr(args, "expect_source_sha256", None)
+    if expected_pin is not None and (
+        re.fullmatch(r"[0-9a-f]{64}", str(expected_pin)) is None
+    ):
+        raise ValueError(
+            "--expect-source-sha256 must be 64 lowercase hexadecimal characters"
+        )
+    relative = Path(citation_rulespec_path(citation))
+    if relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        raise ValueError("citation does not name a canonical RuleSpec module path")
+    corpus_release = load_rulespec_local_corpus_release(repo_path, corpus_path)
+    source_unit = resolve_corpus_source_unit(citation, corpus_release)
+    attestation = dict(source_unit.source_attestation)
+    module_file = repo_path / relative
+    try:
+        raw = read_bounded_regular_file(
+            repo_path,
+            module_file,
+            label="candidate RuleSpec",
+            max_bytes=10 * 1024 * 1024,
+        )
+        mode = stat.S_IMODE(os.lstat(module_file).st_mode)
+    except (OSError, UnsafeCorpusPathError) as exc:
+        raise ValueError(
+            "candidate RuleSpec is not a regular file in the checkout: "
+            + relative.as_posix()
+        ) from exc
+    print(f"citation={citation}")
+    print(f"module={relative.as_posix()}")
+    print(f"corpus_release={corpus_release.name} ({corpus_release.content_sha256})")
+    print(f"attested_source_sha256={attestation.get('source_sha256')}")
+    expected = getattr(args, "expect_source_sha256", None)
+    if expected is None:
+        # The resolver attests the body the pinned corpus release stores now.
+        # It cannot know which body the candidate was encoded from.
+        print(
+            "warning=NO --expect-source-sha256: this pin attests the source as "
+            f"corpus release {corpus_release.name} stores it now. Compare "
+            "attested_source_sha256 with the source attestation of the encode "
+            "run before you push; if they differ, encode the candidate again"
+        )
+    elif expected != attestation.get("source_sha256"):
+        print(f"expected_source_sha256={expected}")
+        print("status=refused:source_changed")
+        print(
+            "error=the corpus release pinned by this checkout attests another "
+            "source body than the one the candidate was encoded from; do not "
+            "re-pin it, encode the candidate again from the current source"
+        )
+        return 1
+    else:
+        print(f"expected_source_sha256={expected}")
+    print(f"old_sha256={hashlib.sha256(raw).hexdigest()}")
+    try:
+        binding = bind_source_verification(raw, attestation)
+    except SourceBindingError as exc:
+        print(f"status=refused:{exc.kind}")
+        print(f"error={exc}")
+        return 1
+    print(f"new_sha256={hashlib.sha256(binding.content).hexdigest()}")
+    for line in difflib.unified_diff(
+        raw.decode("utf-8").splitlines(),
+        binding.content.decode("utf-8").splitlines(),
+        lineterm="",
+        n=0,
+    ):
+        if line[:1] in "+-" and line[:3] not in ("+++", "---"):
+            print(f"diff={line}")
+    if not binding.changed:
+        print("status=already_bound")
+        return 0
+    if args.check:
+        print("status=unbound")
+        return 1
+    _atomic_replace_bytes(module_file, binding.content, mode=mode)
+    print("status=bound:" + ",".join(binding.edits))
+    return 0
 
 
 def cmd_checks(args):
@@ -40379,6 +40574,9 @@ def _run_encode_attempt(
             else None
         ),
         replacement_overlay_scope=replacement_target is not None,
+        # A candidate that is not applied here is promoted later as it stands,
+        # so it is bound before validation. --apply keeps its own stamp.
+        bind_source_verification=getattr(args, "apply", False) is not True,
     )
 
     result = results[0]
@@ -40493,6 +40691,8 @@ def _run_encode_attempt(
         _ensure_logged_run()
 
     outcome = _initial_encode_outcome(result, apply_requested=apply_requested)
+    if not apply_requested:
+        _record_encode_source_binding(result, outcome)
     if (
         replacement_target is not None
         and replacement_target.retired_source_admission is not None
@@ -72400,6 +72600,80 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
         except Exception:
             outcome["validation_failure_counts"] = {"telemetry:error": 1}
     return outcome
+
+
+_SOURCE_UNBOUND_STATUS = "source_unbound"
+_SOURCE_UNBOUND_ERROR = (
+    "Generated RuleSpec is not bound to its resolver-attested source"
+)
+
+
+def _record_encode_source_binding(result, outcome: dict) -> None:
+    """Record whether a non-apply candidate is promotable as it stands.
+
+    The eval step binds the candidate before validation and fails the try when
+    it cannot. This reads the final bytes again, so the outcome states the
+    binding of the file the encode leaves behind. An unbound candidate is
+    never a clean result: the outcome gets ``source_binding: unbound`` and
+    ``final_success: False``, the result is failed, and the status is
+    ``source_unbound`` unless the file is not YAML at all (the validation
+    status then already says so). A successful result that recorded a
+    candidate digest but whose file cannot be read is unbound too. Only a
+    result with no candidate (``no_candidate``), or a failed or digest-less
+    one whose file is absent (``unverified``), keeps its verdict.
+    """
+
+    from .source_verification_binding import (
+        SourceBindingError,
+        check_source_verification,
+    )
+
+    output_file = str(getattr(result, "output_file", "") or "")
+    if not output_file:
+        outcome["source_binding"] = "no_candidate"
+        return
+    try:
+        try:
+            raw = Path(output_file).read_bytes()
+        except OSError:
+            recorded = getattr(result, "generated_output_sha256", None)
+            if (
+                getattr(result, "success", False) is not True
+                or not isinstance(recorded, str)
+                or re.fullmatch(r"[0-9a-f]{64}", recorded) is None
+            ):
+                # A failed result, or one that recorded no candidate digest,
+                # has no file to promote; its verdict is left alone.
+                outcome["source_binding"] = "unverified"
+                print("  source_binding=unverified")
+                return
+            unreadable = SourceBindingError(
+                "the candidate file that the eval recorded cannot be read"
+            )
+            unreadable.kind = "unreadable"
+            raise unreadable from None
+        attestation = getattr(result, "source_attestation", None)
+        if not isinstance(attestation, dict):
+            raise SourceBindingError("the encode has no resolver source attestation")
+        check_source_verification(raw, attestation)
+    except SourceBindingError as exc:
+        kind, message = exc.kind, str(exc)
+    else:
+        outcome["source_binding"] = "bound"
+        print("  source_binding=bound")
+        return
+    outcome["source_binding"] = "unbound"
+    outcome["source_binding_error"] = f"{kind}: {message}"
+    outcome["final_success"] = False
+    if getattr(result, "success", False) is True:
+        # The eval step refuses an unbound candidate; keep the exit status
+        # honest if a later step changed the file.
+        result.success = False
+        result.error = _SOURCE_UNBOUND_ERROR
+        outcome["primary_error"] = _SOURCE_UNBOUND_ERROR
+    if kind != "invalid_input" or outcome["status"] == "standalone_validated":
+        outcome["status"] = _SOURCE_UNBOUND_STATUS
+    print(f"  outcome={outcome['status']} final_success=False source_binding=unbound")
 
 
 def _safe_typed_issue_document(

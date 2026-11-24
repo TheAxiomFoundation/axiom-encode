@@ -1843,6 +1843,7 @@ def run_model_eval(
     codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
     axiom_rules_engine_ref: str | None = None,
     producer_review_guidance: ProducerReviewGuidance | None = None,
+    bind_source_verification: bool = False,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
     if producer_review_guidance is not None:
@@ -1952,6 +1953,7 @@ def run_model_eval(
                         required_import_targets=required_import_targets,
                         legacy_replacement=legacy_replacement,
                         replacement_overlay_scope=replacement_overlay_scope,
+                        bind_source_verification=bind_source_verification,
                     )
                 )
 
@@ -9444,10 +9446,16 @@ def _evaluate_generated_artifact_with_repairs(
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
     repair_log: list[str] | None = None,
+    bind_source: Callable[[], Exception | None] | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
         test_file = _rulespec_test_path(rulespec_file)
+        # Bind before every evaluation, so the bytes that validation and the
+        # reviewers see are the bytes a promotion can sign. A round that
+        # follows a repair (for example a quoted scalar that made the YAML
+        # parse) binds the repaired file before it is evaluated again.
+        source_binding_refusal = bind_source() if bind_source is not None else None
         artifact_state = tuple(
             path.read_bytes() if path.exists() else None
             for path in (rulespec_file, test_file)
@@ -9479,6 +9487,9 @@ def _evaluate_generated_artifact_with_repairs(
         )
         if metrics is None:
             return None
+        if source_binding_refusal is not None:
+            metrics.ci_pass = False
+            metrics.ci_issues.append(_source_binding_issue(source_binding_refusal))
         if not allow_artifact_repairs:
             return metrics
         if artifact_state in evaluated_states:
@@ -10626,6 +10637,7 @@ def _run_single_eval(
     axiom_compose_path: Path | None = None,
     axiom_rules_engine_ref: str | None = None,
     producer_review_guidance: ProducerReviewGuidance | None = None,
+    bind_source_verification: bool = False,
 ) -> EvalResult:
     if (
         accept_valid_retry_candidate
@@ -10734,6 +10746,17 @@ def _run_single_eval(
     output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
     artifact_root = Path(output_root).resolve()
     _clear_eval_target_artifacts(output_file, artifact_root)
+    bind_source: Callable[[], Exception | None] | None = None
+    if bind_source_verification:
+        # A tests-only repair keeps its RuleSpec immutable: it only checks.
+        def bind_source() -> Exception | None:
+            return _bind_generated_source_verification(
+                output_file,
+                artifact_root=artifact_root,
+                attestation=_source_metadata_attestation(source_metadata_payload),
+                read_only=repair_candidate_tests_only,
+            )
+
     retained_candidate_metrics: EvalArtifactMetrics | None = None
     retained_candidate_accepted = False
     if accept_valid_retry_candidate:
@@ -10793,6 +10816,7 @@ def _run_single_eval(
             legacy_replacement=legacy_replacement,
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=False,
+            **({"bind_source": bind_source} if bind_source is not None else {}),
         )
         mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         rebound_hashes = _rebind_retained_candidate_proof_import_hashes(
@@ -10837,6 +10861,7 @@ def _run_single_eval(
                 legacy_replacement=legacy_replacement,
                 replacement_overlay_scope=replacement_overlay_scope,
                 allow_artifact_repairs=False,
+                **({"bind_source": bind_source} if bind_source is not None else {}),
             )
             mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         retained_candidate_accepted = (
@@ -11020,6 +11045,7 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
             repair_log=eval_repairs,
+            **({"bind_source": bind_source} if bind_source is not None else {}),
         )
     quoted_source_scalars = _quoted_source_scalar_repairs(eval_repairs)
     mark_encode_phase(PHASE_RECORD_RESULT)
@@ -11100,6 +11126,89 @@ def _run_single_eval(
     )
     emit_eval_result(result, response.trace)
     return result
+
+
+def _bind_generated_source_verification(
+    output_file: Path,
+    *,
+    artifact_root: Path,
+    attestation: Mapping[str, object] | None,
+    read_only: bool,
+) -> Exception | None:
+    """Bind the staged candidate to the resolver's source; return the refusal.
+
+    The binder sets ``module.source_verification.corpus_citation_path`` and
+    ``source_sha256`` to the attested values by a minimal text edit, and keeps
+    every other byte. It never re-dumps the YAML. A candidate it cannot bind is
+    left as the model wrote it and the refusal is returned, so a non-apply
+    encode never reports an unbound candidate as clean. ``read_only`` checks
+    the pin and writes nothing.
+    """
+
+    from axiom_encode.source_verification_binding import (
+        SourceBindingError,
+        check_source_verification,
+    )
+    from axiom_encode.source_verification_binding import (
+        bind_source_verification as bind_module_source_verification,
+    )
+
+    try:
+        if attestation is None:
+            raise SourceBindingError("the encode has no resolver source attestation")
+        raw = _corpus_resolver.read_bounded_regular_file(
+            Path(os.path.abspath(artifact_root)),
+            Path(os.path.abspath(output_file)),
+            label="generated eval RuleSpec",
+            max_bytes=32 * 1024 * 1024,
+        )
+        if read_only:
+            check_source_verification(raw, attestation)
+            return None
+        binding = bind_module_source_verification(raw, attestation)
+    except (OSError, _corpus_resolver.UnsafeCorpusPathError):
+        # A missing, symlinked or oversized candidate is not a crash of the
+        # encode: it is a candidate that cannot be bound.
+        exc = SourceBindingError(
+            "the generated RuleSpec is not a readable regular file in the output root"
+        )
+        exc.kind = "unreadable"
+        print(f"  source_binding_refused={exc.kind}")
+        return exc
+    except SourceBindingError as exc:
+        print(f"  source_binding_refused={exc.kind}")
+        if read_only:
+            refusal = SourceBindingError(
+                f"{exc}; the retained RuleSpec is immutable in a tests-only "
+                "repair, so bind it first with `axiom-encode "
+                "bind-source-verification`"
+            )
+            refusal.kind = exc.kind
+            return refusal
+        return exc
+    if binding.changed:
+        root, relative = _eval_artifact_write_location(output_file, artifact_root)
+        _secure_atomic_eval_write(root, relative, binding.content)
+        print("  source_binding_edit=" + ",".join(binding.edits))
+    return None
+
+
+def _source_binding_issue(refusal: Exception) -> ValidationIssue:
+    """The blocking CI issue for a candidate that could not be bound."""
+
+    from axiom_encode.source_verification_binding import CHECK_SOURCE_BINDING
+
+    kind = str(getattr(refusal, "kind", "error"))
+    return ValidationIssue(
+        "[source-binding] Generated RuleSpec is not bound to its "
+        f"resolver-attested source ({kind}): {refusal}. Write "
+        "`module.source_verification` as a plain block mapping with the "
+        "requested `corpus_citation_path` on its own line, and leave "
+        "`source_sha256` out: the encoder writes it.",
+        check=CHECK_SOURCE_BINDING,
+        expected="the attested corpus_citation_path and source_sha256",
+        found=kind,
+    )
 
 
 def _eval_artifact_validation_error(
