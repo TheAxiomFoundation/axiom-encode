@@ -1950,3 +1950,84 @@ def test_every_chunk_call_reads_its_verdict_with_the_strict_reader(
     record = _record(result, rule)
     assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
     assert review_requirement_refusal(record) is not None
+
+
+# --- through the Codex stream reader: one process per chunk call ------------
+
+
+def _agent_message(text):
+    return json.dumps(
+        {"type": "item.completed", "item": {"type": "agent_message", "text": text}}
+    )
+
+
+def _codex_chunked_review(tmp_path, monkeypatch, streams):
+    """A chunked review through the real Codex reader; one stream per process."""
+
+    processes = []
+
+    def run(cmd, **_kwargs):
+        processes.append(cmd[-1])
+        stdout = streams[min(len(processes), len(streams)) - 1] + "\n"
+        return validator_pipeline._SubprocessRunResult(
+            output=stdout, returncode=0, stdout=stdout
+        )
+
+    monkeypatch.setenv("AXIOM_ENCODE_REVIEWER_CLI", "codex")
+    monkeypatch.setattr(
+        validator_pipeline, "_local_reviewer_context_active", lambda: False
+    )
+    monkeypatch.setattr(validator_pipeline, "resolve_codex_cli", lambda: "codex")
+    monkeypatch.setattr(validator_pipeline, "supervisor_codex_home", lambda: None)
+    monkeypatch.setattr(validator_pipeline, "codex_auth_secrets", lambda _home: set())
+    monkeypatch.setattr(validator_pipeline, "_run_subprocess_with_idle_timeout", run)
+    module, companion, source = _large_candidate()
+    rule = _write_candidate(tmp_path, module, companion)
+    result = run_generalist_review(
+        rule, review_source=generalist_review_source(source), cwd=tmp_path
+    )
+    plan = plan_chunked_review(module, companion, source)
+    return result, processes, rule, plan, source
+
+
+def test_each_chunk_call_is_one_codex_process_with_one_agent_message(
+    tmp_path, monkeypatch
+):
+    result, processes, rule, plan, source = _codex_chunked_review(
+        tmp_path, monkeypatch, [_agent_message(PASS)]
+    )
+
+    # One process per planned call, each given exactly that call's prompt.
+    assert processes == list(_prompts(plan, source))
+    assert len(processes) > 2
+    assert result.passed is True
+    record = _record(result, rule)
+    assert record["status"] == "passed"
+    assert record["reviewer"]["backend"] == "codex"
+
+
+@pytest.mark.parametrize(
+    "bad_stream",
+    [
+        _agent_message(PASS) + "\n" + _agent_message(PASS),
+        _agent_message("I will review now.") + "\n" + _agent_message(PASS),
+        json.dumps({"type": "turn.started"}),
+        _agent_message(PASS) + "\n" + json.dumps({"type": "error", "message": "x"}),
+        _agent_message(PASS) + "\nnot a json line",
+    ],
+)
+def test_a_chunk_call_whose_codex_stream_is_not_one_agent_message_is_unavailable(
+    tmp_path, monkeypatch, bad_stream
+):
+    good = _agent_message(PASS)
+
+    result, processes, rule, _plan, _source = _codex_chunked_review(
+        tmp_path, monkeypatch, [good, bad_stream]
+    )
+
+    # The second call's stream is refused; the review stops there.
+    assert len(processes) == 2
+    assert result.passed is False and result.score is None
+    record = _record(result, rule)
+    assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
+    assert review_requirement_refusal(record) is not None
