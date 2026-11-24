@@ -1118,8 +1118,10 @@ def _extract_codex_text_output(output: str) -> str:
     errors: list[str] = []
     malformed = False
 
-    for line in output.splitlines():
-        stripped = line.strip()
+    # A JSONL line ends at a line feed. `str.splitlines` would also break at
+    # U+0085, U+2028 and U+2029, which JSON allows raw inside a string.
+    for line in output.split("\n"):
+        stripped = line.strip(_JSON_WHITESPACE)
         if not stripped:
             continue
         try:
@@ -1148,7 +1150,7 @@ def _extract_codex_text_output(output: str) -> str:
             f"error event: {with_codex_model_availability_hint(errors[-1])}", output
         )
     if malformed:
-        return _unreadable_codex_stream("a line is not a JSON event", output)
+        return _unreadable_codex_stream("a line is not a JSON object", output)
     if len(assistant_messages) != 1:
         return _unreadable_codex_stream(
             f"{len(assistant_messages)} agent messages with text, not one", output
@@ -43574,32 +43576,22 @@ Output ONLY valid JSON:
                     prompt_sha256=prompt_sha256,
                 )
             if reviewer_type == "generalist-reviewer":
+                # The verdict reader has checked the keys and the types:
+                # each issue list is a list of strings.
                 blocking_issues = data.get("blocking_issues", [])
                 non_blocking_issues = data.get("non_blocking_issues", [])
-                if not isinstance(blocking_issues, list):
-                    blocking_issues = [str(blocking_issues)]
-                if not isinstance(non_blocking_issues, list):
-                    non_blocking_issues = [str(non_blocking_issues)]
 
                 passed = _legacy_generalist_reviewer_passed(
                     data, score=score, blocking_issues=blocking_issues
                 )
 
-                reported_issues = data.get("issues", [])
-                if not isinstance(reported_issues, list):
-                    reported_issues = [str(reported_issues)]
                 issues = list(blocking_issues)
                 issues.extend(
                     f"[non-blocking] {issue}" for issue in non_blocking_issues
                 )
-                for issue in reported_issues:
-                    if issue not in issues:
-                        issues.append(issue)
             else:
                 passed = bool(data.get("passed", score >= 7.0))
-                issues = data.get("issues", [])
-            if not isinstance(issues, list):
-                issues = [str(issues)]
+                issues = list(data.get("issues", []))
             if score < 7.0:
                 if passed:
                     issues.append(
