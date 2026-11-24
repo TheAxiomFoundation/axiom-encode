@@ -53,6 +53,8 @@ DEMANDED = (
     "The 48 States and D.C. must pay $769. Alaska $1,229 Hawaii $1,036",
     # A lone row: one sibling only.
     "Area Maximum Amount 48 States and D.C. $769 Alaska $1,229",
+    # Siblings named without their own amounts are not rows.
+    "Area Maximum Amount 48 States and D.C. $769 Alaska and Hawaii follow later.",
     # No amount directly after the label.
     "Area Maximum Amount 48 States and D.C. pay 769. Alaska $1,229 Hawaii $1,036",
     # A currency sign between caption and label: not the first row.
