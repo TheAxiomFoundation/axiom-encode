@@ -73,7 +73,7 @@ def _partition_audits(root, paths, affected, outcomes):
         elif outcome == "discovery-error":
             selection_context = patch.object(
                 scope._ReadSets,
-                "read_set",
+                "waiver",
                 side_effect=OSError(24, "Too many open files"),
             )
         else:

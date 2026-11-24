@@ -138,7 +138,7 @@ def test_manifest_of_a_module_path_is_classified_as_that_module(
         ".axiom/repository-structure.yaml",
         ".axiom/upstream-source-check-baseline.txt",
         ".axiom/index/provisions_to_rules.json",
-        ".axiom/waiver-audit-costs.json",
+        ".axiom/validation-waiver-audit-costs.json",
         "known-validation-gaps.yaml",
         "oracle-coverage-pending.yaml",
     ],
@@ -862,4 +862,29 @@ def test_alias_keys_decide_exactly_what_same_decides(tmp_path: Path):
     assert aliases.key(present) == aliases.key(linked)
     assert aliases.key(tmp_path / "absent.yaml") == aliases.key(
         tmp_path / "ABSENT.yaml"
+    )
+
+
+def test_filesystem_failure_while_reading_a_closure_audits_every_path_given(
+    tmp_path: Path, monkeypatch
+):
+    root = tmp_path / "rulespec-us"
+    waivers = ["us-ny/statutes/one.yaml", "us-tx/statutes/two.yaml"]
+    for path in waivers:
+        _module(root, path)
+    (root / "README.md").write_text("# Notes\n", encoding="utf-8")
+
+    def refuse(self, current):
+        raise OSError(24, "Too many open files")
+
+    monkeypatch.setattr(_ReadSets, "parsed", refuse)
+
+    selection = select_validation_waiver_scope(
+        waivers, root=root, changed_paths={"README.md"}
+    )
+
+    assert selection.scope == "full"
+    assert selection.paths == tuple(waivers)
+    assert selection.fallback_reason == (
+        "could not establish validation read set: [Errno 24] Too many open files"
     )

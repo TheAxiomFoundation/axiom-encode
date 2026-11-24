@@ -142,7 +142,7 @@ def _applied_manifest_module(path: str) -> str | None:
     if parts[:prefix] != _APPLIED_MANIFEST_PARTS or not path.endswith(".json"):
         return None
     module_parts = parts[prefix:]
-    if not module_parts or any(part in _SHARED_SURFACE_PARTS for part in module_parts):
+    if any(part in _SHARED_SURFACE_PARTS for part in module_parts):
         return None
     module = "/".join(module_parts).removesuffix(".json") + ".yaml"
     try:
@@ -969,10 +969,12 @@ def select_validation_waiver_scope(
                         wanted=wanted,
                         shared_keys=shared_keys,
                     )
-                except (OSError, ValueError, yaml.YAMLError) as exc:
-                    # A waiver whose own read set cannot be established is
+                except (ValueError, yaml.YAMLError) as exc:
+                    # A waiver whose own read set cannot be classified is
                     # audited, whatever changed. Every other waiver is still
-                    # decided from its own established read set.
+                    # decided from its own established read set. A filesystem
+                    # failure is not a property of one waiver's content: it
+                    # leaves this handler and audits every path given.
                     detail = " ".join(str(exc).split())
                     selected_reasons = [
                         f"validation read set could not be established: {detail}"

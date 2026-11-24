@@ -5872,12 +5872,15 @@ def _cmd_validation_waivers_audit(args) -> int:
         scope = selection.scope
         selection_reasons = selection.reasons
         fallback_reason = selection.fallback_reason
-        classified = {path: classified[path] for path in selection.paths}
+        # A selection can only narrow this job's own partition, never widen it.
+        classified = {
+            path: classified[path] for path in selection.paths if path in classified
+        }
         args._validation_waiver_audit_selection = {
             "scope": scope,
             "selected": len(classified),
             "total_waivers": total_waivers,
-            "selection_reasons": selection_reasons,
+            "selection_reasons": {path: selection_reasons[path] for path in classified},
         }
         if fallback_reason is not None:
             args._validation_waiver_audit_selection["fallback_reason"] = fallback_reason
