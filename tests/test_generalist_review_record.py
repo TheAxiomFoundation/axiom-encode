@@ -6093,6 +6093,35 @@ def test_codex_event_line_ends_only_at_a_line_feed(tmp_path, monkeypatch, charac
     assert _record_for(claude, rule, required=True)["status"] == "passed"
 
 
+def test_reviewer_issues_are_the_issue_lists_of_the_verdict(tmp_path, monkeypatch):
+    _rule_path, generalist = _review(
+        tmp_path,
+        monkeypatch,
+        '{"score": 9, "passed": true, "blocking_issues": [], '
+        '"non_blocking_issues": ["rename the helper", "dead code"]}',
+    )
+    assert generalist.passed is True
+    assert generalist.issues == [
+        "[non-blocking] rename the helper",
+        "[non-blocking] dead code",
+    ]
+    _rule_path, failed = _review(
+        tmp_path,
+        monkeypatch,
+        '{"score": 2, "passed": false, "blocking_issues": ["wrong rate"], '
+        '"non_blocking_issues": ["dead code"]}',
+    )
+    assert failed.issues == ["wrong rate", "[non-blocking] dead code"]
+    _rule_path, other = _review(
+        tmp_path,
+        monkeypatch,
+        '{"score": 3, "passed": false, "issues": ["wrong rate", "no test"]}',
+        reviewer="rulespec-reviewer",
+    )
+    assert (other.passed, other.score) == (False, 3)
+    assert other.issues == ["wrong rate", "no test"]
+
+
 def test_codex_event_split_by_a_line_feed_is_unreadable(tmp_path, monkeypatch):
     event = _codex_stream(_GENERALIST_PASS)
     middle = len(event) // 2
