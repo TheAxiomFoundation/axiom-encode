@@ -529,6 +529,19 @@ def test_a_unit_that_already_has_a_manifest_is_refused_and_named(
     assert run.untracked() == []
 
 
+def test_a_run_that_leaves_any_other_path_changed_fails(run, monkeypatch):
+    """The checkout may differ from the candidate by the manifests only."""
+    real_validate = run._validate
+
+    def validate_and_litter(result, **kwargs):
+        (run.repo / "us/statutes/7/2015/stray.txt").write_text("left behind\n")
+        return real_validate(result, **kwargs)
+
+    run._validate = validate_and_litter
+    with pytest.raises(RuntimeError, match="changed paths other than its manifest"):
+        run(monkeypatch)
+
+
 # --- The admission must be this operation's -----------------------------------
 
 
