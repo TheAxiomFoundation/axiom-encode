@@ -55,7 +55,15 @@ GIT_DATE = {
 REFERENCE = re.compile(r"[a-z]{2}(?:-[a-z0-9]+)*:[A-Za-z0-9_./-]+#[A-Za-z0-9_.]+")
 # Where each unit lives. ``e`` is alone in its directory, so hiding it must
 # also remove the directory.
-DIRECTORY = {"a": "7/2015", "b": "7/2015", "c": "7/2015", "d": "7/2016", "e": "8/1"}
+DIRECTORY = {
+    "a": "7/2015",
+    "b": "7/2015",
+    "c": "7/2015",
+    "d": "7/2016",
+    "e": "8/1",
+    # A child of ``a``: ``us/statutes/7/2015/a/1.yaml``.
+    "1": "7/2015/a",
+}
 BASE = "us:statutes/7/2014/base"
 
 
@@ -130,7 +138,10 @@ def candidate(root: Path, units: dict[str, tuple]) -> tuple[Path, str]:
         "README.md": "main\n",
     }
     for name, references in units.items():
-        files.update(unit_files(name, references))
+        # A unit is given by its references, or by its two files.
+        files.update(
+            references if isinstance(references, dict) else unit_files(name, references)
+        )
     for relative, text in files.items():
         path = repo / relative
         path.parent.mkdir(parents=True, exist_ok=True)

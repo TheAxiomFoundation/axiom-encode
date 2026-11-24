@@ -16,7 +16,7 @@ import re
 import stat
 import subprocess
 import tokenize
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -1259,6 +1259,48 @@ def _citation_rulespec_path(citation: str) -> tuple[str, PurePosixPath]:
 def citation_rulespec_path(citation: str) -> PurePosixPath:
     jurisdiction, relative = _citation_rulespec_path(citation)
     return PurePosixPath(jurisdiction) / relative
+
+
+def promotion_validation_record(citations: Sequence[str]) -> dict[str, object]:
+    """What validation read for each unit of a multi-unit promotion.
+
+    ``passes`` names the validation passes of every unit: ``isolated`` (the
+    candidate head without the unit's ``hidden_paths``) and ``batch`` (the
+    whole candidate head); a batch of one unit has the second only.
+    ``units`` has one entry per unit in path order: its citation, primary and companion,
+    and ``hidden_paths``, the primaries and companions of every other unit.
+    The isolated validation pass of a unit reads the candidate head without
+    its ``hidden_paths`` (docs/reviewed-pr-promotion.md, "Each unit is
+    validated twice"); with the candidate head and this record that tree can
+    be rebuilt. The promotion command derives the same paths from the same
+    units; a test holds the two together.
+    """
+
+    pairs = {}
+    for citation in citations:
+        primary = citation_rulespec_path(citation).as_posix()
+        pairs[citation] = (primary, primary.removesuffix(".yaml") + ".test.yaml")
+    if len(set(pairs.values())) != len(list(citations)):
+        raise ValueError("promotion units must name distinct modules")
+    units = [
+        {
+            "citation": citation,
+            "rulespec_path": pairs[citation][0],
+            "companion_path": pairs[citation][1],
+            "hidden_paths": sorted(
+                path
+                for other, pair in pairs.items()
+                if other != citation
+                for path in pair
+            ),
+        }
+        for citation in sorted(pairs, key=lambda key: pairs[key][0])
+    ]
+    return {
+        "schema": "axiom-encode/promotion-batch-validation/v1",
+        "passes": ["isolated", "batch"] if len(units) > 1 else ["batch"],
+        "units": units,
+    }
 
 
 def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:

@@ -48,6 +48,7 @@
 /tests/test_multi_unit_promotion_admission.py @PavelMakarchuk @MaxGhenis
 /tests/test_multi_unit_promotion_cli.py @PavelMakarchuk @MaxGhenis
 /tests/test_multi_unit_promotion_isolation.py @PavelMakarchuk @MaxGhenis
+/tests/test_multi_unit_promotion_two_pass.py @PavelMakarchuk @MaxGhenis
 /tests/test_multi_unit_promotion_workflow.py @PavelMakarchuk @MaxGhenis
 /tests/test_content_merge_guard_infrastructure.py @PavelMakarchuk @MaxGhenis
 /data/reviewed-rulespec-refs/ @PavelMakarchuk @MaxGhenis
