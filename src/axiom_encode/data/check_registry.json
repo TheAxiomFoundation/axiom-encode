@@ -758,6 +758,18 @@
       "why": "The step publishes verified changes. The encode itself finished; a failure here means no pull request or no signed artifact for this run."
     },
     {
+      "category": "infra:refuse-a-reviewed-candidate-without-a-source-pin",
+      "cause": "infra",
+      "fix": "Run `axiom-encode bind-source-verification` on the candidate branch, push the one-line change and dispatch the new head. If the candidate could not be read, check `rulespec_ref` and `replace_rulespec_path` and dispatch again.",
+      "gate": "workflow",
+      "id": "infra:refuse-a-reviewed-candidate-without-a-source-pin",
+      "requires": "For a reviewed-candidate promotion, the candidate primary at the exact `rulespec_ref` names the promotion citation in `module.source_verification.corpus_citation_path` and carries a 64-character `source_sha256`, in the plain block form.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Refuse a reviewed candidate without a source pin",
+      "title": "The reviewed candidate has no source pin",
+      "why": "A promotion signs the candidate bytes as they are. A primary without the pin would be refused by the protected binding check, after the signing approval."
+    },
+    {
       "category": "infra:refuse-an-encoder-head-that-no-version-bump-covers",
       "cause": "infra",
       "fix": "Wait for the automatic encoder version bump to merge, then dispatch again from the new main head.",
@@ -1166,6 +1178,18 @@
       "why": "A proof repair must not silently weaken the reviewed calculation coverage."
     },
     {
+      "category": "source-binding",
+      "cause": "encoder_output",
+      "fix": "Write `module.source_verification` as a plain block mapping with the one line `corpus_citation_path: <the requested citation path>`. Leave `source_sha256` out: the encoder writes it. Do not use flow style, anchors, tags, merge keys, quoted keys or a multi-line value there, and no `---` line. For an existing candidate run `axiom-encode bind-source-verification`.",
+      "gate": "ci",
+      "id": "source-binding/unbound",
+      "requires": "`module.source_verification` is a plain block mapping whose `corpus_citation_path` and `source_sha256` are the resolver's attested values, or a module the encoder can bind by inserting those two lines.",
+      "severity": "important",
+      "site": "axiom_encode/harness/evals.py:_bind_generated_source_verification",
+      "title": "Generated RuleSpec is not bound to its resolver-attested source",
+      "why": "A candidate is promoted and signed as the bytes it is. Without the attested source pin the protected binding check refuses it, after the signing approval, and a pin that names another source would bind the rule to text it was not encoded from."
+    },
+    {
       "category": "tests:scoped-execution",
       "cause": "encoder_output",
       "fix": "Correct the companion's factual cases and matching positive/refusal pairs, then rerun the whole module with the authenticated source and pinned engine. Keep failed records instead of borrowing older results.",
@@ -1238,6 +1262,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "1d57bc5ecbcd404eb6830c9a4667865d550ce39370e80eafb073bff02ea445e5",
+  "registry_sha256": "2f6c646e0abf092981fb27fda02bc486adea2620f66f86c35404b35287c91f6a",
   "schema": "axiom-encode/check-registry/v1"
 }
