@@ -765,6 +765,7 @@ Source-scope protocol:
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
 - Benefit, allotment, credit, deduction, allowance, and subsidy formulas must never emit negative money. When subtracting an income, contribution, or other reduction from a maximum amount, floor the result with `max(0, ...)` before applying downstream minimum-benefit or issuance branches. When a nonnegative credit, deduction, allowance, subsidy, or benefit is a percentage of `min(income, cap)` or similar, floor the income base at zero: use `rate * min(max(0, earned_income), cap)`, not `rate * min(earned_income, cap)`.
 - Outputs named `taxable_income` or ending in `_taxable_income` must also never be negative. Wrap the final selected branch at zero, including both sides of conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`, not `if condition: branch_a else: branch_b`.
+- A single source-stated amount or a bare input that a rule returns as its result (not a difference, not an operand of the floor rules above, and not the cap clamp or excess forms below) gets no zero floor of its own: do not wrap it in `max(0, ...)` unless the source states a floor for it ("not less than zero", "but not below zero", "cannot be negative") or the existing encoding of the same rule already has one. If the rule returns that amount, return it without a floor, e.g. `if amount_qualifies: stated_amount else: 0`, not `if amount_qualifies: max(0, stated_amount) else: 0`. This bullet does not change any rule about a difference, a subtraction, an income base, taxable income, an excess, or a cap: those keep the forms required above and below.
 - Taxpayer elections such as electing to itemize deductions are legitimate
   election-state inputs to the legal computation. Do not mark a taxable-income
   rule unsupported merely because the taxpayer could optimize that election
@@ -848,6 +849,19 @@ Source-scope protocol:
   `min(source_amount, cap)`. The excluded excess is
   `max(0, source_amount - cap)`, but do not return `source_amount - cap` or
   `source_amount - remaining_cap` as the included amount.
+- When a source limit ("up to", "no more than", "a maximum of", "cannot
+  exceed") applies to an amount and the same provision also has a comparison
+  condition (a gate such as a distance, age, date, or count test), encode the
+  capped amount in its own `kind: derived` rule whose formula is only the
+  clamp, e.g. `min(max(0, amount), cap)`, with no comparison, and reference
+  that rule from the gated principal formula, e.g.
+  `if gate_measure > gate_threshold: capped_amount else: 0`. Do not put a
+  comparison gate and the cap `min(...)` in one formula. If the capped amount
+  is itself computed (a sum, a rate), compute it in its own derived rule first
+  so the clamp is applied to one name. Use one clamp rule per source cap
+  value, with that cap parameter as the direct second argument of `min`, and
+  select between the clamp rules in the principal formula. Each clamp rule
+  carries its own proof atom quoting the cap sentence.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.
@@ -1284,6 +1298,7 @@ Test file rules:
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
 - Never assign an imported module's computed `#rule_name` output in `input:`. If this file imports that rule, the compiled program computes it. To make an imported output true, false, or equal a value, mirror the imported file's companion test pattern by setting its underlying `#input.<fact>` and `#relation.<name>` keys.
 - When a test is meant to exercise a threshold, cap, or boundary on an imported derived output, do not assume one upstream raw input equals that imported output. First compute the imported formula from the upstream inputs you set; if the upstream formula has deductions, rates, or offsets that make the exact boundary awkward, choose clearly below/above-boundary inputs instead of an exact boundary case.
+- When a cap is encoded in its own derived rule because the provision also has a comparison gate, assert that cap rule's output, and the output of any derived rule that computes the capped amount, in every companion case that sets the capped amount, not only in the at-limit case. Include a case with the amount exactly at the limit, and keep below-limit and above-limit cases, plus a negative-amount case when the clamp floors at zero.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not `<jurisdiction>:<repo-path>#input.imported_judgment`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
 - A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `<jurisdiction>:<repo-path>#relation.member_of_household: [- true]`. Good: `<jurisdiction>:<repo-path>#relation.member_of_household:` followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.

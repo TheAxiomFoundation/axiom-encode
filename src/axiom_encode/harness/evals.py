@@ -34,6 +34,8 @@ from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
 from axiom_encode.checks import (
     ValidationIssue,
+    advisory_issue_records,
+    advisory_review_context,
     issue_fix_feedback,
     typed_issue_document,
 )
@@ -72,6 +74,7 @@ from axiom_encode.encode_timing import (
     timed_phase,
 )
 from axiom_encode.harness.same_case_execution import (
+    ExecutionGitOrigin,
     bind_execution_overlay_origin,
     capture_execution_git_origin,
 )
@@ -198,6 +201,7 @@ from .source_completeness import (
     _rulespec_target_base,
     collect_artifact_numeric_values,
     mask_armenian_amendment_history,
+    mask_example_cross_references,
 )
 from .start_date_evidence import (
     is_manual_citation,
@@ -1007,6 +1011,11 @@ class EvalArtifactMetrics:
     manual_outcome_exception_advice: list[dict[str, object]] = field(
         default_factory=list
     )
+    # ``validation-issue/v2`` records of CI findings whose check is declared
+    # ``enforcement="advisory"``. Each has ``"enforcement": "advisory"`` and
+    # the whole message. They never decide ``ci_pass`` and are never in
+    # ``ci_issues``; the reviewer sees them as warnings to examine.
+    advisory_issues: list[dict[str, object]] = field(default_factory=list)
 
 
 _VALIDATION_ISSUE_CLASSIFIERS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -1434,6 +1443,8 @@ class EvalResult:
             data["metrics"] = asdict(self.metrics)
             if not self.metrics.manual_outcome_exception_advice:
                 data["metrics"].pop("manual_outcome_exception_advice", None)
+            if not self.metrics.advisory_issues:
+                data["metrics"].pop("advisory_issues", None)
         return _bind_eval_result_payload(data)
 
 
@@ -6496,6 +6507,7 @@ def _eval_result_from_payload(
             manual_outcome_exception_advice=list(
                 metrics_payload.get("manual_outcome_exception_advice") or []
             ),
+            advisory_issues=list(metrics_payload.get("advisory_issues") or []),
             embedded_source_present=bool(
                 metrics_payload.get("embedded_source_present", False)
             ),
@@ -8839,6 +8851,116 @@ def _build_existing_target_oracle_contract_for_file(
     )
 
 
+def _eval_existing_target_oracle_contract(
+    rulespec_file: Path,
+    policy_repo_root: Path,
+) -> ExistingTargetOracleContract | None:
+    """Bind the existing canonical target's oracle contract, when one exists."""
+
+    relative_target = _relative_rulespec_source_path(rulespec_file)
+    if relative_target is None:
+        return None
+    existing_target = Path(policy_repo_root).resolve() / relative_target
+    if not existing_target.is_file() or existing_target.is_symlink():
+        return None
+    target = (
+        f"{Path(policy_repo_root).name}:{relative_target.with_suffix('').as_posix()}"
+    )
+    return _build_existing_target_oracle_contract_for_file(
+        existing_target,
+        target=target,
+    )
+
+
+def _eval_execution_git_origin(
+    *,
+    policy_repo_root: Path,
+    require_complete_source_unit: bool,
+    rulespec_dependency_roots: Sequence[Path],
+    legacy_replacement: LegacyReplacementContract | None,
+    replacement_overlay_scope: bool,
+) -> ExecutionGitOrigin | None:
+    """Capture the checkout's Git identity before validation stages a copy."""
+
+    if (
+        require_complete_source_unit
+        and legacy_replacement is None
+        and not replacement_overlay_scope
+        and not rulespec_dependency_roots
+    ):
+        return capture_execution_git_origin(Path(policy_repo_root))
+    return None
+
+
+def _eval_validator_pipeline(
+    *,
+    validation_file: Path,
+    policy_repo_root: Path,
+    axiom_rules_path: Path,
+    axiom_compose_path: Path | None,
+    oracle: EvalOracleMode,
+    policyengine_runtime: PolicyEngineRuntime | None,
+    policyengine_rule_hint: str | None,
+    source_text: str,
+    source_metadata: dict[str, object] | None,
+    local_corpus_release: _corpus_resolver.LocalCorpusRelease,
+    source_citation_path: str | None,
+    rulespec_dependency_roots: Sequence[Path],
+    require_complete_source_unit: bool,
+    amendment_documents: Sequence[CorpusAmendmentDocument],
+    existing_target_oracle_contract: ExistingTargetOracleContract | None,
+    execution_git_origin: ExecutionGitOrigin | None = None,
+    legacy_replacement: LegacyReplacementContract | None = None,
+    replacement_overlay_scope: bool = False,
+    axiom_rules_engine_ref: str | None = None,
+) -> ValidatorPipeline:
+    """Build the one validation pipeline used to evaluate and to repair."""
+
+    validation_policy_repo_root = _validation_policy_repo_root(
+        validation_file, policy_repo_root
+    )
+    validation_dependency_roots = _validation_rulespec_dependency_roots(
+        validation_file=validation_file,
+        policy_repo_root=policy_repo_root,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+    )
+    return ValidatorPipeline(
+        policy_repo_path=validation_policy_repo_root,
+        execution_overlay_origin=(
+            bind_execution_overlay_origin(
+                execution_git_origin, validation_policy_repo_root
+            )
+            if legacy_replacement is None
+            and not replacement_overlay_scope
+            and not validation_dependency_roots
+            else None
+        ),
+        axiom_rules_path=axiom_rules_path,
+        **(
+            {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+            if axiom_rules_engine_ref is not None
+            else {}
+        ),
+        axiom_compose_path=axiom_compose_path,
+        enable_oracles=oracle != "none",
+        policyengine_runtime=policyengine_runtime,
+        policyengine_rule_hint=policyengine_rule_hint,
+        require_policy_proofs=True,
+        source_text=source_text,
+        source_metadata=source_metadata,
+        local_corpus_release=local_corpus_release,
+        source_citation_path=source_citation_path,
+        rulespec_dependency_roots=validation_dependency_roots,
+        validation_staging_root=_RULESPEC_VALIDATION_STAGING_ROOT.get(),
+        require_complete_source_unit=require_complete_source_unit,
+        amendment_documents=amendment_documents,
+        amendment_source_texts={
+            document.citation_path: document.body for document in amendment_documents
+        },
+        existing_target_oracle_contract=existing_target_oracle_contract,
+    )
+
+
 def _evaluate_artifact_in_scope(
     rulespec_file: Path,
     policy_repo_root: Path,
@@ -8861,28 +8983,15 @@ def _evaluate_artifact_in_scope(
     axiom_rules_engine_ref: str | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
-    existing_target_oracle_contract: ExistingTargetOracleContract | None = None
-    relative_target = _relative_rulespec_source_path(rulespec_file)
-    if relative_target is not None:
-        existing_target = Path(policy_repo_root).resolve() / relative_target
-        if existing_target.is_file() and not existing_target.is_symlink():
-            target = (
-                f"{Path(policy_repo_root).name}:"
-                f"{relative_target.with_suffix('').as_posix()}"
-            )
-            existing_target_oracle_contract = (
-                _build_existing_target_oracle_contract_for_file(
-                    existing_target,
-                    target=target,
-                )
-            )
-    execution_git_origin = (
-        capture_execution_git_origin(Path(policy_repo_root))
-        if require_complete_source_unit
-        and legacy_replacement is None
-        and not replacement_overlay_scope
-        and not rulespec_dependency_roots
-        else None
+    existing_target_oracle_contract = _eval_existing_target_oracle_contract(
+        rulespec_file, policy_repo_root
+    )
+    execution_git_origin = _eval_execution_git_origin(
+        policy_repo_root=policy_repo_root,
+        require_complete_source_unit=require_complete_source_unit,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+        legacy_replacement=legacy_replacement,
+        replacement_overlay_scope=replacement_overlay_scope,
     )
     with _rulespec_validation_target(
         rulespec_file,
@@ -8891,50 +9000,26 @@ def _evaluate_artifact_in_scope(
         legacy_replacement=legacy_replacement,
         replacement_overlay_scope=replacement_overlay_scope,
     ) as validation_file:
-        validation_policy_repo_root = _validation_policy_repo_root(
-            validation_file, policy_repo_root
-        )
-        validation_staging_root = _RULESPEC_VALIDATION_STAGING_ROOT.get()
-        validation_dependency_roots = _validation_rulespec_dependency_roots(
+        pipeline = _eval_validator_pipeline(
             validation_file=validation_file,
             policy_repo_root=policy_repo_root,
-            rulespec_dependency_roots=rulespec_dependency_roots,
-        )
-        pipeline = ValidatorPipeline(
-            policy_repo_path=validation_policy_repo_root,
-            execution_overlay_origin=(
-                bind_execution_overlay_origin(
-                    execution_git_origin, validation_policy_repo_root
-                )
-                if legacy_replacement is None
-                and not replacement_overlay_scope
-                and not validation_dependency_roots
-                else None
-            ),
             axiom_rules_path=axiom_rules_path,
-            **(
-                {"axiom_rules_engine_ref": axiom_rules_engine_ref}
-                if axiom_rules_engine_ref is not None
-                else {}
-            ),
+            axiom_rules_engine_ref=axiom_rules_engine_ref,
             axiom_compose_path=axiom_compose_path,
-            enable_oracles=oracle != "none",
+            oracle=oracle,
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
-            require_policy_proofs=True,
             source_text=source_text,
             source_metadata=source_metadata,
             local_corpus_release=local_corpus_release,
             source_citation_path=source_citation_path,
-            rulespec_dependency_roots=validation_dependency_roots,
-            validation_staging_root=validation_staging_root,
+            rulespec_dependency_roots=rulespec_dependency_roots,
             require_complete_source_unit=require_complete_source_unit,
             amendment_documents=amendment_documents,
-            amendment_source_texts={
-                document.citation_path: document.body
-                for document in amendment_documents
-            },
             existing_target_oracle_contract=existing_target_oracle_contract,
+            execution_git_origin=execution_git_origin,
+            legacy_replacement=legacy_replacement,
+            replacement_overlay_scope=replacement_overlay_scope,
         )
         report_phase(PHASE_VALIDATE)
         compile_result = pipeline._run_compile_check(validation_file)
@@ -8993,6 +9078,18 @@ def _evaluate_artifact_in_scope(
                 "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
                 "is an acceptable representation."
             )
+        # Findings of advisory checks do not refuse the candidate; the
+        # reviewer gets them as warnings to examine. With none, the review
+        # context is unchanged.
+        ci_advisory_records = advisory_issue_records(
+            getattr(ci_result, "advisory_issues", None) or ()
+        )
+        # The generalist review context above holds the source excerpt.
+        advisory_context = advisory_review_context(
+            ci_advisory_records, source_in_prompt=True
+        )
+        if advisory_context:
+            review_context += "\n\n" + advisory_context
         # The encode retry loop feeds only compile/CI findings back to the
         # model and never gates apply on the reviewer, so in that lane a
         # reviewer call on an already-rejected candidate is pure latency.
@@ -9044,13 +9141,15 @@ def _evaluate_artifact_in_scope(
     # but generated literals are grounded only in authoritative source text and
     # separately parsed proof evidence below — never in module.summary.
     numeric_validation_source_text = embedded_source or numeric_source_text or ""
-    numeric_recall_source_text = mask_armenian_amendment_history(
-        (
-            evaluation_source_text
-            if require_complete_source_unit
-            else numeric_validation_source_text
+    numeric_recall_source_text = mask_example_cross_references(
+        mask_armenian_amendment_history(
+            (
+                evaluation_source_text
+                if require_complete_source_unit
+                else numeric_validation_source_text
+            )
+            or ""
         )
-        or ""
     )
     # Complete-source recall deliberately inventories the whole authoritative
     # unit.  Generated-number grounding remains scoped exactly as it is in the
@@ -9248,6 +9347,7 @@ def _evaluate_artifact_in_scope(
         manual_outcome_exception_advice=list(
             ci_result.details.get("manual_outcome_exception_advice") or []
         ),
+        advisory_issues=ci_advisory_records,
         embedded_source_present=bool(embedded_source),
         grounded_numeric_count=sum(1 for item in grounding_metrics if item.grounded),
         ungrounded_numeric_count=sum(
@@ -9739,6 +9839,101 @@ def _imported_named_scalar_occurrences(
     return occurrences
 
 
+_STRICT_IMPORT_SYMBOL_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_STRICT_IMPORT_PATH_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9_.~-]+")
+_STRICT_IMPORT_REFUSED_FILENAME_SUFFIXES = (".yaml", ".yml", ".test")
+_YAML_STRING_TAG = "tag:yaml.org,2002:str"
+
+
+def _strict_top_level_import_strings(content: str) -> list[str]:
+    """Return the import strings written in place in the top-level mapping.
+
+    The rules engine does not apply YAML merge keys, so a loaded payload can
+    show an ``imports`` list that the engine never sees. This reader works on
+    the event and node level and credits nothing for the whole file unless the
+    file is one document with no alias and no explicit tag, whose top-level
+    mapping has no merge key and exactly one ``imports`` key, valued by a
+    sequence of string scalars.
+    """
+
+    try:
+        events = list(yaml.parse(content, Loader=yaml.SafeLoader))
+        documents = list(yaml.compose_all(content, Loader=yaml.SafeLoader))
+    except (yaml.YAMLError, TypeError, ValueError):
+        return []
+    for event in events:
+        if isinstance(event, yaml.AliasEvent):
+            return []
+        if isinstance(event, yaml.NodeEvent) and event.tag is not None:
+            return []
+    if len(documents) != 1 or not isinstance(documents[0], yaml.MappingNode):
+        return []
+    import_values: list[yaml.Node] = []
+    for key_node, value_node in documents[0].value:
+        # A non-scalar key has a list value, so neither comparison matches it.
+        if key_node.value == "<<":
+            return []
+        if key_node.value == "imports":
+            import_values.append(value_node)
+    if len(import_values) != 1 or not isinstance(import_values[0], yaml.SequenceNode):
+        return []
+    items: list[str] = []
+    for item_node in import_values[0].value:
+        if (
+            not isinstance(item_node, yaml.ScalarNode)
+            or item_node.tag != _YAML_STRING_TAG
+        ):
+            return []
+        items.append(item_node.value)
+    return items
+
+
+def _strict_import_target_is_engine_loadable(import_target: str) -> bool:
+    """Mirror the rules engine's exact absolute module-target rule."""
+
+    prefix, separator, relative = import_target.partition(":")
+    if not separator or ":" in relative:
+        return False
+    if re.fullmatch(r"[a-z]{2}(?:-[a-z0-9]+)*", prefix) is None:
+        return False
+    segments = relative.split("/")
+    if len(segments) < 2 or segments[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
+        return False
+    for segment in segments:
+        if segment in {".", ".."}:
+            return False
+        if _STRICT_IMPORT_PATH_SEGMENT_PATTERN.fullmatch(segment) is None:
+            return False
+    return not segments[-1].lower().endswith(_STRICT_IMPORT_REFUSED_FILENAME_SUFFIXES)
+
+
+def _strict_symbol_import_items(content: str) -> list[tuple[str, str]]:
+    """Return exact `(target, symbol)` pairs the rules engine would load.
+
+    An item counts only when it is exactly one whitespace-free, prefixed
+    `target#symbol` reference whose target the engine accepts.
+    """
+
+    items: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for raw_item in _strict_top_level_import_strings(content):
+        if raw_item.count("#") != 1 or any(char.isspace() for char in raw_item):
+            continue
+        import_target, imported_symbol = raw_item.split("#", 1)
+        if not _STRICT_IMPORT_SYMBOL_PATTERN.fullmatch(imported_symbol):
+            continue
+        if not _strict_import_target_is_engine_loadable(import_target):
+            continue
+        target_ref = _parse_rulespec_target(raw_item)
+        if target_ref is None or target_ref.symbol != imported_symbol:
+            continue
+        if (import_target, imported_symbol) in seen:
+            continue
+        seen.add((import_target, imported_symbol))
+        items.append((import_target, imported_symbol))
+    return items
+
+
 def _strict_imported_named_scalar_occurrences(
     content: str,
     policy_repo_root: Path,
@@ -9746,11 +9941,13 @@ def _strict_imported_named_scalar_occurrences(
     """Count only direct scalar definitions for explicitly imported symbols."""
 
     occurrences: Counter[float] = Counter()
-    for import_target in _extract_import_targets(content):
-        if "#" not in import_target:
+    for import_target, imported_symbol in _strict_symbol_import_items(content):
+        try:
+            paths = _candidate_import_rule_files(import_target, policy_repo_root)
+        except UnsafeRulespecContextPath:
+            # An unsafe target earns no credit; the source number stays missing.
             continue
-        imported_symbol = import_target.rsplit("#", 1)[1]
-        for path in _candidate_import_rule_files(import_target, policy_repo_root):
+        for path in paths:
             with contextlib.suppress(OSError):
                 imported_content = path.read_text()
                 occurrences.update(
@@ -11686,6 +11883,10 @@ def _format_validation_retry_feedback(
   affected principal output. If the occurrence is a threshold, add its
   contrasting side as a same-period case with otherwise identical inputs.
   Merely placing the number in an unrelated input or test name is not credited.
+  The issue's `Boundary details` quote the source text of each boundary and
+  name its covering principal output(s) and the numeric input(s) their
+  formulas compare with it. A boundary with no covering principal output needs
+  a principal derived rule for that source comparison before any test.
 """
     completeness_repair_guidance = ""
     if completeness_repair and any(
@@ -12365,6 +12566,7 @@ Test file rules:
 - Use factual predicates or quantities in `input:`, not the output variable being asserted.
 - Never assign an imported module's computed `#rule_name` output in `input:`. If this file imports that rule, the compiled program computes it. To make an imported output true, false, or equal a value, mirror the imported file's companion test pattern by setting its underlying `#input.<fact>` and `#relation.<name>` keys.
 - When a test is meant to exercise a threshold, cap, or boundary on an imported derived output, do not assume one upstream raw input equals that imported output. First compute the imported formula from the upstream inputs you set; if the upstream formula has deductions, rates, or offsets that make the exact boundary awkward, choose clearly below/above-boundary inputs instead of an exact boundary case.
+- When a cap is encoded in its own derived rule because the provision also has a comparison gate, assert that cap rule's output, and the output of any derived rule that computes the capped amount, in every companion case that sets the capped amount, not only in the at-limit case. Include a case with the amount exactly at the limit, and keep below-limit and above-limit cases, plus a negative-amount case when the clamp floors at zero.
 - Never turn an imported derived rule into a fabricated `#input.<same_rule_name>` key. For example, use `<jurisdiction>:<repo-path>#imported_judgment: holds` or `not_holds`, not `<jurisdiction>:<repo-path>#input.imported_judgment`.
 - Do not invent `#input` keys for imported files. Use only the bare fact names that the imported file's formulas actually reference, or mirror the imported file's companion `.test.yaml` input pattern when it is supplied in context. If that imported output is driven by an upstream structural relation, set the upstream `#relation.<name>` rows used by the companion test instead of creating a local input under the imported file.
 - A `#relation.<name>` input value must be a YAML list of row mappings. Never use a scalar row such as `- true`. Bad: `<jurisdiction>:<repo-path>#relation.member_of_household: [- true]`. Good: `<jurisdiction>:<repo-path>#relation.member_of_household:` followed by `- <jurisdiction>:<repo-path>#input.member_has_required_status: true`.
@@ -13264,6 +13466,7 @@ RuleSpec requirements:
 - Supported scalar functions are `min(...)`, `max(...)`, `floor(x)`, and `ceil(x)`. Do not use Python-only functions such as `round(...)`; express nearest-multiple rounding as `floor((x / multiple) + 0.5) * multiple` for nonnegative amounts.
 - Benefit, allotment, credit, deduction, allowance, and subsidy formulas must never emit negative money. When subtracting an income, contribution, or other reduction from a maximum amount, floor the result with `max(0, ...)` before applying downstream minimum-benefit or issuance branches. When a nonnegative credit, deduction, allowance, subsidy, or benefit is a percentage of `min(income, cap)` or similar, floor the income base at zero: use `rate * min(max(0, earned_income), cap)`, not `rate * min(earned_income, cap)`.
 - Outputs named `taxable_income` or ending in `_taxable_income` must also never be negative. Wrap the final selected branch at zero, including both sides of conditionals: use `if condition: max(0, branch_a) else: max(0, branch_b)`, not `if condition: branch_a else: branch_b`.
+- A single source-stated amount or a bare input that a rule returns as its result (not a difference, not an operand of the floor rules above, and not the cap clamp or excess forms below) gets no zero floor of its own: do not wrap it in `max(0, ...)` unless the source states a floor for it ("not less than zero", "but not below zero", "cannot be negative") or the existing encoding of the same rule already has one. If the rule returns that amount, return it without a floor, e.g. `if amount_qualifies: stated_amount else: 0`, not `if amount_qualifies: max(0, stated_amount) else: 0`. This bullet does not change any rule about a difference, a subtraction, an income base, taxable income, an excess, or a cap: those keep the forms required above and below.
 - Taxpayer elections such as electing to itemize deductions are legitimate
   election-state inputs to the legal computation. Do not mark a taxable-income
   rule unsupported merely because the taxpayer could optimize that election
@@ -13347,6 +13550,19 @@ RuleSpec requirements:
   `min(source_amount, cap)`. The excluded excess is
   `max(0, source_amount - cap)`, but do not return `source_amount - cap` or
   `source_amount - remaining_cap` as the included amount.
+- When a source limit ("up to", "no more than", "a maximum of", "cannot
+  exceed") applies to an amount and the same provision also has a comparison
+  condition (a gate such as a distance, age, date, or count test), encode the
+  capped amount in its own `kind: derived` rule whose formula is only the
+  clamp, e.g. `min(max(0, amount), cap)`, with no comparison, and reference
+  that rule from the gated principal formula, e.g.
+  `if gate_measure > gate_threshold: capped_amount else: 0`. Do not put a
+  comparison gate and the cap `min(...)` in one formula. If the capped amount
+  is itself computed (a sum, a rate), compute it in its own derived rule first
+  so the clamp is applied to one name. Use one clamp rule per source cap
+  value, with that cap parameter as the direct second argument of `min`, and
+  select between the clamp rules in the principal formula. Each clamp rule
+  carries its own proof atom quoting the cap sentence.
 - Formula strings must use bare identifiers only. If an imported rule is listed
   as `us:statutes/...#example_rule`, add that exact target to `imports:` but
   reference `example_rule` inside formula text.

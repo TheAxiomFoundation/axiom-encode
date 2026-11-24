@@ -1,3 +1,30 @@
+## 0.2.2390
+
+- Make the gates-collapsed check advisory: record it and show it to the reviewer, do not refuse (#2300) (#2312)
+
+## 0.2.2389
+
+- Validate complete T1170 source obligations against execution evidence (#2110)
+
+## 0.2.2388
+
+- Report each companion-test gap once with source detail; require executed clamps (#1901)
+
+## 0.2.2387
+
+- Keep "both to and from" as one fact in the gates-collapsed check (#2293)
+- Guide the encoder not to add a zero floor the source does not state (#2299)
+
+## 0.2.2386
+
+- Keep See Example reference ordinals out of numeric recall (#2291)
+- Credit exact imported scalars in the complete-mode numeric-occurrence check (#2290)
+- Guide the encoder to put a gated cap in its own derived rule (#2284)
+
+## 0.2.2385
+
+- Let a sole table row witness a direct nonnegative clamp (#2288)
+
 ## 0.2.2384
 
 - Evidence floor for the start date of a date-silent unit (#2227)

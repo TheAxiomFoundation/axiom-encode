@@ -134,7 +134,7 @@ def test_enabled_exact_signed_v6_manifest_is_admitted(enabled, promotion):
     assert issues == []
     assert verified == payload
     assert v6.owner_review_state(verified) == "none"
-    assert v6.owner_review_state(v5) == "before-signing"
+    assert v6.owner_review_state(v5) == "not-recorded"
 
 
 def test_enabled_unsigned_v6_manifest_is_refused(enabled, promotion):

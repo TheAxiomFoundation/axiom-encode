@@ -50,7 +50,11 @@ activate a lane, accept the promotion order or choose a key-protection mechanism
   - Complete tree delta: `_leaf_entries` and `_require_immutable_delta`.
   - Effective reviews: `_approved_reviews`. It requires an approval on the exact
     head, excludes the PR author by id and the dispatcher by login, and refuses
-    on a `CHANGES_REQUESTED` from any account.
+    on a `CHANGES_REQUESTED` from any account. Since #2301 this approval is
+    required only while `OWNER_APPROVAL_REQUIRED` is `True`. It is `False`:
+    admission rests on an enrolled owner's dispatch, and only the
+    `CHANGES_REQUESTED` refusal still applies
+    (`docs/reviewed-pr-promotion.md`, "Admission basis").
 - **The encoder checks approvals at three points**: twice in
   `cmd_promote_reviewed_candidate` (`revalidate_admission` before validation and
   before signing), and in `scripts/prepare_reviewed_pr_promotion.py
@@ -874,11 +878,17 @@ validation-execution, source and waiver checks of the v5 promotion contract.
 Change 5 must wait for the required check before it enables the writer
 and admission without approval. With the reader on, `validate / validate` treats an
 exact signed v6 manifest like a reviewed v5 one: it proves validation and
-nothing about review. `owner_review_state` (`none` for v6, `before-signing`
+nothing about review. `owner_review_state` (`none` for v6, `not-recorded`
 for the earlier lane) exists for callers to tell the two apart (D1), and it
-has no production caller yet. The proposed D2 control uses the guard for owner approval; the v6 reader
-checks validation. The current source keeps the reader off and admission
-checks the approval before signing.
+has no production caller yet. Since #2301 the earlier lane admits on an
+enrolled owner's dispatch with no approval
+(`docs/reviewed-pr-promotion.md`, "Admission basis"), so a v5 promotion
+manifest no longer implies a review before signing, and with
+`OWNER_APPROVAL_REQUIRED` at `False` admission checks no approval before
+signing. The proposed D2 control uses the guard for owner approval; the v6 reader
+checks validation. The current source keeps the reader off. This was chosen over wiring a refusal into
+`validate` now: activation would have to remove it again, and the guard, not
+`validate`, is the control proposed in D2.
 
 The readers in the last row of the table do not read v6 yet: they treat a v6
 manifest as absent or foreign. They matter only after a v6 module lands on

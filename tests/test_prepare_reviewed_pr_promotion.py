@@ -217,3 +217,38 @@ def test_publication_rechecks_provisioned_not_dispatch_evidence(
     )
     script.main()
     assert calls == [evidence]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"admission_basis": "owner_waiver"},
+        {"admission_basis": None},
+        {"admission_basis": "owner_dispatch", "approvals": []},
+    ],
+    ids=["unknown", "null", "empty-approvals-as-dispatch"],
+)
+def test_publication_reader_refuses_an_unknown_admission_basis(
+    script, monkeypatch, tmp_path, change
+):
+    """The real reader, loaded as the workflow loads it; no GitHub read."""
+
+    def no_network(*_args, **_kwargs):
+        raise AssertionError("a refused admission must not reach GitHub")
+
+    monkeypatch.setattr("urllib.request.build_opener", no_network)
+    evidence = {
+        "schema": admission.SCHEMA,
+        "workflow_commit": "e" * 40,
+        "selector": {},
+        "record": {},
+        **change,
+    }
+    attestation = tmp_path / "runtime-attestation.json"
+    attestation.write_text(json.dumps({"reviewed_pr_admission": evidence}))
+    monkeypatch.setattr(
+        "sys.argv", ["prepare", "verify-publication", "--attestation", str(attestation)]
+    )
+    with pytest.raises(ValueError, match="admission") as refusal:
+        script.main()
+    assert type(refusal.value).__name__ == "AdmissionError"

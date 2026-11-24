@@ -1885,6 +1885,7 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
         "live-path",
         "live-encoder",
         "live-invalid-static",
+        "live-unknown-basis",
     ],
 )
 def test_promote_reviewed_candidate_changes_only_manifest(
@@ -1950,6 +1951,21 @@ def test_promote_reviewed_candidate_changes_only_manifest(
                             "run_id": args.run_id,
                         },
                         "record": record,
+                        **(
+                            {
+                                "schema": (
+                                    "axiom-encode/live-reviewed-pr-admission/v2"
+                                ),
+                                "admission_basis": "owner_waiver",
+                                "dispatcher": {
+                                    "login": "PavelMakarchuk",
+                                    "actor_id": 110687043,
+                                    "triggering_actor_id": 110687043,
+                                },
+                            }
+                            if admission == "live-unknown-basis"
+                            else {}
+                        ),
                     }
                 }
             )
@@ -2011,6 +2027,10 @@ def test_promote_reviewed_candidate_changes_only_manifest(
         "version_commit": "b" * 40,
         "identity_source": "trusted-runtime-attestation",
     }
+    from axiom_encode.reviewed_pr_admission import (
+        revalidate_admission as real_revalidate_admission,
+    )
+
     with (
         patch(
             "axiom_encode.cli._load_trusted_runtime_attestation",
@@ -2075,6 +2095,27 @@ def test_promote_reviewed_candidate_changes_only_manifest(
         ),
     ):
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
+        if admission == "live-unknown-basis":
+            # The real reader, not a mock: the promotion command refuses a
+            # run-scoped admission whose basis it does not know, before any
+            # GitHub read, validation or signature.
+            from axiom_encode.reviewed_pr_admission import AdmissionError
+
+            def no_fetch(path):
+                raise AssertionError("refused before any GitHub read: " + path)
+
+            live_check.side_effect = lambda value: real_revalidate_admission(
+                value, fetch=no_fetch
+            )
+            with pytest.raises(AdmissionError, match="unknown admission basis"):
+                cmd_promote_reviewed_candidate(args)
+            assert live_check.call_count == 1
+            signer_context.assert_not_called()
+            overlay_mock.assert_not_called()
+            assert not (
+                repo / _applied_encoding_manifest_path(Path(args.rulespec_path))
+            ).exists()
+            return
         if admission in {
             "live-run",
             "live-country",
@@ -8161,6 +8202,7 @@ rules:
         args.json = json_output
         args.axiom_rules_path = axiom_rules_path
         args.rulespec_dependency_root = []
+        args.corpus_path = None
         return args
 
     def test_scalar_match_tolerates_decimal_residue(self):
@@ -9113,6 +9155,7 @@ rules:
         args.json = True
         args.axiom_rules_path = engine_root
         args.rulespec_dependency_root = []
+        args.corpus_path = None
 
         monkeypatch.setattr(
             "axiom_encode.harness.validator_pipeline.ValidatorPipeline._axiom_rules_binary",
@@ -16430,6 +16473,22 @@ class TestCmdEncode:
         assert cli_module._best_validation_retry_attempt([older, newer]) is newer
         assert cli_module._validation_residual_obligation_count(older_issues) == 14
         assert cli_module._validation_residual_obligation_count(newer_issues) == 8
+
+    def test_residual_count_ignores_boundary_repair_details(self):
+        import axiom_encode.cli as cli_module
+
+        detailed = (
+            "[complete-source-unit:tests] Companion tests do not exercise every "
+            "source-stated boundary input; missing: (iii)=6, 12. formula clause "
+            "61=500. Boundary details: (iii)=6 at us/x(a); source `less than 6 "
+            "months, from the United States, with no intention`; covering "
+            "principal output(s) `a`, `b`; compared numeric input(s) `c` | "
+            "12. formula clause 61=500 at us/x(12); source `not to exceed $ 500, "
+            "in each year`. For each listed boundary, copy an existing case, set "
+            "the input, and assert the output."
+        )
+
+        assert cli_module._validation_residual_obligation_count((detailed,)) == 2
 
     def test_encode_retry_scans_full_overlay_issue_list_for_actionable_feedback(
         self, tmp_path

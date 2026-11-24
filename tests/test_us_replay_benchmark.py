@@ -43,6 +43,7 @@ from scripts.replay_us_failure_bundles import (
     _read_inside,
     analyzer_module_paths,
     build_report,
+    case_is_control,
     compare_reports,
     discover_bundle_modules,
     extract_fixture,
@@ -52,6 +53,7 @@ from scripts.replay_us_failure_bundles import (
     gate_markdown,
     guard_violations,
     import_symbol_contents,
+    issue_rule,
     load_bundle_cases,
     load_fixture,
     load_split_map,
@@ -89,11 +91,22 @@ BASE_MAX_FIXTURE_BYTES = 5 * 1024 * 1024
 RAW_MERGE_FIXTURE = "local-date-silent-merge-41088317595"
 RAW_MERGE_FIXTURE_ALLOWANCE = 64 * 1024
 # The proof-alias diagnostic measures 38,278 bytes and has its own allowance.
-# Fixtures outside these two named cases share the original 5 MiB budget.
+# The shared fixture budget remains 5 MiB; named cases have separate caps.
 PROOF_ALIAS_FIXTURE = "local-date-proof-alias-41648809989"
 PROOF_ALIAS_FIXTURE_ALLOWANCE = 64 * 1024
+# Keep the T1170 printed-table regression's separate twelve-block allowance.
+PRINTED_TABLE_FIXTURE = "local-t1170-printed-tables-20261115"
+PRINTED_TABLE_FIXTURE_ALLOWANCE = 12 * 64 * 1024
+# The retained Schedule N diagnostic needs its own four-block allowance after
+# main adds its public fixtures; the remaining fixtures keep the 5 MiB cap.
+SCHEDULE_N_FIXTURE = "local-schedule-n-20261113"
+SCHEDULE_N_FIXTURE_ALLOWANCE = 4 * 64 * 1024
 MAX_FIXTURE_BYTES = (
-    BASE_MAX_FIXTURE_BYTES + RAW_MERGE_FIXTURE_ALLOWANCE + PROOF_ALIAS_FIXTURE_ALLOWANCE
+    BASE_MAX_FIXTURE_BYTES
+    + RAW_MERGE_FIXTURE_ALLOWANCE
+    + PROOF_ALIAS_FIXTURE_ALLOWANCE
+    + PRINTED_TABLE_FIXTURE_ALLOWANCE
+    + SCHEDULE_N_FIXTURE_ALLOWANCE
 )
 LABEL_KEYS = ("expected_class", "expected_subclass", "class_evidence", "class_source")
 # Private corpus: never committed (see docs/us-replay-benchmark.md).
@@ -146,6 +159,13 @@ def test_snapshot_totals_match_cases():
 def test_fixture_set_covers_failing_rule_classes_and_controls():
     snapshot = json.loads(SNAPSHOT.read_text())
     replayed = {rule for case in snapshot["cases"].values() for rule in case["rules"]}
+    # A rule class whose findings are advisory (docs/validator-checks.md) is
+    # still replayed; its findings are pinned under `advisory_findings`.
+    replayed |= {
+        issue_rule(finding)
+        for case in snapshot["cases"].values()
+        for finding in case.get("advisory_findings", [])
+    }
     recorded = {
         rule
         for directory in fixture_directories(FIXTURES)
@@ -276,7 +296,74 @@ def test_fixtures_carry_provenance_and_stay_small():
     assert PROOF_ALIAS_FIXTURE_ALLOWANCE == (
         (proof_alias_bytes + 64 * 1024 - 1) // (64 * 1024)
     ) * (64 * 1024)
-    assert total - raw_merge_bytes - proof_alias_bytes <= BASE_MAX_FIXTURE_BYTES
+    printed_table_bytes = sum(
+        path.stat().st_size
+        for path in (FIXTURES / PRINTED_TABLE_FIXTURE).rglob("*")
+        if path.is_file()
+    )
+    assert 0 < printed_table_bytes <= PRINTED_TABLE_FIXTURE_ALLOWANCE
+    schedule_n_bytes = sum(
+        path.stat().st_size
+        for path in (FIXTURES / SCHEDULE_N_FIXTURE).rglob("*")
+        if path.is_file()
+    )
+    assert 0 < schedule_n_bytes <= SCHEDULE_N_FIXTURE_ALLOWANCE
+    assert SCHEDULE_N_FIXTURE_ALLOWANCE == (
+        (schedule_n_bytes + 64 * 1024 - 1) // (64 * 1024)
+    ) * (64 * 1024)
+    assert (
+        total
+        - raw_merge_bytes
+        - proof_alias_bytes
+        - printed_table_bytes
+        - schedule_n_bytes
+        <= BASE_MAX_FIXTURE_BYTES
+    )
+
+
+def test_printed_table_fixture_keeps_its_derived_runtime_input_origin():
+    import yaml
+
+    from axiom_encode.harness.bound_capital_gift_operands import bind_capital_gift
+    from tests.t1170_contract_projection import (
+        REMOVED_RULES,
+        historical,
+        projected_static,
+    )
+    from tests.test_capital_gift_real_engine import _cases
+
+    directory = FIXTURES / PRINTED_TABLE_FIXTURE
+    case = load_fixture(directory)
+    metadata = case.provenance
+    static = projected_static()
+    assert metadata["derivation"]["not_historical_encoder_output"] is True
+    repository = Path(__file__).resolve().parents[1]
+    for origin in metadata["derivation"]["base_inputs"].values():
+        raw = (repository / origin["path"]).read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == origin["sha256"]
+        assert (
+            hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+            == origin["git_blob_sha1"]
+        )
+    assert case.candidate == static["policy_yaml"]
+    assert case.tests == yaml.safe_dump(_cases(True), sort_keys=False)
+    assert len(yaml.safe_load(case.tests)) == 124
+    guide = (directory / "public-source-context/p113.txt").read_text()
+    assert guide == historical("t1170-static.json")["p113_body"]
+    assert (
+        metadata["supplemental_public_sources"]["public-source-context/p113.txt"][
+            "offline_replay_input"
+        ]
+        is False
+    )
+    binding = bind_capital_gift(case.candidate, case.source, guide)
+    assert binding is not None and len(binding.rules) == 64
+    assert REMOVED_RULES.isdisjoint(rule.name for rule in binding.rules)
+    # The capture test executes these same bytes; an offline replay does not
+    # acquire that test's private observations or become an accepted control.
+    assert case_is_control(case) is False
+    report = json.loads((directory / "issues.json").read_text())
+    assert any("t1170-evidence" in issue for issue in report["issues"])
 
 
 def test_public_proof_alias_diagnostic_preserves_its_public_inputs():

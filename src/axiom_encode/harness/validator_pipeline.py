@@ -62,8 +62,12 @@ from axiom_encode.bare_structure import bare_outline, mask_bare_labels
 from axiom_encode.checks import (
     IssueSubject,
     ValidationIssue,
+    advisory_issue_records,
+    advisory_log_line,
+    advisory_review_context,
     declare_check,
     map_issue_text,
+    partition_by_enforcement,
 )
 from axiom_encode.codex_cli import (
     codex_auth_secrets,
@@ -197,6 +201,7 @@ from .same_case_execution import (
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
     _LINE_BREAK_CHARS,
+    CompleteSourceUnitAnalysis,
     _is_us_manual_citation_path,
     _nested_outline_marker_spans,
     _qualified_parenthesized_legal_outline_markers,
@@ -244,6 +249,48 @@ _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS: ContextVar[tuple[Path, ...]] = Context
 
 
 _SITE_COMPILE = "axiom_encode/harness/validator_pipeline.py:_run_rulespec_compile_check"
+CHECK_SCOPED_REFUSAL_CONTEXT = declare_check(
+    "tests:scoped-refusal/context-unbound",
+    title="Expected refusal has no authenticated execution context",
+    requires=(
+        "A scoped expected-refusal case identifies its source-bound principal "
+        "inside the fresh materialized execution context."
+    ),
+    why=(
+        "An expected-error label alone cannot prove that a source restriction "
+        "rejected the intended principal computation."
+    ),
+    fix=(
+        "Use a supported source-bound refusal case with its required factual "
+        "inputs and query, and validate the whole companion against the "
+        "authenticated release and pinned engine. Do not treat arbitrary errors "
+        "as source evidence."
+    ),
+    cause="encoder_output",
+    gate="tests",
+    site="axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+)
+CHECK_SCOPED_EXECUTION_PAIRS = declare_check(
+    "tests:scoped-execution/incomplete",
+    title="Scoped execution records or refusal pairs are incomplete",
+    requires=(
+        "The complete companion produces fresh typed positive records and "
+        "source-coherent positive/refusal pairs in the same execution context."
+    ),
+    why=(
+        "Incomplete, stale, or unrelated records cannot establish that the "
+        "source condition controls the requested principal output."
+    ),
+    fix=(
+        "Correct the companion's factual cases and matching positive/refusal "
+        "pairs, then rerun the whole module with the authenticated source and "
+        "pinned engine. Keep failed records instead of borrowing older results."
+    ),
+    cause="encoder_output",
+    gate="tests",
+    site="axiom_encode/harness/validator_pipeline.py:_run_rulespec_test_cases",
+)
+
 CHECK_RULES_ENGINE_COMPILE_FAILED = declare_check(
     "compile:rules-engine/failed",
     title="Axiom rules engine rejected the RuleSpec",
@@ -20050,7 +20097,7 @@ def repair_formula_let_bindings(content: str) -> tuple[str, list[str]]:
 
 
 _FORMULA_LET_BINDING_PATTERN = re.compile(
-    r"^(?P<indent>\s*)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?!=)(?P<expr>.*)$"
+    r"^(?P<indent>\s*)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=(?![=>])\s*(?P<expr>.*)$"
 )
 
 
@@ -33527,6 +33574,8 @@ def _formula_uses_cross_reference_base_mechanics(
 def find_test_input_assignment_issues(
     content: str,
     test_cases: Any,
+    *,
+    execution_capture: Any = None,
 ) -> list[str]:
     """Require tests to assign every local factual input used by formulas."""
     if not isinstance(test_cases, list):
@@ -33631,8 +33680,31 @@ def find_test_input_assignment_issues(
         if not isinstance(test_case, dict):
             continue
         test_name = str(test_case.get("name") or f"case {index}").strip()
+        selected_output_names = None
+        if "expected_refusal" in test_case:
+            from .scoped_execution import refusal_target
+
+            target = (
+                refusal_target(
+                    execution_capture,
+                    test_case,
+                    index,
+                )
+                if execution_capture is not None
+                else None
+            )
+            if target is None:
+                issues.append(
+                    ValidationIssue(
+                        f"Test case `{test_name}` lacks authenticated refusal context.",
+                        check=CHECK_SCOPED_REFUSAL_CONTEXT,
+                    )
+                )
+                continue
+            selected_output_names = (target,)
         required_inputs = _required_inputs_for_test_outputs(
             test_case.get("output"),
+            selected_output_names=selected_output_names,
             symbol_inputs=symbol_inputs,
             symbol_dependencies=symbol_dependencies,
             symbol_versions=symbol_versions,
@@ -33708,12 +33780,15 @@ def _required_inputs_for_test_outputs(
     symbol_dependencies: dict[str, set[str]],
     symbol_versions: dict[str, tuple[_SymbolInputDependencyVersion, ...] | None],
     period_bounds: tuple[date, date] | None,
+    selected_output_names: tuple[str, ...] | None = None,
 ) -> set[str]:
-    if not isinstance(outputs, dict):
+    if selected_output_names is None and not isinstance(outputs, dict):
         return set().union(*symbol_inputs.values()) if symbol_inputs else set()
 
     required: set[str] = set()
-    for output_name in outputs:
+    for output_name in (
+        outputs if selected_output_names is None else selected_output_names
+    ):
         fragment = _test_reference_fragment(output_name)
         if fragment in symbol_inputs:
             required.update(
@@ -36237,6 +36312,10 @@ class ValidationResult:
     raw_output: Optional[str] = None
     prompt_sha256: Optional[str] = None
     details: dict[str, Any] = field(default_factory=dict)
+    # Findings of checks declared ``enforcement="advisory"`` (see
+    # ``axiom_encode.checks``). They are recorded and shown to the reviewer;
+    # ``passed``, ``issues`` and ``error`` hold blocking findings only.
+    advisory_issues: list[str] = field(default_factory=list)
 
 
 def _normalize_validation_staging_text(
@@ -36966,6 +37045,9 @@ class ValidatorPipeline:
             return text
 
         result.issues = [map_issue_text(issue, normalize) for issue in result.issues]
+        result.advisory_issues = [
+            map_issue_text(issue, normalize) for issue in result.advisory_issues
+        ]
         if result.error is not None:
             result.error = normalize(result.error)
         if result.raw_output is not None:
@@ -37186,8 +37268,46 @@ class ValidatorPipeline:
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
-        if not self.require_complete_source_unit:
+        completeness = self._complete_source_unit_analysis(
+            content,
+            validation_source_texts=validation_source_texts,
+            test_cases=test_cases,
+            rules_file=rules_file,
+            proof_source_texts=proof_source_texts,
+            execution_evidence=execution_evidence,
+            local_relation_context=local_relation_context,
+        )
+        if completeness is None:
             return []
+        # Reported beside the CI result for the admission score; a result that
+        # carries no counts (a stubbed analyzer) records none.
+        recall = {
+            key: getattr(completeness, attribute, None)
+            for key, attribute in (
+                ("total", "source_numeric_occurrence_count"),
+                ("covered", "covered_source_numeric_occurrence_count"),
+                ("missing", "missing_source_numeric_occurrence_count"),
+            )
+        }
+        if all(type(value) is int for value in recall.values()):
+            self._complete_source_unit_recall = recall
+        return list(completeness.issues)
+
+    def _complete_source_unit_analysis(
+        self,
+        content: str,
+        *,
+        validation_source_texts: Mapping[str, str] | None,
+        test_cases: Sequence[object] | None,
+        rules_file: Path | None = None,
+        proof_source_texts: Mapping[str, str | None] | None = None,
+        execution_evidence: SameCaseEvidence | None = None,
+        local_relation_context: object | None = None,
+    ) -> CompleteSourceUnitAnalysis | None:
+        """Run the opt-in completeness analysis, or return None when disabled."""
+
+        if not self.require_complete_source_unit:
+            return None
         source_texts = (
             dict(validation_source_texts)
             if validation_source_texts is not None
@@ -37279,19 +37399,7 @@ class ValidatorPipeline:
                 corpus_citation_path
             ),
         )
-        # Reported beside the CI result for the admission score; a result that
-        # carries no counts (a stubbed analyzer) records none.
-        recall = {
-            key: getattr(completeness, attribute, None)
-            for key, attribute in (
-                ("total", "source_numeric_occurrence_count"),
-                ("covered", "covered_source_numeric_occurrence_count"),
-                ("missing", "missing_source_numeric_occurrence_count"),
-            )
-        }
-        if all(type(value) is int for value in recall.values()):
-            self._complete_source_unit_recall = recall
-        return list(completeness.issues)
+        return completeness
 
     def _complete_source_start_date_evidence(
         self, corpus_citation_path: str
@@ -37636,14 +37744,28 @@ class ValidatorPipeline:
             results["ci"].details["complete_source_unit_recall"] = dict(
                 self._complete_source_unit_recall
             )
+        ci_advisory_records = advisory_issue_records(
+            getattr(results["ci"], "advisory_issues", None) or ()
+        )
         self._log_event(
             "validation_ci_end",
             "CI validation complete",
             {
                 "passed": results["ci"].passed,
                 "issues": results["ci"].issues,
+                **(
+                    {"advisory_issues": ci_advisory_records}
+                    if ci_advisory_records
+                    else {}
+                ),
                 "duration_ms": int((time.time() - ci_start) * 1000),
             },
+        )
+        # Advisory CI findings go to every reviewer as warnings to examine.
+        # With none, the reviewer prompts are byte-identical to before. These
+        # four prompts hold no source text, so the warning says so.
+        advisory_context = (
+            advisory_review_context(ci_advisory_records, source_in_prompt=False) or None
         )
 
         # Tier 2: Oracles (parallel, fast, generates comparison context)
@@ -37727,16 +37849,28 @@ class ValidatorPipeline:
 
             llm_validators = {
                 "rulespec_reviewer": lambda: self._run_reviewer(
-                    "rulespec-reviewer", rulespec_file, oracle_context
+                    "rulespec-reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
                 "formula_reviewer": lambda: self._run_reviewer(
-                    "Formula Reviewer", rulespec_file, oracle_context
+                    "Formula Reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
                 "parameter_reviewer": lambda: self._run_reviewer(
-                    "Parameter Reviewer", rulespec_file, oracle_context
+                    "Parameter Reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
                 "integration_reviewer": lambda: self._run_reviewer(
-                    "Integration Reviewer", rulespec_file, oracle_context
+                    "Integration Reviewer",
+                    rulespec_file,
+                    oracle_context,
+                    review_context=advisory_context,
                 ),
             }
 
@@ -39120,6 +39254,26 @@ class ValidatorPipeline:
         execution_capture: ExecutionCapture | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
+        refusal = "expected_refusal" in case
+        if refusal:
+            from .scoped_execution import refusal_target
+
+            target = (
+                refusal_target(
+                    execution_capture,
+                    case,
+                    case_index,
+                )
+                if execution_capture is not None
+                else None
+            )
+            if target is None or output_names != [target]:
+                return None, [
+                    ValidationIssue(
+                        f"Test case `{case_name}` lacks authenticated refusal context.",
+                        check=CHECK_SCOPED_REFUSAL_CONTEXT,
+                    )
+                ]
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
         query_entity_id = self._rulespec_case_query_entity_id(
             case, query_entity, case_index
@@ -39242,6 +39396,21 @@ class ValidatorPipeline:
                 placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
             )
             return None, [f"Test case `{case_name}` execution failed: {detail}"]
+        if refusal:
+            if execution_capture.stage_refusal(
+                case,
+                request,
+                result.returncode,
+                result.stdout,
+                result.stderr,
+                binary,
+                compiled_path,
+                case_index,
+            ):
+                return None, []
+            return None, [
+                f"Test case `{case_name}` did not satisfy exact scoped refusal."
+            ]
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
             detail = _normalize_validation_staging_text(
@@ -39418,20 +39587,46 @@ class ValidatorPipeline:
                 issues.append(f"Test case `{case_name}` period invalid: {exc}")
                 continue
 
+            refusal = "expected_refusal" in case
             output_map = case.get("output")
-            if "output" not in case:
+            query_outputs = None
+            if refusal:
+                from .scoped_execution import refusal_target
+
+                target = (
+                    refusal_target(
+                        execution_capture,
+                        case,
+                        index,
+                    )
+                    if execution_capture is not None
+                    else None
+                )
+                if target is None:
+                    issues.append(
+                        ValidationIssue(
+                            f"Test case `{case_name}` lacks authenticated refusal context.",
+                            check=CHECK_SCOPED_REFUSAL_CONTEXT,
+                        )
+                    )
+                    continue
+                query_outputs = [target]
+                output_map = {}
+            if not refusal and "output" not in case:
                 issues.append(f"Test case #{index} is missing output.")
                 continue
-            if not isinstance(output_map, dict) or not output_map:
+            if not isinstance(output_map, dict) or (not refusal and not output_map):
                 issues.append(f"Test case `{case_name}` output must be a mapping.")
                 continue
+            if query_outputs is None:
+                query_outputs = list(output_map)
             if self.policyengine_rule_hint and not any(
                 self._rulespec_output_satisfies_policyengine_hint(
                     str(output_name),
                     derived_by_key=derived_by_key,
                     parameter_by_key=parameter_by_key,
                 )
-                for output_name in output_map
+                for output_name in query_outputs
             ):
                 issues.append(
                     f"Test case #{index} output must assert "
@@ -39459,7 +39654,7 @@ class ValidatorPipeline:
             derived_outputs: list[str] = []
             parameter_outputs: list[str] = []
             output_runtime_keys: dict[str, str] = {}
-            for output_name in output_map:
+            for output_name in query_outputs:
                 output_key = str(output_name)
                 runtime_key = output_key
                 if (
@@ -39617,8 +39812,74 @@ class ValidatorPipeline:
                 if mismatch:
                     issues.append(mismatch)
 
+        if execution_capture is not None and any(
+            isinstance(case, dict) and "expected_refusal" in case for case in cases
+        ):
+            from .scoped_execution import observation
+
+            if (
+                not issues
+                and observation(execution_capture.evidence(), rules_file.read_text())
+                is None
+            ):
+                issues.append(
+                    ValidationIssue(
+                        "Incomplete fresh scoped execution/refusal pairs.",
+                        check=CHECK_SCOPED_EXECUTION_PAIRS,
+                    )
+                )
         if issues and execution_capture is not None:
             execution_capture.records.clear()
+            from .scoped_execution import clear_private
+
+            clear_private(execution_capture)
+        return issues
+
+    def _companion_test_payload_issues(
+        self,
+        content: str,
+        payload: list[Any],
+        *,
+        rules_file: Path,
+        strict_layout_checks: bool,
+        compiled_payload: dict[str, Any] | None = None,
+        execution_capture: ExecutionCapture | None = None,
+    ) -> list[str]:
+        """Static companion-case checks that gate executing the test file."""
+
+        issues: list[str] = []
+        if strict_layout_checks:
+            issues.extend(
+                find_missing_derived_companion_output_issues(
+                    content,
+                    payload,
+                    rules_file=rules_file,
+                    policy_repo_path=self.policy_repo_path,
+                )
+            )
+            issues.extend(
+                find_judgment_positive_companion_output_issues(
+                    content,
+                    payload,
+                    rules_file=rules_file,
+                    policy_repo_path=self.policy_repo_path,
+                )
+            )
+        # Static unions include facts on unselected branches. For recognized
+        # strict-read IR, ordinary execution is authoritative about reached
+        # missing facts. Unknown/default-bearing compiled programs (or no
+        # compiled program) retain the conservative check.
+        if compiled_payload is None or not compiled_program_has_strict_input_reads(
+            compiled_payload
+        ):
+            issues.extend(
+                find_test_input_assignment_issues(
+                    content, payload, execution_capture=execution_capture
+                )
+            )
+        issues.extend(find_tax_filing_status_test_input_issues(payload))
+        issues.extend(find_exception_test_coverage_issues(content, payload))
+        issues.extend(find_zero_branch_test_coverage_issues(content, payload))
         return issues
 
     def _rulespec_companion_input_entities(
@@ -39998,35 +40259,15 @@ class ValidatorPipeline:
                     complete_source_unit_test_cases = payload
                 if isinstance(payload, list) and compiled_payload and compiled_path:
                     pre_test_issue_count = len(issues)
-                    if strict_layout_checks:
-                        issues.extend(
-                            find_missing_derived_companion_output_issues(
-                                content,
-                                payload,
-                                rules_file=rules_file,
-                                policy_repo_path=self.policy_repo_path,
-                            )
-                        )
-                        issues.extend(
-                            find_judgment_positive_companion_output_issues(
-                                content,
-                                payload,
-                                rules_file=rules_file,
-                                policy_repo_path=self.policy_repo_path,
-                            )
-                        )
-                    # Static unions include facts on unselected branches. For
-                    # recognized strict-read IR, ordinary execution below is
-                    # authoritative about reached missing facts. Unknown/default-
-                    # bearing compiled programs retain the conservative check.
-                    if not compiled_program_has_strict_input_reads(compiled_payload):
-                        issues.extend(
-                            find_test_input_assignment_issues(content, payload)
-                        )
-                    issues.extend(find_tax_filing_status_test_input_issues(payload))
-                    issues.extend(find_exception_test_coverage_issues(content, payload))
                     issues.extend(
-                        find_zero_branch_test_coverage_issues(content, payload)
+                        self._companion_test_payload_issues(
+                            content,
+                            payload,
+                            rules_file=rules_file,
+                            strict_layout_checks=strict_layout_checks,
+                            compiled_payload=compiled_payload,
+                            execution_capture=execution_capture,
+                        )
                     )
                     if len(issues) == pre_test_issue_count:
                         from .local_case_custody import suite_scope
@@ -40087,6 +40328,18 @@ class ValidatorPipeline:
             validation_source_texts=validation_source_texts,
         )
 
+        # A finding of a check declared advisory is kept, apart from the
+        # blocking ones: it does not decide `passed` and is not the `error`.
+        # Every issue that is not positively advisory stays blocking.
+        issues, advisory_issues = partition_by_enforcement(issues)
+        # The one default operator surface: a WARNING line per advisory
+        # finding, in every lane that runs this step (validate, encode, the
+        # overlay validation of an apply).
+        for advisory_issue in advisory_issues:
+            line = advisory_log_line(advisory_issue, unit=self.source_citation_path)
+            if line is not None:
+                logger.warning("%s", line)
+
         duration = int((time.time() - start) * 1000)
         try:
             return ValidationResult(
@@ -40101,6 +40354,7 @@ class ValidatorPipeline:
                     if manual_advice
                     else {}
                 ),
+                advisory_issues=advisory_issues,
             )
         finally:
             tmpdir_cm.cleanup()

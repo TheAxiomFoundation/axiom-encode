@@ -59,6 +59,126 @@ def test_formula_and_tests_protocols_are_distinct_and_populated():
     assert "Put formulas under" not in _TESTS_PROTOCOL
 
 
+def test_encoder_prompt_puts_a_gated_cap_in_its_own_rule():
+    # A cap `min` that shares a formula with a comparison gate cannot have its
+    # limit boundary credited by companion tests; the prompt steers the cap
+    # into a comparison-free helper rule and says how to test it.
+    formula = " ".join(_FORMULA_PROTOCOL.split())
+    assert (
+        'When a source limit ("up to", "no more than", "a maximum of", '
+        '"cannot exceed") applies to an amount and the same provision also has '
+        "a comparison condition" in formula
+    )
+    assert (
+        "encode the capped amount in its own `kind: derived` rule whose formula "
+        "is only the clamp, e.g. `min(max(0, amount), cap)`, with no comparison"
+        in formula
+    )
+    assert "`if gate_measure > gate_threshold: capped_amount else: 0`" in formula
+    assert (
+        "Do not put a comparison gate and the cap `min(...)` in one formula." in formula
+    )
+    assert (
+        "If the capped amount is itself computed (a sum, a rate), compute it in "
+        "its own derived rule first so the clamp is applied to one name." in formula
+    )
+    assert (
+        "Use one clamp rule per source cap value, with that cap parameter as the "
+        "direct second argument of `min`, and select between the clamp rules in "
+        "the principal formula." in formula
+    )
+    assert (
+        "Each clamp rule carries its own proof atom quoting the cap sentence."
+        in formula
+    )
+    # The existing cap guidance stays next to it.
+    assert "min(uncapped_amount, max(cap_a," in _FORMULA_PROTOCOL
+    tests = " ".join(_TESTS_PROTOCOL.split())
+    assert (
+        "assert that cap rule's output, and the output of any derived rule that "
+        "computes the capped amount, in every companion case that sets the "
+        "capped amount, not only in the at-limit case" in tests
+    )
+    assert "Include a case with the amount exactly at the limit" in tests
+    for block in (formula, tests):
+        assert block in " ".join(ENCODER_PROMPT.split())
+
+
+_UNSTATED_FLOOR_START = (
+    "- A single source-stated amount or a bare input that a rule returns as its result"
+)
+_UNSTATED_FLOOR_SCOPE = (
+    "(not a difference, not an operand of the floor rules above, and not the "
+    "cap clamp or excess forms below)"
+)
+_UNSTATED_FLOOR_LAST = (
+    "This bullet does not change any rule about a difference, a subtraction, "
+    "an income base, taxable income, an excess, or a cap: those keep the forms "
+    "required above and below."
+)
+
+
+def _unstated_floor_bullet() -> str:
+    formula = " ".join(_FORMULA_PROTOCOL.split())
+    begin = formula.index(_UNSTATED_FLOOR_START)
+    return formula[begin : formula.index(" - ", begin + 2)]
+
+
+def test_encoder_prompt_does_not_ask_for_a_floor_the_source_does_not_state():
+    # A single returned amount wrapped in `max(0, ...)` invents a floor. The
+    # bullet changes that one thing and no other floor rule.
+    formula = " ".join(_FORMULA_PROTOCOL.split())
+    bullet = _unstated_floor_bullet()
+    assert bullet == (
+        f"{_UNSTATED_FLOOR_START} {_UNSTATED_FLOOR_SCOPE} gets no zero floor of "
+        "its own: do not wrap it in `max(0, ...)` unless the source states a "
+        'floor for it ("not less than zero", "but not below zero", "cannot be '
+        'negative") or the existing encoding of the same rule already has one. '
+        "If the rule returns that amount, return it without a floor, e.g. "
+        "`if amount_qualifies: stated_amount else: 0`, not "
+        "`if amount_qualifies: max(0, stated_amount) else: 0`. "
+        f"{_UNSTATED_FLOOR_LAST}"
+    )
+    assert bullet.endswith(_UNSTATED_FLOOR_LAST)
+    # The general guard and the floors the validators require stay, before
+    # the bullet; the excess and cap forms come after it.
+    guard = formula.index(
+        "Benefit, allotment, credit, deduction, allowance, and subsidy formulas "
+        "must never emit negative money."
+    )
+    reduction = formula.index("floor the result with `max(0, ...)`")
+    income_base = formula.index("use `rate * min(max(0, earned_income), cap)`")
+    taxable = formula.index("Wrap the final selected branch at zero")
+    scope = formula.index(_UNSTATED_FLOOR_START)
+    excess = formula.index("The excluded excess is `max(0, source_amount - cap)`")
+    cap_rule = formula.index("whose formula is only the clamp")
+    assert guard < reduction < income_base < taxable < scope < excess < cap_rule
+    assert formula in " ".join(ENCODER_PROMPT.split())
+
+
+def test_unstated_floor_bullet_says_nothing_new_about_other_floor_rules():
+    # Outside its scope parenthesis and its last sentence, the bullet gives no
+    # instruction about differences, imports, income bases, excesses or caps.
+    bullet = _unstated_floor_bullet()
+    assert bullet.count(_UNSTATED_FLOOR_SCOPE) == 1
+    assert bullet.count(_UNSTATED_FLOOR_LAST) == 1
+    rest = bullet.replace(_UNSTATED_FLOOR_SCOPE, "").replace(_UNSTATED_FLOOR_LAST, "")
+    for word in (
+        "difference",
+        "subtract",
+        "import",
+        "income",
+        "excess",
+        "cap",
+        "reduction",
+        "every",
+        "keep",
+        " - ",
+    ):
+        assert word not in rest.lower(), word
+    assert rest.count("max(0") == 2  # the "do not wrap" form and the bad example
+
+
 def test_assemble_strips_blocks_and_cannot_glue_or_stack():
     assembled = _assemble("- alpha statement.", "  - beta statement.  ", "", "- gamma.")
     assert assembled == "- alpha statement.\n\n- beta statement.\n\n- gamma."
