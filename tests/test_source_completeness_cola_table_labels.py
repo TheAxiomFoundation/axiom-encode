@@ -38,6 +38,8 @@ MASKED = (
     "$217 $229 Alaska $371 $371 $371 Hawaii $306 $306 $306",
     "Area Household Size 1 -2 3 4 5 6+ 48 States and DC $198 $198 Alaska $338 "
     "$338 Guam $435 $435",
+    # The `Area` caption 199 characters before the label's start: in the window.
+    "Area " + "x" * 193 + " 48 States and D.C. $5 Alaska $6 Hawaii $7",
     # (b) table title before the masked column label.
     "Maximum SNAP Allotments for 48 States and D.C. Household Size 48 States "
     "and D.C. 1 $306 2 $562",
@@ -63,6 +65,11 @@ DEMANDED = (
     "Area Maximum Amount 48 States and D.C. $5 Texas $6 Ohio $7",
     # The same sibling twice is one sibling.
     "Area Maximum Amount 48 States and D.C. $5 Alaska $6 Alaska $7",
+    # A lower-case `area` in prose is not the table caption.
+    "In each area 48 States and D.C. $5 Alaska $6 Hawaii $7",
+    # The `Area` caption 202 and 219 characters before the label's start.
+    "Area " + "x" * 196 + " 48 States and D.C. $5 Alaska $6 Hawaii $7",
+    "Area " + "x" * 213 + " 48 States and D.C. $5 Alaska $6 Hawaii $7",
     # Another caption word.
     "Region Maximum Amount 48 States and D.C. $5 Alaska $6 Hawaii $7",
     # The `Area` caption more than 200 characters back.
@@ -131,6 +138,10 @@ def test_range_header_plus_label_is_not_arithmetic(source_text):
         # A caption whose `N+` is not followed by a jurisdiction column.
         "Area 10 20+ 30 percent of income",
         "Zone 1-2 3 4 5 6+ 48 States and D.C. $217",
+        # The cell after `N+` must be a jurisdiction column, not any word or
+        # any `48`.
+        "Household Size 1-2 3+ members receive $5",
+        "Household Size 1-2 3+ 48 dollars",
         # Lower-case captions, even before a jurisdiction cell.
         "household size area 1-2 3 4 5 6+ 48 States and D.C. $217",
         # Words between the caption and `N+`.
