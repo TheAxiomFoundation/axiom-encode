@@ -43164,6 +43164,12 @@ class ValidatorPipeline:
             )
 
         source_text = None if review_source is None else review_source.text
+        with contextlib.suppress(UnicodeError):
+            review_evidence["reviewed_source_sha256"] = (
+                None
+                if source_text is None
+                else hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+            )
         if reviewer_type == GENERALIST_REVIEWER_NAME and not fits_single_call(
             rulespec_content, test_content, source_text
         ):

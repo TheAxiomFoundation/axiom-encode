@@ -190,10 +190,13 @@ def _reviewed(pair, rulespec=None):
         "rulespec_dumped_content_sha256": dumped_review_content_sha256(
             RULE_BYTES if rulespec is None else rulespec
         ),
+        "source_sha256": None,
     }
 
 
-UNSCORED_REVIEWED = dict.fromkeys((*DIGEST_FIELDS, "rulespec_dumped_content_sha256"))
+UNSCORED_REVIEWED = dict.fromkeys(
+    (*DIGEST_FIELDS, "rulespec_dumped_content_sha256", "source_sha256")
+)
 
 
 class _FilesByDigest(list):
@@ -1267,6 +1270,7 @@ def test_scored_review_records_the_digests_of_the_bytes_it_read(tmp_path, monkey
             test.read_bytes(), rulespec=False
         ),
         "reviewed_rulespec_dumped_content_sha256": PAIR.rulespec_content_sha256,
+        "reviewed_source_sha256": None,
         "rulespec_complete": True,
         "test_complete": True,
         "source_complete": True,

@@ -3223,6 +3223,28 @@ def main():
             "no reviewer runs"
         ),
     )
+    promote_reviewed_candidate_parser.add_argument(
+        "--review-record-file",
+        type=Path,
+        default=None,
+        help=(
+            "Use with --require-review. Write the generalist review record "
+            "of this promotion to this new JSON file, also when the review "
+            "does not pass. The path must be absolute, outside the RuleSpec "
+            "checkout, and must not exist. Keep the file with the run's "
+            "retained output: the promotion manifest does not carry the "
+            "record"
+        ),
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--run-attempt",
+        default=None,
+        help=(
+            "Use with --review-record-file. The attempt number of the "
+            "workflow run (a positive decimal number), written to the review "
+            "record file so that a rerun of a refused review is visible"
+        ),
+    )
     _add_required_corpus_path_argument(promote_reviewed_candidate_parser)
     _add_rulespec_dependency_root_argument(promote_reviewed_candidate_parser)
     promote_reviewed_candidate_parser.add_argument(
@@ -10409,6 +10431,84 @@ def _promotion_requires_review(args) -> bool:
     return getattr(args, "require_review", False) is True
 
 
+PROMOTION_REVIEW_RECORD_SCHEMA = "axiom-encode/promotion-generalist-review/v1"
+
+
+def _promotion_review_record_target(
+    args, repo_path: Path
+) -> tuple[Path, int | None] | None:
+    """Return where this promotion writes its review record, or None.
+
+    Refuses contradictory settings before validation, any reviewer call and
+    any signature request. The file is not part of the signed manifest and
+    is never read back by this command.
+    """
+
+    record_file = getattr(args, "review_record_file", None)
+    run_attempt = getattr(args, "run_attempt", None)
+    if record_file is None:
+        if run_attempt is not None:
+            raise ValueError(
+                "promote-reviewed-candidate --run-attempt requires --review-record-file"
+            )
+        return None
+    if not _promotion_requires_review(args):
+        raise ValueError(
+            "promote-reviewed-candidate --review-record-file requires --require-review"
+        )
+    record_file = Path(record_file)
+    attempt: int | None = None
+    if run_attempt is not None:
+        text = str(run_attempt)
+        if re.fullmatch(r"[1-9][0-9]{0,8}", text) is None:
+            raise ValueError(
+                "promote-reviewed-candidate --run-attempt must be a positive "
+                "decimal number"
+            )
+        attempt = int(text)
+    if not record_file.is_absolute() or ".." in record_file.parts:
+        raise ValueError("review record file must be an absolute path")
+    resolved = record_file.parent.resolve() / record_file.name
+    if resolved == repo_path.resolve() or repo_path.resolve() in resolved.parents:
+        raise ValueError("review record file must be outside the RuleSpec checkout")
+    if record_file.exists() or record_file.is_symlink():
+        raise ValueError("review record file already exists")
+    if not record_file.parent.is_dir():
+        raise ValueError("review record file directory does not exist")
+    return record_file, attempt
+
+
+def _write_promotion_review_record(
+    target: tuple[Path, int | None],
+    *,
+    args,
+    reviewed_ref: str,
+    review_record: Mapping[str, object],
+) -> None:
+    """Write the review record of one promotion attempt to its new file.
+
+    The file is created exclusively, so one path holds one attempt. It holds
+    the record (enumerated words, numbers, digests, manifest paths) and the
+    identifiers of the run; no reviewer prose.
+    """
+
+    record_file, attempt = target
+    payload = {
+        "schema": PROMOTION_REVIEW_RECORD_SCHEMA,
+        "tool": APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+        "axiom_encode_version": __version__,
+        "run_id": None if args.run_id is None else str(args.run_id),
+        "run_attempt": attempt,
+        "citation": str(args.citation),
+        "rulespec_path": str(args.rulespec_path),
+        "reviewed_rulespec_ref": reviewed_ref,
+        "review_passed": review_requirement_refusal(review_record) is None,
+        GENERALIST_REVIEW_FIELD: review_record,
+    }
+    with open(record_file, "x", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
 def _promotion_generalist_review_record(
     *,
     rulespec_file: Path,
@@ -10489,6 +10589,7 @@ def cmd_promote_reviewed_candidate(args):
         _rulespec_dependency_roots_from_args(args)
     )
     reviewed_ref = str(args.reviewed_rulespec_ref)
+    review_record_target = _promotion_review_record_target(args, repo_path)
     country_match = re.fullmatch(r"rulespec-([a-z]{2})", repo_path.name)
     if country_match is None:
         raise ValueError("reviewed candidate checkout name is not canonical")
@@ -10774,6 +10875,13 @@ def cmd_promote_reviewed_candidate(args):
                         "reviewed candidate generalist review: "
                         + json.dumps(review_record, sort_keys=True)
                     )
+                    if review_record_target is not None:
+                        _write_promotion_review_record(
+                            review_record_target,
+                            args=args,
+                            reviewed_ref=reviewed_ref,
+                            review_record=review_record,
+                        )
                     if review_requirement_refusal(review_record) is not None:
                         reason = review_record.get("reason")
                         raise RuntimeError(

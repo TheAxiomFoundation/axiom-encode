@@ -110,6 +110,7 @@ from axiom_encode.constants import RULESPEC_FILE_SUFFIX, RULESPEC_TEST_FILE_SUFF
 from axiom_encode.generalist_review_chunks import (
     MAX_CHUNKS_PER_FILE,
     MAX_REVIEW_CALLS,
+    planned_call_count,
 )
 from axiom_encode.yaml_serialization import is_yaml12_core_non_string, safe_dump_yaml
 
@@ -252,7 +253,10 @@ _PATH_FIELDS = ("rulespec_path", "test_path")
 _APPLIED_FIELDS = _PAIR_FIELDS | frozenset(_PATH_FIELDS)
 # The reviewed RuleSpec after the dump that apply performs on it.
 _DUMPED_FIELD = "rulespec_dumped_content_sha256"
-_REVIEWED_FIELDS = _PAIR_FIELDS | {_DUMPED_FIELD}
+# The byte digest of the source excerpt the reviewer was given; None when
+# the review had no source excerpt.
+_SOURCE_FIELD = "source_sha256"
+_REVIEWED_FIELDS = _PAIR_FIELDS | {_DUMPED_FIELD, _SOURCE_FIELD}
 _MERGE_TAG = "tag:yaml.org,2002:merge"
 _FILE_FIELDS = frozenset({"path", "sha256", "reviewed", "complete"})
 # The two keys `encode --apply` stamps into module.source_verification.
@@ -1007,9 +1011,24 @@ def review_coverage(value: object) -> dict[str, object] | None:
 
 
 def _every_call_made(coverage: Mapping[str, Any]) -> bool:
-    """Every planned call was made, and the plan is within the call cap."""
+    """Every planned call was made, and the plan is within the call cap.
 
-    return 1 <= coverage["calls_made"] == coverage["calls_planned"] <= MAX_REVIEW_CALLS
+    The number of planned calls is the number that the chunk counts of the
+    three texts give; a record cannot state another one.
+    """
+
+    planned = planned_call_count(
+        len(coverage["rulespec"]["chunks"]),
+        0 if coverage["source"] is None else len(coverage["source"]["chunks"]),
+        0 if coverage["test"] is None else len(coverage["test"]["chunks"]),
+    )
+    return (
+        1
+        <= coverage["calls_made"]
+        == coverage["calls_planned"]
+        == planned
+        <= MAX_REVIEW_CALLS
+    )
 
 
 def _covers_whole_text(text: Mapping[str, Any]) -> bool:
@@ -1047,13 +1066,21 @@ def _text_seen_whole(
     return text is not None and text["sha256"] == sha256 and _covers_whole_text(text)
 
 
-def _source_seen_whole(coverage: Mapping[str, Any] | None) -> bool:
-    """The review had no source excerpt, or coverage shows the whole of it."""
+def _source_seen_whole(
+    coverage: Mapping[str, Any] | None, source_sha256: object
+) -> bool:
+    """Coverage shows the whole source excerpt with digest ``source_sha256``.
+
+    With no digest the review had no source excerpt, and coverage must name
+    none. With a digest, coverage must show every byte of the text that has
+    that digest.
+    """
 
     if coverage is None:
         return False
-    source = coverage["source"]
-    return source is None or (_every_call_made(coverage) and _covers_whole_text(source))
+    if source_sha256 is None:
+        return coverage["source"] is None
+    return _text_seen_whole(coverage, "source", source_sha256)
 
 
 def _unscored_record(
@@ -1075,7 +1102,7 @@ def _unscored_record(
         },
         "verdict": {"passed": None, "score": None, "issue_count": 0},
         "prompt_sha256": None,
-        "reviewed": dict.fromkeys((*_DIGEST_FIELDS, _DUMPED_FIELD)),
+        "reviewed": dict.fromkeys((*_DIGEST_FIELDS, _DUMPED_FIELD, _SOURCE_FIELD)),
         "applied": dict.fromkeys((*_DIGEST_FIELDS, *_PATH_FIELDS)),
         "coverage": None,
         "files": files,
@@ -1184,6 +1211,8 @@ def build_generalist_review_record(
     }
     if not _is_sha256(reviewed[_DUMPED_FIELD]):
         reviewed[_DUMPED_FIELD] = None
+    source_sha256 = evidence.get("reviewed_" + _SOURCE_FIELD)
+    reviewed[_SOURCE_FIELD] = source_sha256 if _is_sha256(source_sha256) else None
     # A dump-derived hash is diagnostic only. It cannot authorize content
     # different from the reviewed node tree, even if the loader collapsed it.
     if reviewed[_DUMPED_FIELD] != reviewed["rulespec_content_sha256"]:
@@ -1255,7 +1284,7 @@ def build_generalist_review_record(
         elif not all(entry["complete"] for entry in files):
             status, reason = STATUS_PARTIAL, REASON_TRUNCATED
         elif not (
-            _source_seen_whole(coverage)
+            _source_seen_whole(coverage, reviewed[_SOURCE_FIELD])
             and (coverage["source"] is None or evidence.get("source_complete") is True)
         ):
             status, reason = STATUS_PARTIAL, REASON_SOURCE_TRUNCATED
@@ -1567,7 +1596,7 @@ def generalist_review_record_issues(
     everything_in_full = bool(files) and all(
         entry["reviewed"] and entry["complete"] for entry in files
     )
-    source_in_full = _source_seen_whole(coverage)
+    source_in_full = _source_seen_whole(coverage, reviewed[_SOURCE_FIELD])
     if status == STATUS_PASSED and not everything_in_full:
         found += [
             binding(
