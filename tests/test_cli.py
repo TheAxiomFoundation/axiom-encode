@@ -23684,6 +23684,643 @@ rules: []
             visible_amendment,
         )
 
+    # --- the generalist review record and --require-review (#2146) ---
+
+    def _run_review_gate(
+        self,
+        tmp_path,
+        capsys,
+        *,
+        review,
+        require_flag=False,
+        skip_reviewers=False,
+        change_after_review=None,
+        supplemental_files=None,
+        apply_side_effect=None,
+        environment_overrides=None,
+        stale_applied_record=None,
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        args.require_review = require_flag
+        args.skip_reviewers = skip_reviewers
+        result = self._make_eval_result(True)
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "statutes" / "26" / "63.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file = output_file.with_name("63.test.yaml")
+        test_file.write_text("[]\n")
+        result.output_file = str(output_file)
+        if stale_applied_record is not None:
+            # What an earlier apply attempt on this result left behind.
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(stale_applied_record),
+            )
+        result.metrics = EvalArtifactMetrics(
+            compile_pass=True,
+            compile_issues=[],
+            ci_pass=True,
+            ci_issues=[],
+            embedded_source_present=True,
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            grounding=[],
+            generalist_review_pass=review["passed"],
+            generalist_review_score=review["score"],
+            generalist_review_issues=list(review.get("issues", [])),
+            generalist_review_prompt_sha256=review.get("prompt_sha256"),
+        )
+        if review.get("evidence", False):
+            # What the reviewer call measured about the files it read.
+            from axiom_encode.generalist_review_record import (
+                review_evidence_digests,
+            )
+
+            setattr(
+                result.metrics,
+                "_axiom_generalist_review_evidence",
+                {
+                    **review_evidence_digests(
+                        output_file.read_bytes(), test_file.read_bytes()
+                    ),
+                    "rulespec_complete": review.get("rulespec_complete", True),
+                    "test_complete": True,
+                    "explicit_passed": True,
+                    "reviewer_backend": "codex",
+                    "reviewer_model": "gpt-test",
+                },
+            )
+        if change_after_review == "repair":
+            output_file.write_text("format: rulespec/v1\nrules: [repaired]\n")
+        elif change_after_review == "source-stamp":
+            # What overlay validation does to every candidate before apply.
+            output_file.write_text(
+                "format: rulespec/v1\n"
+                "module:\n"
+                "  source_verification:\n"
+                "    corpus_citation_path: us/statute/26/63\n"
+                "    source_sha256: " + "5" * 64 + "\n"
+                "rules: []\n"
+            )
+        applied_file = args.policy_repo_path / "statutes/26/63.yaml"
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(True, [], dict(supplemental_files or {})),
+            ),
+            patch(
+                "axiom_encode.cli._enforce_canonical_concept_registry",
+                return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+                side_effect=apply_side_effect,
+            ) as mock_apply,
+            patch.dict(
+                os.environ,
+                {
+                    APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64,
+                    **dict(environment_overrides or {}),
+                },
+                clear=True,
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        return SimpleNamespace(
+            code=exc_info.value.code,
+            apply=mock_apply,
+            outcome=run.outcome,
+            iterations=run.iterations,
+            output=capsys.readouterr().out,
+            result=result,
+        )
+
+    _REVIEW_PASSED = {
+        "passed": True,
+        "score": 9.0,
+        "prompt_sha256": "4" * 64,
+        "evidence": True,
+    }
+    _REVIEW_FAILED = {
+        "passed": False,
+        "score": 3.0,
+        "issues": ["wrong and/or"],
+        "prompt_sha256": "4" * 64,
+        "evidence": True,
+    }
+    _REVIEW_UNAVAILABLE = {
+        "passed": False,
+        "score": None,
+        "issues": ["Reviewer error: reviewer_unavailable: Reviewer CLIs not found"],
+        "prompt_sha256": "4" * 64,
+    }
+    _REVIEW_NOT_RUN = {"passed": True, "score": None}
+
+    def test_review_gate_flag_off_and_reviewer_unavailable_applies_and_records_it(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(tmp_path, capsys, review=self._REVIEW_UNAVAILABLE)
+
+        # Today's behaviour, plus the record.
+        assert run.code == 0
+        run.apply.assert_called_once()
+        assert run.outcome["status"] == "apply_applied"
+        assert run.outcome["final_success"] is True
+        assert run.outcome["generalist_review"]["status"] == "unavailable"
+        assert run.outcome["generalist_review"]["reason"] == "reviewer_error"
+        assert run.outcome["generalist_review"]["required"] is False
+        assert "generalist_review_record=unavailable:reviewer_error" in run.output
+        # The manifest writer receives the same state on the result it signs.
+        state = vars(run.result)["_axiom_generalist_review_state"]
+        assert type(state).__name__ == "GeneralistReviewState"
+        assert state.required is False
+
+    def test_review_gate_flag_off_and_review_failed_applies_and_records_it(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(tmp_path, capsys, review=self._REVIEW_FAILED)
+
+        assert run.code == 0
+        run.apply.assert_called_once()
+        assert run.outcome["generalist_review"]["status"] == "failed"
+        assert run.outcome["generalist_review"]["verdict"] == {
+            "passed": False,
+            "score": 3.0,
+            "issue_count": 1,
+        }
+
+    def test_review_gate_flag_off_and_review_passed_records_passed(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(tmp_path, capsys, review=self._REVIEW_PASSED)
+
+        assert run.code == 0
+        assert run.outcome["generalist_review"]["status"] == "passed"
+        assert "generalist_review_record=passed" in run.output
+        assert "required=yes" not in run.output
+
+    def test_review_gate_skip_reviewers_records_skipped(self, tmp_path, capsys):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_NOT_RUN, skip_reviewers=True
+        )
+
+        assert run.code == 0
+        run.apply.assert_called_once()
+        assert run.outcome["generalist_review"]["status"] == "skipped"
+        assert run.outcome["generalist_review"]["reason"] == "skip_reviewers_flag"
+
+    def test_review_gate_required_and_reviewer_unavailable_does_not_apply(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_UNAVAILABLE, require_flag=True
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.outcome["final_success"] is False
+        assert run.outcome["apply_success"] is False
+        assert run.outcome["applied_files"] == []
+        assert run.outcome["generalist_review"]["status"] == "unavailable"
+        assert run.outcome["generalist_review"]["required"] is True
+        assert "apply=blocked_review:" in run.output
+        assert "outcome=apply_blocked_review final_success=False" in run.output
+
+    def test_review_gate_required_and_review_failed_does_not_apply(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_FAILED, require_flag=True
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.outcome["generalist_review"]["status"] == "failed"
+
+    def test_review_gate_required_and_reviewer_not_run_does_not_apply(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_NOT_RUN, require_flag=True
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert run.outcome["generalist_review"]["reason"] == "reviewer_not_run"
+
+    def test_review_gate_required_and_candidate_changed_after_review_does_not_apply(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            require_flag=True,
+            change_after_review="repair",
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert (
+            run.outcome["generalist_review"]["reason"] == "reviewed_content_not_applied"
+        )
+
+    def test_review_gate_required_review_survives_the_source_stamp(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            require_flag=True,
+            change_after_review="source-stamp",
+        )
+
+        assert run.code == 0
+        run.apply.assert_called_once()
+        record = run.outcome["generalist_review"]
+        assert record["status"] == "passed"
+        assert (
+            record["reviewed"]["rulespec_sha256"]
+            != (record["applied"]["rulespec_sha256"])
+        )
+        assert (
+            record["reviewed"]["rulespec_content_sha256"]
+            == (record["applied"]["rulespec_content_sha256"])
+        )
+
+    def test_review_gate_required_and_review_passed_applies(self, tmp_path, capsys):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_PASSED, require_flag=True
+        )
+
+        assert run.code == 0
+        run.apply.assert_called_once()
+        assert run.outcome["status"] == "apply_applied"
+        assert run.outcome["final_success"] is True
+        assert run.outcome["generalist_review"]["status"] == "passed"
+        assert run.outcome["generalist_review"]["required"] is True
+        assert "generalist_review_record=passed required=yes" in run.output
+        assert vars(run.result)["_axiom_generalist_review_state"].required is True
+
+    def test_review_gate_environment_variable_is_not_a_switch(self, tmp_path, capsys):
+        # The signing supervisor drops the environment; only the flag counts.
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_UNAVAILABLE,
+            environment_overrides={"AXIOM_ENCODE_REQUIRE_REVIEW": "1"},
+        )
+
+        assert run.code == 0
+        run.apply.assert_called_once()
+        assert run.outcome["generalist_review"]["required"] is False
+
+    def test_review_gate_required_pass_does_not_cover_an_unreviewed_dependent(
+        self, tmp_path, capsys
+    ):
+        # Overlay validation repaired a dependent; the reviewer never read it.
+        dependent = "format: rulespec/v1\nrules: [dependent]\n"
+        for require_flag, code in ((True, 1), (False, 0)):
+            (tmp_path / str(require_flag)).mkdir()
+            run = self._run_review_gate(
+                tmp_path / str(require_flag),
+                capsys,
+                review=self._REVIEW_PASSED,
+                require_flag=require_flag,
+                supplemental_files={Path("statutes/26/64.yaml"): dependent},
+            )
+
+            assert run.code == code
+            record = run.outcome["generalist_review"]
+            assert record["status"] == "partial"
+            assert record["reason"] == "unreviewed_applied_files"
+            assert {
+                "path": "statutes/26/64.yaml",
+                "sha256": hashlib.sha256(dependent.encode()).hexdigest(),
+                "reviewed": False,
+                "complete": False,
+            } in record["files"]
+            assert [entry["path"] for entry in record["files"]] == [
+                "statutes/26/63.test.yaml",
+                "statutes/26/63.yaml",
+                "statutes/26/64.yaml",
+            ]
+            assert run.apply.called is (not require_flag)
+
+    @pytest.mark.parametrize(
+        "supplemental",
+        [
+            # A repaired dependent companion with the bytes of the reviewed one.
+            {"statutes/26/64.test.yaml": "[]\n"},
+            # A dependent module with the bytes of the reviewed module.
+            {"statutes/26/64.yaml": "format: rulespec/v1\nrules: []\n"},
+            # Both: the whole reviewed pair again at another path.
+            {
+                "statutes/26/64.yaml": "format: rulespec/v1\nrules: []\n",
+                "statutes/26/64.test.yaml": "[]\n",
+            },
+        ],
+    )
+    def test_review_gate_does_not_credit_reviewed_bytes_at_another_path(
+        self, tmp_path, capsys, supplemental
+    ):
+        for require_flag, code in ((True, 1), (False, 0)):
+            (tmp_path / str(require_flag)).mkdir()
+            run = self._run_review_gate(
+                tmp_path / str(require_flag),
+                capsys,
+                review=self._REVIEW_PASSED,
+                require_flag=require_flag,
+                supplemental_files={
+                    Path(path): content for path, content in supplemental.items()
+                },
+            )
+
+            assert run.code == code
+            record = run.outcome["generalist_review"]
+            assert record["status"] == "partial"
+            assert record["reason"] == "unreviewed_applied_files"
+            assert {entry["path"]: entry["reviewed"] for entry in record["files"]} == {
+                "statutes/26/63.yaml": True,
+                "statutes/26/63.test.yaml": True,
+                **dict.fromkeys(supplemental, False),
+            }
+            assert run.apply.called is (not require_flag)
+            if require_flag:
+                assert run.outcome["status"] == "apply_blocked_review"
+
+    def test_review_gate_required_pass_does_not_cover_a_truncated_review(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review={**self._REVIEW_PASSED, "rulespec_complete": False},
+            require_flag=True,
+        )
+
+        assert run.code == 1
+        run.apply.assert_not_called()
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.outcome["generalist_review"]["status"] == "partial"
+        assert run.outcome["generalist_review"]["reason"] == "review_saw_truncated_file"
+
+    def test_review_gate_blocked_review_is_a_failed_iteration_in_the_run_log(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_FAILED, require_flag=True
+        )
+
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.iterations[-1].success is False
+        assert [error.message for error in run.iterations[-1].errors] == [
+            run.outcome["apply_error"]
+        ]
+
+    def test_review_gate_applied_run_keeps_a_successful_iteration(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_PASSED, require_flag=True
+        )
+
+        assert run.outcome["status"] == "apply_applied"
+        assert run.iterations[-1].success is True
+
+    def test_review_gate_writer_refusal_is_a_blocked_review_not_a_manifest_block(
+        self, tmp_path, capsys
+    ):
+        # The manifest writer checks the requirement again on the files it
+        # signs; its refusal is the same failure as the earlier check.
+        from axiom_encode.generalist_review_record import ReviewRequirementRefused
+
+        refusal = "A passed generalist review of every applied file is required"
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            require_flag=True,
+            apply_side_effect=ReviewRequirementRefused(refusal),
+        )
+
+        assert run.code == 1
+        run.apply.assert_called_once()
+        assert run.outcome["status"] == "apply_blocked_review"
+        assert run.outcome["apply_error"] == refusal
+        assert run.outcome["final_success"] is False
+        assert "apply=blocked_review:" in run.output
+        assert run.iterations[-1].success is False
+        assert [error.message for error in run.iterations[-1].errors] == [refusal]
+
+    @staticmethod
+    def _writer_record(review, pair_bytes, applied_bytes):
+        """The record the manifest writer builds for the final apply plan."""
+
+        from axiom_encode.generalist_review_record import (
+            GeneralistReviewState,
+            applied_pair,
+            build_generalist_review_record,
+            review_evidence_digests,
+        )
+
+        state = GeneralistReviewState(
+            metrics_pass=review["passed"],
+            score=review["score"],
+            issue_count=0,
+            prompt_sha256=review["prompt_sha256"],
+            evidence={
+                **review_evidence_digests(b"format: rulespec/v1\nrules: []\n", b"[]\n"),
+                "rulespec_complete": True,
+                "test_complete": True,
+                "explicit_passed": True,
+                "reviewer_backend": "codex",
+                "reviewer_model": "gpt-test",
+            },
+        )
+        module_path = "statutes/26/63.yaml"
+        return build_generalist_review_record(
+            state,
+            [applied_pair(*pair_bytes, rulespec_path=module_path)],
+            [
+                (path, hashlib.sha256(raw).hexdigest())
+                for path, raw in zip(
+                    (module_path, "statutes/26/63.test.yaml"),
+                    applied_bytes,
+                    strict=True,
+                )
+            ],
+            reviewed_rulespec_path=module_path,
+        )
+
+    @pytest.mark.parametrize("refused", [False, True])
+    def test_review_gate_outcome_reports_the_record_of_the_final_apply_plan(
+        self, tmp_path, capsys, refused
+    ):
+        from axiom_encode.generalist_review_record import ReviewRequirementRefused
+
+        # Apply replaced the main file after the gate's own record was built:
+        # the verdict is on content that is not in the final plan.
+        replaced = b"format: rulespec/v1\nrules: [replaced]\n"
+        writer_record = self._writer_record(
+            self._REVIEW_PASSED, (replaced, b"[]\n"), (replaced, b"[]\n")
+        )
+        assert writer_record["status"] == "unavailable"
+        applied_file = tmp_path / "policy" / "statutes/26/63.yaml"
+
+        def apply(result, **_kwargs):
+            # What `_write_applied_encoding_manifest` leaves on the result.
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(writer_record),
+            )
+            if refused:
+                raise ReviewRequirementRefused("refused on the final plan")
+            return [applied_file]
+
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            require_flag=refused,
+            apply_side_effect=apply,
+        )
+
+        run.apply.assert_called_once()
+        assert run.code == (1 if refused else 0)
+        assert run.outcome["status"] == (
+            "apply_blocked_review" if refused else "apply_applied"
+        )
+        assert "generalist_review_record=passed" in run.output
+        assert (
+            "generalist_review_record=unavailable:reviewed_content_not_applied"
+            " (final apply plan)"
+        ) in run.output
+        assert run.outcome["generalist_review"] == writer_record
+
+    @pytest.mark.parametrize(
+        ("side_effect", "status"),
+        [
+            (None, "apply_applied"),
+            (RuntimeError("Cannot sign: something else"), "apply_blocked_manifest"),
+        ],
+    )
+    def test_review_gate_outcome_ignores_the_record_of_an_earlier_attempt(
+        self, tmp_path, capsys, side_effect, status
+    ):
+        # This apply never reaches the writer; the record an earlier attempt
+        # left on the result is about other files.
+        stale = self._writer_record(
+            self._REVIEW_PASSED,
+            (b"format: rulespec/v1\nrules: [stale]\n", b"[]\n"),
+            (b"format: rulespec/v1\nrules: [stale]\n", b"[]\n"),
+        )
+        assert stale["status"] == "unavailable"
+
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            apply_side_effect=side_effect,
+            stale_applied_record=stale,
+        )
+
+        run.apply.assert_called_once()
+        assert run.outcome["status"] == status
+        assert run.outcome["generalist_review"]["status"] == "passed"
+        assert "(final apply plan)" not in run.output
+        assert "_axiom_generalist_review_applied_record" not in vars(run.result)
+
+    def test_review_gate_outcome_reports_the_writer_record_when_signing_fails(
+        self, tmp_path, capsys
+    ):
+        replaced = b"format: rulespec/v1\nrules: [replaced]\n"
+        writer_record = self._writer_record(
+            self._REVIEW_PASSED, (replaced, b"[]\n"), (replaced, b"[]\n")
+        )
+
+        def apply(result, **_kwargs):
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(writer_record),
+            )
+            raise RuntimeError("Cannot sign: something else")
+
+        run = self._run_review_gate(
+            tmp_path, capsys, review=self._REVIEW_PASSED, apply_side_effect=apply
+        )
+
+        assert run.code == 1
+        assert run.outcome["status"] == "apply_blocked_manifest"
+        assert run.outcome["generalist_review"] == writer_record
+
+    def test_review_gate_outcome_reports_a_companion_that_apply_adds(
+        self, tmp_path, capsys
+    ):
+        # The writer's plan has a companion that the gate's own plan did
+        # not list: two files are applied where the gate's record lists one.
+        rulespec = b"format: rulespec/v1\nrules: []\n"
+        writer_record = self._writer_record(
+            self._REVIEW_PASSED, (rulespec, b"[]\n"), (rulespec, b"[]\n")
+        )
+        assert len(writer_record["files"]) == 2
+        seen = {}
+        from axiom_encode.generalist_review_record import applied_pair
+
+        def apply(result, **_kwargs):
+            seen["stale"] = vars(result).get("_axiom_generalist_review_applied_record")
+            setattr(
+                result,
+                "_axiom_generalist_review_applied_record",
+                copy.deepcopy(writer_record),
+            )
+            return [tmp_path / "policy" / "statutes/26/63.yaml"]
+
+        module_path = "statutes/26/63.yaml"
+        with patch(
+            "axiom_encode.cli._planned_review_files",
+            side_effect=lambda result, **_kwargs: (
+                [applied_pair(rulespec, None, rulespec_path=module_path)],
+                [(module_path, hashlib.sha256(rulespec).hexdigest())],
+                module_path,
+            ),
+        ):
+            run = self._run_review_gate(
+                tmp_path, capsys, review=self._REVIEW_PASSED, apply_side_effect=apply
+            )
+
+        assert run.code == 0
+        assert seen == {"stale": None}
+        assert len(run.outcome["generalist_review"]["files"]) == 2
+        assert run.outcome["generalist_review"] == writer_record
+
+    def test_review_gate_other_writer_refusals_stay_manifest_blocks(
+        self, tmp_path, capsys
+    ):
+        run = self._run_review_gate(
+            tmp_path,
+            capsys,
+            review=self._REVIEW_PASSED,
+            apply_side_effect=RuntimeError("Cannot sign: something else"),
+        )
+
+        assert run.code == 1
+        assert run.outcome["status"] == "apply_blocked_manifest"
+        assert run.iterations[-1].success is True
+
     def test_encode_apply_auto_repairs_nonnegative_taxable_income_floor(
         self, capsys, tmp_path
     ):

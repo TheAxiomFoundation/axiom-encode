@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
 from bisect import bisect_left, bisect_right
@@ -42,6 +43,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Sequence
 
 import yaml
@@ -128,6 +130,12 @@ from axiom_encode.form_numeric_structure import (
     mask_form_numeric_locators,
 )
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.generalist_review_record import (
+    EVIDENCE_EXPLICIT_PASSED,
+    GENERALIST_REVIEWER_NAME,
+    empty_deferred_companion_test,
+    review_evidence_digests,
+)
 from axiom_encode.harness.amendment_timing import amendment_timing_issues
 from axiom_encode.harness.coverage_exemptions import (
     CoverageDemand,
@@ -599,6 +607,19 @@ _LOCAL_REVIEWER_SYSTEM_PATH: tuple[str, ...] = (
 )
 _LOCAL_REVIEWER_CONFIG_DIR_NAMES: tuple[str, ...] = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
 _REVIEWER_UNAVAILABLE = "reviewer_unavailable"
+# The reviewer CLI one thread last started, as (backend, model). A review
+# record names its reviewer from this; nothing reads it to decide a verdict.
+_REVIEWER_CLI_STARTED = threading.local()
+
+
+def _note_reviewer_cli_started(backend: str | None, model: str | None) -> None:
+    _REVIEWER_CLI_STARTED.identity = (
+        None if backend is None else (backend, str(model or ""))
+    )
+
+
+def _reviewer_cli_started() -> tuple[str, str] | None:
+    return getattr(_REVIEWER_CLI_STARTED, "identity", None)
 
 
 def _protected_reviewer_context_active() -> bool:
@@ -738,6 +759,7 @@ def run_claude_code(
             return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
         claude_executable = resolved_claude
         local_environment = _local_reviewer_environment([resolved_claude])
+    _note_reviewer_cli_started("claude", model)
 
     cmd = [
         claude_executable,
@@ -792,13 +814,35 @@ def run_claude_code(
                 env=environment,
                 env_is_final=True,
             )
-        return result.output, result.returncode
+        return _claude_reviewer_reply(result), result.returncode
     except subprocess.TimeoutExpired as exc:
         return f"Timeout after {exc.timeout}s", 1
     except FileNotFoundError:
         return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
     except Exception as e:
         return f"Error: {e}", 1
+
+
+def _claude_reviewer_reply(result: "_SubprocessRunResult") -> str:
+    """Return the text that the reviewer reads from one Claude CLI run.
+
+    The reply of a run that exits 0 is its stdout alone: a warning on stderr
+    is not part of the reply, and only its length is logged. A run that exits
+    non-zero has no reply: the caller refuses it, and gets stdout and stderr
+    together for its error message.
+    """
+    # A result built without stdout (a test double) keeps the joined output.
+    stdout = getattr(result, "stdout", None)
+    if result.returncode != 0 or stdout is None:
+        return result.output
+    stderr_chars = len(result.output) - len(stdout)
+    if stderr_chars > 0:
+        logger.warning(
+            "Reviewer CLI exited 0 and wrote %d characters to stderr; "
+            "the reply is read from stdout only",
+            stderr_chars,
+        )
+    return stdout
 
 
 def _run_codex_reviewer_cli(
@@ -813,6 +857,7 @@ def _run_codex_reviewer_cli(
         if not os.path.isabs(codex_executable):
             resolved_codex = _resolve_local_reviewer_executable(codex_executable)
             if resolved_codex is None:
+                _note_reviewer_cli_started(None, None)
                 return (
                     f"{_REVIEWER_UNAVAILABLE}: no reviewer CLI could start "
                     "(claude and codex were not found on PATH)",
@@ -820,6 +865,10 @@ def _run_codex_reviewer_cli(
                 )
             codex_executable = resolved_codex
         local_environment = _local_reviewer_environment([codex_executable])
+    codex_model = os.environ.get(
+        "AXIOM_ENCODE_REVIEWER_CODEX_MODEL", DEFAULT_OPENAI_MODEL
+    )
+    _note_reviewer_cli_started("codex", codex_model)
     cmd = [
         codex_executable,
         "exec",
@@ -828,7 +877,7 @@ def _run_codex_reviewer_cli(
         "--sandbox",
         "read-only",
         "--model",
-        os.environ.get("AXIOM_ENCODE_REVIEWER_CODEX_MODEL", DEFAULT_OPENAI_MODEL),
+        codex_model,
     ]
     if cwd is not None:
         cmd.extend(["-C", str(cwd)])
@@ -878,13 +927,17 @@ def _run_codex_reviewer_cli(
                 env_is_final=True,
             )
         secrets |= codex_auth_secrets(codex_home)
-        text = _extract_codex_text_output(
-            redact_codex_auth_secrets(result.output, secrets)
-        )
+        # The event stream of a run that exits 0 is stdout alone: a log line
+        # on stderr is not an event. A failed run has no reply; the caller
+        # refuses it and gets both streams for its error message.
+        stdout = getattr(result, "stdout", None)
+        stream = result.output if result.returncode != 0 or stdout is None else stdout
+        text = _extract_codex_text_output(redact_codex_auth_secrets(stream, secrets))
         return redact_codex_auth_secrets(text, secrets), result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
     except FileNotFoundError:
+        _note_reviewer_cli_started(None, None)
         return (
             f"{_REVIEWER_UNAVAILABLE}: Reviewer CLIs not found "
             "(missing claude and codex)",
@@ -896,10 +949,15 @@ def _run_codex_reviewer_cli(
 
 @dataclass
 class _SubprocessRunResult:
-    """Captured subprocess output plus exit status."""
+    """Captured subprocess output plus exit status.
+
+    ``output`` is stdout followed by stderr. ``stdout`` is stdout alone, or
+    None when the caller built the result without it.
+    """
 
     output: str
     returncode: int
+    stdout: str | None = None
 
 
 def _sha256_text(text: str | None) -> str | None:
@@ -997,7 +1055,8 @@ def _run_subprocess_with_idle_timeout(
 
                 time.sleep(poll_interval)
 
-            output = stdout_path.read_text() + stderr_path.read_text()
+            stdout = stdout_path.read_text()
+            output = stdout + stderr_path.read_text()
             normalized_output = _normalize_validation_staging_text(
                 output,
                 capture_root,
@@ -1006,6 +1065,11 @@ def _run_subprocess_with_idle_timeout(
             return _SubprocessRunResult(
                 output=normalized_output,
                 returncode=process.returncode or 0,
+                stdout=_normalize_validation_staging_text(
+                    stdout,
+                    capture_root,
+                    placeholder=_VALIDATOR_SUBPROCESS_CAPTURE_PLACEHOLDER,
+                ),
             )
     except subprocess.TimeoutExpired:
         raise
@@ -1024,34 +1088,68 @@ def _run_subprocess_with_idle_timeout(
         raise RuntimeError(normalized_error) from exc
 
 
-def _extract_codex_text_output(output: str) -> str:
-    """Return the concatenated assistant text from a Codex JSONL stream."""
-    assistant_messages: list[str] = []
-    last_error: str | None = None
+def _unreadable_codex_stream(reason: str, output: str) -> str:
+    """Return text that is never a verdict: the reason, then the stream."""
+    return f"Codex reviewer stream is unreadable ({reason}):\n{output}"
 
-    for line in output.splitlines():
-        stripped = line.strip()
+
+def _extract_codex_text_output(output: str) -> str:
+    """Return the reviewer reply from a Codex JSONL stream.
+
+    The reply is the text of the one agent message of the run. Fails closed:
+    the result is text that the verdict reader cannot read when the stream
+    holds an `error` or a `turn.failed` event, a line that is not a JSON
+    object, no agent message, or more than one agent message with text. A
+    run with a preamble message is unreadable by design: this reader cannot
+    tell a harmless preamble from an earlier verdict in other words.
+    """
+    assistant_messages: list[str] = []
+    errors: list[str] = []
+    malformed = False
+    non_string_text = False
+
+    # A JSONL line ends at a line feed. `str.splitlines` would also break at
+    # U+0085, U+2028 and U+2029, which JSON allows raw inside a string.
+    for line in output.split("\n"):
+        stripped = line.strip(_JSON_WHITESPACE)
         if not stripped:
             continue
         try:
             payload = json.loads(stripped)
         except json.JSONDecodeError:
+            malformed = True
             continue
         if not isinstance(payload, dict):
+            malformed = True
             continue
         payload_type = payload.get("type")
         if payload_type == "item.completed":
-            item = payload.get("item") or {}
-            if item.get("type") == "agent_message" and item.get("text"):
-                assistant_messages.append(item["text"])
-        elif payload_type == "error":
-            last_error = payload.get("message") or "codex exec error"
+            item = payload.get("item")
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                text = item.get("text")
+                if not isinstance(text, str):
+                    non_string_text = True
+                elif text.strip():
+                    assistant_messages.append(text)
+        elif payload_type in ("error", "turn.failed"):
+            detail = payload.get("message") or payload.get("error")
+            errors.append(str(detail or "codex exec error"))
 
-    return (
-        "\n".join(assistant_messages).strip()
-        or with_codex_model_availability_hint(last_error)
-        or output
-    )
+    if errors:
+        return _unreadable_codex_stream(
+            f"error event: {with_codex_model_availability_hint(errors[-1])}", output
+        )
+    if malformed:
+        return _unreadable_codex_stream("a line is not a JSON object", output)
+    if non_string_text:
+        return _unreadable_codex_stream(
+            "an agent message whose text is not a string", output
+        )
+    if len(assistant_messages) != 1:
+        return _unreadable_codex_stream(
+            f"{len(assistant_messages)} agent messages with text, not one", output
+        )
+    return assistant_messages[0].strip()
 
 
 _REVIEW_JSON_KEYS = {
@@ -1074,166 +1172,798 @@ def _strip_trailing_json_commas(text: str) -> str:
     return re.sub(r",(\s*[}\]])", r"\1", text)
 
 
+class _DuplicateReviewerJsonKey(ValueError):
+    """A syntactically complete object in reviewer output repeats a key.
+
+    Not a ``json.JSONDecodeError``: no decode path may count it as an
+    ordinary failed decode and go on to read the text another way.
+    """
+
+
+def _unique_reviewer_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateReviewerJsonKey(
+                "Duplicate JSON object key in reviewer output"
+            )
+        result[key] = value
+    return result
+
+
 def _decode_json_object_candidate(text: str) -> dict[str, Any] | None:
     """Decode a JSON object candidate with strict and reviewer-friendly modes."""
-    cleaned = text.strip().replace("\u3000", " ")
+    decoded = _decode_json_object_candidate_extent(text)
+    return None if decoded is None else decoded[0]
+
+
+def _decode_json_object_candidate_extent(
+    text: str,
+) -> tuple[dict[str, Any], int] | None:
+    """Decode a candidate; also return how many characters of it were read.
+
+    A whole-text decode reads all of ``text``. The prefix fallback reads less:
+    the count then ends at the last character of the decoded object, mapped
+    back through the trailing-comma repair, so the rest is known to be unread.
+    """
+    stripped = text.lstrip()
+    lead = len(text) - len(stripped)
+    cleaned = stripped.rstrip().replace("　", " ")
     if not cleaned:
         return None
 
-    variants = [cleaned]
+    removed_commas: list[int] = []
+    variants: list[tuple[str, list[int]]] = [(cleaned, removed_commas)]
     without_trailing_commas = _strip_trailing_json_commas(cleaned)
     if without_trailing_commas != cleaned:
-        variants.append(without_trailing_commas)
+        variants.append(
+            (
+                without_trailing_commas,
+                [match.start() for match in re.finditer(r",(\s*[}\]])", cleaned)],
+            )
+        )
 
-    for variant in variants:
+    for variant, removed in variants:
         for strict in (True, False):
             with contextlib.suppress(json.JSONDecodeError):
-                data = json.loads(variant, strict=strict)
+                data = json.loads(
+                    variant, strict=strict, object_pairs_hook=_unique_reviewer_json_keys
+                )
                 if isinstance(data, dict):
-                    return data
+                    return data, len(text)
 
         for strict in (True, False):
-            decoder = json.JSONDecoder(strict=strict)
+            decoder = json.JSONDecoder(
+                strict=strict, object_pairs_hook=_unique_reviewer_json_keys
+            )
             with contextlib.suppress(json.JSONDecodeError):
-                data, _ = decoder.raw_decode(variant)
+                data, end = decoder.raw_decode(variant)
                 if isinstance(data, dict):
-                    return data
+                    for position in removed:
+                        if position < end:
+                            end += 1
+                    return data, lead + end
 
     return None
 
 
-def _iter_balanced_json_object_snippets(output: str) -> list[str]:
-    """Return brace-balanced object snippets for repair-oriented parsing."""
-    snippets: list[str] = []
-    for start, char in enumerate(output):
-        if char != "{":
-            continue
+@dataclass
+class _ReviewJsonObjectSpan:
+    start: int
+    end: int | None = None
+    review_like: bool = False
+    has_passed: bool = False
 
-        depth = 0
-        in_string = False
-        escaped = False
-        for index in range(start, len(output)):
-            current = output[index]
-            if escaped:
+
+def _skip_json_whitespace(output: str, index: int) -> int:
+    while index < len(output) and output[index].isspace():
+        index += 1
+    return index
+
+
+def _brace_in_string_starts_object(output: str, quote: int) -> bool:
+    """Decide whether `{ "` met inside a string resynchronizes the lexer.
+
+    ``quote`` is the index of the quote after the brace. If valid JSON may
+    continue after that quote as after a closed string (a separator, a closer
+    or the end of the output), the quote closes the current string: the brace
+    was string content. Otherwise the current string is malformed, and the
+    brace starts an object only when the quote opens an actual key: a complete
+    string, with backslash escapes, followed by a colon.
+    """
+    after_quote = _skip_json_whitespace(output, quote + 1)
+    if after_quote >= len(output) or output[after_quote] in ",:}]":
+        return False
+    index = quote + 1
+    while index < len(output):
+        current = output[index]
+        if current == "\\":
+            index += 2
+            continue
+        if current == '"':
+            after_key = _skip_json_whitespace(output, index + 1)
+            return after_key < len(output) and output[after_key] == ":"
+        index += 1
+    return False
+
+
+# Only these can start a JSON object. A failed decode costs time in proportion
+# to its offset, so prose braces are skipped without a decode attempt.
+_JSON_OBJECT_START = re.compile(r'\{[ \t\n\r]*["}]')
+# A failed decode can still cost time in proportion to the output, so the
+# scan refuses an output with more failed starts than any review needs.
+_MAX_UNDECODABLE_JSON_OBJECT_STARTS = 500
+
+
+def _refuse_too_many_undecodable_starts(failed: int) -> None:
+    if failed > _MAX_UNDECODABLE_JSON_OBJECT_STARTS:
+        raise ValueError("Too many undecodable JSON object starts in reviewer output")
+
+
+def _scan_well_formed_json_objects(
+    output: str,
+) -> tuple[list[tuple[int, int, dict[str, Any]]], int]:
+    """Decode every outermost well-formed JSON object, without the lexer.
+
+    Also returns the number of failed decode attempts. Fails closed
+    (ValueError) above a fixed number of them.
+
+    A repeated key is refused, never decoded: the standard decoder keeps the
+    last value, so a later object under the same key would silently replace
+    an earlier one that this check exists to see. The refusal holds for any
+    syntactically complete object at a scanned start, at any depth, also in
+    an array and also when the object around it does not decode.
+    """
+    text = output.replace("\u3000", " ")
+    decoder = json.JSONDecoder(
+        strict=False, object_pairs_hook=_unique_reviewer_json_keys
+    )
+    objects: list[tuple[int, int, dict[str, Any]]] = []
+    failed = 0
+    start = _JSON_OBJECT_START.search(text)
+    while start is not None:
+        position = start.start()
+        try:
+            data, end = decoder.raw_decode(text, position)
+        except _DuplicateReviewerJsonKey:
+            raise
+        except (ValueError, RecursionError):
+            failed += 1
+            _refuse_too_many_undecodable_starts(failed)
+            start = _JSON_OBJECT_START.search(text, position + 1)
+            continue
+        if isinstance(data, dict):
+            objects.append((position, end, data))
+        start = _JSON_OBJECT_START.search(text, max(end, position + 1))
+    return objects, failed
+
+
+def _well_formed_json_objects(output: str) -> list[tuple[int, int, dict[str, Any]]]:
+    """The objects of ``_scan_well_formed_json_objects``."""
+    return _scan_well_formed_json_objects(output)[0]
+
+
+def _decoded_review_verdicts(value: Any, under_review: bool) -> list[dict[str, Any]]:
+    """List verdict objects in decoded JSON with the lexer's nesting rule."""
+    verdicts: list[dict[str, Any]] = []
+    if isinstance(value, dict):
+        review = _looks_like_review_json(value)
+        if review and (not under_review or "passed" in value):
+            verdicts.append(value)
+        for child in value.values():
+            verdicts.extend(_decoded_review_verdicts(child, under_review or review))
+    elif isinstance(value, list):
+        for child in value:
+            verdicts.extend(_decoded_review_verdicts(child, under_review))
+    return verdicts
+
+
+def _refuse_verdicts_hidden_from_lexer(
+    output: str,
+    selected: tuple[_ReviewJsonObjectSpan, dict[str, Any] | None] | None,
+    well_formed: list[tuple[int, int, dict[str, Any]]],
+) -> None:
+    """Fail closed when decoded JSON holds a verdict the lexer did not select.
+
+    The lexer tolerates malformed output, so a crafted string can desynchronize
+    it. Well-formed objects need no tolerance: decode them independently and
+    require that their verdicts are exactly the lexer's selection.
+    """
+    found: list[tuple[int, int, dict[str, Any]]] = []
+    for start, end, data in well_formed:
+        inside_selected = (
+            selected is not None
+            and selected[1] is not None
+            and selected[0].start < start < (selected[0].end or len(output))
+        )
+        found.extend(
+            (start, end, verdict)
+            for verdict in _decoded_review_verdicts(data, inside_selected)
+        )
+    if not found:
+        return
+    if len(found) == 1 and selected is not None and selected[1] is not None:
+        start, end, verdict = found[0]
+        span, data = selected
+        with contextlib.suppress(TypeError, ValueError):
+            if start <= span.start < end and json.dumps(
+                data, sort_keys=True
+            ) == json.dumps(verdict, sort_keys=True):
+                return
+    raise ValueError("Multiple reviewer JSON verdict objects in output")
+
+
+def _review_json_object_spans(output: str) -> list[_ReviewJsonObjectSpan]:
+    """Locate physical objects and review keys, including malformed fragments.
+
+    One lexical pass gives a fenced/balanced/repaired view of the same object
+    one identity. Only a plausible JSON object opens a context. A quoted key
+    after a brace also resynchronizes a malformed string: valid JSON strings
+    must escape that quote. Inside a string that holds only for an actual key
+    (a complete string, then a colon) whose opening quote cannot be the
+    closing quote of the current string, so a string value that ends in a
+    brace keeps its object's later keys visible. Escaped JSON examples and
+    empty braces in strings stay within their string. A recognized review key
+    still counts if its value or closing brace is malformed, so a later
+    verdict cannot supersede it.
+    """
+    spans: list[_ReviewJsonObjectSpan] = []
+    stack: list[_ReviewJsonObjectSpan] = []
+    string_start: int | None = None
+    string_owner: _ReviewJsonObjectSpan | None = None
+    escaped = False
+    for index, current in enumerate(output):
+        if current == "{":
+            following = index + 1
+            while following < len(output) and output[following].isspace():
+                following += 1
+            quoted_key = following < len(output) and output[following] == '"'
+            if quoted_key and string_start is not None:
+                quoted_key = _brace_in_string_starts_object(output, following)
+            empty_object = following < len(output) and output[following] == "}"
+            if quoted_key or (empty_object and string_start is None):
+                span = _ReviewJsonObjectSpan(index)
+                spans.append(span)
+                stack.append(span)
+                string_start = None
+                string_owner = None
                 escaped = False
                 continue
-            if current == "\\":
-                escaped = True
-                continue
-            if current == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if current == "{":
-                depth += 1
-            elif current == "}":
-                depth -= 1
-                if depth == 0:
-                    snippets.append(output[start : index + 1])
-                    break
-    return snippets
-
-
-def _iter_terminal_object_brace_repairs(output: str) -> list[str]:
-    """Repair reviewer output that is missing only the final top-level brace."""
-    snippets: list[str] = []
-    for start, char in enumerate(output):
-        if char != "{":
-            continue
-
-        stack: list[str] = []
-        in_string = False
-        escaped = False
-        balanced_before_end = False
-        invalid = False
-        for index in range(start, len(output)):
-            current = output[index]
+        if string_start is not None:
             if escaped:
                 escaped = False
-                continue
-            if current == "\\":
+            elif current == "\\":
                 escaped = True
-                continue
-            if current == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if current == "{":
-                stack.append("}")
-            elif current == "[":
-                stack.append("]")
-            elif current in "}]":
-                if not stack or stack[-1] != current:
-                    invalid = True
-                    break
-                stack.pop()
-                if not stack:
-                    balanced_before_end = True
-                    break
-
-        if invalid or balanced_before_end or in_string or stack != ["}"]:
+            elif current == '"':
+                following = index + 1
+                while following < len(output) and output[following].isspace():
+                    following += 1
+                if (
+                    string_owner is not None
+                    and following < len(output)
+                    and output[following] == ":"
+                ):
+                    with contextlib.suppress(json.JSONDecodeError):
+                        key = json.loads(output[string_start : index + 1], strict=False)
+                        if key in _REVIEW_JSON_KEYS:
+                            string_owner.review_like = True
+                        if key == "passed":
+                            string_owner.has_passed = True
+                string_start = None
+                string_owner = None
             continue
+        if current == "}" and stack:
+            stack.pop().end = index + 1
+        elif current == '"' and stack:
+            string_start = index
+            string_owner = stack[-1]
+    return spans
 
-        candidate = output[start:].strip()
-        candidate = re.sub(r"\s*```\s*$", "", candidate).strip()
-        snippets.append(candidate + "}")
 
-    return snippets
+# A quote that an even number of backslashes precedes is not escaped.
+_UNESCAPED = r"(?<!\\)(?:\\\\)*"
+# Each piece is linear: no nested unbounded repeat, a comment cannot span a
+# comment end, and a line comment cannot span a line end.
+# Space as lenient parsers skip it: U+FEFF is not whitespace for `\s`.
+_LENIENT_SPACE = r"[\s﻿]*"
+_BLOCK_COMMENT = r"/\*(?:[^*]|\*(?!/)){0,200}\*/"
+_LINE_COMMENT = r"(?:\#|//)[^\n]{0,200}\n"
+# Between a key and its colon: space and block comments.
+_KEY_COLON = _LENIENT_SPACE + "(?:" + _BLOCK_COMMENT + _LENIENT_SPACE + "){0,8}:"
+_REVIEW_KEY_TOKEN_OUTSIDE_VERDICT = re.compile(
+    "|".join(
+        (
+            # A JSON key. An escaped example inside a string does not count.
+            _UNESCAPED
+            + '"(?:'
+            + "|".join(sorted(_REVIEW_JSON_KEYS))
+            + ')"'
+            + _KEY_COLON,
+            # `passed` in spellings that neither the lexer nor the decoder
+            # reads: another case, single or curly quotes, or no quotes.
+            _UNESCAPED + '(?i:"passed")' + _KEY_COLON,
+            _UNESCAPED + "(?i:'passed')" + _KEY_COLON,
+            "[‘’“”](?i:passed)[‘’“”]" + _KEY_COLON,
+            # Unquoted: first in its object, or first on its line after a
+            # comma (a line comment may end that line), with optional block
+            # and line comments before it.
+            r"(?:\{|,[^\S\n]*(?:\n|"
+            + _LINE_COMMENT
+            + "))"
+            + _LENIENT_SPACE
+            + "(?:(?:"
+            + _BLOCK_COMMENT
+            + "|"
+            + _LINE_COMMENT
+            + ")"
+            + _LENIENT_SPACE
+            + "){0,8}(?i:passed)"
+            + _KEY_COLON,
+        )
+    )
+)
+# A double-quoted key: up to 160 characters or escapes, more than the longest
+# review key written as \uXXXX throughout.
+_ESCAPED_KEY_TOKEN = re.compile(
+    _UNESCAPED + r'("(?:[^"\\\n]|\\.){0,160}")' + _KEY_COLON, re.DOTALL
+)
+# A key in single or curly quotes, or a bare word that opens an object. No
+# JSON reader accepts these; a lenient reader does.
+_LOOSE_KEY_TOKEN = re.compile(
+    "(?:"
+    + _UNESCAPED
+    + r"'([^'\n]{0,160})'"
+    + "|[‘’“”]([^‘’“”\n]{0,160})[‘’“”]"
+    + r"|\{"
+    + _LENIENT_SPACE
+    + r"([^\s\"'‘’“”{}\[\],:]{1,160})"
+    + ")"
+    + _KEY_COLON
+)
+
+
+_REVIEW_KEY_OUTSIDE_VERDICT_ERROR = (
+    "Reviewer JSON key outside the verdict object in output"
+)
+_COMPETING_VERDICT_KEY_ERROR = "Competing spelling of a reviewer verdict key in output"
+# The keys that decide a verdict: the pass itself, the score (a pass needs
+# 7.0) and the blocking issues (one makes a pass invalid).
+_VERDICT_KEYS = ("passed", "score", "blocking_issues")
+_VERDICT_KEY_LETTERS = {
+    key: "".join(character for character in key if character.isalnum())
+    for key in _VERDICT_KEYS
+}
+
+
+def _is_competing_verdict_key(key: object) -> bool:
+    """Return whether ``key`` reads as a verdict key without being exactly it.
+
+    The verdict keys are ``passed``, ``score`` and ``blocking_issues``.
+    Compared after compatibility normalization and case folding, on letters
+    and digits only, so another case, a full-width form, added spaces,
+    punctuation, combining marks and invisible characters all count. A
+    letter outside ASCII stands for any letter: a look-alike from another
+    script counts without a table of look-alikes. Fails closed: a key of
+    the same length in another script is refused too.
+    """
+    if not isinstance(key, str) or key in _VERDICT_KEYS:
+        return False
+    folded = unicodedata.normalize("NFKC", key).casefold()
+    letters = [character for character in folded if character.isalnum()]
+    return any(
+        len(letters) == len(expected_letters)
+        and all(
+            character == expected or not character.isascii()
+            for character, expected in zip(letters, expected_letters, strict=True)
+        )
+        for expected_letters in _VERDICT_KEY_LETTERS.values()
+    )
+
+
+def _has_review_key_token(text: str) -> bool:
+    if _REVIEW_KEY_TOKEN_OUTSIDE_VERDICT.search(text):
+        return True
+    for match in _ESCAPED_KEY_TOKEN.finditer(text):
+        token = match.group(1)
+        key: object = token[1:-1]
+        with contextlib.suppress(ValueError):
+            key = json.loads(token, strict=False)
+        if isinstance(key, str) and (
+            key in _REVIEW_JSON_KEYS
+            or key.casefold() == "passed"
+            or _is_competing_verdict_key(key)
+        ):
+            return True
+        # A token with a malformed escape still reads as its raw text.
+        if _is_competing_verdict_key(token[1:-1]):
+            return True
+    return any(
+        _is_competing_verdict_key(next(group for group in match.groups() if group))
+        for match in _LOOSE_KEY_TOKEN.finditer(text)
+        if any(match.groups())
+    )
+
+
+def _refuse_review_keys_outside_verdict(output: str, start: int, end: int) -> None:
+    """Fail closed when text outside the decoded verdict holds a review key.
+
+    ``output[start:end]`` is what the decoder read as the verdict (or the
+    well-formed object around it): there, everything is a known key or string
+    content. Any review key token elsewhere belongs to something else: a
+    second verdict, or a fragment that the lexer and the decoder could not
+    read. The scan needs no string state and no decoding, so damage before a
+    key (an odd quote, a string that ends in a backslash) cannot hide it.
+
+    Deliberate policy: prose outside the verdict that quotes a key is refused
+    too, for example `I set "passed": true because ...` before the object,
+    `Schema: { passed: <boolean> }`, or `checks run: 4,` then a line
+    `passed: 4`. The scan cannot tell such prose from a second verdict.
+
+    A key in double, single or curly quotes, or a bare word that opens an
+    object, also counts when it is another spelling of a verdict key
+    (`_is_competing_verdict_key`): an object that only a lenient reader
+    accepts (`{"passed ": false,}`) is never decoded, so its keys are read
+    here.
+
+    Between a counted key and its colon the scan skips whitespace, U+FEFF
+    and `/* */` comments. Before an unquoted `passed` it also skips `#` and
+    `//` line comments.
+
+    Known limits, not detected: a key whose quotes are backslash-escaped
+    outside any string (`{\\"passed\\": false}`); an unquoted `passed:` after
+    a comma on the same line; single-quoted or unquoted exact keys other than
+    `passed` (`{'score': 1}`), and an unquoted other spelling of a verdict
+    key that does not open its object; a comment longer than 200 characters, more than eight comments
+    in a row, or a line comment between a quoted key and its colon; an
+    invisible character other than U+FEFF between a key and its colon.
+    """
+    if _has_review_key_token(output[:start]) or _has_review_key_token(output[end:]):
+        # Its own message: the output may hold one object and a key in prose.
+        raise ValueError(_REVIEW_KEY_OUTSIDE_VERDICT_ERROR)
+
+
+def _refuse_competing_verdict_keys(values: Iterable[Any]) -> None:
+    """Fail closed when a decoded object key is another spelling of a verdict key.
+
+    The raw key scan covers the text outside the decoded verdict and its
+    well-formed wrapper, including objects that only a lenient reader
+    accepts. This covers the inside: every key of the verdict and of every
+    well-formed object of the output, at any depth. One verdict must have
+    one spelling of each verdict key, so `{"score": 9, "Passed": false}`,
+    `{"passed": true, "score": 9, "Blocking_Issues": ["bad"]}` and a wrapper
+    that holds `{"Passed": false}` beside the verdict are refused.
+    Iterative: the depth of decoded JSON is not bounded by this function.
+    """
+    pending = list(values)
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if _is_competing_verdict_key(key):
+                    raise ValueError(_COMPETING_VERDICT_KEY_ERROR)
+                pending.append(child)
+        elif isinstance(value, list):
+            pending.extend(value)
 
 
 def _extract_json_object(output: str) -> dict[str, Any]:
-    """Extract the reviewer JSON object from model output."""
-    candidates: list[dict[str, Any]] = []
-    fenced_blocks = re.findall(
-        r"```(?:json)?\s*(.*?)```",
-        output,
-        flags=re.DOTALL | re.IGNORECASE,
+    """Extract one physical reviewer verdict; refuse multiple occurrences.
+
+    Three independent checks refuse a second verdict: the tolerant lexer, the
+    decode of every well-formed object, and the scan for raw review key
+    tokens outside the verdict. The last one holds when the others have lost
+    the string state. A fourth check refuses another spelling of a verdict
+    key (``passed``, ``score``, ``blocking_issues``) inside decoded JSON,
+    where the raw scan does not look.
+    """
+    data, start, end, well_formed = _select_reviewer_json_object(output)
+    _refuse_review_keys_outside_verdict(output, start, end)
+    _refuse_competing_verdict_keys([data, *(item[2] for item in well_formed)])
+    return data
+
+
+# The JSON object that each reviewer prompt asks for: its keys and the type
+# of each value. A verdict holds no other key and no other value type.
+# `_GENERALIST_REVIEW_JSON_FORMAT` states the first schema; `_REVIEW_JSON_FORMAT`
+# and the inline prompt of `_run_reviewer` state the second one.
+_SCORE, _PASSED, _TEXT, _TEXT_LIST = "number", "boolean", "string", "string list"
+_GENERALIST_REVIEW_SCHEMA: Mapping[str, str] = MappingProxyType(
+    {
+        "score": _SCORE,
+        "passed": _PASSED,
+        "blocking_issues": _TEXT_LIST,
+        "non_blocking_issues": _TEXT_LIST,
+        "reasoning": _TEXT,
+    }
+)
+_REVIEW_SCHEMA: Mapping[str, str] = MappingProxyType(
+    {"score": _SCORE, "passed": _PASSED, "issues": _TEXT_LIST, "reasoning": _TEXT}
+)
+_JSON_WHITESPACE = " \t\n\r"
+# The whole of a fenced output: one code fence, plain or marked `json`, with
+# the body on its own lines.
+_REVIEWER_JSON_FENCE = re.compile(
+    r"```(?:json)?[ \t]*\r?\n(?P<body>.*)\r?\n[ \t]*```", re.DOTALL | re.IGNORECASE
+)
+
+
+def _reviewer_schema(reviewer_type: str) -> Mapping[str, str]:
+    """Return the verdict schema that the prompt of ``reviewer_type`` asks for."""
+    if reviewer_type == GENERALIST_REVIEWER_NAME:
+        return _GENERALIST_REVIEW_SCHEMA
+    return _REVIEW_SCHEMA
+
+
+def _reviewer_schema_keys(reviewer_type: str) -> frozenset[str]:
+    """Return the verdict keys that the prompt of ``reviewer_type`` asks for."""
+    return frozenset(_reviewer_schema(reviewer_type))
+
+
+def _has_reviewer_schema_type(value: Any, kind: str) -> bool:
+    """Return whether a decoded JSON value has exactly the type ``kind``."""
+    if kind == _PASSED:
+        return type(value) is bool
+    if kind == _SCORE:
+        # `true`, `"9"` and `null` are not a number. The caller refuses a
+        # number that overflows to infinity (`1e309`).
+        return type(value) in (int, float)
+    if kind == _TEXT:
+        return type(value) is str
+    return type(value) is list and all(type(item) is str for item in value)
+
+
+def _refuse_json_constant(name: str) -> Any:
+    raise ValueError(f"Reviewer output holds {name}, which is not JSON")
+
+
+def _drop_trailing_json_commas(text: str) -> str:
+    """Drop a comma that stands between a value and the closer of its container.
+
+    The one repair of the verdict reader. A comma inside a string stays, and
+    so does a comma that follows no value (`[,]`, `[1,,]`): that is not a
+    trailing comma, and the text stays invalid JSON.
+    """
+    kept: list[str] = []
+    in_string = escaped = False
+    last = ""
+    for index, current in enumerate(text):
+        if in_string:
+            kept.append(current)
+            if escaped:
+                escaped = False
+            elif current == "\\":
+                escaped = True
+            elif current == '"':
+                in_string = False
+                last = current
+            continue
+        if current == ",":
+            following = text[index + 1 :].lstrip(_JSON_WHITESPACE)[:1]
+            if following and following in "}]" and last and last not in "[{,:":
+                continue
+        if current == '"':
+            in_string = True
+        if current not in _JSON_WHITESPACE:
+            last = current
+        kept.append(current)
+    return "".join(kept)
+
+
+def _decode_whole_reviewer_output(output: str) -> Any:
+    """Decode the whole reviewer output as one JSON value, or raise ValueError.
+
+    Two shapes are read, after one leading byte order mark and surrounding
+    JSON whitespace (space, tab, line feed, carriage return) are dropped: the
+    JSON value alone, or one code fence (plain or marked `json`) that holds
+    the JSON value alone. Nothing may stand before or after it: no prose, no
+    second fence, no second value.
+
+    The value is strict JSON, with one repair: a trailing comma before a
+    closer is dropped. Refused: a repeated key, `NaN` and `Infinity`, a raw
+    control character in a string (so a string cannot hold a line that looks
+    like a fence), and whitespace that JSON does not define.
+    """
+    text = output.removeprefix("\ufeff").strip(_JSON_WHITESPACE)
+    fenced = _REVIEWER_JSON_FENCE.fullmatch(text)
+    if fenced is not None:
+        text = fenced.group("body").strip(_JSON_WHITESPACE)
+    try:
+        return json.loads(
+            _drop_trailing_json_commas(text),
+            object_pairs_hook=_unique_reviewer_json_keys,
+            parse_constant=_refuse_json_constant,
+        )
+    except RecursionError as error:
+        raise ValueError("Reviewer output nests too deep") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "Reviewer output is not one JSON value alone or in one code fence"
+        ) from error
+
+
+def _read_reviewer_verdict(output: str, reviewer_type: str) -> dict[str, Any]:
+    """Return the verdict of a reviewer output, or raise ValueError.
+
+    A verdict is exactly one top-level JSON object that is the whole output
+    (see ``_decode_whole_reviewer_output`` for the two shapes), with no key
+    outside the schema that the prompt of ``reviewer_type`` asks for, a value
+    of the schema type under each key, and a ``score``. The types: ``passed``
+    is a JSON boolean, ``score`` a JSON number, ``reasoning`` a string,
+    and each issue list a list of strings.
+
+    Not a verdict, so the caller records an unreadable review: an array, an
+    object under another key, two objects, text beside the object, an object
+    that the output does not close, an object without ``score``, an object
+    with any other key (for example `pass`, `failed` or `verdict` beside
+    `passed`), and an object or a list where the schema has a string (for
+    example an issue written as an object). The checks of
+    ``_extract_json_object`` run first and still hold.
+    """
+    # A second, independent reading. No test input is known that it refuses
+    # and the strict typed reading below accepts; it stays as a second guard.
+    _extract_json_object(output)
+    data = _decode_whole_reviewer_output(output)
+    if type(data) is not dict:
+        raise ValueError("Reviewer verdict is not the top-level JSON object of output")
+    schema = _reviewer_schema(reviewer_type)
+    for key, value in data.items():
+        if key not in schema:
+            raise ValueError(
+                "Reviewer JSON key outside the schema of the review prompt"
+            )
+        if not _has_reviewer_schema_type(value, schema[key]):
+            raise ValueError(f"Reviewer {key} must be a JSON {schema[key]}")
+    if "score" not in data:
+        raise ValueError("Reviewer verdict has no score")
+    return data
+
+
+def _legacy_generalist_reviewer_passed(
+    data: Mapping[str, Any], *, score: float, blocking_issues: list[Any]
+) -> bool:
+    """Return the eval-scoring verdict of a generalist review.
+
+    Legacy fallback, kept for eval scoring only: without a ``passed`` key the
+    verdict comes from the absence of blocking issues, or else from the
+    score. ``ValidationResult.passed`` and the eval metrics carry this value.
+    It is not the reviewer's explicit verdict, and the generalist review
+    record does not accept it as one: see ``_explicit_reviewer_passed``.
+    """
+    if "passed" in data:
+        passed = bool(data["passed"])
+    elif "blocking_issues" in data:
+        passed = len(blocking_issues) == 0
+    else:
+        passed = score >= 7.0
+    return passed and not blocking_issues
+
+
+def _explicit_reviewer_passed(data: Mapping[str, Any]) -> bool | None:
+    """Return the reviewer's own boolean ``passed``, or None without one.
+
+    Exact key and exact type. This value alone can make a generalist review
+    record ``passed``; a verdict inferred from the score or from the absence
+    of blocking issues (the legacy eval fallback in ``_run_reviewer``) never
+    can.
+    """
+    value = data.get("passed")
+    return value if type(value) is bool else None
+
+
+def _decode_review_span(
+    output: str, span: _ReviewJsonObjectSpan
+) -> tuple[dict[str, Any], int] | None:
+    """Decode one lexer span; return its data and the end of what was read."""
+    candidate = output[span.start : span.end]
+    if span.end is not None:
+        decoded = _decode_json_object_candidate_extent(candidate)
+        return None if decoded is None else (decoded[0], span.start + decoded[1])
+    # The candidate starts at its brace, so offsets in the body are offsets
+    # in the output. Reading the appended brace means reading to the end:
+    # only whitespace and a closing fence were dropped.
+    body = re.sub(r"\s*```\s*$", "", candidate.strip()).strip()
+    decoded = _decode_json_object_candidate_extent(body + "}")
+    if decoded is None:
+        return None
+    data, consumed = decoded
+    return data, len(output) if consumed > len(body) else span.start + consumed
+
+
+def _select_reviewer_json_object(
+    output: str,
+) -> tuple[dict[str, Any], int, int, list[tuple[int, int, dict[str, Any]]]]:
+    """Return the verdict and the extent of the output that decoded as it.
+
+    Also returns every well-formed object of the output, for checks of the
+    decoded keys.
+    """
+    spans = _review_json_object_spans(output)
+    # Every object here decoded with unique keys (a repeated key refuses the
+    # output), so an extent below never covers text that was not fully read.
+    well_formed, failed_starts = _scan_well_formed_json_objects(output)
+
+    def extent(span: _ReviewJsonObjectSpan, end: int) -> tuple[int, int]:
+        # A well-formed object around the selection is decoded JSON too, and
+        # the decode check has shown that it holds no other verdict.
+        for outer_start, outer_end, _data in well_formed:
+            if outer_start <= span.start < outer_end:
+                return min(outer_start, span.start), max(outer_end, end)
+        return span.start, end
+
+    reviews: list[tuple[_ReviewJsonObjectSpan, dict[str, Any] | None]] = []
+    review_end = 0
+    for span in spans:
+        if not span.review_like:
+            continue
+        # Nested scores/details may be metadata, but a second explicit
+        # `passed` object is another verdict even inside a decoded wrapper.
+        # An undecodable fragment cannot hide a later object.
+        if any(
+            data is not None
+            and parent.start < span.start < (parent.end or len(output))
+            and not span.has_passed
+            for parent, data in reviews
+        ):
+            continue
+        if reviews:
+            raise ValueError("Multiple reviewer JSON verdict objects in output")
+        decoded = _decode_review_span(output, span)
+        reviews.append((span, None if decoded is None else decoded[0]))
+        review_end = 0 if decoded is None else decoded[1]
+    _refuse_verdicts_hidden_from_lexer(
+        output, reviews[0] if reviews else None, well_formed
     )
-    for block in fenced_blocks:
-        data = _decode_json_object_candidate(block)
-        if data is not None:
-            candidates.append(data)
+    if reviews:
+        span, data = reviews[0]
+        if data is None or not _looks_like_review_json(data):
+            raise ValueError("Malformed reviewer JSON verdict object")
+        return (data, *extent(span, review_end), well_formed)
 
-    for snippet in _iter_balanced_json_object_snippets(output):
-        data = _decode_json_object_candidate(snippet)
-        if data is not None:
-            candidates.append(data)
-
-    for snippet in _iter_terminal_object_brace_repairs(output):
-        data = _decode_json_object_candidate(snippet)
-        if data is not None:
-            candidates.append(data)
-
-    for data in candidates:
-        if _looks_like_review_json(data):
-            return data
-    if candidates:
-        return candidates[0]
+    # No review key anywhere. Each failed span decode can cost time in
+    # proportion to the output, so these attempts share the budget of the
+    # well-formed scan.
+    for span in spans:
+        decoded = _decode_review_span(output, span)
+        if decoded is not None:
+            return (decoded[0], *extent(span, decoded[1]), well_formed)
+        failed_starts += 1
+        _refuse_too_many_undecodable_starts(failed_starts)
 
     raise ValueError("No JSON found in output")
 
 
-_REVIEW_JSON_FORMAT = """
+# One sentence, the same in every reviewer prompt: the shape that
+# `_read_reviewer_verdict` reads.
+_REVIEW_REPLY_SHAPE = (
+    "Your whole reply must be exactly one JSON object with exactly these keys: "
+    "no text before or after it and no other key. `score` is a number, `passed` "
+    "is true or false, every issue is one string and `reasoning` is one string. "
+    "One ```json code fence around the object is allowed."
+)
+
+_REVIEW_JSON_FORMAT = f"""
 Output your review as JSON:
-{
+{{
   "score": <float 1-10>,
   "passed": <boolean>,
   "issues": ["issue1", "issue2"],
   "reasoning": "<brief explanation>"
-}
+}}
+
+{_REVIEW_REPLY_SHAPE}
 """
 
-_GENERALIST_REVIEW_JSON_FORMAT = """
+_GENERALIST_REVIEW_JSON_FORMAT = f"""
 Output your review as JSON:
-{
+{{
   "score": <float 1-10>,
   "passed": <boolean>,
   "blocking_issues": ["issue1", "issue2"],
   "non_blocking_issues": ["issue3", "issue4"],
   "reasoning": "<brief explanation>"
-}
+}}
+
+{_REVIEW_REPLY_SHAPE}
 
 Use `passed: true` when the encoding is safe to promote even if there are minor cleanup notes.
 Only place substantive statutory-fidelity defects in `blocking_issues`.
@@ -42579,12 +43309,29 @@ class ValidatorPipeline:
         start = time.time()
 
         # Read RuleSpec file content
+        review_evidence: dict[str, Any] = {}
         try:
-            rulespec_content = Path(rulespec_file).read_text()
+            reviewed_rulespec_bytes = Path(rulespec_file).read_bytes()
+            rulespec_content = reviewed_rulespec_bytes.decode("utf-8")
             test_content = None
+            reviewed_test_bytes = None
             companion_test = self._rulespec_test_path(rulespec_file)
             if companion_test.exists():
-                test_content = companion_test.read_text()
+                reviewed_test_bytes = companion_test.read_bytes()
+                test_content = reviewed_test_bytes.decode("utf-8")
+            elif reviewer_type == GENERALIST_REVIEWER_NAME:
+                # Apply writes an empty companion test for a deferred module
+                # that has none. Generate those bytes now, so the prompt
+                # shows them and the evidence names their digest: the record
+                # never credits a companion that the reviewer did not see.
+                reviewed_test_bytes = empty_deferred_companion_test(
+                    reviewed_rulespec_bytes
+                )
+                if reviewed_test_bytes is not None:
+                    test_content = reviewed_test_bytes.decode("utf-8")
+            review_evidence.update(
+                review_evidence_digests(reviewed_rulespec_bytes, reviewed_test_bytes)
+            )
         except Exception as e:
             duration = int((time.time() - start) * 1000)
             return ValidationResult(
@@ -42626,7 +43373,9 @@ class ValidatorPipeline:
         if review_context:
             review_context_section = f"\n## Review Context\n{review_context}\n"
         test_section = ""
-        if test_content:
+        # Presence decides, not truthiness: an empty companion file is shown
+        # as an empty section, because the evidence names it as reviewed.
+        if test_content is not None:
             test_section = (
                 "\n## Companion Test File\n"
                 f"{test_content[:3000]}{'...' if len(test_content) > 3000 else ''}\n"
@@ -42667,8 +43416,18 @@ Output ONLY valid JSON:
   "issues": ["issue1", "issue2"],
   "reasoning": "<brief explanation>"
 }}
+
+{_REVIEW_REPLY_SHAPE}
 """
         prompt_sha256 = _sha256_text(prompt)
+        # The prompt quotes a bounded prefix of each file; record whether the
+        # reviewer was shown the whole of what the digests above name.
+        rulespec_limit = 6000 if prompt_template is not None else 3000
+        review_evidence["rulespec_complete"] = len(rulespec_content) <= rulespec_limit
+        review_evidence["test_complete"] = (
+            test_content is None or len(test_content) <= 3000
+        )
+        _note_reviewer_cli_started(None, None)
 
         try:
             reviewer_timeout = int(
@@ -42680,6 +43439,9 @@ Output ONLY valid JSON:
                 timeout=reviewer_timeout,
                 cwd=self.policy_repo_path,
             )
+            started = _reviewer_cli_started()
+            review_evidence["reviewer_backend"] = started[0] if started else None
+            review_evidence["reviewer_model"] = started[1] if started else None
             if returncode != 0:
                 output_excerpt = output.strip()[:500] or "no output"
                 raise RuntimeError(
@@ -42690,7 +43452,7 @@ Output ONLY valid JSON:
             # structured "reviewer_parse_failed" result instead of
             # letting the generic except below swallow the detail.
             try:
-                data = _extract_json_object(output)
+                data = _read_reviewer_verdict(output, reviewer_type)
             except (ValueError, json.JSONDecodeError) as parse_err:
                 duration = int((time.time() - start) * 1000)
                 raw_snippet = (output or "").strip()
@@ -42718,6 +43480,9 @@ Output ONLY valid JSON:
                     prompt_sha256=prompt_sha256,
                 )
 
+            # The record of a model apply reads this value, never the
+            # verdict that the legacy fallbacks below can infer.
+            review_evidence[EVIDENCE_EXPLICIT_PASSED] = _explicit_reviewer_passed(data)
             score = float(data.get("score", 5.0))
             if not math.isfinite(score):
                 # JSON has no Infinity literal, but `1e309` parses to inf; a
@@ -42739,35 +43504,22 @@ Output ONLY valid JSON:
                     prompt_sha256=prompt_sha256,
                 )
             if reviewer_type == "generalist-reviewer":
+                # The verdict reader has checked the keys and the types:
+                # each issue list is a list of strings.
                 blocking_issues = data.get("blocking_issues", [])
                 non_blocking_issues = data.get("non_blocking_issues", [])
-                if not isinstance(blocking_issues, list):
-                    blocking_issues = [str(blocking_issues)]
-                if not isinstance(non_blocking_issues, list):
-                    non_blocking_issues = [str(non_blocking_issues)]
 
-                if "passed" in data:
-                    passed = bool(data["passed"])
-                elif "blocking_issues" in data:
-                    passed = len(blocking_issues) == 0
-                else:
-                    passed = score >= 7.0
+                passed = _legacy_generalist_reviewer_passed(
+                    data, score=score, blocking_issues=blocking_issues
+                )
 
-                reported_issues = data.get("issues", [])
-                if not isinstance(reported_issues, list):
-                    reported_issues = [str(reported_issues)]
                 issues = list(blocking_issues)
                 issues.extend(
                     f"[non-blocking] {issue}" for issue in non_blocking_issues
                 )
-                for issue in reported_issues:
-                    if issue not in issues:
-                        issues.append(issue)
             else:
                 passed = bool(data.get("passed", score >= 7.0))
-                issues = data.get("issues", [])
-            if not isinstance(issues, list):
-                issues = [str(issues)]
+                issues = list(data.get("issues", []))
             if score < 7.0:
                 if passed:
                     issues.append(
@@ -42786,6 +43538,7 @@ Output ONLY valid JSON:
                 duration_ms=duration,
                 raw_output=output,
                 prompt_sha256=prompt_sha256,
+                details={"review_evidence": review_evidence},
             )
 
         except Exception as e:

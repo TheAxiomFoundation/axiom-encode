@@ -118,6 +118,167 @@ capability.
 The launcher is validated but never executed; the
 supervisor executes the validated interpreter and protected bootstrap directly.
 
+### Requiring the generalist review
+
+`encode --apply` records its generalist review in the encode outcome, and in
+the signed manifest for a target that verifies with the main encoder. That is
+a target whose protected base sets `[workflow_toolchain] encoder_verifier =
+"main"` and sets no `encoder_verifier_hold`. A hold verifies with one exact
+earlier encoder commit, which may predate the record field, so a held target
+gets the record in the encode outcome only, like a pinned target. The mode and
+the hold are read from one protected commit. By
+default a review that is unavailable, failed or partial does not stop the
+apply. To make it stop, add `--require-review` to the supervised command:
+
+```text
+  -- /opt/axiom/python/bin/axiom-encode encode ... --apply --require-review
+```
+
+With the flag, the encode applies only when the reviewer ran, passed, and was
+shown the whole content of every applied file; otherwise it ends
+`apply_blocked_review` with a non-zero exit and nothing applied.
+
+The reviewer prompt has size limits, and they decide "whole content": it shows
+at most the first 6,000 characters of the module and the first 3,000 characters
+of the companion test file. A larger file is recorded as `partial`
+(`review_saw_truncated_file`), so the flag refuses it. Most real modules are
+larger: of the 65 replay-benchmark candidates in this repository, 57 modules
+and 53 companions exceed these limits. Without the flag the record of such a
+file says `partial`, which is accurate. Do not turn the flag on for a signed
+lane before the limits are raised or removed (#2252).
+
+A verdict is exactly one JSON object that is the whole reviewer reply. Two
+shapes are read: the object alone, or one code fence (plain or marked `json`,
+with the object on its own lines) that holds the object alone. One leading
+byte order mark and surrounding JSON whitespace (space, tab, line feed,
+carriage return) are dropped. The object is strict JSON with one repair: a
+trailing comma between a value and its closer is dropped. Every reviewer
+prompt states this shape.
+
+The object must match the schema that the reviewer prompt asks for, in keys
+and in value types:
+
+| Reviewer | Keys and types |
+| --- | --- |
+| generalist | `score` number, `passed` boolean, `blocking_issues` list of strings, `non_blocking_issues` list of strings, `reasoning` string |
+| the other reviewers | `score` number, `passed` boolean, `issues` list of strings, `reasoning` string |
+
+`score` must be present. A pass is the reviewer's own `"passed": true` in that
+object.
+
+Everything else is not a verdict, and the record says `unavailable`
+(`reviewer_error`): an array, an object under another key, two objects, text
+before or after the object or the fence, an object that the output does not
+close, an object without `score`, an object with any other key (for example
+`pass`, `failed`, `verdict`, `details` or `"Passed"`), and a value of another
+type (for example an issue written as an object, or `reasoning` as an object).
+Not strict JSON, and refused too: a repeated key, `NaN` and `Infinity`, a
+comma that follows no value (`[,]`), whitespace that JSON does not define
+(for example U+3000), and a raw control character inside a string. The last
+one is a choice: strict JSON forbids it, no stored reviewer output has one,
+and a string can then not hold a line that looks like a fence. The earlier
+checks still run first: a second verdict object and another spelling of a
+verdict key anywhere in the output are refused.
+
+The reply is read from the reviewer CLI as follows. The default backend is the
+Claude CLI; `AXIOM_ENCODE_REVIEWER_CLI=codex` selects the Codex CLI, and it is
+also the fallback when the Claude CLI is not installed. For the Claude CLI the
+reply is stdout alone when the run exits 0; the length of stderr is logged,
+and stderr is not part of the reply. For the Codex CLI the event stream is stdout alone when the run exits 0, and the reply is the text of the
+one agent message in it. The stream is unreadable, and the record says
+`unavailable`, when it holds more than one agent message with text, no agent
+message, an `error` or `turn.failed` event, a line that is not a JSON
+object, or an agent message whose `text` is not a string. A line ends at a
+line feed, and only JSON whitespace (space, tab, line feed, carriage return)
+is stripped from it: a stream whose events are separated by a lone carriage
+return, or a line that holds or is padded with another whitespace character
+(for example a form feed, U+00A0 or U+2028 outside a string), is unreadable. An object with no `type` or an unknown
+`type`, and an `item.completed` whose `item` is not an object, are ignored:
+the CLI writes these lines, not the reviewer. A reviewer run with a preamble message before its verdict is therefore
+unreadable by design: the reader cannot tell a harmless preamble from an
+earlier verdict in other words. This can be relaxed later with data; none of
+the 45 stored Codex reviews has more than one agent message. A
+run that exits non-zero has no reply for either backend, whatever it printed:
+the record says `unavailable`.
+Eval scoring keeps its older fallback from the score.
+A pass that the fallback infers never reaches the record as a pass: a score
+without `passed` is recorded as `failed` when the fallback says fail (for
+example `{"score": 2}`) and as `unavailable` otherwise, and a non-boolean
+`passed` is recorded as `unavailable` (`reviewer_error`).
+
+The record binds a verdict by canonical YAML content, not by bytes. "Shown the
+whole content" means: the prompt showed the whole text of a file whose
+canonical content equals the applied file. Comments, key order and harmless
+quoting can differ; the record names the byte digests of both sides. Quoting
+is not harmless when it changes the value that the companion-test loader
+(`yaml.safe_load`) reads: plain `yes`, `0b10`, `1_000`, `1:30` and
+`2001-01-01` are a boolean, numbers and a date there, and strings when
+quoted. Such a pair has two canonical contents, so a review of one spelling
+does not cover the other. A plain float that every modeled reader
+(`yaml.safe_load`, a YAML 1.2 core reader, a reader of both typed forms)
+reads as one value is bound by that value, because the apply dump respells
+it: `0.20` and `0.2` are one content. A quoted number, a tagged number, an
+integer, `-0.0` against `0.0`, and a spelling that one dialect reads another
+way (`1_000.0`, `1.5e3`) keep their exact text. So does a number that
+overflows to infinity (`1.0e+999`): only `.inf`, `-.inf` and `.nan`, in their
+three letter cases, are one infinity or NaN for every reader.
+
+The record binds review coverage to each manifest path. Its `files` list has
+one entry per applied path, with that path's byte digest. The verdict covers
+only the module path that the reviewer was asked about and the companion test
+path of that module. Another applied file stays not reviewed also when its
+bytes equal a reviewed file, for example a repaired dependent companion test
+that is byte-identical to the reviewed one: its path selects another module
+as its validation context, and the reviewer did not read that context. The
+record is then `partial` and a required apply refuses. Paths have one
+spelling (relative, `/` separators, no `.` or `..` segment); a list with
+another spelling, or with two paths that differ only by case or Unicode
+composition, binds no verdict.
+
+The manifest reader checks the record against the manifest alone. It checks
+the exact (path, digest) list, the shape of each path, that the reviewed
+entries are the named module and its companion test, and that the reviewed
+and applied content digests are equal. It does not check which module the
+reviewer read, and it cannot recompute a content digest from the listed byte
+digests: a forged record that names other bytes as `applied.rulespec_sha256`
+and keeps the reviewed content digest is accepted by the reader. The reader
+relies on the manifest signature for that. The manifest writer is the only
+site that puts the record in a manifest, and it builds the record from the
+files it signs.
+
+A retry that accepts a retained repair candidate without a new model call
+does not run the reviewer. Its record is `skipped` (`reviewer_not_run`), so
+with `--require-review` that encode ends `apply_blocked_review` even where a
+reviewer CLI is available. Encode the citation again to get a reviewed
+candidate.
+
+For a deferred module without a companion test, apply writes an empty
+companion test (`[]`). The reviewer prompt shows that generated companion and
+the record binds its canonical content, so the whole-file statement also
+holds for it. An empty list is one canonical content whatever its formatting
+or comments. A null document (a 0-byte file, a file with only comments, `~`)
+and an empty mapping are other contents, because the companion-test loader
+refuses them, and an absent companion is a content of its own. A reviewed
+empty companion covers none of them, and a companion with test cases is
+never covered by a review of an empty one. A companion file that exists is
+always shown in the prompt, also when it is empty. A companion that the
+reviewer was not shown binds no verdict: the record is `unavailable` and a
+required apply refuses.
+
+A file has no canonical content digest, and so no binding, when its mapping
+keys are ambiguous: a repeated key, two keys that PyYAML (YAML 1.1), a YAML
+1.2 core reader or a mix of their typed forms reads as one value (`0x10` and
+`16`, `0o20` and `0b10000`), a key that is not a scalar, or a key that one of
+those two dialects cannot construct (`!!value`, `!!timestamp`, a local tag).
+No other YAML dialect is modeled. The flag is
+the only switch. There is no environment variable for it, because the
+supervisor builds the child environment from empty and would drop one.
+
+Turn it on only where a reviewer CLI can start under the supervisor: the local
+trusted lane (#2037), after the trusted runtime is re-provisioned at a commit
+that has the flag. The hosted signed workflow has no reviewer CLI on its
+runner, so the flag would block every run there.
+
 The Python environment is constructed from empty. It contains fixed locale,
 bytecode/isolation controls, a fixed path containing only the validated runtime
 tool directory, and the anonymous
