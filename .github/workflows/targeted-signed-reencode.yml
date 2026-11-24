@@ -4031,9 +4031,10 @@ jobs:
           # primary and manifest paths; it is empty for every other run.
           promotion_units = {}
           if promotion_unit_citations is not None:
+              # The wrapper's parser admits a unit list only on a promotion
+              # transaction.
               if (
-                  not reviewed_candidate_promotion
-                  or os.environ["CITATION"] not in promotion_unit_citations
+                  os.environ["CITATION"] not in promotion_unit_citations
                   or canonical_refresh_items
                   or source_bundle_citations
                   or dependent_citation
