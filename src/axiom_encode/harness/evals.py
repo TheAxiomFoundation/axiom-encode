@@ -11132,6 +11132,15 @@ def _bind_generated_source_verification(
             check_source_verification(raw, attestation)
             return None
         binding = bind_module_source_verification(raw, attestation)
+    except (OSError, _corpus_resolver.UnsafeCorpusPathError):
+        # A missing, symlinked or oversized candidate is not a crash of the
+        # encode: it is a candidate that cannot be bound.
+        exc = SourceBindingError(
+            "the generated RuleSpec is not a readable regular file in the output root"
+        )
+        exc.kind = "unreadable"
+        print(f"  source_binding_refused={exc.kind}")
+        return exc
     except SourceBindingError as exc:
         print(f"  source_binding_refused={exc.kind}")
         if read_only:
@@ -11159,9 +11168,9 @@ def _source_binding_issue(refusal: Exception) -> ValidationIssue:
     return ValidationIssue(
         "[source-binding] Generated RuleSpec is not bound to its "
         f"resolver-attested source ({kind}): {refusal}. Write "
-        "`module.source_verification` as a plain block mapping with exactly "
-        "`corpus_citation_path` and `source_sha256`, copied from "
-        "`source_attestation` in `./source-metadata.json`.",
+        "`module.source_verification` as a plain block mapping with the "
+        "requested `corpus_citation_path` on its own line, and leave "
+        "`source_sha256` out: the encoder writes it.",
         check=CHECK_SOURCE_BINDING,
         expected="the attested corpus_citation_path and source_sha256",
         found=kind,
@@ -12909,18 +12918,6 @@ Preferred principal output:
 {subparagraph_coverage_checklist}"""
     corpus_source_section = ""
     corpus_rulespec_requirement = ""
-    # Without a resolver attestation in the workspace the pin stays optional
-    # and this line is the earlier wording, byte for byte.
-    source_pin_requirement = "`corpus_citation_path` and optional `source_sha256` pin."
-    if _workspace_source_attestation_has_pin(workspace):
-        source_pin_requirement = (
-            "`corpus_citation_path` and the `source_sha256` pin. Write both, each\n"
-            "  on its own line in plain block form, copied exactly from\n"
-            "  `source_attestation` in `./source-metadata.json`:\n"
-            "  `corpus_citation_path` is its `requested_corpus_citation_path` and\n"
-            "  `source_sha256` is its `source_sha256`. The encoder refuses a module\n"
-            "  that names another value."
-        )
     if corpus_citation_path:
         corpus_source_section = f"""
 - This source text was read from `corpus.provisions` at `{corpus_citation_path}`.
@@ -13120,7 +13117,7 @@ RuleSpec requirements:
   another source is needed, encode it as its own corpus-bound atomic module and
   import that module, or emit a typed deferral. Do not add source-audit metadata
   to `module.source_verification`; its only fields are the singular
-  {source_pin_requirement}
+  `corpus_citation_path` and optional `source_sha256` pin.
 - Include `module.proof_validation.required: true` and add
   `metadata.proof.atoms` to every `parameter`, `derived`, and
   `derived_relation` rule. Each atom must point to release-bound corpus source
@@ -13971,23 +13968,6 @@ Do not respond with summaries, markdown prose, or file-write confirmations.
     return _PromptWithCacheBoundary(
         stable_prefix + dynamic_suffix,
         cache_prefix_length=len(stable_prefix),
-    )
-
-
-def _workspace_source_attestation_has_pin(workspace: EvalWorkspace) -> bool:
-    """Whether ``./source-metadata.json`` gives the model both pin values."""
-
-    source_metadata = workspace.source_metadata
-    attestation = (
-        source_metadata.get("source_attestation")
-        if isinstance(source_metadata, dict)
-        else None
-    )
-    return (
-        isinstance(attestation, dict)
-        and isinstance(attestation.get("requested_corpus_citation_path"), str)
-        and isinstance(attestation.get("source_sha256"), str)
-        and re.fullmatch(r"[0-9a-f]{64}", attestation["source_sha256"]) is not None
     )
 
 

@@ -44,6 +44,7 @@ from dataclasses import dataclass
 
 import yaml
 
+from . import reviewed_pr_admission as _admission
 from .checks import declare_check
 
 __all__ = [
@@ -52,6 +53,7 @@ __all__ = [
     "SourceBindingConflict",
     "SourceBindingError",
     "SourceBindingInputError",
+    "SourceBindingPlainFormError",
     "SourceBindingShapeError",
     "bind_source_verification",
     "check_source_verification",
@@ -70,9 +72,6 @@ _LINE_BREAKS = "\n\r\x85  "
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 # A plain scalar that needs no quotes: no space, colon, hash or indicator.
 _PLAIN_SAFE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@+-]*")
-# Digits with an optional exponent: an integer or a float for a YAML 1.2
-# reader, although PyYAML reads the exponent form as a string.
-_NUMBER_LIKE = re.compile(r"[-+]?[0-9][0-9_]*(?:[eE][-+]?[0-9]+)?")
 _QUOTABLE = re.compile(r"[\x20-\x7e]+")
 
 
@@ -92,12 +91,12 @@ CHECK_SOURCE_BINDING = declare_check(
         "the rule to text it was not encoded from."
     ),
     fix=(
-        "Write `module.source_verification` in block form with exactly "
-        "`corpus_citation_path` and `source_sha256`, each on its own line, "
-        "copied from `source_attestation` in `./source-metadata.json` "
-        "(`requested_corpus_citation_path` and `source_sha256`). Do not use "
-        "flow style, anchors, merge keys or a multi-line value there. For an "
-        "existing candidate run `axiom-encode bind-source-verification`."
+        "Write `module.source_verification` as a plain block mapping with "
+        "the one line `corpus_citation_path: <the requested citation path>`. "
+        "Leave `source_sha256` out: the encoder writes it. Do not use flow "
+        "style, anchors, tags, merge keys, quoted keys or a multi-line value "
+        "there, and no `---` line. For an existing candidate run "
+        "`axiom-encode bind-source-verification`."
     ),
     cause="encoder_output",
     gate="ci",
@@ -127,6 +126,17 @@ class SourceBindingShapeError(SourceBindingError):
     """The module text is in a shape the minimal edit does not handle."""
 
     kind = "unsupported_shape"
+
+
+class SourceBindingPlainFormError(SourceBindingShapeError):
+    """The module is bound for a YAML parser, but not in the plain block form.
+
+    The promotion lane reads the pin with a standard-library line reader
+    (``reviewed_pr_admission.read_candidate_source_pin``) before any approval.
+    A module that this reader refuses is not promotable as it stands.
+    """
+
+    kind = "not_plain_form"
 
 
 @dataclass(frozen=True)
@@ -178,9 +188,11 @@ def _attested_values(attestation: Mapping[str, object]) -> tuple[str, str, str]:
 def _render_scalar(value: str) -> str:
     """The shortest YAML scalar that every reader loads as this string."""
 
+    # Unquoted only when no YAML 1.1 or 1.2 reader can take the text for a
+    # number, a boolean or null (`1e3`, `1.5e3`, `0o17`, `0x1f`, `yes`).
     if (
         _PLAIN_SAFE.fullmatch(value) is not None
-        and _NUMBER_LIKE.fullmatch(value) is None
+        and _admission.plain_scalar_is_string(value)
         and yaml.safe_load(value) == value
     ):
         return value
@@ -458,6 +470,28 @@ def _expected_document(text: str, requested: str, pin: str) -> object:
     return expected
 
 
+def _require_plain_form(content: bytes, requested: str, pin: str) -> None:
+    """Refuse a bound module that the promotion lane's line reader would refuse.
+
+    So "the binder accepts it" implies "admission and the pre-approval step
+    read the same pin".
+    """
+
+    try:
+        read = _admission.read_candidate_source_pin(content)
+    except _admission.AdmissionError as exc:
+        detail = getattr(exc, "detail", "it is not in the plain block form")
+    else:
+        if read == (requested, pin):
+            return
+        detail = "the line reader does not read the attested values back"
+    raise SourceBindingPlainFormError(
+        f"module.{_BLOCK} carries the attested values for a YAML parser, but the "
+        f"file is not in the plain block form that the promotion lane reads: "
+        f"{detail}"
+    )
+
+
 def bind_source_verification(
     module: bytes, attestation: Mapping[str, object]
 ) -> SourceBinding:
@@ -479,6 +513,7 @@ def bind_source_verification(
         raise SourceBindingInputError("module is not UTF-8") from None
     edits = _plan(text, requested, resolved, pin)
     if not edits:
+        _require_plain_form(bytes(module), requested, pin)
         return SourceBinding(bytes(module), (), requested, pin)
     bound = text
     for edit in sorted(edits, key=lambda item: item.start, reverse=True):
@@ -497,6 +532,7 @@ def bind_source_verification(
             f"a module.{_BLOCK} layout whose minimal edit does not read back "
             "as the attested values"
         )
+    _require_plain_form(bound.encode("utf-8"), requested, pin)
     return SourceBinding(
         bound.encode("utf-8"),
         tuple(edit.name for edit in sorted(edits, key=lambda item: item.start)),

@@ -84,6 +84,10 @@ def test_binds_the_module_and_prints_both_digests_and_the_one_line_diff(world, c
         f"module={MODULE_PATH.as_posix()}",
         f"corpus_release={world.release.name} ({world.release.content_sha256})",
         f"attested_source_sha256={world.pin}",
+        "warning=NO --expect-source-sha256: this pin attests the source as "
+        f"corpus release {world.release.name} stores it now. Compare "
+        "attested_source_sha256 with the source attestation of the encode "
+        "run before you push; if they differ, encode the candidate again",
         f"old_sha256={hashlib.sha256(UNBOUND.encode()).hexdigest()}",
         f"new_sha256={hashlib.sha256(world.bound).hexdigest()}",
         f"diff=+    source_sha256: {world.pin}",
@@ -151,18 +155,21 @@ def test_a_refusal_writes_nothing_and_exits_1(
     assert "new_sha256=" not in out
 
 
-def test_a_missing_module_or_a_symlink_is_refused(world):
+def test_a_missing_module_or_a_symlink_is_a_clean_error(world, capsys):
     target = world.module.with_name("real.yaml")
     world.module.rename(target)
-    with pytest.raises(ValueError, match="not a regular file in the checkout"):
-        run(world)
+    assert run(world) == 2
     world.module.symlink_to(target)
-    with pytest.raises(ValueError, match="not a regular file in the checkout"):
-        run(world)
+    assert run(world) == 2
+    out = capsys.readouterr().out
+    assert out.count("status=error") == 2
+    assert out.count("error=candidate RuleSpec is not a regular file") == 2
     assert target.read_bytes() == UNBOUND.encode()
 
 
-def test_a_citation_that_is_not_canonical_is_refused_before_any_read(world):
+def test_a_citation_that_is_not_canonical_is_a_clean_error_before_any_read(
+    world, capsys
+):
     argv = [
         "axiom-encode",
         "bind-source-verification",
@@ -173,9 +180,89 @@ def test_a_citation_that_is_not_canonical_is_refused_before_any_read(world):
         "--corpus-path",
         str(world.corpus),
     ]
-    with patch("sys.argv", argv), pytest.raises(ValueError):
+    with patch("sys.argv", argv), pytest.raises(SystemExit) as caught:
         cli.main()
+    assert caught.value.code == 2
+    assert "status=error" in capsys.readouterr().out
     world.load.assert_not_called()
+
+
+def test_a_wrong_checkout_or_a_symlinked_path_is_a_clean_error(world, capsys, tmp_path):
+    """No traceback for a checkout the toolchain refuses or a symlinked path."""
+    link = tmp_path / "link-to-repo"
+    link.symlink_to(world.repo)
+    world.repo = link
+    assert run(world) == 2
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "status=error"
+    assert out[1].startswith("error=RuleSpec checkout path contains a symlink")
+    world.repo = link.resolve()
+    from axiom_encode.toolchain import RuleSpecToolchainError
+
+    world.load.side_effect = RuleSpecToolchainError("checkout is not canonical")
+    assert run(world) == 2
+    assert capsys.readouterr().out.splitlines() == [
+        "status=error",
+        "error=checkout is not canonical",
+    ]
+    assert world.module.read_bytes() == UNBOUND.encode()
+
+
+def test_expect_source_sha256_that_matches_binds_without_the_warning(world, capsys):
+    assert run(world, "--expect-source-sha256", world.pin) == 0
+    assert world.module.read_bytes() == world.bound
+    out = capsys.readouterr().out
+    assert "warning=" not in out
+    assert f"expected_source_sha256={world.pin}" in out.splitlines()
+    assert out.splitlines()[-1] == "status=bound:insert_source_sha256"
+
+
+@pytest.mark.parametrize("check", [(), ("--check",)])
+@pytest.mark.parametrize("start", ["unbound", "bound"])
+def test_expect_source_sha256_refuses_a_source_that_changed(
+    world, capsys, check, start
+):
+    """The checkout's corpus attests another body than the encode run recorded:
+    never re-pin, and never report a stale pin of the new body as bound."""
+    before = UNBOUND.encode() if start == "unbound" else world.bound
+    world.module.write_bytes(before)
+    assert run(world, "--expect-source-sha256", "0e" * 32, *check) == 1
+    assert world.module.read_bytes() == before
+    out = capsys.readouterr().out.splitlines()
+    assert "status=refused:source_changed" in out
+    assert f"expected_source_sha256={'0e' * 32}" in out
+    assert out[-1].startswith("error=the corpus release pinned by this checkout")
+    assert not any(line.startswith(("new_sha256=", "diff=")) for line in out)
+
+
+@pytest.mark.parametrize("value", ["0E" * 32, "0e" * 31, "sha256:" + "0e" * 32, ""])
+def test_expect_source_sha256_must_be_a_digest(world, capsys, value):
+    assert run(world, "--expect-source-sha256", value) == 2
+    assert "--expect-source-sha256 must be 64 lowercase" in capsys.readouterr().out
+    assert world.module.read_bytes() == UNBOUND.encode()
+    world.load.assert_not_called()
+
+
+@pytest.mark.parametrize("check", [(), ("--check",)])
+def test_right_values_outside_the_plain_block_form_are_never_reported_bound(
+    world, capsys, check
+):
+    """What the command calls bound, the admission reader accepts."""
+    from axiom_encode import reviewed_pr_admission
+
+    for text in (b"---\n" + world.bound, b"---\n" + UNBOUND.encode()):
+        world.module.write_bytes(text)
+        assert run(world, *check) == 1
+        assert world.module.read_bytes() == text
+        out = capsys.readouterr().out
+        assert "status=refused:not_plain_form" in out.splitlines()
+        assert "not in the plain block form" in out
+        assert "already_bound" not in out and "status=bound" not in out
+    world.module.write_bytes(UNBOUND.encode())
+    assert run(world) == 0
+    reviewed_pr_admission.require_candidate_source_pin(
+        world.module.read_bytes(), CITATION
+    )
 
 
 def test_the_command_has_no_model_signing_or_network_option():
@@ -321,11 +408,33 @@ def test_a_result_without_an_attestation_is_unbound(tmp_path):
     assert result.success is False
 
 
-def test_a_result_whose_file_cannot_be_read_has_nothing_to_promote(tmp_path, capsys):
+def test_a_clean_result_whose_recorded_file_cannot_be_read_is_unbound(tmp_path, capsys):
     result = _result(tmp_path, UNBOUND)
     result.output_file = str(tmp_path / "absent.yaml")
+    result.generated_output_sha256 = "ab" * 32
     outcome = _outcome(result)
+    assert outcome["source_binding"] == "unbound"
+    assert outcome["source_binding_error"].startswith("unreadable: ")
+    assert outcome["status"] == "source_unbound"
+    assert outcome["final_success"] is False
+    assert result.success is False
+    assert "source_binding=unbound" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "success, recorded",
+    [(False, "ab" * 32), (True, None), (True, "not-a-digest"), (True, object())],
+)
+def test_only_a_failed_or_digestless_result_is_unverified(
+    tmp_path, capsys, success, recorded
+):
+    result = _result(tmp_path, UNBOUND, success=success)
+    result.output_file = str(tmp_path / "absent.yaml")
+    result.generated_output_sha256 = recorded
+    outcome = _outcome(result)
+    # `unverified` is its own state: it is never recorded as `bound`.
     assert outcome["source_binding"] == "unverified"
-    assert outcome["status"] == "standalone_validated"
-    assert result.success is True
+    assert "source_binding_error" not in outcome
+    assert outcome["final_success"] is success
+    assert result.success is success
     assert capsys.readouterr().out == "  source_binding=unverified\n"

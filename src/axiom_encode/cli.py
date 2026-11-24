@@ -3185,6 +3185,19 @@ def main():
         help="Verify only: exit 1 when the module is not bound; write nothing",
     )
     bind_source_parser.add_argument(
+        "--expect-source-sha256",
+        default=None,
+        metavar="HEX",
+        help=(
+            "The source_sha256 of the source attestation that the encode run "
+            "recorded for this candidate. The command refuses unless the corpus "
+            "release pinned by the checkout still attests exactly this source "
+            "body. Use it for every existing candidate: without it the pin "
+            "attests the current corpus release, which may hold another body "
+            "than the one the candidate was encoded from"
+        ),
+    )
+    bind_source_parser.add_argument(
         "--corpus-release-public-key",
         default=None,
         help=(
@@ -12860,16 +12873,23 @@ def _manifest_census_badge(census: dict[str, object]) -> dict[str, object]:
 def cmd_bind_source_verification(args) -> int:
     """Bind one existing candidate module to its resolver-attested source."""
 
-    local_roots = _local_verification_encode_roots(args)
-    if local_roots is None:
-        return _bind_source_verification_in_checkout(args)
-    with local_corpus_release_verification(
-        local_roots.corpus_release_public_key,
-        retired_public_keys=local_roots.retired_corpus_release_public_keys,
-        apply_public_key=local_roots.apply_public_key,
-        eval_public_key=local_roots.eval_public_key,
-    ):
-        return _bind_source_verification_in_checkout(args)
+    try:
+        local_roots = _local_verification_encode_roots(args)
+        if local_roots is None:
+            return _bind_source_verification_in_checkout(args)
+        with local_corpus_release_verification(
+            local_roots.corpus_release_public_key,
+            retired_public_keys=local_roots.retired_corpus_release_public_keys,
+            apply_public_key=local_roots.apply_public_key,
+            eval_public_key=local_roots.eval_public_key,
+        ):
+            return _bind_source_verification_in_checkout(args)
+    except (ValueError, RuntimeError, OSError) as exc:
+        # A wrong checkout, corpus or citation is an operator error, not a
+        # crash: one line, nothing written, a status apart from "unbound".
+        print("status=error")
+        print(f"error={exc}")
+        return 2
 
 
 def _bind_source_verification_in_checkout(args) -> int:
@@ -12898,6 +12918,13 @@ def _bind_source_verification_in_checkout(args) -> int:
         label="Axiom Corpus",
     )
     citation = require_canonical_corpus_citation_path(str(args.citation))
+    expected_pin = getattr(args, "expect_source_sha256", None)
+    if expected_pin is not None and (
+        re.fullmatch(r"[0-9a-f]{64}", str(expected_pin)) is None
+    ):
+        raise ValueError(
+            "--expect-source-sha256 must be 64 lowercase hexadecimal characters"
+        )
     relative = Path(citation_rulespec_path(citation))
     if relative.is_absolute() or any(
         part in {"", ".", ".."} for part in relative.parts
@@ -12924,6 +12951,27 @@ def _bind_source_verification_in_checkout(args) -> int:
     print(f"module={relative.as_posix()}")
     print(f"corpus_release={corpus_release.name} ({corpus_release.content_sha256})")
     print(f"attested_source_sha256={attestation.get('source_sha256')}")
+    expected = getattr(args, "expect_source_sha256", None)
+    if expected is None:
+        # The resolver attests the body the pinned corpus release stores now.
+        # It cannot know which body the candidate was encoded from.
+        print(
+            "warning=NO --expect-source-sha256: this pin attests the source as "
+            f"corpus release {corpus_release.name} stores it now. Compare "
+            "attested_source_sha256 with the source attestation of the encode "
+            "run before you push; if they differ, encode the candidate again"
+        )
+    elif expected != attestation.get("source_sha256"):
+        print(f"expected_source_sha256={expected}")
+        print("status=refused:source_changed")
+        print(
+            "error=the corpus release pinned by this checkout attests another "
+            "source body than the one the candidate was encoded from; do not "
+            "re-pin it, encode the candidate again from the current source"
+        )
+        return 1
+    else:
+        print(f"expected_source_sha256={expected}")
     print(f"old_sha256={hashlib.sha256(raw).hexdigest()}")
     try:
         binding = bind_source_verification(raw, attestation)
@@ -71891,9 +71939,10 @@ def _record_encode_source_binding(result, outcome: dict) -> None:
     never a clean result: the outcome gets ``source_binding: unbound`` and
     ``final_success: False``, the result is failed, and the status is
     ``source_unbound`` unless the file is not YAML at all (the validation
-    status then already says so). A result without a readable candidate file
-    has nothing to promote; it is recorded as ``no_candidate`` or
-    ``unverified`` and its verdict is left alone.
+    status then already says so). A successful result that recorded a
+    candidate digest but whose file cannot be read is unbound too. Only a
+    result with no candidate (``no_candidate``), or a failed or digest-less
+    one whose file is absent (``unverified``), keeps its verdict.
     """
 
     from .source_verification_binding import (
@@ -71906,12 +71955,25 @@ def _record_encode_source_binding(result, outcome: dict) -> None:
         outcome["source_binding"] = "no_candidate"
         return
     try:
-        raw = Path(output_file).read_bytes()
-    except OSError:
-        outcome["source_binding"] = "unverified"
-        print("  source_binding=unverified")
-        return
-    try:
+        try:
+            raw = Path(output_file).read_bytes()
+        except OSError:
+            recorded = getattr(result, "generated_output_sha256", None)
+            if (
+                getattr(result, "success", False) is not True
+                or not isinstance(recorded, str)
+                or re.fullmatch(r"[0-9a-f]{64}", recorded) is None
+            ):
+                # A failed result, or one that recorded no candidate digest,
+                # has no file to promote; its verdict is left alone.
+                outcome["source_binding"] = "unverified"
+                print("  source_binding=unverified")
+                return
+            unreadable = SourceBindingError(
+                "the candidate file that the eval recorded cannot be read"
+            )
+            unreadable.kind = "unreadable"
+            raise unreadable from None
         attestation = getattr(result, "source_attestation", None)
         if not isinstance(attestation, dict):
             raise SourceBindingError("the encode has no resolver source attestation")

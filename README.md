@@ -245,8 +245,9 @@ it sets `module.source_verification.corpus_citation_path` and `source_sha256`
 to the resolver's attested values by a minimal text edit (only those lines; no
 YAML re-dump) and prints `source_binding=bound`. A candidate it cannot bind (it
 names another source, or the block is in flow style or uses anchors) fails the
-try and ends with `outcome=source_unbound`; it is not a clean candidate. Bind
-an older candidate with `axiom-encode bind-source-verification`
+try and ends with `outcome=source_unbound`; it is not a clean candidate. The
+prompt is unchanged: the model does not have to copy the digest. Bind an older
+candidate with `axiom-encode bind-source-verification --expect-source-sha256`
 ([docs/reviewed-pr-promotion.md](docs/reviewed-pr-promotion.md)).
 This run conveys no signing capability. It refuses `--apply`, and it refuses
 to start when a signing broker is attached, `AXIOM_ENCODE_TRUSTED_RUNTIME=1` is

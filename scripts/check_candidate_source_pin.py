@@ -146,6 +146,10 @@ def fetch_candidate_primary(repository: str, ref: str, path: str, token: str) ->
     raise CandidateReadError(f"GitHub did not return the file ({last})")
 
 
+TITLE_NO_PIN = "Candidate has no source pin"
+TITLE_NOT_READ = "Could not read the candidate"
+
+
 def evaluate(
     environment: Mapping[str, str],
     *,
@@ -183,7 +187,8 @@ def main() -> int:
     status, message = evaluate(os.environ)
     if status:
         print(message, file=sys.stderr)
-        print("::error title=Candidate has no source pin::" + message)
+        title = TITLE_NOT_READ if "could not read" in message else TITLE_NO_PIN
+        print(f"::error title={title}::{message}")
     else:
         print(message)
     return status

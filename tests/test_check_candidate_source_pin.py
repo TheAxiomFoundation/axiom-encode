@@ -117,6 +117,9 @@ def test_a_malformed_pin_or_another_shape_fails_closed(raw):
     "overrides",
     [
         {"COUNTRY": "USA"},
+        {"COUNTRY": "usa"},
+        {"COUNTRY": "u-s"},
+        {"COUNTRY": "u"},
         {"COUNTRY": ""},
         {"RULESPEC_REF": "main"},
         {"RULESPEC_REF": REF[:-1]},
@@ -225,6 +228,28 @@ def test_fetch_failures_raise_a_read_error(monkeypatch, failure):
         pin_mod.fetch_candidate_primary("r/x", REF, PATH, "t")
 
 
+def test_fetch_uses_no_environment_proxy_and_follows_no_redirect(monkeypatch):
+    built = []
+
+    class Opener:
+        def open(self, request, timeout):
+            return _Response(BOUND)
+
+    monkeypatch.setattr(
+        pin_mod.urllib.request,
+        "build_opener",
+        lambda *handlers: built.append(handlers) or Opener(),
+    )
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:1")
+    pin_mod.fetch_candidate_primary("r/x", REF, PATH, "")
+    [handlers] = built
+    assert [type(handler) for handler in handlers] == [
+        pin_mod.urllib.request.ProxyHandler,
+        pin_mod._NoRedirect,
+    ]
+    assert handlers[0].proxies == {}
+
+
 def test_fetch_refuses_a_redirect():
     with pytest.raises(pin_mod.CandidateReadError):
         pin_mod._NoRedirect().redirect_request(None, None, 302, "", {}, "https://e/")
@@ -236,6 +261,15 @@ def test_main_reports_a_refusal_as_an_error_annotation(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "source-pin: REFUSED x" in captured.err
     assert captured.out.startswith("::error title=Candidate has no source pin::")
+    monkeypatch.setattr(
+        pin_mod,
+        "evaluate",
+        lambda env: (1, "source-pin: REFUSED: could not read the candidate primary"),
+    )
+    assert pin_mod.main() == 1
+    assert capsys.readouterr().out.startswith(
+        "::error title=Could not read the candidate::"
+    )
     monkeypatch.setattr(pin_mod, "evaluate", lambda env: (0, "source-pin: fine"))
     assert pin_mod.main() == 0
     assert capsys.readouterr().out == "source-pin: fine\n"

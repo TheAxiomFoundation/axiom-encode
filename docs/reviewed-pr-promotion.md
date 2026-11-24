@@ -33,8 +33,8 @@ module:
 ```
 
 Signing run 45328443323 failed after its approval because the candidate had
-only `corpus_citation_path`. Three checks now refuse such a candidate, the
-first two before any approval is used:
+only `corpus_citation_path`. Three checks now refuse such a candidate. Only
+the first runs before the `production-signing` environment approval:
 
 1. **Before the environment approval**, in the unprotected `attempt_budget`
    job: `scripts/check_candidate_source_pin.py` reads the candidate primary at
@@ -43,19 +43,32 @@ first two before any approval is used:
    `source_sha256`. It fails closed, also when GitHub cannot be read; the
    attempt budget treats the run as neutral. Other dispatches pass untouched.
 2. **At admission** (`verify_reviewed_pr`, under both admission bases): the
-   same read of the primary bytes that the admission binds. The refusal names
-   the command below.
+   same read of the primary bytes that the admission binds. Admission runs in
+   the protected `encode` job, so after the environment approval; it is the
+   same check a second time, on the bytes the admission record names. The
+   refusal names the command below.
 3. **In the protected job**, unchanged: the module is parsed and the pin is
    compared with the resolver's attestation for the pinned corpus. Only this
-   check proves that the pin is the right one.
+   check proves that the pin is the right one for that corpus.
 
 Checks 1 and 2 are a strict line read without a YAML parser and without the
-corpus. They accept one shape, the plain block form above (one `key: value`
-line per entry, plain or quoted one-line values), and refuse every other shape:
-flow style, anchors, aliases, tags, merge keys, duplicate keys, tab
-indentation, multi-line values, document markers. They do not prove that a
-YAML parser reads the same values, and they cannot admit anything: a candidate
-that passes them still has to pass check 3.
+corpus. The rule is positive: every top-level line is a plain `name:` key or
+a list item and `module:` occurs once; every key directly under `module` is a
+plain `name:` key and `source_verification:` occurs once; every entry of the
+block is one `name: value` line with a one-line plain or quoted value. Through
+the end of the `module` block the reader follows block scalars and quoted or
+plain scalars that continue over lines, so text inside them is not read as a
+key. It refuses every other shape: a quoted, tagged, anchored or complex key,
+a merge key, an alias, flow style on these mappings, tab indentation, a
+document marker (also a leading `---`), a comment on the `module:` or
+`source_verification:` line, an unquoted value that a YAML reader could take
+for a number. They cannot admit anything: a candidate that passes them still
+has to pass check 3.
+
+The binder and the command use the same reader as their last step. A module
+that carries the right values for a YAML parser but is not in the plain block
+form is refused as `not_plain_form`; it is never reported as bound. So "the
+command says bound" implies "admission reads the same pin".
 
 ### Where the pin comes from
 
@@ -75,7 +88,8 @@ that passes them still has to pass check 3.
 uv run axiom-encode bind-source-verification \
   --repo ../rulespec-us \
   --citation us-az/manual/des/faa5/dependent-care-expense/block-5 \
-  --corpus-path ../axiom-corpus
+  --corpus-path ../axiom-corpus \
+  --expect-source-sha256 <source_sha256 of the encode run's source attestation>
 ```
 
 Run it in a checkout of the candidate branch. It resolves the attestation with
@@ -89,8 +103,23 @@ push the change yourself. Outside the protected runtime, pass the public trust
 roots as for a verification-only local encode (`--corpus-release-public-key`,
 `--apply-public-key`, `--eval-public-key`).
 
+**The pin attests the corpus the checkout pins now, not the corpus of the
+encode.** A candidate that was encoded at one corpus release, on a branch that
+later took a `main` with another release whose source body changed, would get
+the new body's digest and pass the protected check, although it was encoded
+from the old text. `--expect-source-sha256` closes this: give it the
+`source_sha256` that the encode run recorded (the `source_attestation` in the
+run's `source-metadata.json` or context manifest, or the value in the
+candidate PR). The command refuses with `status=refused:source_changed` unless
+the checkout's corpus still attests exactly that body. Use it for every repair
+of an existing candidate. Without it the command still works, and prints a
+`warning=` line that names the corpus release; compare the printed
+`attested_source_sha256` with the run record yourself before you push. If they
+differ, encode the candidate again; do not re-pin it.
+
 It refuses, and writes nothing, when:
 
+- the source changed since the encode (`status=refused:source_changed`);
 - the module names another source: a `corpus_citation_path` that the
   attestation does not bind, or a `source_sha256` that differs from the
   attested one (`status=refused:conflict`). A different pin is never
@@ -98,7 +127,14 @@ It refuses, and writes nothing, when:
 - the block is in a shape the minimal edit does not handle: flow style, an
   anchor or alias, a merge key, a duplicate key, a multi-line value, a line
   break other than LF or CRLF (`status=refused:unsupported_shape`; the message
-  names the shape). Rewrite the block by hand in the plain block form.
+  names the shape);
+- the values are right but the file is not in the plain block form that the
+  promotion lane reads (`status=refused:not_plain_form`; the message names the
+  reason, for example a leading `---`). Rewrite the block by hand in the plain
+  block form.
+
+A wrong checkout, corpus path or citation ends with `status=error`, one
+`error=` line and exit status 2.
 
 A bound candidate has a new head, so its PR needs a new dispatch on that head.
 

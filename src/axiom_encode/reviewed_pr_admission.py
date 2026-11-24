@@ -214,42 +214,180 @@ SOURCE_PIN_COMMAND: Final = (
     "axiom-encode bind-source-verification --repo <rulespec checkout> "
     "--citation <citation> --corpus-path <corpus checkout>"
 )
-_PIN_KEY_LINE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*):(?: +(.*))?")
+_BARE_KEY = re.compile(r"([A-Za-z_][A-Za-z0-9_]*):(?: +(.*))?")
 _PIN_PLAIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@+-]*")
-_PIN_NUMBER_LIKE = re.compile(r"[-+]?[0-9][0-9_]*(?:[eE][-+]?[0-9]+)?")
 _PIN_VALUE = re.compile(
     r"""(?:(?P<plain>[^\s'"#][^\s#]*)|'(?P<single>[^'\\]*)'|"(?P<double>[^"\\]*)")"""
-    r"""(?:\s+#.*)?"""
+    r"""(?: +#.*)?"""
+)
+_BLOCK_SCALAR = re.compile(r"[|>](?:[+-][1-9]?|[1-9][+-]?)?(?: +#.*)?")
+_TRAILER = re.compile(r" *(?: #.*)?")
+# A value that starts with one of these is an anchor, an alias, a tag or
+# reserved; the reader does not follow any of them.
+_UNREAD_STARTS = "&*!%@`"
+# Unquoted text that some YAML 1.1 or 1.2 reader takes for a number, a
+# boolean or null: digits with signs, dots, exponents, underscores, radix
+# prefixes or sexagesimal colons, and the reserved words.
+_NUMBER_LIKE = re.compile(r"[-+]?(?:0[xXoObB][0-9A-Fa-f_]*|[.0-9][-+.0-9eE_:]*)")
+_RESERVED_WORDS = frozenset(
+    "true false yes no on off y n null nil none ~ .inf .nan inf nan".split()
 )
 
 
-def _pin_refusal(detail: str) -> AdmissionError:
-    return AdmissionError(
-        f"candidate module is not bound to its source: {detail}. Run "
-        f"`{SOURCE_PIN_COMMAND}` on the candidate branch, push the change and "
-        "dispatch the new head"
+def plain_scalar_is_string(value: str) -> bool:
+    """Whether every YAML reader loads this unquoted text as this string."""
+    return (
+        _PIN_PLAIN.fullmatch(value) is not None
+        and _NUMBER_LIKE.fullmatch(value) is None
+        and value.lower().lstrip("-+") not in _RESERVED_WORDS
     )
+
+
+def _pin_refusal(detail: str) -> AdmissionError:
+    error = AdmissionError(
+        f"candidate module is not bound to its source: {detail}. "
+        "`module.source_verification` must be in the plain block form with "
+        "`corpus_citation_path` and `source_sha256`. Run "
+        f"`{SOURCE_PIN_COMMAND}` on the candidate branch (rewrite the block by "
+        "hand if the command refuses its shape), push the change and dispatch "
+        "the new head"
+    )
+    error.detail = detail  # type: ignore[attr-defined]
+    return error
 
 
 def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
-def _is_content(line: str) -> bool:
-    stripped = line.strip(" ")
-    return bool(stripped) and not stripped.startswith("#")
+def _after_quote(text: str, quote: str, start: int) -> str | None:
+    """The text after the quote that closes at or after ``start``, or ``None``."""
+    index = start
+    while index < len(text):
+        char = text[index]
+        if quote == '"' and char == "\\":
+            index += 2
+        elif char != quote:
+            index += 1
+        elif quote == "'" and text.startswith("''", index):
+            index += 2
+        else:
+            return text[index + 1 :]
+    return None
 
 
-def _block_after(lines: list[str], header: int, parent_indent: int) -> list[str]:
-    """The content lines that belong to the block mapping under ``lines[header]``."""
-    block = []
-    for line in lines[header + 1 :]:
-        if not _is_content(line):
+def _split_key(text: str) -> tuple[str | None, str]:
+    """``(key, value)`` of a block-mapping line, or ``(None, text)`` for a scalar."""
+    if text[:1] in ('"', "'"):
+        rest = _after_quote(text, text[0], 1)
+        if rest is None or not rest.lstrip(" ").startswith(":"):
+            return None, text
+        key, tail = text[: len(text) - len(rest)], rest.lstrip(" ")[1:]
+    else:
+        match = re.search(r":(?= |$)", text)
+        if match is None:
+            return None, text
+        key, tail = text[: match.start()], text[match.end() :]
+    if tail and not tail.startswith(" "):
+        return None, text
+    return key, tail.strip(" ")
+
+
+def _module_block(lines: list[str]) -> tuple[list[tuple[int, int, str]], int]:
+    """Lex the file through the end of the top-level ``module`` block.
+
+    Returns the structural lines of the block as ``(index, indent, content)``
+    and the index of the first line after the block. A structural line starts
+    a mapping entry, a sequence item or a scalar. Lines inside a block scalar,
+    or inside a quoted or plain scalar that continues over lines, are not
+    structural: YAML reads no key from them. A shape this lexer does not
+    follow refuses.
+    """
+    in_module = False
+    block: list[tuple[int, int, str]] = []
+    quote: str | None = None
+    scalar_base: int | None = None  # block scalar: content is indented past it
+    plain_base: int | None = None  # plain scalar: continues when indented past it
+    for index, line in enumerate(lines):
+        if quote is not None:
+            rest = _after_quote(line, quote, 0)
+            if rest is None:
+                continue
+            quote = None
+            if _TRAILER.fullmatch(rest) is None:
+                raise _pin_refusal(
+                    "a quoted scalar over several lines is a key or has text after it"
+                )
             continue
-        if _indent(line) <= parent_indent:
-            break
-        block.append(line)
-    return block
+        if not line.strip(" "):
+            continue
+        indent = _indent(line)
+        content = line[indent:]
+        if scalar_base is not None:
+            if indent > scalar_base:
+                continue
+            scalar_base = None
+        if content.startswith("#"):
+            continue
+        if plain_base is not None and indent > plain_base:
+            continue
+        plain_base = None
+        if indent == 0:
+            if in_module:
+                return block, index
+            if _BARE_KEY.fullmatch(content) is None and not content.startswith("- "):
+                raise _pin_refusal(
+                    "a top-level line is not a plain `name:` key or a list item"
+                )
+            if content.split(":", 1)[0] == "module":
+                if content.rstrip(" ") != "module:":
+                    raise _pin_refusal("`module:` is not a plain block mapping")
+                in_module = True
+                continue
+        elif in_module:
+            block.append((index, indent, content))
+        # The column a continuation or block scalar content must pass.
+        base, text = indent - 1, content
+        while text == "-" or text.startswith("- "):
+            rest = text[1:].lstrip(" ")
+            base = indent + len(content) - len(text)
+            text = rest
+        key, value = _split_key(text)
+        if key is not None:
+            base = indent + len(content) - len(text)
+            if key[:1] in "?[{" + _UNREAD_STARTS:
+                raise _pin_refusal("a key uses a tag, an anchor or a complex form")
+        elif text == "?" or text.startswith("? "):
+            raise _pin_refusal("a complex `? key` mapping")
+        if not value:
+            continue
+        first = value[0]
+        if first in ('"', "'"):
+            rest = _after_quote(value, first, 1)
+            if rest is None:
+                quote = first
+            elif _TRAILER.fullmatch(rest) is None:
+                raise _pin_refusal("text follows a quoted scalar on its line")
+        elif first in "|>":
+            if _BLOCK_SCALAR.fullmatch(value) is None:
+                raise _pin_refusal("a block scalar header this reader does not read")
+            scalar_base = base
+        elif first in "[{":
+            opened = sum(value.count(char) for char in "[{")
+            closed = sum(value.count(char) for char in "]}")
+            if opened != closed or '"' in value or "'" in value:
+                raise _pin_refusal(
+                    "a flow collection that has quotes or continues over lines"
+                )
+        elif first in _UNREAD_STARTS:
+            raise _pin_refusal("a value uses an anchor, an alias or a tag")
+        else:
+            plain_base = base
+    if quote is not None:
+        raise _pin_refusal("a quoted scalar is not closed")
+    if not in_module:
+        raise _pin_refusal("the file has no top-level plain block `module:` mapping")
+    return block, len(lines)
 
 
 def read_candidate_source_pin(raw: bytes) -> tuple[str | None, str | None]:
@@ -265,71 +403,95 @@ def read_candidate_source_pin(raw: bytes) -> tuple[str | None, str | None]:
             corpus_citation_path: <path>
             source_sha256: <64 hex>
 
-    one ``module:`` line at column 0, one ``source_verification:`` line among
-    its keys, and one ``key: value`` line per entry with a one-line plain or
-    quoted value. Every other shape refuses (flow style, anchor, alias, tag,
-    merge key, duplicate key, tab indentation, multi-line value, document
-    marker). A refusal is not a claim that the YAML is wrong; it means this
-    reader will not vouch for it.
+    The rule is positive. Every top-level line is a plain ``name:`` key or a
+    list item, and ``module:`` occurs once. Every key directly under ``module``
+    is a plain ``name:`` key, and ``source_verification:`` occurs once among
+    them. Every entry of the block is one ``name: value`` line with a one-line
+    plain or quoted value, and no name repeats. Through the end of the
+    ``module`` block the reader follows block scalars and quoted or plain
+    scalars that continue over lines, so text inside them is not read as a
+    key. Every other shape refuses: a quoted, tagged, anchored or complex key,
+    a merge key, an alias, flow style on these mappings, a flow collection
+    with quotes, tab indentation, a document marker, a byte order mark, a line
+    break other than LF or CRLF, an unquoted value that a YAML reader could
+    take for a number. A refusal is not a claim that the YAML is wrong; it
+    means this reader will not vouch for it.
 
-    This is an early refusal, not the binding proof. It does not prove that a
-    YAML parser reads the same values (a multi-line quoted scalar elsewhere can
-    hide these lines), and it does not know the corpus. The protected job
-    still parses the module and compares the pin with the resolver's
-    attestation before it signs.
+    This is an early refusal, not the binding proof. It does not know the
+    corpus. The protected job still parses the module with a YAML parser and
+    compares the pin with the resolver's attestation before it signs.
     """
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         raise _pin_refusal("the module is not UTF-8") from None
     lines = [line.removesuffix("\r") for line in text.split("\n")]
-    if any(mark in line for line in lines for mark in "\r\x85\u2028\u2029"):
+    if any(mark in line for line in lines for mark in "\r\x85  "):
         raise _pin_refusal("the module uses a line break other than LF or CRLF")
-    if text.startswith("\ufeff") or any(
+    if text.startswith("﻿") or any(
         line.startswith(("---", "...", "%")) for line in lines
     ):
         raise _pin_refusal(
             "the module has a byte order mark, a directive or a document marker"
         )
-    top_level = [
-        index
-        for index, line in enumerate(lines)
-        if re.match(r"""["']?module["']?\s*:""", line)
-    ]
-    if len(top_level) != 1 or lines[top_level[0]].rstrip(" ") != "module:":
-        raise _pin_refusal("the file has no single plain block `module:` mapping")
-    if any(line.startswith("\t") for line in lines):
+    if any(line.lstrip(" ").startswith("\t") for line in lines):
         raise _pin_refusal("a line of the file is indented with tabs")
-    module = _block_after(lines, top_level[0], 0)
-    if not module:
+    block, after = _module_block(lines)
+    for line in lines[after:]:
+        # Past the module block only top-level keys matter: a second `module`
+        # key, in any spelling, would replace the block that is read here.
+        if not line or line.startswith((" ", "#", "- ")):
+            continue
+        match = _BARE_KEY.fullmatch(line)
+        if match is None or match.group(1) == "module":
+            raise _pin_refusal(
+                "a top-level line is not a plain `name:` key or a list item, or "
+                "`module` occurs twice"
+            )
+    if not block:
         raise _pin_refusal("`module` is empty")
-    key_indent = _indent(module[0])
-    if any(_indent(line) < key_indent for line in module):
+    key_indent = block[0][1]
+    if any(indent < key_indent for _index, indent, _content in block):
         raise _pin_refusal("`module` keys are not indented evenly")
-    keys = [line[key_indent:] for line in module if _indent(line) == key_indent]
-    if any(key.startswith(("<<", "?", "&", "*", "!", "{", "[", "\t")) for key in keys):
-        raise _pin_refusal(
-            "`module` uses a merge key, anchor, tag, flow style or tab indentation"
-        )
-    headers = [
-        key for key in keys if re.match(r"""["']?source_verification["']?\s*:""", key)
+    keys = [
+        (index, content) for index, indent, content in block if indent == key_indent
     ]
-    if not headers:
+    # A list item at the key column belongs to the key above it; it is no key.
+    keys = [(index, content) for index, content in keys if not content.startswith("- ")]
+    names = []
+    for _index, content in keys:
+        match = _BARE_KEY.fullmatch(content)
+        if match is None:
+            raise _pin_refusal(
+                "a key directly under `module` is not a plain `name:` key (it is "
+                "quoted, tagged, anchored, a merge key or flow style)"
+            )
+        names.append(match.group(1))
+    if "source_verification" not in names:
         raise _pin_refusal("the module has no `module.source_verification` block")
-    if len(headers) != 1 or headers[0].rstrip(" ") != "source_verification:":
+    position = names.index("source_verification")
+    header, header_content = keys[position]
+    if (
+        names.count("source_verification") != 1
+        or header_content.rstrip(" ") != "source_verification:"
+    ):
         raise _pin_refusal(
             "`module.source_verification` is not a single plain block mapping"
         )
-    header = lines.index(" " * key_indent + headers[0], top_level[0])
-    entries = _block_after(lines, header, key_indent)
+    end = keys[position + 1][0] if position + 1 < len(keys) else after
+    entries = [
+        line
+        for line in lines[header + 1 : end]
+        if line.strip(" ") and not line.strip(" ").startswith("#")
+    ]
     if not entries:
         raise _pin_refusal("`module.source_verification` is empty")
     entry_indent = _indent(entries[0])
     values: dict[str, str] = {}
     for line in entries:
         match = (
-            _PIN_KEY_LINE.fullmatch(line[entry_indent:].rstrip(" "))
-            if _indent(line) == entry_indent and "\t" not in line
+            _BARE_KEY.fullmatch(line[entry_indent:].rstrip(" "))
+            if _indent(line) == entry_indent and entry_indent > key_indent
             else None
         )
         value = _PIN_VALUE.fullmatch(match.group(2) or "") if match else None
@@ -339,12 +501,14 @@ def read_candidate_source_pin(raw: bytes) -> tuple[str | None, str | None]:
                 "(one `key: value` line per entry, no duplicate key)"
             )
         plain = value.group("plain")
-        if plain is not None and (
-            _PIN_PLAIN.fullmatch(plain) is None
-            or _PIN_NUMBER_LIKE.fullmatch(plain) is not None
+        if (
+            plain is not None
+            and match.group(1) in ("corpus_citation_path", "source_sha256")
+            and not plain_scalar_is_string(plain)
         ):
             raise _pin_refusal(
-                "a `module.source_verification` value is not a plain string"
+                "a `module.source_verification` value is not a plain string "
+                "(quote a value that a YAML reader could take for a number)"
             )
         values[match.group(1)] = next(
             group

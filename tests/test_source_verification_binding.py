@@ -344,6 +344,95 @@ def test_an_edit_that_changes_another_value_is_refused(monkeypatch):
         bind(PATH_ONLY)
 
 
+def test_an_unquoted_all_digit_pin_is_a_number_and_so_a_conflict():
+    """YAML reads it as an integer; the same digits as a string do not match."""
+    digits = "1" * 64
+    text = PATH_ONLY.replace(
+        f"    corpus_citation_path: {PATH}\n",
+        f"    corpus_citation_path: {PATH}\n    source_sha256: {digits}\n",
+    )
+    assert isinstance(
+        yaml.safe_load(text)["module"]["source_verification"]["source_sha256"], int
+    )
+    with pytest.raises(SourceBindingConflict):
+        bind(text, {**ATTESTATION, "source_sha256": digits})
+
+
+def test_the_proof_compares_values_with_their_types():
+    from axiom_encode import source_verification_binding as binder
+
+    assert binder._same_document({"a": [1, "x"]}, {"a": [1, "x"]})
+    for left, right in (
+        (1, True),
+        (1, "1"),
+        (1, 1.0),
+        (None, "None"),
+        ({"a": 1}, {"a": True}),
+        ([1, 2], [2, 1]),
+        ({"a": [1]}, {"a": (1.0,)}),
+    ):
+        assert not binder._same_document(left, right), (left, right)
+    assert binder._same_document({"a": 1, "b": 2}, {"b": 2, "a": 1})
+
+
+@pytest.mark.parametrize(
+    "value, rendered",
+    [
+        (PATH, PATH),
+        (PIN, PIN),
+        ("1" * 64, "'" + "1" * 64 + "'"),
+        ("12e" + "3" * 61, "'12e" + "3" * 61 + "'"),
+        ("1.e3", "'1.e3'"),
+        ("1.5e3", "'1.5e3'"),
+        ("0o17", "'0o17'"),
+        ("0x1f", "'0x1f'"),
+        ("yes", "'yes'"),
+        ("null", "'null'"),
+        ("a b", "'a b'"),
+        ("it's", "'it''s'"),
+    ],
+)
+def test_a_value_any_yaml_reader_could_take_for_a_non_string_is_quoted(value, rendered):
+    from axiom_encode import source_verification_binding as binder
+
+    assert binder._render_scalar(value) == rendered
+    assert yaml.safe_load(rendered) == value
+
+
+@pytest.mark.parametrize(
+    "text, detail",
+    [
+        ("---\n" + PATH_ONLY, "document marker"),
+        (
+            PATH_ONLY.replace("source_verification:", "source_verification: # c"),
+            "plain",
+        ),
+        (PATH_ONLY.replace("module:", "module: !!map"), "plain"),
+        (
+            PATH_ONLY.replace("source_verification:", '"source_verification":'),
+            "plain `name:` key",
+        ),
+    ],
+)
+def test_bound_for_yaml_but_not_plain_form_is_refused_and_says_so(text, detail):
+    from axiom_encode.source_verification_binding import SourceBindingPlainFormError
+
+    bound = text.replace(
+        f"    corpus_citation_path: {PATH}\n",
+        f"    corpus_citation_path: {PATH}\n    source_sha256: {PIN}\n",
+    )
+    assert yaml.safe_load(bound)["module"]["source_verification"] == {
+        "corpus_citation_path": PATH,
+        "source_sha256": PIN,
+    }
+    for candidate in (text, bound):
+        with pytest.raises(SourceBindingPlainFormError) as caught:
+            bind(candidate)
+        assert caught.value.kind == "not_plain_form"
+        assert "not in the plain block form" in str(caught.value)
+        assert detail in str(caught.value)
+
+
 def test_the_binding_check_is_declared_and_blocking():
     assert CHECK_SOURCE_BINDING.id == "source-binding/unbound"
     assert CHECK_SOURCE_BINDING.enforcement == "blocking"

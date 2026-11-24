@@ -348,16 +348,71 @@ def test_no_attestation_is_a_refusal_not_a_pass(tmp_path):
     assert target.read_bytes() == MODULE.encode()
 
 
-def test_the_binder_refuses_a_file_outside_the_output_root(tmp_path):
-    root, _target = _staged(tmp_path, MODULE)
+def test_an_unreadable_candidate_is_a_refusal_not_a_crash(tmp_path):
+    """Outside the root, missing or a symlink: the typed issue, never a traceback."""
+    root, target = _staged(tmp_path, MODULE)
     outside = tmp_path / "elsewhere.yaml"
     outside.write_text(MODULE)
-    with pytest.raises(Exception) as caught:
-        evals_module._bind_generated_source_verification(
-            outside, artifact_root=root, attestation=ATTESTATION, read_only=False
+    link = target.with_name("link.yaml")
+    link.symlink_to(target)
+    for candidate in (outside, target.with_name("absent.yaml"), link):
+        refusal = evals_module._bind_generated_source_verification(
+            candidate, artifact_root=root, attestation=ATTESTATION, read_only=False
         )
-    assert not isinstance(caught.value, SourceBindingError)
+        assert isinstance(refusal, SourceBindingError)
+        assert refusal.kind == "unreadable"
+        issue = evals_module._source_binding_issue(refusal)
+        assert issue.check == "source-binding/unbound"
+        assert issue.found == "unreadable"
     assert outside.read_text() == MODULE
+    assert target.read_bytes() == MODULE.encode()
+
+
+def test_a_bound_module_outside_the_plain_block_form_is_not_clean(tmp_path):
+    """Right values for a YAML parser, but the promotion lane would refuse it."""
+    _result, _validated, pin = _encode(tmp_path / "probe", MODULE)
+    generated = "---\n" + _bound(pin)
+    result, validated, _pin = _encode(
+        tmp_path, generated, bind_source_verification=True
+    )
+    assert validated == [generated.encode()]
+    assert result.success is False
+    [issue] = result.metrics.ci_issues
+    assert issue.found == "not_plain_form"
+    assert "document marker" in issue
+
+
+def test_the_retained_preflight_binds_again_after_a_hash_rebind(tmp_path):
+    """Both retained-candidate validations run the binder first."""
+    calls = []
+    real = evals_module._bind_generated_source_verification
+
+    def counting(*args, **kwargs):
+        calls.append(kwargs["read_only"])
+        return real(*args, **kwargs)
+
+    with (
+        patch.object(
+            evals_module, "_bind_generated_source_verification", side_effect=counting
+        ),
+        patch.object(
+            evals_module,
+            "_rebind_retained_candidate_proof_import_hashes",
+            return_value=["synthetic#hash"],
+        ),
+    ):
+        result, validated, _pin = _encode(
+            tmp_path,
+            "the model must not be called",
+            bind_source_verification=True,
+            validation_retry_candidate=ValidationRetryCandidate(
+                rulespec=MODULE, tests="[]\n"
+            ),
+            accept_valid_retry_candidate=True,
+        )
+    assert calls == [False, False]
+    assert len(validated) == 2
+    assert result.success is True
 
 
 def test_the_wrapper_binds_before_every_evaluation_and_folds_in_the_refusal(tmp_path):
@@ -413,74 +468,18 @@ def _prompt(tmp_path, source_metadata):
     )
 
 
-OPTIONAL_LINE = "  `corpus_citation_path` and optional `source_sha256` pin.\n"
-
-
-def test_the_prompt_tells_the_model_to_write_the_pin_from_the_metadata(tmp_path):
-    prompt = _prompt(
-        tmp_path,
-        {
-            "source_attestation": {
-                "requested_corpus_citation_path": "uk/statute/2020/1/section/1",
-                "source_sha256": "ab" * 32,
-            }
-        },
-    )
-    assert OPTIONAL_LINE not in prompt
-    assert (
-        "  `corpus_citation_path` and the `source_sha256` pin. Write both, each\n"
-        "  on its own line in plain block form, copied exactly from\n"
-        "  `source_attestation` in `./source-metadata.json`:\n"
-        "  `corpus_citation_path` is its `requested_corpus_citation_path` and\n"
-        "  `source_sha256` is its `source_sha256`. The encoder refuses a module\n"
-        "  that names another value.\n"
-    ) in prompt
-
-
-@pytest.mark.parametrize(
-    "source_metadata",
-    [
-        None,
-        {},
-        {"source_attestation": {"requested_corpus_citation_path": "uk/x/1"}},
-        {
-            "source_attestation": {
-                "requested_corpus_citation_path": "uk/x/1",
-                "source_sha256": "not-a-digest",
-            }
-        },
-    ],
-)
-def test_a_prompt_without_an_attested_pin_keeps_the_earlier_line(
-    tmp_path, source_metadata
-):
-    prompt = _prompt(tmp_path, source_metadata)
-    assert OPTIONAL_LINE in prompt
-    assert "Write both, each" not in prompt
-
-
-REQUIRED_LINES = (
-    "  `corpus_citation_path` and the `source_sha256` pin. Write both, each\n"
-    "  on its own line in plain block form, copied exactly from\n"
-    "  `source_attestation` in `./source-metadata.json`:\n"
-    "  `corpus_citation_path` is its `requested_corpus_citation_path` and\n"
-    "  `source_sha256` is its `source_sha256`. The encoder refuses a module\n"
-    "  that names another value.\n"
-)
-
-
-def test_the_two_prompts_differ_only_in_the_pin_requirement(tmp_path):
-    metadata = {
+def test_the_prompt_does_not_ask_the_model_to_copy_the_digest(tmp_path):
+    """The binder writes the pin. The prompt line is the one before this change,
+    with and without an attested pin, so no encode pays an attempt for a
+    miscopied digest."""
+    line = "  `corpus_citation_path` and optional `source_sha256` pin.\n"
+    attested = {
         "source_attestation": {
             "requested_corpus_citation_path": "uk/statute/2020/1/section/1",
             "source_sha256": "ab" * 32,
         }
     }
-    with_pin = _prompt(tmp_path, metadata)
-    metadata["source_attestation"]["source_sha256"] = "absent"
-    without_pin = _prompt(tmp_path / "again", metadata)
-    assert with_pin.count(REQUIRED_LINES) == 1
-    assert (
-        with_pin.replace(REQUIRED_LINES, OPTIONAL_LINE).replace("ab" * 32, "absent")
-        == without_pin
-    )
+    for name, metadata in (("with", attested), ("without", None)):
+        prompt = _prompt(tmp_path / name, metadata)
+        assert prompt.count(line) == 1
+        assert "Write both" not in prompt
