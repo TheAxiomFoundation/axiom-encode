@@ -574,6 +574,18 @@ def test_a_linked_parent_directory_refuses_before_any_file_is_removed(tmp_path):
     assert inside.read_text() == "inside the overlay"
 
 
+def test_a_link_to_another_place_inside_the_overlay_also_refuses(tmp_path):
+    """The path must be the file itself, not another name for a file."""
+    root = tmp_path / "overlay"
+    (root / "us/real").mkdir(parents=True)
+    kept = root / "us/real/b.yaml"
+    kept.write_text("kept")
+    (root / "us/alias").symlink_to(root / "us/real", target_is_directory=True)
+    with pytest.raises(ValueError, match="outside the validation overlay"):
+        cli._isolate_promotion_batch_overlay(root, (Path("us/alias/b.yaml"),))
+    assert kept.read_text() == "kept"
+
+
 def test_a_linked_overlay_root_is_resolved_and_contained(tmp_path):
     real = tmp_path / "real"
     (real / "us").mkdir(parents=True)
