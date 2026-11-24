@@ -751,6 +751,12 @@ def test_parenthetical_amount_is_demanded_by_both_gates(citation, window, value)
             "($79) For taxable years beginning after 2025, the credit is $500.",
             [79.0, 2025.0, 500.0],
         ),
+        # A history note before `Effective ...` still leads the preface.
+        (
+            "The credit applies.\n(Added by Stats. 2025, Ch. 231, . (SB 711) "
+            "Effective October 1, 2025.)",
+            [],
+        ),
     ),
 )
 def test_preface_outline_label_shape(window, demanded):
