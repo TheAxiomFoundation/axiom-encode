@@ -9061,27 +9061,6 @@ def _evaluate_artifact_in_scope(
                 "issues": policyengine_result.issues,
                 "duration_ms": policyengine_result.duration_ms,
             }
-        # The text before the source excerpt and the text after it. One call
-        # shows the first 4,000 characters of the excerpt between them; a
-        # chunked review shows each chunk of the excerpt between them.
-        review_context_before = (
-            "This review is running inside an eval-suite benchmark workspace. "
-            "The artifact file path is generic benchmark output and is not itself the legal citation. "
-            "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
-            "The benchmark target is an atomic source slice/unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RuleSpec claims to encode them. "
-            "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
-        )
-        review_context = ""
-        if re.search(
-            r"\bon the first day\b|\bnext benefit week\b|\bon or after the day\b",
-            source_text,
-            flags=re.IGNORECASE,
-        ):
-            review_context += (
-                "\n\nThis is a temporal timing clause. The RuleSpec eval path does not expose a native date-valued output here, "
-                "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
-                "is an acceptable representation."
-            )
         # Findings of advisory checks do not refuse the candidate; the
         # reviewer gets them as warnings to examine. With none, the review
         # context is unchanged.
@@ -9092,12 +9071,8 @@ def _evaluate_artifact_in_scope(
         advisory_context = advisory_review_context(
             ci_advisory_records, source_in_prompt=True
         )
-        if advisory_context:
-            review_context += "\n\n" + advisory_context
-        review_source = ReviewSource(
-            text=source_text.strip(),
-            context_before=review_context_before,
-            context_after=review_context,
+        review_source = generalist_review_source(
+            source_text, advisory_context=advisory_context
         )
         review_context = review_source.single_call_context()
         # The encode retry loop feeds only compile/CI findings back to the
@@ -9404,6 +9379,45 @@ def _evaluate_artifact_in_scope(
 
 
 GENERALIST_REVIEW_EVIDENCE_ATTR = "_axiom_generalist_review_evidence"
+
+
+def generalist_review_source(
+    source_text: str, *, advisory_context: str = ""
+) -> ReviewSource:
+    """The source excerpt of a generalist review and the context around it.
+
+    One call shows the first 4,000 characters of the excerpt between the two
+    context strings; a chunked review shows each chunk of the excerpt between
+    them. ``advisory_context`` is the text of advisory validator findings,
+    empty when there are none.
+    """
+
+    context_after = ""
+    if re.search(
+        r"\bon the first day\b|\bnext benefit week\b|\bon or after the day\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        context_after += (
+            "\n\nThis is a temporal timing clause. The RuleSpec eval path does not expose a native date-valued output here, "
+            "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
+            "is an acceptable representation."
+        )
+    if advisory_context:
+        context_after += "\n\n" + advisory_context
+    return ReviewSource(
+        text=source_text.strip(),
+        context_before=(
+            "This review is running inside an eval-suite benchmark workspace. "
+            "The artifact file path is generic benchmark output and is not itself the legal citation. "
+            "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
+            "The benchmark target is an atomic source slice/unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RuleSpec claims to encode them. "
+            "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
+        ),
+        context_after=context_after,
+    )
+
+
 _GENERATED_EVAL_REPAIR_LIMIT = 50
 
 

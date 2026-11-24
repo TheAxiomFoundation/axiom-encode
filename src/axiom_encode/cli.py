@@ -3211,6 +3211,18 @@ def main():
         type=Path,
         help="Explicit axiom-compose executable for composition modules",
     )
+    promote_reviewed_candidate_parser.add_argument(
+        "--require-review",
+        action="store_true",
+        help=(
+            "Run the generalist model reviewer on the exact candidate bytes "
+            "after validation and sign only when it passes every file in "
+            "full. A candidate that does not fit one reviewer call is "
+            "reviewed in chunks; above the chunk caps the review is partial "
+            "and the promotion is refused. Off by default: without the flag "
+            "no reviewer runs"
+        ),
+    )
     _add_required_corpus_path_argument(promote_reviewed_candidate_parser)
     _add_rulespec_dependency_root_argument(promote_reviewed_candidate_parser)
     promote_reviewed_candidate_parser.add_argument(
@@ -10386,6 +10398,67 @@ def _promotion_reviewed_rulespec_record_root() -> Path | None:
     return _checkout_reviewed_rulespec_record_root()
 
 
+def _promotion_requires_review(args) -> bool:
+    """Return whether this promotion signs only after a passed model review.
+
+    ``promote-reviewed-candidate --require-review`` is the only switch, read
+    when the command runs. There is no environment variable for it: the
+    signing supervisor builds the child environment from empty.
+    """
+
+    return getattr(args, "require_review", False) is True
+
+
+def _promotion_generalist_review_record(
+    *,
+    rulespec_file: Path,
+    source_text: str,
+    cwd: Path,
+    applied: Mapping[Path, bytes],
+    rulespec_relative: Path,
+) -> dict[str, object]:
+    """Review the staged candidate and return its required review record.
+
+    ``rulespec_file`` is the staged copy of the candidate, with its companion
+    test beside it. ``applied`` holds the exact bytes the promotion signs,
+    by manifest path. The record binds the verdict to those bytes with the
+    rules of ``encode --apply --require-review``.
+    """
+
+    from axiom_encode.harness.evals import generalist_review_source
+    from axiom_encode.harness.validator_pipeline import run_generalist_review
+
+    review = run_generalist_review(
+        rulespec_file,
+        review_source=generalist_review_source(source_text),
+        cwd=cwd,
+    )
+    details = review.details if isinstance(review.details, dict) else {}
+    companion_relative = _rulespec_test_path(rulespec_relative)
+    return build_generalist_review_record(
+        GeneralistReviewState(
+            metrics_pass=review.passed,
+            score=review.score,
+            issue_count=len(review.issues) if isinstance(review.issues, list) else 0,
+            prompt_sha256=review.prompt_sha256,
+            evidence=details.get("review_evidence"),
+            required=True,
+        ),
+        [
+            applied_pair(
+                applied[rulespec_relative],
+                applied.get(companion_relative),
+                rulespec_path=rulespec_relative.as_posix(),
+            )
+        ],
+        [
+            (relative.as_posix(), hashlib.sha256(raw).hexdigest())
+            for relative, raw in applied.items()
+        ],
+        reviewed_rulespec_path=rulespec_relative.as_posix(),
+    )
+
+
 def cmd_promote_reviewed_candidate(args):
     """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
 
@@ -10689,6 +10762,28 @@ def cmd_promote_reviewed_candidate(args):
                     raise RuntimeError(
                         "reviewed candidate validation changed RuleSpec bytes"
                     )
+                if _promotion_requires_review(args):
+                    review_record = _promotion_generalist_review_record(
+                        rulespec_file=generated_file,
+                        source_text=normalized_source,
+                        cwd=content_root,
+                        applied=before,
+                        rulespec_relative=rulespec_relative,
+                    )
+                    print(
+                        "reviewed candidate generalist review: "
+                        + json.dumps(review_record, sort_keys=True)
+                    )
+                    if review_requirement_refusal(review_record) is not None:
+                        reason = review_record.get("reason")
+                        raise RuntimeError(
+                            "reviewed candidate promotion requires a passed "
+                            "generalist review of every promoted file "
+                            "(--require-review) and has none: status "
+                            f"{review_record.get('status')}"
+                            + (f" ({reason})" if reason else "")
+                            + ". Nothing was signed."
+                        )
                 snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
                 validation_execution = (
                     snapshot.get("manifest_validation_execution")

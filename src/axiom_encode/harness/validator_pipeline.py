@@ -48156,3 +48156,25 @@ annual = sim.calculate('{pe_var}', int('{year}'))
 val = float(annual[0]) / {scale}
 print(f'RESULT:{{val}}')
 """
+
+
+def run_generalist_review(
+    rulespec_file: Path, *, review_source: ReviewSource, cwd: Path
+) -> ValidationResult:
+    """Run the generalist reviewer on one candidate file, outside an eval.
+
+    The reviewer reads ``rulespec_file`` and the companion test beside it,
+    and judges them against ``review_source``. ``cwd`` is the directory the
+    reviewer CLI starts in. The call uses no other state of a pipeline, so
+    no engine, corpus or oracle is set up for it.
+    """
+
+    pipeline = object.__new__(ValidatorPipeline)
+    pipeline.policy_repo_path = cwd
+    return pipeline._run_reviewer(
+        GENERALIST_REVIEWER_NAME,
+        rulespec_file,
+        None,
+        review_context=review_source.single_call_context(),
+        review_source=review_source,
+    )
