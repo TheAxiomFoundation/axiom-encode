@@ -1886,6 +1886,7 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
         "live-path",
         "live-encoder",
         "live-invalid-static",
+        "live-unknown-basis",
     ],
 )
 def test_promote_reviewed_candidate_changes_only_manifest(
@@ -1951,6 +1952,21 @@ def test_promote_reviewed_candidate_changes_only_manifest(
                             "run_id": args.run_id,
                         },
                         "record": record,
+                        **(
+                            {
+                                "schema": (
+                                    "axiom-encode/live-reviewed-pr-admission/v2"
+                                ),
+                                "admission_basis": "owner_waiver",
+                                "dispatcher": {
+                                    "login": "PavelMakarchuk",
+                                    "actor_id": 110687043,
+                                    "triggering_actor_id": 110687043,
+                                },
+                            }
+                            if admission == "live-unknown-basis"
+                            else {}
+                        ),
                     }
                 }
             )
@@ -2012,6 +2028,10 @@ def test_promote_reviewed_candidate_changes_only_manifest(
         "version_commit": "b" * 40,
         "identity_source": "trusted-runtime-attestation",
     }
+    from axiom_encode.reviewed_pr_admission import (
+        revalidate_admission as real_revalidate_admission,
+    )
+
     with (
         patch(
             "axiom_encode.cli._load_trusted_runtime_attestation",
@@ -2076,6 +2096,27 @@ def test_promote_reviewed_candidate_changes_only_manifest(
         ),
     ):
         signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
+        if admission == "live-unknown-basis":
+            # The real reader, not a mock: the promotion command refuses a
+            # run-scoped admission whose basis it does not know, before any
+            # GitHub read, validation or signature.
+            from axiom_encode.reviewed_pr_admission import AdmissionError
+
+            def no_fetch(path):
+                raise AssertionError("refused before any GitHub read: " + path)
+
+            live_check.side_effect = lambda value: real_revalidate_admission(
+                value, fetch=no_fetch
+            )
+            with pytest.raises(AdmissionError, match="unknown admission basis"):
+                cmd_promote_reviewed_candidate(args)
+            assert live_check.call_count == 1
+            signer_context.assert_not_called()
+            overlay_mock.assert_not_called()
+            assert not (
+                repo / _applied_encoding_manifest_path(Path(args.rulespec_path))
+            ).exists()
+            return
         if admission in {
             "live-run",
             "live-country",

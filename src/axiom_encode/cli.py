@@ -600,7 +600,7 @@ from .toolchain import (
     protected_process_signal_active,
     verify_rulespec_validation_waiver_set,
 )
-from .validation_waiver_scope import select_validation_waiver_scope
+from .validation_waiver_scope import WaiverAuditScope, select_validation_waiver_scope
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
@@ -5836,6 +5836,27 @@ def _validation_waiver_audit_partition(
     return selected, partition_index, len(partition_keys)
 
 
+def _validation_waiver_ledger_differs(
+    head: _validation_waivers.ValidationWaiverSet,
+    base: _validation_waivers.ValidationWaiverSet,
+    *,
+    head_file: Path,
+    base_file: Path,
+) -> bool:
+    """Return whether the head ledger is anything but the protected base ledger.
+
+    Both the parsed records and the bytes are compared. An unreadable file
+    counts as a difference.
+    """
+
+    if dict(head.entries) != dict(base.entries):
+        return True
+    try:
+        return head_file.read_bytes() != base_file.read_bytes()
+    except OSError:
+        return True
+
+
 def _cmd_validation_waivers_audit(args) -> int:
     if hasattr(args, "_validation_waiver_audit_selection"):
         del args._validation_waiver_audit_selection
@@ -5920,38 +5941,6 @@ def _cmd_validation_waivers_audit(args) -> int:
     # a different shard that selected a smaller incremental scope.
     all_classified = list(classified.items())
     total_waivers = len(all_classified)
-    scope = "full"
-    selection_reasons: dict[str, list[str]] = {}
-    fallback_reason = None
-    if requested_scope == "incremental":
-        selection = select_validation_waiver_scope(
-            list(classified),
-            root=root,
-            changed_paths=changed_paths,
-            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
-            shared_execution_inputs=tuple(
-                Path(value)
-                for value in (
-                    args.corpus_path,
-                    args.axiom_rules_path,
-                    getattr(args, "axiom_compose_path", None),
-                )
-                if isinstance(value, (str, Path))
-            ),
-        )
-        scope = selection.scope
-        selection_reasons = selection.reasons
-        fallback_reason = selection.fallback_reason
-        classified = {path: classified[path] for path in selection.paths}
-        args._validation_waiver_audit_selection = {
-            "scope": scope,
-            "selected": len(classified),
-            "total_waivers": total_waivers,
-            "selection_reasons": selection_reasons,
-        }
-        if fallback_reason is not None:
-            args._validation_waiver_audit_selection["fallback_reason"] = fallback_reason
-
     partition_key = getattr(args, "partition_key", None)
     partition_keys_json = getattr(args, "partition_keys_json", None)
     if (partition_key is None) != (partition_keys_json is None):
@@ -5970,7 +5959,7 @@ def _cmd_validation_waivers_audit(args) -> int:
             costs=costs,
         )
         owned_count = len(owned)
-        classified = {path: kind for path, kind in owned if path in classified}
+        classified = dict(owned)
         partition = {
             "key": partition_key,
             "index": partition_index,
@@ -5980,13 +5969,62 @@ def _cmd_validation_waivers_audit(args) -> int:
         if costs is not None:
             # Without a table the report keeps its legacy bytes.
             partition["cost_table_sha256"] = costs.sha256
-        if requested_scope == "incremental":
-            args._validation_waiver_audit_selection.update(
-                selected=len(classified),
-                selection_reasons={
-                    path: selection_reasons[path] for path in classified
-                },
+
+    scope = "full"
+    selection_reasons: dict[str, list[str]] = {}
+    fallback_reason = None
+    if requested_scope == "incremental":
+        # Select within this job's own partition only. Each waiver is decided
+        # from its own read set, so the partition's selection is its share of
+        # the whole ledger's selection, at a cost that follows the partition.
+        selection = select_validation_waiver_scope(
+            list(classified),
+            root=root,
+            changed_paths=changed_paths,
+            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+            shared_execution_inputs=tuple(
+                Path(value)
+                for value in (
+                    args.corpus_path,
+                    args.axiom_rules_path,
+                    getattr(args, "axiom_compose_path", None),
+                )
+                if isinstance(value, (str, Path))
+            ),
+        )
+        if selection.scope == "incremental" and _validation_waiver_ledger_differs(
+            head, base, head_file=waiver_file, base_file=Path(protected_base_path)
+        ):
+            # The incremental scope proves only that unselected waivers kept
+            # their result. A ledger that differs from the protected base
+            # changes what every result is compared with, so nothing may stay
+            # unchecked. This reads the two ledgers themselves: the changed
+            # paths come from the caller, and the list may omit the ledger.
+            reason = (
+                f"{waiver_path} differs from the protected base ledger and is "
+                "not among the changed paths"
             )
+            selection = WaiverAuditScope(
+                "full",
+                tuple(classified),
+                {path: [f"full audit fallback: {reason}"] for path in classified},
+                reason,
+            )
+        scope = selection.scope
+        selection_reasons = selection.reasons
+        fallback_reason = selection.fallback_reason
+        # A selection can only narrow this job's own partition, never widen it.
+        classified = {
+            path: classified[path] for path in selection.paths if path in classified
+        }
+        args._validation_waiver_audit_selection = {
+            "scope": scope,
+            "selected": len(classified),
+            "total_waivers": total_waivers,
+            "selection_reasons": {path: selection_reasons[path] for path in classified},
+        }
+        if fallback_reason is not None:
+            args._validation_waiver_audit_selection["fallback_reason"] = fallback_reason
 
     deleted_removed: set[str] = set()
     missing_required: set[str] = set()

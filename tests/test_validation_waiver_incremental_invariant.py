@@ -44,6 +44,8 @@ _EDITS = (
     "companion_pass",
     "companion_delete",
     "docs",
+    "manifest",
+    "signed_add",
 )
 _RELEASE = "incremental-invariant-test-release"
 
@@ -424,12 +426,37 @@ def _edit_repository(root: Path, case: _RepositoryCase, ledger, release) -> set[
                 companion, _companion_payload(case, case.target, offset=expected)
             )
         changed.add(companion.relative_to(root).as_posix())
+    elif case.edit in {"manifest", "signed_add"}:
+        # The shape of a signed encoder pull request: an applied manifest
+        # under .axiom/encoding-manifests, alone or with a new module and its
+        # companion. The new module is an exact executable copy of module 1,
+        # so only implicit upstream indexing can change another verdict.
+        module_relative = case.module_path(case.target)
+        if case.edit == "signed_add":
+            module_relative = _signed_module_path(case)
+            _write_yaml(root / module_relative, _module_payload(case, 1))
+            companion = module_relative.removesuffix(".yaml") + ".test.yaml"
+            _write_yaml(root / companion, _companion_payload(case, 1))
+            changed.update({module_relative, companion})
+        manifest = _manifest_path(module_relative)
+        (root / manifest).parent.mkdir(parents=True, exist_ok=True)
+        (root / manifest).write_text('{"schema": "test"}\n', encoding="utf-8")
+        # A manifest path is not respelled: only its exact form is classified.
+        return {case.changed_path(path) for path in changed} | {manifest}
     else:
         (root / "README.md").write_text(
             "Updated inert documentation.\n", encoding="utf-8"
         )
         changed.add("README.md")
     return {case.changed_path(path) for path in changed}
+
+
+def _signed_module_path(case: _RepositoryCase) -> str:
+    return f"{case.jurisdictions[case.target]}/statutes/1/signed-added.yaml"
+
+
+def _manifest_path(module_relative: str) -> str:
+    return f".axiom/encoding-manifests/{module_relative.removesuffix('.yaml')}.json"
 
 
 def _check_invariant(
@@ -527,6 +554,37 @@ def _check_invariant(
             assert changed_verdicts == set()
             assert selection.scope == "incremental"
             assert selection.paths == ()
+        if case.edit == "manifest":
+            # Nothing that validation reads changed, and the manifest still
+            # selects exactly what a change of its module selects.
+            assert changed_verdicts == set()
+            module_selection = select_validation_waiver_scope(
+                waived_paths,
+                root=root,
+                changed_paths={case.module_path(case.target)},
+            )
+            assert selection.scope == module_selection.scope == "incremental"
+            assert selection.paths == module_selection.paths
+            if case.target > 0:
+                assert case.module_path(case.target) in selection.paths
+        if case.edit == "signed_add" and case.changed_spelling == "exact":
+            jurisdiction = case.jurisdictions[case.target]
+            searching = {
+                path
+                for path in waived_paths
+                if path.split("/")[0] == jurisdiction
+                or path.split("/")[0].startswith(f"{jurisdiction}-")
+            }
+            assert selection.scope == "incremental"
+            assert searching <= set(selection.paths)
+            copied = case.module_path(1)
+            if copied in searching:
+                # The copy sits in a jurisdiction that module 1 searches.
+                assert copied in changed_verdicts
+                result = next(
+                    item for item in head_report["results"] if item["path"] == copied
+                )
+                assert "Upstream placement violation" in json.dumps(result["outcome"])
         if (
             case.edit in {"companion", "companion_pass", "companion_delete"}
             and case.target > 0
@@ -638,6 +696,17 @@ def test_case_alias_verdict_changes_fail_incremental_audit(
         replace(_CHAIN, edit="companion_pass", target=1),
         replace(_CHAIN, edit="companion_delete", target=1),
         replace(_CHAIN, edit="docs"),
+        replace(_CHAIN, edit="manifest", target=1),
+        replace(_CHAIN, edit="manifest", target=0),
+        replace(_CHAIN, edit="signed_add", target=1),
+        replace(_CHAIN, edit="signed_add", target=3),
+        _RepositoryCase(
+            jurisdictions=("us", "us-ca", "us-ny"),
+            values=(1, 1, 1),
+            imports=((), (), ()),
+            edit="signed_add",
+            target=0,
+        ),
         _RepositoryCase(
             jurisdictions=("us-ny", "us-ca", "us-tx"),
             values=(1, 1, 1),

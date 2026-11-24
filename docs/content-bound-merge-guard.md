@@ -28,7 +28,11 @@ Verified against `main` at `eb98f8d7` (after #2194).
   - Complete tree delta: `_leaf_entries` and `_require_immutable_delta`.
   - Effective reviews: `_approved_reviews`. It requires an approval on the exact
     head, excludes the PR author by id and the dispatcher by login, and refuses
-    on a `CHANGES_REQUESTED` from any account.
+    on a `CHANGES_REQUESTED` from any account. Since #2301 this approval is
+    required only while `OWNER_APPROVAL_REQUIRED` is `True`. It is `False`:
+    admission rests on an enrolled owner's dispatch, and only the
+    `CHANGES_REQUESTED` refusal still applies
+    (`docs/reviewed-pr-promotion.md`, "Admission basis").
 - **Approvals are checked at three points**: twice in
   `cmd_promote_reviewed_candidate` (`revalidate_admission` before validation and
   before signing), and in `scripts/prepare_reviewed_pr_promotion.py
@@ -612,9 +616,12 @@ waiver checks are those of the v5 promotion contract.
 So the writer and admission change (change 5), not the reader, is what waits
 for the required check. With the reader on, `validate / validate` treats an
 exact signed v6 manifest like a reviewed v5 one: it proves validation and
-nothing about review. `owner_review_state` (`none` for v6, `before-signing`
+nothing about review. `owner_review_state` (`none` for v6, `not-recorded`
 for the earlier lane) exists for callers to tell the two apart (D1), and it
-has no production caller yet. This was chosen over wiring a refusal into
+has no production caller yet. Since #2301 the earlier lane admits on an
+enrolled owner's dispatch with no approval
+(`docs/reviewed-pr-promotion.md`, "Admission basis"), so a v5 promotion
+manifest no longer implies a review before signing. This was chosen over wiring a refusal into
 `validate` now: activation would have to remove it again, and the guard, not
 `validate`, is the control proposed in D2.
 
