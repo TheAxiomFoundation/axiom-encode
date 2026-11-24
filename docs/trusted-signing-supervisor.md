@@ -252,9 +252,14 @@ The reply is read from the reviewer CLI as follows. The default backend is the
 Claude CLI; `AXIOM_ENCODE_REVIEWER_CLI=codex` selects the Codex CLI, and it is
 also the fallback when the Claude CLI is not installed. For the Claude CLI the
 reply is stdout alone when the run exits 0; stderr is logged and is not part
-of the reply. For the Codex CLI the reply is the last agent message of the
-run, which `codex exec` defines as its answer; an earlier agent message that
-holds a brace or a review key stays in the reply, so the reader refuses it. A
+of the reply. For the Codex CLI the event stream is stdout alone when the run exits 0, and the reply is the text of the
+one agent message in it. The stream is unreadable, and the record says
+`unavailable`, when it holds more than one agent message with text, no agent
+message, an `error` or `turn.failed` event, or a line that is not a JSON
+event. A reviewer run with a preamble message before its verdict is therefore
+unreadable by design: the reader cannot tell a harmless preamble from an
+earlier verdict in other words. This can be relaxed later with data; none of
+the 45 stored Codex reviews has more than one agent message. A
 run that exits non-zero has no reply for either backend, whatever it printed:
 the record says `unavailable`.
 Eval scoring keeps its older fallback from the score.

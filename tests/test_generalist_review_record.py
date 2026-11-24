@@ -6030,39 +6030,201 @@ def _codex_stream(*messages):
     )
 
 
-def test_codex_reply_is_the_last_agent_message():
+_GENERALIST_FAIL = (
+    '{"score": 2, "passed": false, "blocking_issues": ["bad"], '
+    '"non_blocking_issues": [], "reasoning": "no"}'
+)
+
+
+def _codex_record(tmp_path, monkeypatch, lines, *, stderr="", returncode=0):
+    """The record of one Codex reviewer run with this stdout event stream."""
+
+    stdout = "".join(line + "\n" for line in lines)
+    monkeypatch.setenv("AXIOM_ENCODE_REVIEWER_CLI", "codex")
+    monkeypatch.setattr(
+        validator_pipeline, "_local_reviewer_context_active", lambda: False
+    )
+    monkeypatch.setattr(validator_pipeline, "resolve_codex_cli", lambda: "codex")
+    monkeypatch.setattr(validator_pipeline, "supervisor_codex_home", lambda: None)
+    monkeypatch.setattr(validator_pipeline, "codex_auth_secrets", lambda _home: set())
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_run_subprocess_with_idle_timeout",
+        lambda *_a, **_k: validator_pipeline._SubprocessRunResult(
+            output=stdout + stderr, returncode=returncode, stdout=stdout
+        ),
+    )
+    rule = _candidate(tmp_path)
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    return result, _record_for(result, rule, required=True)
+
+
+def test_codex_reply_is_the_one_agent_message(tmp_path, monkeypatch):
     extract = validator_pipeline._extract_codex_text_output
+    other_events = [
+        json.dumps({"type": "thread.started", "thread_id": "t"}),
+        json.dumps({"type": "turn.started"}),
+        json.dumps(
+            {"type": "item.completed", "item": {"type": "reasoning", "text": "x"}}
+        ),
+        _codex_stream(" " + _GENERALIST_PASS + "\n"),
+        # An agent message without text is not a second message.
+        _codex_stream("  \n"),
+        json.dumps({"type": "turn.completed", "usage": {}}),
+    ]
 
     assert extract(_codex_stream(_GENERALIST_PASS)) == _GENERALIST_PASS
-    assert (
-        extract(_codex_stream("I will review the file now.", _GENERALIST_PASS))
-        == _GENERALIST_PASS
+    assert extract("\n".join(other_events) + "\n") == _GENERALIST_PASS
+    result, record = _codex_record(
+        tmp_path, monkeypatch, other_events, stderr="warning: slow start\n"
     )
-    assert (
-        extract(_codex_stream("First.", "Second.", " " + _GENERALIST_PASS + "\n"))
-        == _GENERALIST_PASS
-    )
+    assert result.passed is True
+    assert record["status"] == "passed"
+    assert record["reviewer"]["backend"] == "codex"
+
+
+_CODEX_EARLIER_MESSAGES = [
+    # The seven inputs of the review of a68ea4b17: no brace, no quoted key.
+    "passed: false\nscore: 2\nblocking_issues:\n- the rate is wrong",
+    "score: 2, passed: false",
+    "verdict: FAIL",
+    "{ passed false }",
+    "I must fail this: the rate is wrong.",
+    "'passed': false",
+    "dict(passed=False, score=2)",
+    # More.
+    _GENERALIST_FAIL,
+    "```json\n" + _GENERALIST_FAIL + "\n```",
+    "I will review the file now.",
+    _GENERALIST_PASS,
+    ".",
+]
+
+
+@pytest.mark.parametrize("other", _CODEX_EARLIER_MESSAGES)
+@pytest.mark.parametrize("position", ["before", "after", "first of three"])
+def test_codex_run_with_a_second_agent_message_is_unreadable(
+    tmp_path, monkeypatch, other, position
+):
+    messages = {
+        "before": [other, _GENERALIST_PASS],
+        "after": [_GENERALIST_PASS, other],
+        "first of three": [other, "Now the verdict.", _GENERALIST_PASS],
+    }[position]
+    lines = [_codex_stream(message) for message in messages]
+
+    reply = validator_pipeline._extract_codex_text_output("\n".join(lines))
+    assert reply.startswith("Codex reviewer stream is unreadable (")
+    assert f"{len(messages)} agent messages with text, not one" in reply
+    with pytest.raises(ValueError):
+        validator_pipeline._read_reviewer_verdict(reply, "generalist-reviewer")
+    result, record = _codex_record(tmp_path, monkeypatch, lines)
+    assert result.passed is False
+    assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
+    assert review_requirement_refusal(record) is not None
+
+
+_CODEX_PASS_EVENT = _codex_stream(_GENERALIST_PASS)
 
 
 @pytest.mark.parametrize(
-    "earlier",
+    ("lines", "reason"),
     [
-        '{"passed": false, "score": 1}',
-        "The map `{` is open.",
-        'I set "passed": false first.',
-        "passed: false,\nPassed: true",
-        "{\n  passed: false\n}",
+        # An error or a failed turn anywhere, also with exit 0.
+        (
+            [json.dumps({"type": "error", "message": "boom"}), _CODEX_PASS_EVENT],
+            "error",
+        ),
+        ([_CODEX_PASS_EVENT, json.dumps({"type": "error", "message": "x"})], "error"),
+        ([_CODEX_PASS_EVENT, json.dumps({"type": "error"})], "error"),
+        (
+            [
+                _CODEX_PASS_EVENT,
+                json.dumps({"type": "turn.failed", "error": {"message": "x"}}),
+            ],
+            "error",
+        ),
+        ([json.dumps({"type": "turn.failed"}), _CODEX_PASS_EVENT], "error"),
+        # A line that is not a JSON event.
+        ([_codex_stream(_GENERALIST_FAIL)[:-5], _CODEX_PASS_EVENT], "not a JSON event"),
+        ([_CODEX_PASS_EVENT, "warning: not an event"], "not a JSON event"),
+        (["[]", _CODEX_PASS_EVENT], "not a JSON event"),
+        ([_CODEX_PASS_EVENT, '"text"'], "not a JSON event"),
+        (
+            [
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "agent_message", "text": [_GENERALIST_PASS]},
+                    }
+                )
+            ],
+            "not a JSON event",
+        ),
+        # No agent message: a bare verdict is not a Codex event stream, and a
+        # verdict in another item or another event is not the reply.
+        ([_GENERALIST_PASS], "0 agent messages"),
+        ([], "0 agent messages"),
+        ([json.dumps({"type": "turn.completed"})], "0 agent messages"),
+        (
+            [
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "reasoning", "text": _GENERALIST_PASS},
+                    }
+                )
+            ],
+            "0 agent messages",
+        ),
+        (
+            [
+                json.dumps(
+                    {
+                        "type": "item.started",
+                        "item": {"type": "agent_message", "text": _GENERALIST_PASS},
+                    }
+                )
+            ],
+            "0 agent messages",
+        ),
     ],
 )
-def test_codex_earlier_message_that_may_hold_a_verdict_stays_and_is_refused(earlier):
-    reply = validator_pipeline._extract_codex_text_output(
-        _codex_stream("Start.", earlier, _GENERALIST_PASS)
-    )
-
-    assert earlier in reply
-    assert reply.endswith(_GENERALIST_PASS)
+def test_codex_stream_that_is_not_one_clean_reply_is_unreadable(
+    tmp_path, monkeypatch, lines, reason
+):
+    reply = validator_pipeline._extract_codex_text_output("\n".join(lines))
+    assert reply.startswith("Codex reviewer stream is unreadable (")
+    assert reason in reply.splitlines()[0]
     with pytest.raises(ValueError):
         validator_pipeline._read_reviewer_verdict(reply, "generalist-reviewer")
+
+    result, record = _codex_record(tmp_path, monkeypatch, lines)
+    assert result.passed is False
+    assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
+
+
+def test_codex_stream_is_stdout_on_exit_zero_and_a_failed_run_has_no_reply(
+    tmp_path, monkeypatch
+):
+    # A verdict event on stderr is not part of the stream.
+    result, record = _codex_record(
+        tmp_path,
+        monkeypatch,
+        [_codex_stream(_GENERALIST_FAIL)],
+        stderr=_CODEX_PASS_EVENT + "\n",
+    )
+    assert (result.score, record["status"]) == (2, "failed")
+    result, record = _codex_record(
+        tmp_path, monkeypatch, [], stderr=_CODEX_PASS_EVENT + "\n"
+    )
+    assert record["status"] == "unavailable"
+    # A clean passing stream of a run that exits non-zero.
+    result, record = _codex_record(
+        tmp_path, monkeypatch, [_CODEX_PASS_EVENT], returncode=3
+    )
+    assert result.passed is False
+    assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
 
 
 # The strict reading of a reviewer output, written apart from the reader.

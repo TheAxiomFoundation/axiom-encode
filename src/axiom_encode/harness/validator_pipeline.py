@@ -938,9 +938,12 @@ def _run_codex_reviewer_cli(
                 env_is_final=True,
             )
         secrets |= codex_auth_secrets(codex_home)
-        text = _extract_codex_text_output(
-            redact_codex_auth_secrets(result.output, secrets)
-        )
+        # The event stream of a run that exits 0 is stdout alone: a log line
+        # on stderr is not an event. A failed run has no reply; the caller
+        # refuses it and gets both streams for its error message.
+        stdout = getattr(result, "stdout", None)
+        stream = result.output if result.returncode != 0 or stdout is None else stdout
+        text = _extract_codex_text_output(redact_codex_auth_secrets(stream, secrets))
         return redact_codex_auth_secrets(text, secrets), result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
@@ -1096,24 +1099,24 @@ def _run_subprocess_with_idle_timeout(
         raise RuntimeError(normalized_error) from exc
 
 
-def _codex_reviewer_reply(assistant_messages: list[str]) -> str:
-    """Return the reply of a Codex run: its last agent message.
-
-    `codex exec` defines the last agent message as the answer of the run
-    (`--output-last-message` writes exactly that message). An earlier message
-    is dropped only when it holds no brace and no review key: text that could
-    hold a verdict stays in the reply, where the verdict reader refuses it.
-    """
-    earlier = assistant_messages[:-1]
-    if any("{" in message or _has_review_key_token(message) for message in earlier):
-        return "\n".join(assistant_messages).strip()
-    return assistant_messages[-1].strip() if assistant_messages else ""
+def _unreadable_codex_stream(reason: str, output: str) -> str:
+    """Return text that is never a verdict: the reason, then the stream."""
+    return f"Codex reviewer stream is unreadable ({reason}):\n{output}"
 
 
 def _extract_codex_text_output(output: str) -> str:
-    """Return the reviewer reply from a Codex JSONL stream."""
+    """Return the reviewer reply from a Codex JSONL stream.
+
+    The reply is the text of the one agent message of the run. Fails closed:
+    the result is text that the verdict reader cannot read when the stream
+    holds an `error` or a `turn.failed` event, a line that is not a JSON
+    object, no agent message, or more than one agent message with text. A
+    run with a preamble message is unreadable by design: this reader cannot
+    tell a harmless preamble from an earlier verdict in other words.
+    """
     assistant_messages: list[str] = []
-    last_error: str | None = None
+    errors: list[str] = []
+    malformed = False
 
     for line in output.splitlines():
         stripped = line.strip()
@@ -1122,22 +1125,35 @@ def _extract_codex_text_output(output: str) -> str:
         try:
             payload = json.loads(stripped)
         except json.JSONDecodeError:
+            malformed = True
             continue
         if not isinstance(payload, dict):
+            malformed = True
             continue
         payload_type = payload.get("type")
         if payload_type == "item.completed":
-            item = payload.get("item") or {}
-            if item.get("type") == "agent_message" and item.get("text"):
-                assistant_messages.append(item["text"])
-        elif payload_type == "error":
-            last_error = payload.get("message") or "codex exec error"
+            item = payload.get("item")
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                text = item.get("text")
+                if not isinstance(text, str):
+                    malformed = True
+                elif text.strip():
+                    assistant_messages.append(text)
+        elif payload_type in ("error", "turn.failed"):
+            detail = payload.get("message") or payload.get("error")
+            errors.append(str(detail or "codex exec error"))
 
-    return (
-        _codex_reviewer_reply(assistant_messages)
-        or with_codex_model_availability_hint(last_error)
-        or output
-    )
+    if errors:
+        return _unreadable_codex_stream(
+            f"error event: {with_codex_model_availability_hint(errors[-1])}", output
+        )
+    if malformed:
+        return _unreadable_codex_stream("a line is not a JSON event", output)
+    if len(assistant_messages) != 1:
+        return _unreadable_codex_stream(
+            f"{len(assistant_messages)} agent messages with text, not one", output
+        )
+    return assistant_messages[0].strip()
 
 
 _REVIEW_JSON_KEYS = {
