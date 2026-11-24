@@ -335,7 +335,7 @@ def test_a_candidate_larger_than_one_call_is_promoted_after_a_chunked_review(
     promotion.run()
 
     assert len(promotion.prompts) == 1
-    assert "This is call 1 of 1." in promotion.prompts[0]
+    assert "This call is the whole review." in promotion.prompts[0]
     assert source in promotion.prompts[0]
     record = _review_record(capsys.readouterr().out)
     assert record["status"] == "passed"
@@ -353,6 +353,7 @@ def test_the_review_reads_the_staged_copy_whose_bytes_are_the_signed_bytes(tmp_p
         seen["rulespec"] = Path(rulespec_file).read_bytes()
         seen["companion"] = Path(rulespec_file).with_name("f.test.yaml").read_bytes()
         seen["cwd"] = kwargs["cwd"]
+        seen["path"] = Path(rulespec_file).resolve()
         return real(rulespec_file, **kwargs)
 
     with patch.object(validator_pipeline, "run_generalist_review", spy):
@@ -361,6 +362,16 @@ def test_the_review_reads_the_staged_copy_whose_bytes_are_the_signed_bytes(tmp_p
     assert seen["rulespec"] == promotion.rule.read_bytes()
     assert seen["companion"] == promotion.companion.read_bytes()
     assert seen["cwd"] == promotion.repo / "us"
+    # The reviewer reads the staged copy that validation checked, not the
+    # checkout file: a change of the checkout after validation cannot reach it.
+    assert promotion.repo.resolve() not in seen["path"].parents
+    assert seen["path"].parts[-5:] == (
+        "reviewed-candidate",
+        "statutes",
+        "7",
+        "2015",
+        "f.yaml",
+    )
 
 
 def _parsed_promotion_args(extra):
@@ -414,3 +425,134 @@ def test_no_environment_variable_turns_the_review_on(tmp_path, capsys, monkeypat
 
     assert promotion.prompts == []
     assert REVIEW_LINE not in capsys.readouterr().out
+
+
+# --- the retained review record ---------------------------------------------
+
+
+def _record_file_payload(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_review_record_file_keeps_a_passed_review_with_the_run_attempt(
+    tmp_path, capsys
+):
+    promotion = _Promotion(tmp_path / "work")
+    record_file = tmp_path / "promotion-generalist-review.json"
+    promotion.args.require_review = True
+    promotion.args.review_record_file = record_file
+    promotion.args.run_attempt = "2"
+
+    promotion.run()
+
+    printed = _review_record(capsys.readouterr().out)
+    payload = _record_file_payload(record_file)
+    assert payload == {
+        "schema": "axiom-encode/promotion-generalist-review/v1",
+        "tool": "axiom-encode promote-reviewed-candidate",
+        "axiom_encode_version": cli.__version__,
+        "run_id": "promotion-review-test",
+        "run_attempt": 2,
+        "citation": "us/statute/7/2015/f",
+        "rulespec_path": RULE_PATH,
+        "reviewed_rulespec_ref": promotion.ref,
+        "review_passed": True,
+        "generalist_review": printed,
+    }
+    # The signed manifest is unchanged by the file: no record in it.
+    assert "generalist_review" not in promotion.signed[0]
+    assert "generalist_review" not in json.loads(promotion.manifest.read_text())
+    assert promotion.order == ["validate", "review", "sign"]
+
+
+def test_review_record_file_keeps_a_refused_review_too(tmp_path, capsys):
+    promotion = _Promotion(tmp_path / "work")
+    record_file = tmp_path / "promotion-generalist-review.json"
+    promotion.args.require_review = True
+    promotion.args.review_record_file = record_file
+
+    with pytest.raises(RuntimeError, match="Nothing was signed"):
+        promotion.run(
+            '{"score": 3.0, "passed": false, "blocking_issues": ["a defect"]}'
+        )
+
+    payload = _record_file_payload(record_file)
+    assert payload["review_passed"] is False
+    assert payload["run_attempt"] is None
+    assert payload["generalist_review"]["status"] == "failed"
+    assert payload["generalist_review"] == _review_record(capsys.readouterr().out)
+    assert "a defect" not in record_file.read_text()
+    assert promotion.signed == []
+
+
+@pytest.mark.parametrize(
+    ("settings", "message"),
+    [
+        ({"review_record_file": "FILE"}, "requires --require-review"),
+        (
+            {"require_review": True, "run_attempt": "1"},
+            "--run-attempt requires --review-record-file",
+        ),
+        (
+            {"require_review": True, "review_record_file": "FILE", "run_attempt": "0"},
+            "positive decimal number",
+        ),
+        (
+            {"require_review": True, "review_record_file": "FILE", "run_attempt": "1a"},
+            "positive decimal number",
+        ),
+        (
+            {"require_review": True, "review_record_file": "FILE", "run_attempt": "-1"},
+            "positive decimal number",
+        ),
+        (
+            {"require_review": True, "review_record_file": "relative.json"},
+            "absolute path",
+        ),
+        (
+            {"require_review": True, "review_record_file": "INSIDE"},
+            "outside the RuleSpec checkout",
+        ),
+        (
+            {"require_review": True, "review_record_file": "EXISTS"},
+            "already exists",
+        ),
+        (
+            {"require_review": True, "review_record_file": "NODIR"},
+            "directory does not exist",
+        ),
+    ],
+)
+def test_contradictory_record_settings_refuse_before_validation(
+    tmp_path, settings, message
+):
+    promotion = _Promotion(tmp_path / "work")
+    existing = tmp_path / "existing.json"
+    existing.write_text("{}")
+    paths = {
+        "FILE": tmp_path / "record.json",
+        "INSIDE": promotion.repo / "record.json",
+        "EXISTS": existing,
+        "NODIR": tmp_path / "missing" / "record.json",
+        "relative.json": Path("relative.json"),
+    }
+    for key, value in settings.items():
+        setattr(promotion.args, key, paths.get(value, value))
+
+    with pytest.raises(ValueError, match=message):
+        promotion.run()
+
+    assert promotion.order == []
+    assert promotion.prompts == [] and promotion.signed == []
+    assert existing.read_text() == "{}"
+    assert not (tmp_path / "record.json").exists()
+
+
+def test_the_record_file_flags_parse_and_default_to_absent():
+    plain = _parsed_promotion_args([])
+    assert plain.review_record_file is None and plain.run_attempt is None
+    given = _parsed_promotion_args(
+        ["--require-review", "--review-record-file", "/x/r.json", "--run-attempt", "3"]
+    )
+    assert given.review_record_file == Path("/x/r.json")
+    assert given.run_attempt == "3"
