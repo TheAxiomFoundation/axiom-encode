@@ -1,3 +1,7 @@
+## 0.2.2391
+
+- Admit signed promotions on enrolled-owner dispatch, without a per-candidate owner approval (#2301) (#2317)
+
 ## 0.2.2390
 
 - Make the gates-collapsed check advisory: record it and show it to the reviewer, do not refuse (#2300) (#2312)
