@@ -13,9 +13,9 @@ The record states what happened, in one of five statuses:
     every applied file listed by this record in full. A pass that the eval
     pipeline infers from the score alone is not a pass here.
 ``partial``
-    The reviewer passed the candidate it read, but that is not everything
-    that is applied: another file is applied that it never read, or its
-    prompt showed it only the start of a file.
+    The reviewer passed the candidate it read, but that is not everything:
+    another file is applied that it never read, or its prompts showed it
+    only a part of a file or of the source excerpt.
 ``failed``
     The reviewer ran on applied content and did not pass.
 ``unavailable``
@@ -76,6 +76,17 @@ this digest cannot establish as equal leave the verdict unavailable, even
 when a particular respelling might be harmless. The record also names byte
 digests on both sides.
 
+A candidate that does not fit one reviewer call is reviewed in ordered
+chunks (``generalist_review_chunks``). ``coverage`` says what the calls
+showed: the number of calls, and for the module, the companion test and the
+source excerpt the size and digest of the reviewed text and the byte range
+and digest of each chunk. A file is ``complete`` only when its chunks cover
+every byte of the reviewed text exactly once, in order, within the chunk and
+call caps, and every planned call was made. The ranges are of the reviewed
+bytes; the content digests above bind those to the applied file. The source
+excerpt is not an applied file: a review that saw only a part of it is
+``partial`` with its own reason.
+
 The record holds only enumerated words, numbers, digests and the manifest's
 own file paths. Reviewer prose (issues, reasoning) never enters it, so model
 output cannot place a string of its choice in a signed manifest.
@@ -96,10 +107,15 @@ import yaml
 
 from axiom_encode.checks import ValidationIssue, declare_check
 from axiom_encode.constants import RULESPEC_FILE_SUFFIX, RULESPEC_TEST_FILE_SUFFIX
+from axiom_encode.generalist_review_chunks import (
+    MAX_CHUNKS_PER_FILE,
+    MAX_REVIEW_CALLS,
+    planned_call_count,
+)
 from axiom_encode.yaml_serialization import is_yaml12_core_non_string, safe_dump_yaml
 
 GENERALIST_REVIEW_FIELD = "generalist_review"
-GENERALIST_REVIEW_SCHEMA = "axiom-encode/generalist-review/v1"
+GENERALIST_REVIEW_SCHEMA = "axiom-encode/generalist-review/v2"
 GENERALIST_REVIEWER_NAME = "generalist-reviewer"
 
 STATUS_PASSED = "passed"
@@ -124,9 +140,12 @@ REASON_UNREADABLE = "unreadable_review_result"
 REASON_CONTENT_NOT_APPLIED = "reviewed_content_not_applied"
 REASON_UNREVIEWED_FILES = "unreviewed_applied_files"
 REASON_TRUNCATED = "review_saw_truncated_file"
+REASON_SOURCE_TRUNCATED = "review_saw_truncated_source"
 _REASONS_BY_STATUS = {
     STATUS_PASSED: frozenset({None}),
-    STATUS_PARTIAL: frozenset({REASON_UNREVIEWED_FILES, REASON_TRUNCATED}),
+    STATUS_PARTIAL: frozenset(
+        {REASON_UNREVIEWED_FILES, REASON_TRUNCATED, REASON_SOURCE_TRUNCATED}
+    ),
     STATUS_FAILED: frozenset({None}),
     STATUS_UNAVAILABLE: frozenset(
         {REASON_REVIEWER_ERROR, REASON_UNREADABLE, REASON_CONTENT_NOT_APPLIED}
@@ -151,8 +170,8 @@ CHECK_REVIEW_RECORD_SHAPE = declare_check(
     "manifest:generalist-review/shape",
     title="Generalist review record is malformed",
     requires=(
-        "The record has the exact v1 fields, a supported status and reason, "
-        "and well-formed reviewer, verdict, digest and file values."
+        "The record has the exact v2 fields, a supported status and reason, "
+        "and well-formed reviewer, verdict, digest, coverage and file values."
     ),
     why=_RECORD_WHY,
     fix=_RECORD_FIX,
@@ -180,7 +199,8 @@ CHECK_REVIEW_RECORD_BINDING = declare_check(
     requires=(
         "The record lists exactly the files the manifest applies, each by "
         "path and digest; a passed record marks every one of them reviewed in "
-        "full; a scored record has equal reviewed and applied content digests "
+        "full, with chunk ranges that cover each reviewed text exactly once; a "
+        "scored record has equal reviewed and applied content digests "
         "and marks as reviewed only the reviewed module path and its "
         "companion test path."
     ),
@@ -210,9 +230,15 @@ _RECORD_FIELDS = frozenset(
         "prompt_sha256",
         "reviewed",
         "applied",
+        "coverage",
         "files",
     }
 )
+_COVERAGE_FIELDS = frozenset(
+    {"calls_planned", "calls_made", "rulespec", "test", "source"}
+)
+_COVERED_TEXT_FIELDS = frozenset({"sha256", "size", "chunks"})
+_CHUNK_FIELDS = frozenset({"start", "end", "sha256"})
 _REVIEWER_FIELDS = frozenset({"name", "backend", "model"})
 _VERDICT_FIELDS = frozenset({"passed", "score", "issue_count"})
 _DIGEST_FIELDS = (
@@ -227,7 +253,10 @@ _PATH_FIELDS = ("rulespec_path", "test_path")
 _APPLIED_FIELDS = _PAIR_FIELDS | frozenset(_PATH_FIELDS)
 # The reviewed RuleSpec after the dump that apply performs on it.
 _DUMPED_FIELD = "rulespec_dumped_content_sha256"
-_REVIEWED_FIELDS = _PAIR_FIELDS | {_DUMPED_FIELD}
+# The byte digest of the source excerpt the reviewer was given; None when
+# the review had no source excerpt.
+_SOURCE_FIELD = "source_sha256"
+_REVIEWED_FIELDS = _PAIR_FIELDS | {_DUMPED_FIELD, _SOURCE_FIELD}
 _MERGE_TAG = "tag:yaml.org,2002:merge"
 _FILE_FIELDS = frozenset({"path", "sha256", "reviewed", "complete"})
 # The two keys `encode --apply` stamps into module.source_verification.
@@ -914,6 +943,146 @@ def _file_entries(
     ]
 
 
+def _is_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _covered_text(value: object) -> dict[str, object] | None:
+    """One text of a coverage block, copied when it is well formed.
+
+    Well formed is the shape only: a digest, a size and a list of chunks,
+    each a byte range inside the size with a digest. Whether the chunks
+    cover the text is :func:`_covers_whole_text`.
+    """
+
+    if (
+        not isinstance(value, Mapping)
+        or frozenset(value) != _COVERED_TEXT_FIELDS
+        or not _is_sha256(value["sha256"])
+        or not _is_count(value["size"])
+        or not isinstance(value["chunks"], list)
+    ):
+        return None
+    chunks: list[dict[str, object]] = []
+    for chunk in value["chunks"]:
+        if (
+            not isinstance(chunk, Mapping)
+            or frozenset(chunk) != _CHUNK_FIELDS
+            or not _is_count(chunk["start"])
+            or not _is_count(chunk["end"])
+            or not chunk["start"] <= chunk["end"] <= value["size"]
+            or not _is_sha256(chunk["sha256"])
+        ):
+            return None
+        chunks.append(
+            {"start": chunk["start"], "end": chunk["end"], "sha256": chunk["sha256"]}
+        )
+    return {"sha256": value["sha256"], "size": value["size"], "chunks": chunks}
+
+
+def review_coverage(value: object) -> dict[str, object] | None:
+    """A coverage block copied from review evidence, or None when malformed.
+
+    The copy holds integers and digests only. The module must be present;
+    the companion test and the source excerpt are None when the review had
+    none.
+    """
+
+    if not isinstance(value, Mapping) or frozenset(value) != _COVERAGE_FIELDS:
+        return None
+    rulespec = _covered_text(value["rulespec"])
+    test = None if value["test"] is None else _covered_text(value["test"])
+    source = None if value["source"] is None else _covered_text(value["source"])
+    if (
+        rulespec is None
+        or (value["test"] is not None and test is None)
+        or (value["source"] is not None and source is None)
+        or not _is_count(value["calls_planned"])
+        or not _is_count(value["calls_made"])
+    ):
+        return None
+    return {
+        "calls_planned": value["calls_planned"],
+        "calls_made": value["calls_made"],
+        "rulespec": rulespec,
+        "test": test,
+        "source": source,
+    }
+
+
+def _every_call_made(coverage: Mapping[str, Any]) -> bool:
+    """Every planned call was made, and the plan is within the call cap.
+
+    The number of planned calls is the number that the chunk counts of the
+    three texts give; a record cannot state another one.
+    """
+
+    planned = planned_call_count(
+        len(coverage["rulespec"]["chunks"]),
+        0 if coverage["source"] is None else len(coverage["source"]["chunks"]),
+        0 if coverage["test"] is None else len(coverage["test"]["chunks"]),
+    )
+    return (
+        1
+        <= coverage["calls_made"]
+        == coverage["calls_planned"]
+        == planned
+        <= MAX_REVIEW_CALLS
+    )
+
+
+def _covers_whole_text(text: Mapping[str, Any]) -> bool:
+    """The chunks cover every byte of the text exactly once, in order.
+
+    The first chunk starts at byte 0, each next chunk starts where the one
+    before it ends, and the last one ends at the size: no gap, no overlap
+    and no other order. A chunk is empty only as the one chunk of an empty
+    text. One chunk that is the whole text has the digest of the text.
+    """
+
+    chunks = text["chunks"]
+    if not 1 <= len(chunks) <= MAX_CHUNKS_PER_FILE:
+        return False
+    position = 0
+    for chunk in chunks:
+        if chunk["start"] != position:
+            return False
+        if chunk["end"] == chunk["start"] and text["size"] != 0:
+            return False
+        position = chunk["end"]
+    if position != text["size"]:
+        return False
+    return len(chunks) > 1 or chunks[0]["sha256"] == text["sha256"]
+
+
+def _text_seen_whole(
+    coverage: Mapping[str, Any] | None, name: str, sha256: object
+) -> bool:
+    """Coverage shows the whole text ``name`` with the byte digest ``sha256``."""
+
+    if coverage is None or not _every_call_made(coverage):
+        return False
+    text = coverage[name]
+    return text is not None and text["sha256"] == sha256 and _covers_whole_text(text)
+
+
+def _source_seen_whole(
+    coverage: Mapping[str, Any] | None, source_sha256: object
+) -> bool:
+    """Coverage shows the whole source excerpt with digest ``source_sha256``.
+
+    With no digest the review had no source excerpt, and coverage must name
+    none. With a digest, coverage must show every byte of the text that has
+    that digest.
+    """
+
+    if coverage is None:
+        return False
+    if source_sha256 is None:
+        return coverage["source"] is None
+    return _text_seen_whole(coverage, "source", source_sha256)
+
+
 def _unscored_record(
     status: str,
     reason: str,
@@ -933,8 +1102,9 @@ def _unscored_record(
         },
         "verdict": {"passed": None, "score": None, "issue_count": 0},
         "prompt_sha256": None,
-        "reviewed": dict.fromkeys((*_DIGEST_FIELDS, _DUMPED_FIELD)),
+        "reviewed": dict.fromkeys((*_DIGEST_FIELDS, _DUMPED_FIELD, _SOURCE_FIELD)),
         "applied": dict.fromkeys((*_DIGEST_FIELDS, *_PATH_FIELDS)),
+        "coverage": None,
         "files": files,
     }
 
@@ -961,7 +1131,10 @@ def build_generalist_review_record(
     reviewed, and no other path: a file with equal bytes at another path is
     validated in another module's context, which the reviewer did not read.
     The record is ``passed`` only when those two paths are everything that
-    is applied and the reviewer saw both files whole.
+    is applied, the reviewer saw both files whole and it saw the whole
+    source excerpt. "Whole" is read from the coverage block of the evidence:
+    chunk ranges that cover the reviewed bytes exactly once, with every
+    planned call made.
     """
 
     pairs = [pair for pair in applied if isinstance(pair, AppliedPair)]
@@ -1038,6 +1211,8 @@ def build_generalist_review_record(
     }
     if not _is_sha256(reviewed[_DUMPED_FIELD]):
         reviewed[_DUMPED_FIELD] = None
+    source_sha256 = evidence.get("reviewed_" + _SOURCE_FIELD)
+    reviewed[_SOURCE_FIELD] = source_sha256 if _is_sha256(source_sha256) else None
     # A dump-derived hash is diagnostic only. It cannot authorize content
     # different from the reviewed node tree, even if the loader collapsed it.
     if reviewed[_DUMPED_FIELD] != reviewed["rulespec_content_sha256"]:
@@ -1073,6 +1248,7 @@ def build_generalist_review_record(
         ),
         None,
     )
+    coverage: dict[str, object] | None = None
     if bound_pair is None:
         status = STATUS_UNAVAILABLE
         reason: str | None = REASON_CONTENT_NOT_APPLIED
@@ -1081,22 +1257,25 @@ def build_generalist_review_record(
         )
         files = unreviewed
     else:
+        coverage = review_coverage(evidence.get("coverage"))
         applied_digests = {
             field: getattr(bound_pair, field)
             for field in (*_DIGEST_FIELDS, *_PATH_FIELDS)
         }
-        # Only an explicit True says the prompt showed the whole file.
+        # Only an explicit True says the prompts showed the whole file, and
+        # only chunk ranges that cover the reviewed bytes once confirm it.
         seen_whole = {
             str(bound_pair.rulespec_path): evidence.get("rulespec_complete") is True
+            and _text_seen_whole(coverage, "rulespec", reviewed["rulespec_sha256"])
         }
         # A reviewer that read no companion test has reviewed no applied
         # companion file. The content digests above already keep such a
         # pair apart (an absent companion is a content of its own); this is
         # a second guard that leaves the file unreviewed.
         if bound_pair.test_sha256 is not None and reviewed["test_sha256"] is not None:
-            seen_whole[str(bound_pair.test_path)] = (
-                evidence.get("test_complete") is True
-            )
+            seen_whole[str(bound_pair.test_path)] = evidence.get(
+                "test_complete"
+            ) is True and _text_seen_whole(coverage, "test", reviewed["test_sha256"])
         files = _file_entries(listed, seen_whole)
         if not verdict:
             status, reason = STATUS_FAILED, None
@@ -1104,6 +1283,11 @@ def build_generalist_review_record(
             status, reason = STATUS_PARTIAL, REASON_UNREVIEWED_FILES
         elif not all(entry["complete"] for entry in files):
             status, reason = STATUS_PARTIAL, REASON_TRUNCATED
+        elif not (
+            _source_seen_whole(coverage, reviewed[_SOURCE_FIELD])
+            and (coverage["source"] is None or evidence.get("source_complete") is True)
+        ):
+            status, reason = STATUS_PARTIAL, REASON_SOURCE_TRUNCATED
         else:
             status, reason = STATUS_PASSED, None
     return {
@@ -1120,6 +1304,7 @@ def build_generalist_review_record(
         "prompt_sha256": state.prompt_sha256,
         "reviewed": reviewed,
         "applied": applied_digests,
+        "coverage": coverage,
         "files": files,
     }
 
@@ -1137,6 +1322,11 @@ def generalist_review_record_issues(
     and applied content digests, and may mark as reviewed only the module
     path it names and the companion test path of that module, each with the
     digest it names. Any other record must mark no file reviewed.
+
+    A file is marked complete only with a coverage block whose chunk ranges
+    cover the reviewed bytes of that file exactly once within the caps, and a
+    ``passed`` record also covers the whole source excerpt when it names one.
+    The reader cannot recompute a chunk digest: it has no file bytes.
     """
 
     def shape(message: str) -> ValidationIssue:
@@ -1177,6 +1367,9 @@ def generalist_review_record_issues(
     reviewed = record["reviewed"]
     applied_block = record["applied"]
     files = record["files"]
+    coverage = record["coverage"]
+    if coverage is not None and review_coverage(coverage) != coverage:
+        return found + [shape("generalist_review has a malformed coverage block")]
     if (
         not isinstance(reviewer, dict)
         or frozenset(reviewer) != _REVIEWER_FIELDS
@@ -1273,6 +1466,7 @@ def generalist_review_record_issues(
             or prompt_sha256 is not None
             or any(value is not None for value in reviewed.values())
             or any(value is not None for value in applied_block.values())
+            or coverage is not None
             or reviewed_files
             or backend is not None
             or model is not None
@@ -1311,7 +1505,11 @@ def generalist_review_record_issues(
             verdict_issue("generalist_review status failed contradicts its verdict")
         ]
     if status == STATUS_UNAVAILABLE:
-        if any(value is not None for value in applied_block.values()) or reviewed_files:
+        if (
+            any(value is not None for value in applied_block.values())
+            or reviewed_files
+            or coverage is not None
+        ):
             found += [
                 binding(
                     "generalist_review says the reviewed content was not applied, "
@@ -1376,9 +1574,29 @@ def generalist_review_record_issues(
                 "generalist_review verdict is not bound to the applied file digests"
             )
         ]
+    # A file is complete only with chunk ranges that cover its reviewed
+    # bytes exactly once: the module by the reviewed module digest, the
+    # companion test by the reviewed companion digest.
+    covered = {
+        rulespec_path: _text_seen_whole(
+            coverage, "rulespec", reviewed["rulespec_sha256"]
+        ),
+        test_path: reviewed["test_sha256"] is not None
+        and _text_seen_whole(coverage, "test", reviewed["test_sha256"]),
+    }
+    if any(
+        entry["complete"] and not covered.get(entry["path"], False) for entry in files
+    ):
+        found += [
+            binding(
+                "generalist_review marks a file complete without chunk ranges "
+                "that cover it exactly once"
+            )
+        ]
     everything_in_full = bool(files) and all(
         entry["reviewed"] and entry["complete"] for entry in files
     )
+    source_in_full = _source_seen_whole(coverage, reviewed[_SOURCE_FIELD])
     if status == STATUS_PASSED and not everything_in_full:
         found += [
             binding(
@@ -1386,10 +1604,22 @@ def generalist_review_record_issues(
                 "reviewed in full"
             )
         ]
+    if status == STATUS_PASSED and not source_in_full:
+        found += [
+            binding(
+                "generalist_review status passed, but the source excerpt was not "
+                "reviewed in full"
+            )
+        ]
     if status == STATUS_PARTIAL:
         all_reviewed = bool(files) and all(entry["reviewed"] for entry in files)
-        expected = REASON_TRUNCATED if all_reviewed else REASON_UNREVIEWED_FILES
-        if everything_in_full or reason != expected:
+        if not all_reviewed:
+            expected = REASON_UNREVIEWED_FILES
+        elif not everything_in_full:
+            expected = REASON_TRUNCATED
+        else:
+            expected = REASON_SOURCE_TRUNCATED
+        if (everything_in_full and source_in_full) or reason != expected:
             found += [
                 binding("generalist_review status partial contradicts its file list")
             ]

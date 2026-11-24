@@ -3211,6 +3211,40 @@ def main():
         type=Path,
         help="Explicit axiom-compose executable for composition modules",
     )
+    promote_reviewed_candidate_parser.add_argument(
+        "--require-review",
+        action="store_true",
+        help=(
+            "Run the generalist model reviewer on the exact candidate bytes "
+            "after validation and sign only when it passes every file in "
+            "full. A candidate that does not fit one reviewer call is "
+            "reviewed in chunks; above the chunk caps the review is partial "
+            "and the promotion is refused. Off by default: without the flag "
+            "no reviewer runs"
+        ),
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--review-record-file",
+        type=Path,
+        default=None,
+        help=(
+            "Use with --require-review. Write the generalist review record "
+            "of this promotion to this new JSON file, also when the review "
+            "does not pass. The path must be absolute, outside the RuleSpec "
+            "checkout, and must not exist. Keep the file with the run's "
+            "retained output: the promotion manifest does not carry the "
+            "record"
+        ),
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--run-attempt",
+        default=None,
+        help=(
+            "Use with --review-record-file. The attempt number of the "
+            "workflow run (a positive decimal number), written to the review "
+            "record file so that a rerun of a refused review is visible"
+        ),
+    )
     _add_required_corpus_path_argument(promote_reviewed_candidate_parser)
     _add_rulespec_dependency_root_argument(promote_reviewed_candidate_parser)
     promote_reviewed_candidate_parser.add_argument(
@@ -3849,7 +3883,7 @@ def main():
         "--require-review",
         action="store_true",
         help=(
-            "Use with --apply; do not combine with --skip-reviewers. The flag requires a passed generalist review record with whole-file coverage of every file the model manifest applies and matching reviewed and applied canonical digests. The encoder refuses if a canonical digest changes; a dump-derived digest cannot substitute. A missing, unreadable, failed or incomplete review also blocks apply. The flag refuses legacy replacements that would rewrite exact dependents, because the model manifest's review does not cover them. The reviewer prompt shows at most the first 6,000 characters of the module and the first 3,000 of the companion test file; a larger file counts as incomplete, so the flag refuses it. The flag defaults to off; no other switch enables it."
+            "Use with --apply; do not combine with --skip-reviewers. The flag requires a passed generalist review record with whole-file coverage of every file the model manifest applies and matching reviewed and applied canonical digests. The encoder refuses if a canonical digest changes; a dump-derived digest cannot substitute. A missing, unreadable, failed or incomplete review also blocks apply. The flag refuses legacy replacements that would rewrite exact dependents, because the model manifest's review does not cover them. A candidate that does not fit one reviewer call (6,000 characters of module, 3,000 of companion test file, 4,000 of source excerpt) is reviewed in ordered chunks of up to 24,000 characters each, and every call must pass. Above 8 chunks for one text or 12 calls for one unit, or with one rule or test case larger than a chunk, the reviewer makes one call on the start of each file; the review is then incomplete and the flag refuses it. The flag defaults to off; no other switch enables it."
         ),
     )
     encode_parser.add_argument(
@@ -10424,6 +10458,155 @@ def _promotion_reviewed_rulespec_record_root() -> Path | None:
     return _checkout_reviewed_rulespec_record_root()
 
 
+def _promotion_requires_review(args) -> bool:
+    """Return whether this promotion signs only after a passed model review.
+
+    ``promote-reviewed-candidate --require-review`` is the only switch, read
+    when the command runs. There is no environment variable for it: the
+    signing supervisor builds the child environment from empty.
+    """
+
+    return getattr(args, "require_review", False) is True
+
+
+PROMOTION_REVIEW_RECORD_SCHEMA = "axiom-encode/promotion-generalist-review/v1"
+
+
+def _promotion_review_record_target(
+    args, repo_path: Path
+) -> tuple[Path, int | None] | None:
+    """Return where this promotion writes its review record, or None.
+
+    Refuses contradictory settings before validation, any reviewer call and
+    any signature request. The file is not part of the signed manifest and
+    is never read back by this command.
+    """
+
+    record_file = getattr(args, "review_record_file", None)
+    run_attempt = getattr(args, "run_attempt", None)
+    if record_file is None:
+        if run_attempt is not None:
+            raise ValueError(
+                "promote-reviewed-candidate --run-attempt requires --review-record-file"
+            )
+        return None
+    if not _promotion_requires_review(args):
+        raise ValueError(
+            "promote-reviewed-candidate --review-record-file requires --require-review"
+        )
+    record_file = Path(record_file)
+    attempt: int | None = None
+    if run_attempt is not None:
+        text = str(run_attempt)
+        if re.fullmatch(r"[1-9][0-9]{0,8}", text) is None:
+            raise ValueError(
+                "promote-reviewed-candidate --run-attempt must be a positive "
+                "decimal number"
+            )
+        attempt = int(text)
+    if not record_file.is_absolute() or ".." in record_file.parts:
+        raise ValueError("review record file must be an absolute path")
+    resolved = record_file.parent.resolve() / record_file.name
+    if resolved == repo_path.resolve() or repo_path.resolve() in resolved.parents:
+        raise ValueError("review record file must be outside the RuleSpec checkout")
+    if record_file.exists() or record_file.is_symlink():
+        raise ValueError("review record file already exists")
+    if not record_file.parent.is_dir():
+        raise ValueError("review record file directory does not exist")
+    return record_file, attempt
+
+
+def _write_promotion_review_record(
+    target: tuple[Path, int | None],
+    *,
+    args,
+    reviewed_ref: str,
+    review_record: Mapping[str, object],
+) -> None:
+    """Write the review record of one promotion attempt to its new file.
+
+    The file is created exclusively, so one path holds one attempt. It holds
+    the record (enumerated words, numbers, digests, manifest paths) and the
+    identifiers of the run; no reviewer prose.
+    """
+
+    record_file, attempt = target
+    payload = {
+        "schema": PROMOTION_REVIEW_RECORD_SCHEMA,
+        "tool": APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+        "axiom_encode_version": __version__,
+        "run_id": None if args.run_id is None else str(args.run_id),
+        "run_attempt": attempt,
+        "citation": str(args.citation),
+        "rulespec_path": str(args.rulespec_path),
+        "reviewed_rulespec_ref": reviewed_ref,
+        "review_passed": review_requirement_refusal(review_record) is None,
+        GENERALIST_REVIEW_FIELD: review_record,
+    }
+    with open(record_file, "x", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _promotion_generalist_review_record(
+    *,
+    source_text: str,
+    cwd: Path,
+    applied: Mapping[Path, bytes],
+    rulespec_relative: Path,
+) -> dict[str, object]:
+    """Review one promoted unit and return its required review record.
+
+    ``applied`` holds the exact bytes the promotion signs, by manifest path:
+    the module at ``rulespec_relative`` and its companion test. The reviewer
+    reads a fresh staged copy of those bytes, never a checkout file, so a
+    change of the checkout after validation cannot reach it. The record
+    binds the verdict to the same bytes with the rules of
+    ``encode --apply --require-review``.
+    """
+
+    from axiom_encode.harness.evals import generalist_review_source
+    from axiom_encode.harness.validator_pipeline import run_generalist_review
+
+    companion_relative = _rulespec_test_path(rulespec_relative)
+    with tempfile.TemporaryDirectory() as temporary:
+        staged_file = (
+            Path(temporary) / "reviewed-candidate" / Path(*rulespec_relative.parts[1:])
+        )
+        staged_file.parent.mkdir(parents=True)
+        staged_file.write_bytes(applied[rulespec_relative])
+        if companion_relative in applied:
+            _rulespec_test_path(staged_file).write_bytes(applied[companion_relative])
+        review = run_generalist_review(
+            staged_file,
+            review_source=generalist_review_source(source_text),
+            cwd=cwd,
+        )
+    details = review.details if isinstance(review.details, dict) else {}
+    companion_relative = _rulespec_test_path(rulespec_relative)
+    return build_generalist_review_record(
+        GeneralistReviewState(
+            metrics_pass=review.passed,
+            score=review.score,
+            issue_count=len(review.issues) if isinstance(review.issues, list) else 0,
+            prompt_sha256=review.prompt_sha256,
+            evidence=details.get("review_evidence"),
+            required=True,
+        ),
+        [
+            applied_pair(
+                applied[rulespec_relative],
+                applied.get(companion_relative),
+                rulespec_path=rulespec_relative.as_posix(),
+            )
+        ],
+        [
+            (relative.as_posix(), hashlib.sha256(raw).hexdigest())
+            for relative, raw in applied.items()
+        ],
+        reviewed_rulespec_path=rulespec_relative.as_posix(),
+    )
+
+
 def cmd_promote_reviewed_candidate(args):
     """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
 
@@ -10454,6 +10637,7 @@ def cmd_promote_reviewed_candidate(args):
         _rulespec_dependency_roots_from_args(args)
     )
     reviewed_ref = str(args.reviewed_rulespec_ref)
+    review_record_target = _promotion_review_record_target(args, repo_path)
     country_match = re.fullmatch(r"rulespec-([a-z]{2})", repo_path.name)
     if country_match is None:
         raise ValueError("reviewed candidate checkout name is not canonical")
@@ -10738,6 +10922,36 @@ def cmd_promote_reviewed_candidate(args):
                         "reviewed candidate validation lacks execution provenance"
                     )
 
+            # Validation is complete. The reviewer runs after it and before
+            # the admission is revalidated and any signature is requested.
+            if _promotion_requires_review(args):
+                review_record = _promotion_generalist_review_record(
+                    source_text=normalized_source,
+                    cwd=content_root,
+                    applied=before,
+                    rulespec_relative=rulespec_relative,
+                )
+                print(
+                    "reviewed candidate generalist review: "
+                    + json.dumps(review_record, sort_keys=True)
+                )
+                if review_record_target is not None:
+                    _write_promotion_review_record(
+                        review_record_target,
+                        args=args,
+                        reviewed_ref=reviewed_ref,
+                        review_record=review_record,
+                    )
+                if review_requirement_refusal(review_record) is not None:
+                    reason = review_record.get("reason")
+                    raise RuntimeError(
+                        "reviewed candidate promotion requires a passed "
+                        "generalist review of every promoted file "
+                        "(--require-review) and has none: status "
+                        f"{review_record.get('status')}"
+                        + (f" ({reason})" if reason else "")
+                        + ". Nothing was signed."
+                    )
             axiom_encode_git = _require_clean_axiom_encode_git_provenance()
             payload: dict[str, object] = {
                 "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
