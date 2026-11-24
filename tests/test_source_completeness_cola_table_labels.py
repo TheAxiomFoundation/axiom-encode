@@ -131,6 +131,10 @@ def test_range_header_plus_label_is_not_arithmetic(source_text):
         # A caption whose `N+` is not followed by a jurisdiction column.
         "Area 10 20+ 30 percent of income",
         "Zone 1-2 3 4 5 6+ 48 States and D.C. $217",
+        # Lower-case captions, even before a jurisdiction cell.
+        "household size area 1-2 3 4 5 6+ 48 States and D.C. $217",
+        # Words between the caption and `N+`.
+        "Household Size Area served by 6+ 48 States and D.C. $217",
     ),
 )
 def test_real_addition_stays_arithmetic(source_text):
