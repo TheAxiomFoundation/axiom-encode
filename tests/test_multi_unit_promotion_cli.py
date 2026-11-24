@@ -784,7 +784,7 @@ def test_the_import_check_follows_the_validators_resolver(tmp_path, on):
         expected = resolved is not None and resolved.resolve() == (repo / a).resolve()
         assert (issue is not None) is expected, (spelling, resolved, issue, in_batch)
         # The reviewed spellings of a batch unit are refused outright.
-        if spelling.replace("'", "").replace('"', "").split("#")[0].endswith("/a"):
+        if spelling.replace("'", "").replace('"', "").split("#")[0].endswith("2015/a"):
             assert issue == (
                 f"{primary('b')} imports {primary('a')}, another unit of the "
                 "same batch; promote the imported unit first"
