@@ -2980,6 +2980,52 @@ def numeric_occurrences_without_us_bibliographic_locators(
     return inventory.kept if inventory.consistent else inventory.occurrences
 
 
+def complete_source_numeric_recall_occurrences(
+    authoritative_source_text: str,
+    *,
+    corpus_citation_path: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+    normalize_recall_text: Callable[[str], str] | None = None,
+) -> tuple[NumericOccurrenceLike, ...]:
+    """Return the source numbers that complete-source numeric recall demands.
+
+    This is the source view of `analyze_complete_source_unit`, without the
+    spans a candidate represents: the same stripped text, the same prose and
+    condition-cue scopes, `authoritative_numeric_recall_text`, the US locator
+    filter and the temporal applicability preface filter. Other gates that
+    count source numbers in complete mode read this view, so a number that
+    numeric recall does not demand is not demanded again by a second reading
+    of the raw text, and every number it demands stays demanded.
+
+    `normalize_recall_text` lets a caller rewrite the masked recall text
+    before the inventory is read (the encode eval spells out a source-backed
+    half-up increment); it runs after every mask.
+    """
+
+    source_text = authoritative_source_text.strip()
+    with (
+        _us_manual_prose_scope(corpus_citation_path),
+        _condition_cue_scope(corpus_citation_path),
+    ):
+        recall_text = authoritative_numeric_recall_text(
+            source_text, corpus_citation_path=corpus_citation_path
+        )
+        if normalize_recall_text is not None:
+            recall_text = normalize_recall_text(recall_text)
+        occurrences = numeric_occurrences_without_us_bibliographic_locators(
+            recall_text,
+            corpus_citation_path=corpus_citation_path,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+        return tuple(
+            occurrence
+            for occurrence in occurrences
+            if not _temporal_occurrence_is_formula_applicability_preface(
+                occurrence, recall_text
+            )
+        )
+
+
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
 # Some US statutes abbreviate a list of U.S. Code references after the first
 # title number: `[42 U.S.C. 301 et seq., 401 et seq., ...]`. The continuation

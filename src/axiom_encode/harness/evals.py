@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import functools
 import hashlib
 import json
 import math
@@ -201,6 +202,7 @@ from .source_completeness import (
     _deferral_anchor_bases,
     _rulespec_target_base,
     collect_artifact_numeric_values,
+    complete_source_numeric_recall_occurrences,
     mask_armenian_amendment_history,
     mask_example_cross_references,
 )
@@ -9171,24 +9173,35 @@ def _evaluate_artifact_in_scope(
         ),
     )
     if require_complete_source_unit:
-        counted_numeric_source_text = numeric_recall_source_text or ""
-        if half_up_helper_count:
-            counted_numeric_source_text = (
-                normalize_source_backed_half_up_rounding_occurrence_text(
-                    counted_numeric_source_text
-                )
+        # Count exactly the source numbers that complete-source numeric recall
+        # demands (#1801): the raw unit would demand again the page numbers,
+        # table labels and locators that the recall masks remove.
+        typed_source_numeric_occurrences = list(
+            complete_source_numeric_recall_occurrences(
+                evaluation_source_text or "",
+                corpus_citation_path=numeric_source_citation_path or "",
+                extract_numeric_occurrences=functools.partial(
+                    extract_typed_numeric_inventory_occurrences_from_text,
+                    profile=numeric_profile,
+                ),
+                normalize_recall_text=(
+                    normalize_source_backed_half_up_rounding_occurrence_text
+                    if half_up_helper_count
+                    else None
+                ),
             )
+        )
     else:
         counted_numeric_source_text = _numeric_occurrence_source_text(
             numeric_recall_source_text or "",
             suppress_source_backed_half_up_increment=bool(half_up_helper_count),
         )
-    typed_source_numeric_occurrences = (
-        extract_typed_numeric_inventory_occurrences_from_text(
-            counted_numeric_source_text,
-            profile=numeric_profile,
+        typed_source_numeric_occurrences = (
+            extract_typed_numeric_inventory_occurrences_from_text(
+                counted_numeric_source_text,
+                profile=numeric_profile,
+            )
         )
-    )
     source_numeric_occurrences = Counter(
         occurrence.value for occurrence in typed_source_numeric_occurrences
     )
