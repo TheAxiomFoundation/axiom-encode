@@ -113,7 +113,6 @@ class TestCfrCitationGrammar:
     @pytest.mark.parametrize(
         "text",
         [
-            "§§ 435.130 through 435.134",
             "under § 435 of this chapter",
             "42 CFR part 435",
             "section 435.811",
@@ -152,6 +151,65 @@ class TestCfrCitationGrammar:
             "42 CFR 435.811",
         ]
 
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("§§ 435.811 and 435.812", ["42 CFR 435.811", "42 CFR 435.812"]),
+            ("§§ 435.130 through 435.134", ["42 CFR 435.130", "42 CFR 435.134"]),
+            (
+                "see §§ 435.110, 435.116, or 435.118(c) of this part",
+                ["42 CFR 435.110", "42 CFR 435.116", "42 CFR 435.118(c)"],
+            ),
+            ("§§ 435.811 to 435.814", ["42 CFR 435.811", "42 CFR 435.814"]),
+            ("§§ 435.811a and 435.812", []),
+            ("§§ 435 and 436", []),
+        ],
+    )
+    def test_reads_each_item_of_a_double_section_sign_list(self, text, expected):
+        assert _labels(text) == expected
+
+    def test_list_items_after_another_title_follow_the_sentence_rule(self):
+        assert _labels("45 CFR 155.305 and §§ 155.310 and 155.315") == [
+            "45 CFR 155.305"
+        ]
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            (
+                "45 CFR 155.260(f) of the rules, and § 447.10 of this chapter apply",
+                ["45 CFR 155.260(f)", "42 CFR 447.10"],
+            ),
+            (
+                "45 CFR 155.305 and § 435.811 of this part",
+                ["45 CFR 155.305", "42 CFR 435.811"],
+            ),
+            (
+                "45 CFR 155.305 and § 435.811, of this subpart",
+                ["45 CFR 155.305", "42 CFR 435.811"],
+            ),
+            (
+                "45 CFR 155.305; § 435.811 of this chapter",
+                ["45 CFR 155.305", "42 CFR 435.811"],
+            ),
+            ("45 CFR 155.305; § 435.811", ["45 CFR 155.305", "42 CFR 435.811"]),
+            ("45 CFR 155.305. § 435.811", ["45 CFR 155.305", "42 CFR 435.811"]),
+            ("45 CFR 155.305 (e.g. § 435.811)", ["45 CFR 155.305", "42 CFR 435.811"]),
+            (
+                "See 45 CFR 155.305.\n\n(b) under § 435.811",
+                ["45 CFR 155.305", "42 CFR 435.811"],
+            ),
+        ],
+    )
+    def test_same_title_suffix_and_sentence_ends_restore_the_unit_title(
+        self, text, expected
+    ):
+        assert _labels(text) == expected
+
+    def test_a_single_line_break_does_not_end_the_other_title_scope(self):
+        assert _labels("20 CFR 416.1103 and\n§ 416.1104") == ["20 CFR 416.1103"]
+        assert _labels("20 CFR 416.1103 and\n  § 416.1104 apply") == ["20 CFR 416.1103"]
+
     def test_drops_a_hit_the_resolver_parses_differently(self, monkeypatch):
         monkeypatch.setattr(
             corpus_resolver,
@@ -181,6 +239,12 @@ class TestCitedSections:
     def test_orders_by_citation_count_then_first_citation(self):
         groups = evals._cited_cfr_sections_for_unit(
             UNIT, "§ 435.120, § 435.230, § 435.811, § 435.811, § 435.230"
+        )
+        assert [group.section for group in groups] == ["230", "811", "120"]
+
+    def test_double_section_sign_mentions_count_in_the_ranking(self):
+        groups = evals._cited_cfr_sections_for_unit(
+            UNIT, "§ 435.120 and § 435.230; §§ 435.811 and 435.230, § 435.811"
         )
         assert [group.section for group in groups] == ["230", "811", "120"]
 
@@ -328,13 +392,14 @@ class TestCitedCfrCandidates:
 
 
 class TestExpandedContextBound:
-    def _select(self, root, text, base=()):
+    def _select(self, root, text, base=(), explicit=None):
         return evals._select_cited_cfr_section_context_files(
             UNIT,
             text,
             root,
             base_selected=list(base),
             target_rel=Path("regulations/42-cfr/435/725.yaml"),
+            explicit_context_paths=explicit,
         )
 
     def test_bounds_are_stated(self):
@@ -354,13 +419,11 @@ class TestExpandedContextBound:
             == []
         )
 
-    def test_counts_transitive_imports_and_tests_against_the_file_bound(self, tree):
+    def test_counts_transitive_imports_against_the_file_bound(self, tree):
         root, files = tree
         part = root / "regulations" / "42-cfr" / "435"
-        deps = [
+        for index in range(16):
             _write(part / "900" / f"d{index:02d}.yaml", _live(f"dep_{index}"))
-            for index in range(16)
-        ]
         heavy = _write(
             part / "500.yaml",
             _live(
@@ -372,9 +435,55 @@ class TestExpandedContextBound:
             ),
         )
         assert len(evals._expand_context_files([heavy], root, None)) == 17
-        assert len(deps) == 16
-        # 500 expands to 17 added files and is skipped; 811 still fits.
+        # 500 expands to 17 added modules and is skipped; 811 still fits.
         assert self._select(root, "§ 435.500 and § 435.811") == [files["811"]]
+
+    def test_companion_tests_do_not_count_against_the_bounds(self, tree):
+        root, files = tree
+        module = _write(
+            root / "regulations" / "42-cfr" / "435" / "504.yaml", _live("tested_rule")
+        )
+        _write(module.with_suffix(".test.yaml"), "# " + "t" * 40_000 + "\n")
+        assert self._select(root, "§ 435.504 and § 435.811") == [
+            module,
+            files["811"],
+        ]
+
+    def test_added_companion_tests_are_reported_for_exclusion(self, tree):
+        root, files = tree
+        base_test = _write(files["230"].with_suffix(".test.yaml"), "[]\n")
+        excluded = evals._cited_cfr_context_added_tests(
+            root,
+            base_selected=[files["230"]],
+            cited_modules=[files["811"], files["230"]],
+            target_rel=None,
+        )
+        assert excluded == {files["811"].with_suffix(".test.yaml").resolve()}
+        assert base_test.resolve() not in excluded
+        assert (
+            evals._cited_cfr_context_added_tests(
+                root, base_selected=[], cited_modules=[], target_rel=None
+            )
+            == set()
+        )
+
+    def test_explicit_context_paths_reach_the_bound_expansion(self, tree, tmp_path):
+        root, files = tree
+        note = tmp_path / "outside" / "note.md"
+        _write(note, "Operator note.\n")
+        assert self._select(
+            root,
+            "§ 435.811",
+            base=[note],
+            explicit=({note.resolve()}),
+        ) == [files["811"]]
+        assert evals._cited_cfr_context_added_tests(
+            root,
+            base_selected=[note],
+            cited_modules=[files["811"]],
+            target_rel=None,
+            explicit_context_paths={note.resolve()},
+        ) == {files["811"].with_suffix(".test.yaml").resolve()}
 
     def test_skips_a_candidate_over_the_character_bound(self, tree):
         root, files = tree
@@ -410,8 +519,9 @@ class TestExpandedContextBound:
         root, _files = tree
         part = root / "regulations" / "42-cfr" / "435"
         for number in range(700, 708):
-            module = _write(part / f"{number}.yaml", _live(f"g{number}"))
-            _write(module.with_suffix(".test.yaml"), "# " + "t" * 5_000 + "\n")
+            _write(
+                part / f"{number}.yaml", _live(f"g{number}") + "# " + "m" * 5_000 + "\n"
+            )
         text = " ".join(f"§ 435.{number}" for number in range(700, 708))
         selected = self._select(root, text)
         added = evals._expand_context_files(selected, root, None)
@@ -578,3 +688,4 @@ def test_prepare_eval_workspace_copies_cited_cfr_modules(tree, tmp_path):
     copied = {item["source_path"]: item for item in manifest["context_files"]}
     assert copied[str(files["811"])]["import_path"] == "us:regulations/42-cfr/435/811"
     assert copied[str(files["811"])]["kind"] == "implementation_precedent"
+    assert str(files["811"].with_suffix(".test.yaml")) not in copied
