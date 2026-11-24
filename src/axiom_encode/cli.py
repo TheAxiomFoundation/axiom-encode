@@ -10357,10 +10357,12 @@ def _promotion_batch_import_issue(
     string, and an import the resolver refuses as unsafe all stop the batch.
     """
 
-    owners: dict[Path, Path] = {}
+    # Keyed by the case-folded resolved path: on a file system that ignores
+    # case, a spelling in another case reaches the same file.
+    owners: dict[str, Path] = {}
     for relative in primaries:
         for member in (relative, _rulespec_test_path(relative)):
-            owners[(repo_path / member).resolve()] = relative
+            owners[str((repo_path / member).resolve()).casefold()] = relative
     for relative, raw in primaries.items():
         label = relative.as_posix()
         try:
@@ -10389,7 +10391,7 @@ def _promotion_batch_import_issue(
                 return f"{label} has an import that cannot be resolved safely"
             if resolved is None:
                 continue
-            owner = owners.get(Path(resolved).resolve())
+            owner = owners.get(str(Path(resolved).resolve()).casefold())
             if owner is not None and owner != relative:
                 return (
                     f"{label} imports {owner.as_posix()}, another "
@@ -10681,6 +10683,18 @@ def cmd_promote_reviewed_candidate(args):
                         axiom_rules_path=axiom_rules_path,
                         axiom_compose_path=axiom_compose_path,
                         dependency_roots=dependency_roots,
+                        # A unit of a batch is validated without the files
+                        # of the other units: its verdict is the verdict of
+                        # a single-unit promotion of it.
+                        isolate_from=tuple(
+                            member
+                            for other in units
+                            if other is not unit
+                            for member in (
+                                other["rulespec_relative"],
+                                other["companion_relative"],
+                            )
+                        ),
                     )
 
             axiom_encode_git = _require_clean_axiom_encode_git_provenance()
@@ -10830,11 +10844,17 @@ def _validate_reviewed_candidate_unit(
     axiom_rules_path: Path,
     axiom_compose_path: Path | None,
     dependency_roots,
+    isolate_from: Sequence[Path] = (),
 ) -> tuple[dict, dict]:
     """Rerun complete-source validation of one reviewed unit's exact bytes.
 
     Returns the unit's source attestation and validation execution: what its
     signed manifest records. It writes nothing to the checkout.
+
+    ``isolate_from`` names the checkout-relative files of the other units of
+    a multi-unit promotion. They are removed from the temporary validation
+    overlay, never from the checkout, so validation sees the tree of a
+    candidate that holds this unit alone.
     """
 
     rulespec_file = repo_path / rulespec_relative
@@ -10905,6 +10925,12 @@ def _validate_reviewed_candidate_unit(
             hashlib.sha256(before[rulespec_relative]).hexdigest(),
         )
         setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
+        if isolate_from:
+            setattr(
+                result,
+                _PROMOTION_BATCH_ISOLATION_ATTR,
+                tuple(Path(member) for member in isolate_from),
+            )
         valid, validation_issues, supplemental_files = (
             _run_generated_encoding_overlay_validation(
                 result,
@@ -36118,6 +36144,9 @@ _REPLACEMENT_OVERLAY_SCOPE_ATTR = "_axiom_replacement_overlay_scope"
 _IMMUTABLE_RULESPEC_SHA256_ATTR = "_axiom_immutable_rulespec_sha256"
 _MANIFEST_ONLY_REFRESH_ATTR = "_axiom_manifest_only_refresh"
 _REVIEWED_CANDIDATE_PROMOTION_ATTR = "_axiom_reviewed_candidate_promotion"
+# The checkout-relative files of the other units of a multi-unit promotion.
+# The apply overlay of this unit is staged without them.
+_PROMOTION_BATCH_ISOLATION_ATTR = "_axiom_promotion_batch_isolation"
 _PRESERVED_COMPANION_TESTS_ATTR = "_axiom_preserved_companion_tests"
 _REQUIRED_TEST_CASE_CONTRACTS_ATTR = "_axiom_required_test_case_contracts"
 _PRESERVED_REPAIR_COMPANION_ATTR = "_axiom_preserved_repair_companion"
@@ -36339,6 +36368,57 @@ def _result_legacy_replacement_contract(result: object) -> object | None:
     except TypeError:
         return None
     return state.get(_LEGACY_REPLACEMENT_ATTR)
+
+
+def _result_promotion_batch_isolation(result: object) -> tuple[Path, ...]:
+    """The files a multi-unit promotion hides from this unit's validation."""
+
+    try:
+        state = vars(result)
+    except TypeError:
+        return ()
+    paths = state.get(_PROMOTION_BATCH_ISOLATION_ATTR, ())
+    if not isinstance(paths, tuple) or any(
+        not isinstance(path, Path) for path in paths
+    ):
+        raise ValueError("promotion batch isolation is malformed")
+    return paths
+
+
+def _isolate_promotion_batch_overlay(
+    overlay_repo: Path, isolated_paths: Sequence[Path]
+) -> None:
+    """Remove the other units of a batch from one unit's validation overlay.
+
+    The overlay is a temporary copy of the candidate checkout. After this it
+    is the tree of a candidate that holds this unit alone: every named file
+    is gone, and so is a directory that held nothing else (Git tracks no
+    empty directory). It fails closed: a path that is not a plain relative
+    path, or that is not a regular file in the overlay, stops the validation.
+    Only the overlay is changed; the checkout is never written.
+    """
+
+    root = overlay_repo.resolve(strict=True)
+    for relative in isolated_paths:
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            raise ValueError(
+                f"cannot isolate a unit from an unsafe batch path: {relative}"
+            )
+        candidate = root / relative
+        if candidate.is_symlink() or not candidate.is_file():
+            raise ValueError(
+                "cannot isolate a unit from a batch file that is not a regular "
+                f"file of the candidate: {relative.as_posix()}"
+            )
+        candidate.unlink()
+        parent = candidate.parent
+        while parent != root and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
 
 
 def _result_replacement_overlay_scope(result: object) -> bool:
@@ -66949,6 +67029,9 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
             source=policy_checkout_path,
             target=overlay_repo,
         )
+        promotion_batch_isolation = _result_promotion_batch_isolation(result)
+        if promotion_batch_isolation:
+            _isolate_promotion_batch_overlay(overlay_repo, promotion_batch_isolation)
         if legacy_replacement is not None or replacement_overlay_scope:
             try:
                 if legacy_replacement is not None:
@@ -67101,6 +67184,19 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
             for dependent in dependents
             if dependent not in scheduled_dependents
         ]
+        if promotion_batch_isolation and dependents:
+            # A dependent is compared with a baseline read from the checkout,
+            # which holds the other units of the batch. Refused rather than
+            # validated outside the isolation.
+            return (
+                False,
+                [
+                    f"{relative_output}: an existing module depends on this unit; "
+                    "a unit with dependents cannot be part of a multi-unit "
+                    "promotion and must be promoted alone"
+                ],
+                {},
+            )
         dependent_pipeline = (
             _DependentRegressionPipeline(
                 overlay_pipeline=ValidatorPipeline(
