@@ -125,11 +125,12 @@ modules), one process, on a loaded workstation:
 | Whole ledger, companion-only change (needs the country-wide walk of rule 5) | not measured | 120 s |
 
 Before, each target resolution re-audited the whole checkout for symlinks
-(about 3,100 directories, 25 ms) and re-validated the routing caches. One
-Colorado composition names several thousand targets, each resolved four times,
-and no parse or resolution was shared between waivers. In a 240 s profile of
-one waiver, 188 s were 7,631 checkout symlink audits (25 million `lstat`
-calls), and only 333 files had been parsed.
+(about 3,100 directories, 25 ms) and re-validated the routing caches. Each
+target reference of each file was resolved four times, and no parse or
+resolution was shared between waivers. The profiled Colorado waiver is a
+composition, so its read set walks the closure of every module of the country.
+In its 240 s profile, 188 s were 7,631 checkout symlink audits (25 million
+`lstat` calls), and only 565 files had been parsed.
 
 ## Evidence that unselected waivers do not change
 
