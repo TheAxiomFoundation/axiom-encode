@@ -663,15 +663,15 @@ def test_a_selector_larger_than_the_provisioner_reads_is_refused(on, monkeypatch
     assert len(json.dumps(selector.payload(), sort_keys=True)) + 1 > 4096
     with pytest.raises(AdmissionError, match="size bound"):
         verify_reviewed_pr(selector, fetch=Reads(make_api(units)))
-    # One byte below the bound passes the size rule.
-    monkeypatch.setattr(
-        admission,
-        "MAX_SELECTOR_BYTES",
-        len(json.dumps(selector.payload(), sort_keys=True)) + 1,
-    )
+    # The bound is exact: the file's size passes, one byte less refuses.
+    size = len(json.dumps(selector.payload(), sort_keys=True)) + 1
+    monkeypatch.setattr(admission, "MAX_SELECTOR_BYTES", size)
     assert (
         len(verify_reviewed_pr(selector, fetch=Reads(make_api(units)))["records"]) == 12
     )
+    monkeypatch.setattr(admission, "MAX_SELECTOR_BYTES", size - 1)
+    with pytest.raises(AdmissionError, match="size bound"):
+        verify_reviewed_pr(selector, fetch=Reads(make_api(units)))
 
 
 def test_the_size_bound_is_the_provisioners():

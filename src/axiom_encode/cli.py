@@ -10562,8 +10562,6 @@ def cmd_promote_reviewed_candidate(args):
                 / _applied_encoding_manifest_path(rulespec_relative),
             }
         )
-    if len({unit["rulespec_relative"] for unit in units}) != len(units):
-        raise ValueError("reviewed candidate promotion names a module twice")
 
     # GIT_OPTIONAL_LOCKS=0 keeps this preflight read-only: a plain status may
     # refresh stat data and rewrite .git/index before a binding refusal. It is

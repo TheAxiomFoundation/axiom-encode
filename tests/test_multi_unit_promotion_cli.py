@@ -566,6 +566,39 @@ def test_a_unit_without_a_binding_is_refused(run, monkeypatch):
     assert run.validated == [] and run.signed == []
 
 
+def test_a_batch_never_promotes_unbound_also_at_a_frozen_legacy_ref(run, monkeypatch):
+    """The frozen pre-record refs may promote unbound only as a single unit."""
+    run.live["records"][2]["binding"] = None
+    monkeypatch.setattr(
+        helper,
+        "UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS",
+        frozenset({("us", run.args.reviewed_rulespec_ref)}),
+    )
+    with pytest.raises(ValueError, match="unit .*c.*has no promotion binding"):
+        run(monkeypatch)
+    assert run.validated == [] and run.signed == []
+
+
+def test_a_single_unit_error_does_not_name_a_unit(tmp_path, on, monkeypatch):
+    """The unit prefix belongs to the batch form; single-unit text is unchanged."""
+    repo, head = candidate(tmp_path)
+    run = Run(tmp_path, repo, head, single_admission(repo, head, "b"), lead="b")
+    run.fail_validation = "b"
+    with pytest.raises(RuntimeError) as refusal:
+        run(monkeypatch)
+    assert str(refusal.value) == (
+        "reviewed candidate failed current overlay validation: "
+        "companion test of b failed"
+    )
+    assert run.signed == []
+    run.live["record"]["binding"]["rulespec_sha256"] = "0" * 64
+    with pytest.raises(ValueError) as refusal:
+        run(monkeypatch)
+    assert str(refusal.value) == (
+        "reviewed candidate bytes differ from its admission record binding"
+    )
+
+
 def test_arguments_that_name_no_unit_of_the_batch_are_refused(
     tmp_path, on, monkeypatch
 ):
