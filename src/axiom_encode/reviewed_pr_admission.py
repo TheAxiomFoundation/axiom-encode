@@ -430,9 +430,9 @@ def read_candidate_source_pin(raw: bytes) -> tuple[str | None, str | None]:
     except UnicodeDecodeError:
         raise _pin_refusal("the module is not UTF-8") from None
     lines = [line.removesuffix("\r") for line in text.split("\n")]
-    if any(mark in line for line in lines for mark in "\r\x85  "):
+    if any(mark in line for line in lines for mark in "\r\x85\u2028\u2029"):
         raise _pin_refusal("the module uses a line break other than LF or CRLF")
-    if text.startswith("﻿") or any(
+    if text.startswith("\ufeff") or any(
         line.startswith(("---", "...", "%")) for line in lines
     ):
         raise _pin_refusal(

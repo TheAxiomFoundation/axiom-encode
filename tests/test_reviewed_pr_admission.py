@@ -1340,6 +1340,18 @@ OTHER = "    corpus_citation_path: us-az/manual/other\n"
         _primary(
             BOUND_BLOCK.replace("source_verification:", "source_verification: !!map")
         ),
+        # One quoted scalar from the first line to the last: no module at all.
+        b"doc: 'x\nmodule:\n" + BOUND_BLOCK.encode() + b"rules: []'\n",
+        # A quote inside a flow sequence hides the block up to `"]`.
+        _primary('  x: ["a\n' + BOUND_BLOCK + '  b: 1 # "]\n'),
+        # A key before `module` that YAML also reads as `module`.
+        b'"modul\\x65":\n  status: x\n' + GOOD,
+        b"? module\n: {}\n" + GOOD,
+        # Text after a quoted scalar that closed on a later line.
+        _primary("  summary: 'a\n    b' trailing\n" + BOUND_BLOCK),
+        # A tagged or anchored key deeper in `module`.
+        _primary("  nested:\n    &a k: 1\n" + BOUND_BLOCK),
+        _primary("  nested:\n    !!str k: 1\n" + BOUND_BLOCK),
         # A root mapping that starts indented and then dedents is not YAML.
         b" module:\n" + GOOD,
         b"# c\n\n  format: x\n" + GOOD,
@@ -1362,6 +1374,13 @@ def test_the_reader_refuses_what_a_yaml_parser_could_read_differently(raw):
         "  summary: 'a\n\n    b: c'\n" + BOUND_BLOCK,
         '  summary: "a \\"q\\" \\\n    b"\n' + BOUND_BLOCK,
         "  summary: plain text\n    continued 'here\n" + BOUND_BLOCK,
+        # A double-quoted scalar may continue at the key column.
+        '  summary: "a\n  b"\n' + BOUND_BLOCK,
+        # Block scalar text is not lexed: an open quote there opens nothing.
+        "  summary: |-\n    \"unclosed quote text\n    it's\n" + BOUND_BLOCK,
+        # `''` inside a single-quoted scalar is one quote character.
+        "  summary: 'it''s fine'\n" + BOUND_BLOCK,
+        '  summary: "a \\" b"\n' + BOUND_BLOCK,
         # A continuation line of a plain scalar may start with a quote.
         "  summary: plain\n    'here and\n    \"there\n" + BOUND_BLOCK,
         "  summary: >-\n    source_verification:\n      source_sha256: x\n"

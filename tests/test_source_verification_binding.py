@@ -433,6 +433,18 @@ def test_bound_for_yaml_but_not_plain_form_is_refused_and_says_so(text, detail):
         assert detail in str(caught.value)
 
 
+def test_the_line_reader_must_read_the_attested_values_back(monkeypatch):
+    """Not raising is not enough: the reader's values are part of the proof."""
+    from axiom_encode import source_verification_binding as binder
+    from axiom_encode.source_verification_binding import SourceBindingPlainFormError
+
+    monkeypatch.setattr(
+        binder._admission, "read_candidate_source_pin", lambda raw: (PATH, OTHER_PIN)
+    )
+    with pytest.raises(SourceBindingPlainFormError, match="does not read the attested"):
+        bind(PATH_ONLY)
+
+
 def test_the_binding_check_is_declared_and_blocking():
     assert CHECK_SOURCE_BINDING.id == "source-binding/unbound"
     assert CHECK_SOURCE_BINDING.enforcement == "blocking"

@@ -68,7 +68,7 @@ _MAP_TAG = "tag:yaml.org,2002:map"
 _NULL_TAG = "tag:yaml.org,2002:null"
 _MERGE_TAG = "tag:yaml.org,2002:merge"
 # Every character PyYAML's scanner ends a line at.
-_LINE_BREAKS = "\n\r\x85  "
+_LINE_BREAKS = "\n\r\x85\u2028\u2029"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 # A plain scalar that needs no quotes: no space, colon, hash or indicator.
 _PLAIN_SAFE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@+-]*")
