@@ -10511,28 +10511,38 @@ def _write_promotion_review_record(
 
 def _promotion_generalist_review_record(
     *,
-    rulespec_file: Path,
     source_text: str,
     cwd: Path,
     applied: Mapping[Path, bytes],
     rulespec_relative: Path,
 ) -> dict[str, object]:
-    """Review the staged candidate and return its required review record.
+    """Review one promoted unit and return its required review record.
 
-    ``rulespec_file`` is the staged copy of the candidate, with its companion
-    test beside it. ``applied`` holds the exact bytes the promotion signs,
-    by manifest path. The record binds the verdict to those bytes with the
-    rules of ``encode --apply --require-review``.
+    ``applied`` holds the exact bytes the promotion signs, by manifest path:
+    the module at ``rulespec_relative`` and its companion test. The reviewer
+    reads a fresh staged copy of those bytes, never a checkout file, so a
+    change of the checkout after validation cannot reach it. The record
+    binds the verdict to the same bytes with the rules of
+    ``encode --apply --require-review``.
     """
 
     from axiom_encode.harness.evals import generalist_review_source
     from axiom_encode.harness.validator_pipeline import run_generalist_review
 
-    review = run_generalist_review(
-        rulespec_file,
-        review_source=generalist_review_source(source_text),
-        cwd=cwd,
-    )
+    companion_relative = _rulespec_test_path(rulespec_relative)
+    with tempfile.TemporaryDirectory() as temporary:
+        staged_file = (
+            Path(temporary) / "reviewed-candidate" / Path(*rulespec_relative.parts[1:])
+        )
+        staged_file.parent.mkdir(parents=True)
+        staged_file.write_bytes(applied[rulespec_relative])
+        if companion_relative in applied:
+            _rulespec_test_path(staged_file).write_bytes(applied[companion_relative])
+        review = run_generalist_review(
+            staged_file,
+            review_source=generalist_review_source(source_text),
+            cwd=cwd,
+        )
     details = review.details if isinstance(review.details, dict) else {}
     companion_relative = _rulespec_test_path(rulespec_relative)
     return build_generalist_review_record(
@@ -10863,35 +10873,6 @@ def cmd_promote_reviewed_candidate(args):
                     raise RuntimeError(
                         "reviewed candidate validation changed RuleSpec bytes"
                     )
-                if _promotion_requires_review(args):
-                    review_record = _promotion_generalist_review_record(
-                        rulespec_file=generated_file,
-                        source_text=normalized_source,
-                        cwd=content_root,
-                        applied=before,
-                        rulespec_relative=rulespec_relative,
-                    )
-                    print(
-                        "reviewed candidate generalist review: "
-                        + json.dumps(review_record, sort_keys=True)
-                    )
-                    if review_record_target is not None:
-                        _write_promotion_review_record(
-                            review_record_target,
-                            args=args,
-                            reviewed_ref=reviewed_ref,
-                            review_record=review_record,
-                        )
-                    if review_requirement_refusal(review_record) is not None:
-                        reason = review_record.get("reason")
-                        raise RuntimeError(
-                            "reviewed candidate promotion requires a passed "
-                            "generalist review of every promoted file "
-                            "(--require-review) and has none: status "
-                            f"{review_record.get('status')}"
-                            + (f" ({reason})" if reason else "")
-                            + ". Nothing was signed."
-                        )
                 snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
                 validation_execution = (
                     snapshot.get("manifest_validation_execution")
@@ -10903,6 +10884,36 @@ def cmd_promote_reviewed_candidate(args):
                         "reviewed candidate validation lacks execution provenance"
                     )
 
+            # Validation is complete. The reviewer runs after it and before
+            # the admission is revalidated and any signature is requested.
+            if _promotion_requires_review(args):
+                review_record = _promotion_generalist_review_record(
+                    source_text=normalized_source,
+                    cwd=content_root,
+                    applied=before,
+                    rulespec_relative=rulespec_relative,
+                )
+                print(
+                    "reviewed candidate generalist review: "
+                    + json.dumps(review_record, sort_keys=True)
+                )
+                if review_record_target is not None:
+                    _write_promotion_review_record(
+                        review_record_target,
+                        args=args,
+                        reviewed_ref=reviewed_ref,
+                        review_record=review_record,
+                    )
+                if review_requirement_refusal(review_record) is not None:
+                    reason = review_record.get("reason")
+                    raise RuntimeError(
+                        "reviewed candidate promotion requires a passed "
+                        "generalist review of every promoted file "
+                        "(--require-review) and has none: status "
+                        f"{review_record.get('status')}"
+                        + (f" ({reason})" if reason else "")
+                        + ". Nothing was signed."
+                    )
             axiom_encode_git = _require_clean_axiom_encode_git_provenance()
             payload: dict[str, object] = {
                 "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
