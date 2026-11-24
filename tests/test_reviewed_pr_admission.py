@@ -1340,6 +1340,9 @@ OTHER = "    corpus_citation_path: us-az/manual/other\n"
         _primary(
             BOUND_BLOCK.replace("source_verification:", "source_verification: !!map")
         ),
+        # A root mapping that starts indented and then dedents is not YAML.
+        b" module:\n" + GOOD,
+        b"# c\n\n  format: x\n" + GOOD,
         # NEL is a line break for a YAML parser.
         _primary(BOUND_BLOCK).replace(b"\nrules", "\u0085rules".encode()),
     ],
@@ -1359,6 +1362,8 @@ def test_the_reader_refuses_what_a_yaml_parser_could_read_differently(raw):
         "  summary: 'a\n\n    b: c'\n" + BOUND_BLOCK,
         '  summary: "a \\"q\\" \\\n    b"\n' + BOUND_BLOCK,
         "  summary: plain text\n    continued 'here\n" + BOUND_BLOCK,
+        # A continuation line of a plain scalar may start with a quote.
+        "  summary: plain\n    'here and\n    \"there\n" + BOUND_BLOCK,
         "  summary: >-\n    source_verification:\n      source_sha256: x\n"
         + BOUND_BLOCK,
         "  flags: [a, b]\n  empty: {}\n" + BOUND_BLOCK + "    note: true\n",

@@ -308,6 +308,7 @@ def _module_block(lines: list[str]) -> tuple[list[tuple[int, int, str]], int]:
     quote: str | None = None
     scalar_base: int | None = None  # block scalar: content is indented past it
     plain_base: int | None = None  # plain scalar: continues when indented past it
+    started = False
     for index, line in enumerate(lines):
         if quote is not None:
             rest = _after_quote(line, quote, 0)
@@ -332,6 +333,9 @@ def _module_block(lines: list[str]) -> tuple[list[tuple[int, int, str]], int]:
         if plain_base is not None and indent > plain_base:
             continue
         plain_base = None
+        if not started and indent:
+            raise _pin_refusal("the first line of the mapping is indented")
+        started = True
         if indent == 0:
             if in_module:
                 return block, index
