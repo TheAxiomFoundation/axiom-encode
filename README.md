@@ -238,6 +238,16 @@ uv run axiom-encode encode us/statute/26/1 \
 
 The three values are the public keys in the repository's Actions variables of
 the same names; the encoder never reads them from the environment itself.
+
+An `encode` without `--apply` leaves a candidate that a reviewed-candidate
+promotion signs as it is. So the encoder binds it before validation and review:
+it sets `module.source_verification.corpus_citation_path` and `source_sha256`
+to the resolver's attested values by a minimal text edit (only those lines; no
+YAML re-dump) and prints `source_binding=bound`. A candidate it cannot bind (it
+names another source, or the block is in flow style or uses anchors) fails the
+try and ends with `outcome=source_unbound`; it is not a clean candidate. Bind
+an older candidate with `axiom-encode bind-source-verification`
+([docs/reviewed-pr-promotion.md](docs/reviewed-pr-promotion.md)).
 This run conveys no signing capability. It refuses `--apply`, and it refuses
 to start when a signing broker is attached, `AXIOM_ENCODE_TRUSTED_RUNTIME=1` is
 set, or it runs in CI (`GITHUB_ACTIONS=true` or `CI` set). Without a broker and without these keys, `encode` stops with
@@ -550,7 +560,7 @@ new immutable release.
 
 RuleSpec modules ground to legal text through exactly one
 `module.source_verification.corpus_citation_path`. The block accepts only that
-singular path and an optional `source_sha256` pin — the SHA-256 hex
+singular path and a `source_sha256` pin (written by `encode`; a module without it cannot be promoted) — the SHA-256 hex
 digest of the full stored corpus provision body that supplied the encoding
 source — plus
 in-content `module.encoding_provenance` (`encoder`, `model`, `run_id`,
