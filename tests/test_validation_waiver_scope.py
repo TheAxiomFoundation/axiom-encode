@@ -668,7 +668,7 @@ def test_changed_atomic_path_with_unclassifiable_content_falls_back(
         "imports:\n  - target: us-ny:statutes/terminal#value\n    symbols: [value]\n",
     ],
 )
-def test_unclassifiable_imports_fall_back_instead_of_omitting_dependencies(
+def test_unclassifiable_imports_select_the_waiver_instead_of_omitting_dependencies(
     tmp_path: Path, import_block: str
 ):
     root = tmp_path / "rulespec-us"
@@ -676,36 +676,45 @@ def test_unclassifiable_imports_fall_back_instead_of_omitting_dependencies(
     _module(root, path).write_text(
         f"format: rulespec/v1\n{import_block}rules: []\n", encoding="utf-8"
     )
+    established = "us-tx/statutes/established.yaml"
+    _module(root, established)
     changed = "us-ny/statutes/terminal.yaml"
     _module(root, changed)
 
     selection = select_validation_waiver_scope(
-        [path], root=root, changed_paths={changed}
+        [path, established], root=root, changed_paths={changed}
     )
 
-    assert selection.scope == "full"
+    # The waiver whose read set cannot be established is audited. A waiver
+    # with an established read set that the change cannot reach is not.
+    assert selection.scope == "incremental"
     assert selection.paths == (path,)
-    assert selection.fallback_reason
+    assert selection.fallback_reason is None
+    assert selection.reasons[path][0].startswith(
+        "validation read set could not be established: "
+    )
 
 
 @pytest.mark.parametrize("changed", ["README.md", "docs/guide.md"])
-def test_docs_edit_falls_back_when_waiver_imports_cannot_be_classified(
+def test_docs_edit_selects_a_waiver_whose_imports_cannot_be_classified(
     tmp_path: Path, changed: str
 ):
     root = tmp_path / "rulespec-us"
     path = "us-ca/statutes/waived.yaml"
     _module(root, path, imports=("data/terminal#value",))
+    established = "us-ca/statutes/established.yaml"
+    _module(root, established)
     document = root / changed
     document.parent.mkdir(parents=True, exist_ok=True)
     document.write_text("# Documentation\n", encoding="utf-8")
 
     selection = select_validation_waiver_scope(
-        [path], root=root, changed_paths={changed}
+        [path, established], root=root, changed_paths={changed}
     )
 
-    assert selection.scope == "full"
+    assert selection.scope == "incremental"
     assert selection.paths == (path,)
-    assert selection.fallback_reason
+    assert "unclassifiable import 'data/terminal#value'" in selection.reasons[path][0]
 
 
 @pytest.mark.parametrize("companion", [False, True])
