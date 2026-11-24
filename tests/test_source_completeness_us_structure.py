@@ -7,6 +7,7 @@ rule citing `7 CFR 273.4(a)(3)-(5)` covered only (a)(3).
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 
 import pytest
@@ -744,3 +745,57 @@ def test_retry_hint_says_the_reason_locator_is_not_a_path():
         "citation path: every `corpus_citation_path` field that cites this unit "
         "stays `us/regulation/42/435/2`."
     )
+
+
+def test_sentence_component_branches_get_no_citation_note():
+    # No checker reads `<unit path>(a)(satz-2)`, so a branch with a sentence
+    # component prints no accepted-form note rather than an unaccepted one.
+    branch = next(
+        branch
+        for branch in recognize_source_structure(
+            CFR_SOURCE, corpus_citation_path=CFR_273_4
+        )
+        if branch.path == ("a",)
+    )
+    sentence = dataclasses.replace(branch, path=("a", "satz-2"))
+
+    assert completeness._branch_reason_citation_form(CFR_273_4, sentence) is None
+    assert completeness._branch_reason_citation_note(CFR_273_4, sentence) == ""
+    assert completeness._branch_reason_citation_note(CFR_273_4, branch) == (
+        " To cite this branch in `reason` or `source:`, write "
+        "`us/regulation/7/273/4(a)`; `corpus_citation_path` stays "
+        "`us/regulation/7/273/4`."
+    )
+
+
+def test_explicit_computation_finding_names_the_accepted_form():
+    citation = "us/regulation/7/273/10"
+    source = (
+        "(a) Eligibility. The State agency must certify each household.\n"
+        "(b) Benefit amount. The allotment is equal to the maximum allotment "
+        "minus 30 percent of net income.\n"
+    )
+    content = f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation}
+rules: []
+"""
+    finding = next(
+        issue
+        for issue in _analyze(content, source, citation).issues
+        if issue.startswith(
+            "[complete-source-unit:formula-output] Explicit source computation (b)"
+        )
+    )
+
+    assert (
+        "in paragraph (b) of us/regulation/7/273/10 has no principal "
+        "derived/relation output"
+    ) in finding
+    assert (
+        "parameter-only representation is invalid. To cite this branch in "
+        "`reason` or `source:`, write `us/regulation/7/273/10(b)`; "
+        "`corpus_citation_path` stays `us/regulation/7/273/10`. "
+    ) in finding
