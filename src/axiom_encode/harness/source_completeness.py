@@ -39932,8 +39932,9 @@ def _exception_witnesses_for_branch(
         }
     requirement = _source_exception_effect_requirement(branch.text)
     condition_text = _source_exception_condition_text(branch.text)
-    numeric_interval = _formula_interval_from_text(
-        authoritative_numeric_recall_text(condition_text),
+    condition_recall_text = authoritative_numeric_recall_text(condition_text)
+    numeric_interval = _exception_condition_interval(
+        condition_recall_text,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     equality_candidates = {
@@ -40041,6 +40042,17 @@ def _exception_witnesses_for_branch(
                         )
                     ),
                 )
+                or _numeric_pair_is_bound_to_stated_limit(
+                    witness,
+                    requirement=requirement,
+                    numeric_interval=numeric_interval,
+                    condition_recall_text=condition_recall_text,
+                    source_text=source_text,
+                    principal_rules=principal_rules,
+                    input_declarations=input_declarations or {},
+                    formula_environment=formula_environment or {},
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                )
                 or _source_qualified_cardinality_evidence(
                     branch,
                     witness,
@@ -40085,6 +40097,230 @@ def _exception_witnesses_for_branch(
             )
         }
     )
+
+
+# A limit whose comparison follows its number: "two or more meals", "4 members
+# or fewer", "age 60 or older", "21 years of age and under". These are the
+# postfix wordings by which `_STATED_NUMERIC_LIMIT` calls a clause a numeric
+# limit. The pair check owes a case pair for such a clause, and only a clause
+# with an interval can be paid with a numeric pair.
+_POSTFIX_LIMIT_COMPARISON = re.compile(
+    # "fifteen (15) or more days": the extractor reads the pair as one number.
+    r"(?:[ \t]*\([ \t]*[$€£]?\d[\d,.]*[ \t]*\))?"
+    r"[ \t]*(?:%[ \t]*)?(?:\)[ \t]*)?(?:[A-Za-z]+[ \t]+){0,3}?"
+    r"(?:or[ \t]+(?:(?P<lower>more|greater|higher)|(?P<upper>less|fewer|lower))"
+    r"|(?:or|and)[ \t]+"
+    r"(?:(?P<lower_side>older|over|above)|(?P<upper_side>younger|under|below)))\b"
+    # "$500 or more than $1,000" and "20 days and over 65" start a second
+    # comparison, and "or under the plan" is a preposition; none of them
+    # closes the first number.
+    r"(?![ \t]+(?:than\b|age\b|(?:[$€£][ \t]?)?\d"
+    r"|(?:the|a|an|this|that|these|those|its|their|his|her)\b"
+    rf"|{_ENGLISH_CARDINAL_PHRASE}\b))",
+    flags=re.IGNORECASE,
+)
+# The words in front of a number that make the interval parser decline a
+# comparison: a modal or a negation whose scope the parser does not read.
+_COUNT_WORDING_UNREAD_PREFIX = re.compile(
+    r"\b(?:allowed|anticipated|appears?|apt|authorized|barred|bound|can|cannot|"
+    r"capable|compelled|could|designed|directed|disallowed|estimated|"
+    r"expected|forbidden|forecast|free|liable|likely|mandated|may|might|"
+    r"must|need|never|no|not|obliged|ordered|permitted|possibly|precluded|"
+    r"prevented|presumed|prone|prohibited|projected|rarely|required|seems?|"
+    r"shall|should|supposed|tends?|typically|unauthorized|unlikely|will|"
+    r"would)\b",
+    flags=re.IGNORECASE,
+)
+_FEWER_THAN_COMPARISON = re.compile(
+    r"\b(?:(?P<floor>(?:no|not)\s+fewer\s+than)|(?P<ceiling>fewer\s+than))\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _postfix_limits(
+    text: str,
+    occurrences: Iterable[NumericOccurrenceLike],
+) -> tuple[tuple[NumericOccurrenceLike, bool], ...]:
+    """Return each number closed by a postfix comparison, and if it is a floor."""
+
+    found: list[tuple[NumericOccurrenceLike, bool]] = []
+    for occurrence in occurrences:
+        match = _POSTFIX_LIMIT_COMPARISON.match(text, occurrence.end)
+        if match is None:
+            continue
+        if re.match(r"one[ \t]+or[ \t]+more\b", text[occurrence.start :], re.I):
+            # "One or more" means "any"; `_STATED_NUMERIC_LIMIT` agrees.
+            continue
+        found.append(
+            (occurrence, bool(match.group("lower") or match.group("lower_side")))
+        )
+    return tuple(found)
+
+
+def _exception_condition_interval(
+    text: str,
+    *,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> _NumericInterval | None:
+    """Read the numeric interval of one exception or applicability condition.
+
+    `_formula_interval_from_text` reads a comparison in front of its number.
+    For a condition it leaves unread, this also reads two count wordings:
+
+    - "N or more", "N or fewer" and the other postfix comparisons, as an
+      inclusive one-sided interval. The condition must hold exactly one
+      number that is directly followed, after at most three unit words, by a
+      listed comparison, and no modal or negation in front of that number;
+    - "fewer than N" as "less than N", and "no fewer than N" and "not fewer
+      than N" as "at least N", when no postfix comparison stands beside it
+      ("3 or more but fewer than 6" stays unread: nothing here composes a
+      postfix floor with a prefix ceiling).
+
+    Only the pair check calls this. The other readers of
+    `_formula_interval_from_text` keep its reading.
+    """
+
+    interval = _formula_interval_from_text(
+        text, extract_numeric_occurrences=extract_numeric_occurrences
+    )
+    if interval is not None:
+        return interval
+    occurrences: list[NumericOccurrenceLike] = []
+    for occurrence in sorted(
+        extract_numeric_occurrences(text), key=lambda item: item.start
+    ):
+        if not occurrences or occurrence.start >= occurrences[-1].end:
+            occurrences.append(occurrence)
+    postfix = _postfix_limits(text, occurrences)
+    if _FEWER_THAN_COMPARISON.search(text) is not None:
+        if postfix:
+            return None
+
+        def same_length_synonym(match: re.Match[str]) -> str:
+            synonym = "at least" if match.group("floor") else "less than"
+            return synonym.rjust(len(match.group()))
+
+        return _formula_interval_from_text(
+            _FEWER_THAN_COMPARISON.sub(same_length_synonym, text),
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+    if len(postfix) != 1:
+        return None
+    occurrence, is_floor = postfix[0]
+    clause_start = max(
+        text.rfind(mark, 0, occurrence.start) for mark in (".", ";", ":", "\n")
+    )
+    if _COUNT_WORDING_UNREAD_PREFIX.search(text[clause_start + 1 : occurrence.start]):
+        return None
+    if is_floor:
+        return _NumericInterval(occurrence, True, None, False)
+    return _NumericInterval(None, False, occurrence, True)
+
+
+def _numeric_pair_is_bound_to_stated_limit(
+    witness: _ExceptionWitness,
+    *,
+    requirement: str,
+    numeric_interval: _NumericInterval | None,
+    condition_recall_text: str,
+    source_text: str,
+    principal_rules: dict[str, dict[str, Any]],
+    input_declarations: Mapping[str, dict[str, Any]],
+    formula_environment: Mapping[str, Any],
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> bool:
+    """Link a numeric case pair to its condition by the number, not the name.
+
+    The name test asks whether the selector's name shares words with the
+    condition. A correct pair on an input named with other words fails it.
+    This link needs no name. All of these must hold:
+
+    - the condition states one limit, and the source unit states that number
+      once, so the pair cannot belong to another condition;
+    - the selector is a declared local input whose dtype fits the number
+      (`Money` exactly when the source writes a currency amount);
+    - the output's formula compares that input directly with a literal or
+      parameter of that value;
+    - one case of the pair sits exactly on the stated number;
+    - the number does not stand in a line that introduces a list ("at least 2
+      of the following conditions:"). There the number counts the listed
+      items, each item is its own condition, and one pair on one input must
+      not stand for the list;
+    - the check reads from the source whether the condition enables or
+      blocks the output. Where it reads no such direction, a pair with the
+      effect reversed also passes the caller's tests, and only the name test
+      stands between that pair and the obligation.
+
+    The caller has already required the pair to cross the source interval in
+    the source's direction, and tests the effect after this link.
+    """
+
+    transition = witness.numeric_transition
+    if (
+        transition is None
+        or numeric_interval is None
+        or requirement not in {"enable", "exclude", "zero"}
+    ):
+        return False
+    bounds = tuple(
+        bound
+        for bound in (numeric_interval.lower, numeric_interval.upper)
+        if bound is not None
+    )
+    if len(bounds) != 1:
+        return False
+    bound = bounds[0]
+    limit = float(bound.value)
+    if not any(
+        math.isclose(value, limit, rel_tol=0.0, abs_tol=1e-9) for value in transition
+    ):
+        return False
+    line_end = condition_recall_text.find("\n", bound.end)
+    line_rest = condition_recall_text[
+        bound.end : line_end if line_end >= 0 else len(condition_recall_text)
+    ]
+    if line_rest.rstrip().endswith(":"):
+        return False
+    declaration = input_declarations.get(witness.selector_name)
+    if not isinstance(declaration, dict):
+        return False
+    dtype = str(declaration.get("dtype") or "").strip().lower()
+    states_currency = bool(
+        re.search(r"[$€£]\s?$", condition_recall_text[: bound.start])
+        or re.match(r"[$€£]", condition_recall_text[bound.start : bound.end])
+    )
+    if dtype not in {"money", "count", "integer", "int"} or (
+        (dtype == "money") != states_currency
+    ):
+        return False
+    stated = sum(
+        math.isclose(float(occurrence.value), limit, rel_tol=0.0, abs_tol=1e-9)
+        for occurrence in extract_numeric_occurrences(
+            authoritative_numeric_recall_text(source_text)
+        )
+    )
+    if stated != 1:
+        return False
+    target = _rulespec_runtime_decimal(limit)
+    if target is None or witness.rule_name not in principal_rules:
+        return False
+    for expression in _rule_parsed_expressions(principal_rules[witness.rule_name]):
+        for node in ast.walk(expression):
+            if not isinstance(node, ast.Compare):
+                continue
+            operands = [node.left, *node.comparators]
+            for left, right in zip(operands, operands[1:]):
+                for operand, threshold in ((left, right), (right, left)):
+                    if (
+                        isinstance(operand, ast.Name)
+                        and operand.id == witness.selector_name
+                        and target
+                        in _constant_node_values(
+                            threshold, formula_environment=formula_environment
+                        )
+                    ):
+                        return True
+    return False
 
 
 def _selector_targets_numeric_condition(
@@ -41161,10 +41397,11 @@ def _numeric_exception_witness_matches_source(
     transition = witness.numeric_transition
     if transition is None:
         return False
-    interval = _formula_interval_from_text(
-        authoritative_numeric_recall_text(
-            _source_exception_condition_text(branch.text)
-        ),
+    condition_recall_text = authoritative_numeric_recall_text(
+        _source_exception_condition_text(branch.text)
+    )
+    interval = _exception_condition_interval(
+        condition_recall_text,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     if interval is None:
