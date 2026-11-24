@@ -631,6 +631,31 @@ def test_enrolled_dispatcher_binds_the_selector_actor(api):
         admission_module._enrolled_dispatcher(api[RUN], selector)
 
 
+def test_enrolled_dispatcher_checks_the_login_of_the_live_actor(api):
+    # The enrolled id under another login, while the selector names the owner.
+    _actor(api)["login"] = "renamed-account"
+    with pytest.raises(AdmissionError, match="enrolled signing owner"):
+        admission_module._enrolled_dispatcher(api[RUN], SELECTOR)
+
+
+def test_enrolled_dispatcher_reads_the_triggering_actor_not_the_first_actor(api):
+    # An owner started the run; another account with a recycled login re-ran it.
+    api[RUN]["actor"] = {**PAVEL, "type": "User"}
+    _actor(api)["id"] = 999
+    with pytest.raises(AdmissionError, match="enrolled signing owner"):
+        admission_module._enrolled_dispatcher(api[RUN], SELECTOR)
+
+
+@approval_policy
+def test_revalidate_rejects_a_different_approval(api):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    again = copy.deepcopy(api[REVIEWS][0])
+    again["id"] = 2
+    api[REVIEWS].append(again)
+    with pytest.raises(AdmissionError, match="differs from provisioned"):
+        revalidate_admission(admission, fetch=api.__getitem__)
+
+
 @dispatch_policy
 def test_rerun_by_a_non_owner_is_refused(api):
     # GitHub reports the account that re-ran as the triggering actor.
