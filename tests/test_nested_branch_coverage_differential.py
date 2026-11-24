@@ -262,6 +262,26 @@ def baseline_worker(tmp_path_factory):
     """Pin the historical baseline; explicit commits can verify newer baselines."""
     commit = os.environ.get("AXIOM_DIFFERENTIAL_BASELINE_COMMIT", BASELINE_COMMIT)
     assert re.fullmatch(r"[0-9a-f]{40}", commit), "Use an explicit baseline commit"
+    # The CI test shards check out full history and always run this; the
+    # draft quick-test job checks out two commits only. Skip there, and only
+    # there: a full checkout without the commit still fails below.
+    present = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+        timeout=HANG_TIMEOUT_SECONDS,
+    )
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=HANG_TIMEOUT_SECONDS,
+    )
+    if present.returncode != 0 and shallow.stdout.strip() == "true":
+        pytest.skip(f"baseline commit {commit} is not in this shallow checkout")
     export_root = tmp_path_factory.mktemp("nested-coverage-baseline")
     archive_path = export_root / "baseline.tar"
     with archive_path.open("wb") as archive:
@@ -1070,6 +1090,12 @@ def _complete_source_obligations(module, complete_source_module, outline):
         fragment = match.group("fragment") or ""
         return f"{match.group('citation')}{fragment} [{match.group('labels')}]"
 
+    # The accepted-citation note after a U.S. locator is wording, not a demand.
+    citation_note = _re.compile(
+        r" To cite this branch in `reason` or `source:`, write `[^`]+`; "
+        r"`corpus_citation_path` stays `[^`]+`\."
+    )
+
     payload = dataclasses.asdict(result)
     # Companion-case synthesis hints are not findings and postdate the baseline.
     payload.pop("companion_test_obligations", None)
@@ -1095,9 +1121,12 @@ def _complete_source_obligations(module, complete_source_module, outline):
             _branch_path,
             beside_unit.sub(
                 _bracketed,
-                head.group(0)
-                if (head := recall_head.match(issue)) is not None
-                else issue,
+                citation_note.sub(
+                    "",
+                    head.group(0)
+                    if (head := recall_head.match(issue)) is not None
+                    else issue,
+                ),
             ),
         )
         for issue in payload["issues"]

@@ -7257,6 +7257,7 @@ def _analyze_rulespec_payload(
             f"Source branch {branch.label} at "
             f"{_branch_citation(corpus_citation_path, branch)} is neither "
             "encoded nor precisely deferred."
+            f"{_branch_reason_citation_note(corpus_citation_path, branch)}"
             f"{covered_descendant_detail}"
         )
         pending_deferral = max(
@@ -7418,6 +7419,7 @@ def _analyze_rulespec_payload(
                         "principal derived/relation output (`derived` or "
                         "`derived_relation`) and is not "
                         "precisely deferred; parameter-only representation is invalid."
+                        + _branch_reason_citation_note(corpus_citation_path, branch)
                         + _formula_output_binding_feedback(
                             branch,
                             corpus_citation_path=corpus_citation_path,
@@ -7463,7 +7465,8 @@ def _analyze_rulespec_payload(
                 f"{_branch_citation(corpus_citation_path, branch)} has no "
                 "principal derived/relation output (`derived` or "
                 "`derived_relation`) and is not precisely deferred; "
-                "parameter-only representation is invalid.",
+                "parameter-only representation is invalid."
+                + _branch_reason_citation_note(corpus_citation_path, branch),
                 check=CHECK_FORMULA_CONTROL_WITHOUT_OUTPUT,
                 subject=_branch_subject(corpus_citation_path, branch),
                 expected="principal derived/relation output covering the control",
@@ -16443,6 +16446,56 @@ def _uses_english_branch_labels(corpus_citation_path: str) -> bool:
     """
 
     return _US_CORPUS_CITATION_PATH.match(corpus_citation_path.strip()) is not None
+
+
+def _branch_reason_citation_form(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str | None:
+    """The spelling of a U.S. branch that `reason` and rule `source:` accept.
+
+    The displayed locator (`paragraph (a) of us/regulation/...`) is neither:
+    `_reason_cites_exact_current_statute_branch` reads `<unit path>(a)` (and
+    `42 U.S.C. 415(i)` for the U.S. Code). ``None`` when there is no branch,
+    the branch has sentence components, or the source is not U.S.
+    """
+
+    unit = corpus_citation_path.strip().rstrip("/")
+    if (
+        not branch.path
+        or any(component.startswith("satz-") for component in branch.path)
+        or not _uses_english_branch_labels(unit)
+    ):
+        return None
+    if unit.startswith("us/statute/"):
+        try:
+            citation = parse_usc_citation(unit)
+        except ValueError:
+            return None
+        fragments = "".join(
+            f"({normalize_rulespec_path_segment(part)})"
+            for part in (*citation.fragments, *branch.path)
+        )
+        section = normalize_rulespec_path_segment(citation.section)
+        return f"{citation.title} U.S.C. {section}{fragments}"
+    return unit + "".join(
+        f"({normalize_rulespec_path_segment(part)})" for part in branch.path
+    )
+
+
+def _branch_reason_citation_note(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str:
+    """One bounded sentence naming the accepted citation beside a locator."""
+
+    form = _branch_reason_citation_form(corpus_citation_path, branch)
+    if form is None:
+        return ""
+    return (
+        f" To cite this branch in `reason` or `source:`, write `{form}`; "
+        f"`corpus_citation_path` stays `{corpus_citation_path.strip().rstrip('/')}`."
+    )
 
 
 def _english_branch_citation(
