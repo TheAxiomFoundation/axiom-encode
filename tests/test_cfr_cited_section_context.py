@@ -1,32 +1,31 @@
-"""CFR cited-section context and the State-established amount prompt rule.
+"""Cited-section context for CFR units.
 
-Part 1: a CFR unit's source text is read with one closed citation grammar
-(`N CFR P.S`, `§ P.S`), each hit is re-parsed by the corpus resolver, and the
-cited sections' RuleSpec modules join the cross-section context (bounded, in
-source order, live modules preferred over a deferred section file).
-
-Part 2: both encoder prompt copies tell the encoder to encode a branch that
-applies a State-established amount as an input instead of deferring it.
+A CFR unit's source text is read with one closed citation grammar
+(`N CFR P.S`, `§ P.S`); each hit is re-parsed by the corpus resolver; the
+cited sections' RuleSpec modules join the context in a bounded, deterministic
+order (cited paragraphs first, live modules preferred over a deferred section
+file), and the context they add after transitive expansion is bounded.
 """
 
-import re
+import json
 from pathlib import Path
 
 import pytest
 
 from axiom_encode import corpus_resolver
 from axiom_encode.harness import evals
-from axiom_encode.prompts import encoder as encoder_prompt
 from tests.test_evals import _canonical_rulespec_content_root
 
 UNIT = "us/regulation/42/435/725"
 
 
-def _live(name: str, *, inputs: tuple[str, ...] = ()) -> str:
+def _live(name: str, *, inputs: tuple[str, ...] = (), imports: tuple[str, ...] = ()):
     formula = " and ".join(inputs) if inputs else "true"
+    import_block = "".join(f"  - {target}\n" for target in imports)
     return (
         "format: rulespec/v1\n"
-        "rules:\n"
+        + (f"imports:\n{import_block}" if imports else "")
+        + "rules:\n"
         f"  - name: {name}\n"
         "    kind: derived\n"
         "    entity: Person\n"
@@ -82,6 +81,10 @@ def tree(tmp_path):
             _live("ssi_income_rule"),
         ),
     }
+    for letter in "abcdef":
+        files[f"603/{letter}"] = _write(
+            part / "603" / f"{letter}.yaml", _live(f"magi_{letter}")
+        )
     _write(part / "811.test.yaml", "[]\n")
     return root, files
 
@@ -127,6 +130,28 @@ class TestCfrCitationGrammar:
     def test_section_sign_takes_the_unit_title(self):
         assert _labels("under § 273.9", title="7") == ["7 CFR 273.9"]
 
+    def test_section_sign_after_another_title_in_the_sentence_is_dropped(self):
+        assert _labels("see 45 CFR 155.305 and § 155.310 for the rule") == [
+            "45 CFR 155.305"
+        ]
+        assert _labels("see 45 C.F.R. 155.305 and § 155.310(a).") == ["45 CFR 155.305"]
+
+    def test_section_sign_after_the_unit_title_in_the_sentence_is_kept(self):
+        assert _labels("see 42 CFR 435.4 and § 435.811") == [
+            "42 CFR 435.4",
+            "42 CFR 435.811",
+        ]
+
+    def test_section_sign_in_the_next_sentence_takes_the_unit_title(self):
+        assert _labels("See 45 CFR 155.305. The agency applies § 435.811.") == [
+            "45 CFR 155.305",
+            "42 CFR 435.811",
+        ]
+        assert _labels("See 45 CFR 155.305;\n(b) under § 435.811") == [
+            "45 CFR 155.305",
+            "42 CFR 435.811",
+        ]
+
     def test_drops_a_hit_the_resolver_parses_differently(self, monkeypatch):
         monkeypatch.setattr(
             corpus_resolver,
@@ -142,12 +167,22 @@ class TestCfrCitationGrammar:
         monkeypatch.setattr(corpus_resolver, "normalize_corpus_identifier", reject)
         assert _labels("under § 435.811") == []
 
-    def test_cited_sections_exclude_own_section_and_repeat_citations(self):
-        cited = evals._cited_cfr_sections_for_unit(
+
+class TestCitedSections:
+    def test_excludes_own_section_and_groups_cited_paragraphs(self):
+        groups = evals._cited_cfr_sections_for_unit(
             UNIT,
-            "§ 435.725(b) and § 435.811, § 435.811(a) and § 435.120",
+            "§ 435.725(b), § 435.120, § 435.811(b), § 435.811(a), § 435.811(b)",
         )
-        assert [item.label for item in cited] == ["42 CFR 435.811", "42 CFR 435.120"]
+        assert [group.label for group in groups] == ["42 CFR 435.811", "42 CFR 435.120"]
+        assert groups[0].fragment_paths == (("b",), ("a",))
+        assert groups[1].fragment_paths == ()
+
+    def test_orders_by_citation_count_then_first_citation(self):
+        groups = evals._cited_cfr_sections_for_unit(
+            UNIT, "§ 435.120, § 435.230, § 435.811, § 435.811, § 435.230"
+        )
+        assert [group.section for group in groups] == ["230", "811", "120"]
 
     @pytest.mark.parametrize(
         "unit",
@@ -156,43 +191,47 @@ class TestCfrCitationGrammar:
             "us-az/manual/des/faa5/dependent-care-expense/block-4",
             "us-co/regulation/10-ccr-2506-1/4.804.1",
             "us/statute/26/32/1",
+            "us/regulation/7/273/a",
+            "us/regulation/42/a/1",
+            "us/regulation/x/435/1",
         ],
     )
     def test_non_cfr_units_read_no_cfr_citations(self, unit):
+        assert evals._us_cfr_unit_section_key(unit) is None
         assert evals._cited_cfr_sections_for_unit(unit, "under § 435.811") == []
 
     def test_paragraph_unit_excludes_its_own_section(self):
-        cited = evals._cited_cfr_sections_for_unit(
+        groups = evals._cited_cfr_sections_for_unit(
             "us/regulation/42/435/601/b", "§ 435.601(d) and § 435.811"
         )
-        assert [item.label for item in cited] == ["42 CFR 435.811"]
+        assert [group.label for group in groups] == ["42 CFR 435.811"]
 
     def test_section_bound_keeps_first_cited_sections(self):
         text = " ".join(f"§ 435.{number}" for number in range(100, 120))
-        cited = evals._cited_cfr_sections_for_unit(UNIT, text)
-        assert len(cited) == evals._MAX_CITED_CFR_CONTEXT_SECTIONS == 8
-        assert [item.section for item in cited] == [str(n) for n in range(100, 108)]
+        groups = evals._cited_cfr_sections_for_unit(UNIT, text)
+        assert len(groups) == evals._MAX_CITED_CFR_CONTEXT_SECTIONS == 8
+        assert [group.section for group in groups] == [str(n) for n in range(100, 108)]
 
 
-class TestCitedCfrContextSelection:
-    def _select(self, root, text, unit=UNIT):
-        return evals._select_cited_cfr_section_context_files(unit, text, root)
+class TestCitedCfrCandidates:
+    def _candidates(self, root, text, unit=UNIT):
+        return evals._cited_cfr_context_candidates(unit, text, root)
 
     def test_maps_section_sign_to_the_part_directory(self, tree):
         root, files = tree
-        assert self._select(root, "under § 435.811") == [files["811"]]
+        assert self._candidates(root, "under § 435.811") == [files["811"]]
 
     def test_prefers_live_subdirectory_module_over_deferred_section_file(self, tree):
         root, files = tree
-        assert self._select(root, "eligible under § 435.120") == [files["120/ssi"]]
+        assert self._candidates(root, "eligible under § 435.120") == [files["120/ssi"]]
 
     def test_keeps_deferred_section_file_when_nothing_live_exists(self, tree):
         root, files = tree
-        assert self._select(root, "under § 435.236") == [files["236"]]
+        assert self._candidates(root, "under § 435.236") == [files["236"]]
 
     def test_live_section_file_then_live_children_by_depth_and_path(self, tree):
         root, files = tree
-        assert self._select(root, "under § 435.230") == [
+        assert self._candidates(root, "under § 435.230") == [
             files["230"],
             files["230/a"],
             files["230/b/1"],
@@ -204,41 +243,58 @@ class TestCitedCfrContextSelection:
             root / "regulations" / "42-cfr" / "435" / "230" / "z.yaml",
             _live("optional_group_z"),
         )
-        assert self._select(root, "under § 435.230") == [
+        assert self._candidates(root, "under § 435.230") == [
             files["230"],
             files["230/a"],
             deep_last,
             files["230/b/1"],
         ]
 
-    def test_cited_fragment_module_wins_over_section(self, tree):
+    def test_cited_paragraph_module_comes_first_then_section(self, tree):
         root, files = tree
-        assert self._select(root, "requirements in § 435.123(b)") == [files["123/b"]]
+        assert self._candidates(root, "requirements in § 435.123(b)") == [
+            files["123/b"],
+            files["123"],
+        ]
 
-    def test_missing_fragment_falls_back_to_section(self, tree):
+    def test_cited_paragraphs_win_over_name_order(self, tree):
         root, files = tree
-        assert self._select(root, "requirements in § 435.811(z)") == [files["811"]]
+        assert self._candidates(root, "methods in § 435.603(f) and § 435.603") == [
+            files["603/f"],
+            files["603/a"],
+            files["603/b"],
+            files["603/c"],
+        ]
+        assert self._candidates(root, "under § 435.603(e) and § 435.603(f)(2)") == [
+            files["603/e"],
+            files["603/f"],
+            files["603/a"],
+            files["603/b"],
+        ]
+
+    def test_missing_paragraph_falls_back_to_section(self, tree):
+        root, files = tree
+        assert self._candidates(root, "requirements in § 435.811(z)") == [files["811"]]
 
     def test_own_section_is_excluded(self, tree):
         root, _files = tree
-        assert self._select(root, "under § 435.725 and § 435.725(a)") == []
+        assert self._candidates(root, "under § 435.725 and § 435.725(a)") == []
 
     def test_other_title_maps_to_its_own_directory(self, tree):
         root, files = tree
-        assert self._select(root, "under 20 CFR 416.1100") == [files["416-1100"]]
+        assert self._candidates(root, "under 20 CFR 416.1100") == [files["416-1100"]]
 
     def test_section_sign_in_another_title_unit_does_not_reach_42_cfr(self, tree):
         root, _files = tree
-        assert self._select(root, "under § 435.811", unit="us/regulation/7/273/9") == []
+        assert (
+            self._candidates(root, "under § 435.811", unit="us/regulation/7/273/9")
+            == []
+        )
 
-    def test_non_cfr_unit_selects_nothing(self, tree):
-        root, _files = tree
-        assert self._select(root, "under § 435.811", unit="us/statute/42/1396a") == []
-
-    def test_order_follows_first_citation_and_is_deterministic(self, tree):
+    def test_order_is_deterministic(self, tree):
         root, files = tree
         text = "under § 435.230, § 435.811, § 435.120 and again § 435.230"
-        first = self._select(root, text)
+        first = self._candidates(root, text)
         assert first == [
             files["230"],
             files["230/a"],
@@ -246,18 +302,18 @@ class TestCitedCfrContextSelection:
             files["811"],
             files["120/ssi"],
         ]
-        assert self._select(root, text) == first
+        assert self._candidates(root, text) == first
 
     def test_per_section_module_bound(self, tree):
         root, _files = tree
         part = root / "regulations" / "42-cfr" / "435" / "300"
         for letter in "abcdefg":
             _write(part / f"{letter}.yaml", _live(f"group_{letter}"))
-        selected = self._select(root, "under § 435.300")
+        selected = self._candidates(root, "under § 435.300")
         assert len(selected) == evals._MAX_CITED_CFR_CONTEXT_MODULES_PER_SECTION == 4
         assert [path.stem for path in selected] == ["a", "b", "c", "d"]
 
-    def test_total_module_bound(self, tree):
+    def test_total_candidate_bound(self, tree):
         root, _files = tree
         part = root / "regulations" / "42-cfr" / "435"
         for number in range(400, 408):
@@ -266,16 +322,114 @@ class TestCitedCfrContextSelection:
                     part / str(number) / f"{letter}.yaml", _live(f"g{number}{letter}")
                 )
         text = " ".join(f"§ 435.{number}" for number in range(400, 408))
-        selected = self._select(root, text)
+        selected = self._candidates(root, text)
         assert len(selected) == evals._MAX_CITED_CFR_CONTEXT_MODULES == 12
         assert selected[-1].parent.name == "405"
 
-    def test_cross_section_selection_includes_cited_cfr_modules(self, tree):
-        root, files = tree
-        selected = evals._select_cross_section_context_files(
-            UNIT, "standard established under § 435.811", root
+
+class TestExpandedContextBound:
+    def _select(self, root, text, base=()):
+        return evals._select_cited_cfr_section_context_files(
+            UNIT,
+            text,
+            root,
+            base_selected=list(base),
+            target_rel=Path("regulations/42-cfr/435/725.yaml"),
         )
-        assert selected == [files["811"]]
+
+    def test_bounds_are_stated(self):
+        assert evals._MAX_CITED_CFR_CONTEXT_ADDED_FILES == 16
+        assert evals._MAX_CITED_CFR_CONTEXT_ADDED_CHARS == 32_000
+
+    def test_non_cfr_unit_selects_nothing(self, tree):
+        root, _files = tree
+        assert (
+            evals._select_cited_cfr_section_context_files(
+                "us/statute/42/1396a",
+                "under § 435.811",
+                root,
+                base_selected=[],
+                target_rel=None,
+            )
+            == []
+        )
+
+    def test_counts_transitive_imports_and_tests_against_the_file_bound(self, tree):
+        root, files = tree
+        part = root / "regulations" / "42-cfr" / "435"
+        deps = [
+            _write(part / "900" / f"d{index:02d}.yaml", _live(f"dep_{index}"))
+            for index in range(16)
+        ]
+        heavy = _write(
+            part / "500.yaml",
+            _live(
+                "heavy_rule",
+                imports=tuple(
+                    f"us:regulations/42-cfr/435/900/d{index:02d}#dep_{index}"
+                    for index in range(16)
+                ),
+            ),
+        )
+        assert len(evals._expand_context_files([heavy], root, None)) == 17
+        assert len(deps) == 16
+        # 500 expands to 17 added files and is skipped; 811 still fits.
+        assert self._select(root, "§ 435.500 and § 435.811") == [files["811"]]
+
+    def test_skips_a_candidate_over_the_character_bound(self, tree):
+        root, files = tree
+        big = _write(
+            root / "regulations" / "42-cfr" / "435" / "501.yaml",
+            _live("big_rule") + "# " + "x" * 32_000 + "\n",
+        )
+        assert big.stat().st_size > 32_000
+        assert self._select(root, "§ 435.501 and § 435.811") == [files["811"]]
+
+    def test_files_already_in_context_do_not_count(self, tree):
+        root, files = tree
+        filler = [
+            _write(
+                root / "regulations" / "42-cfr" / "435" / "950" / f"f{i:02d}.yaml",
+                _live(f"filler_{i}"),
+            )
+            for i in range(16)
+        ]
+        importer = _write(
+            root / "regulations" / "42-cfr" / "435" / "502.yaml",
+            _live(
+                "importer_rule",
+                imports=tuple(
+                    f"us:regulations/42-cfr/435/950/f{i:02d}#filler_{i}"
+                    for i in range(16)
+                ),
+            ),
+        )
+        assert self._select(root, "§ 435.502", base=filler) == [importer]
+
+    def test_added_total_stays_within_both_bounds(self, tree):
+        root, _files = tree
+        part = root / "regulations" / "42-cfr" / "435"
+        for number in range(700, 708):
+            module = _write(part / f"{number}.yaml", _live(f"g{number}"))
+            _write(module.with_suffix(".test.yaml"), "# " + "t" * 5_000 + "\n")
+        text = " ".join(f"§ 435.{number}" for number in range(700, 708))
+        selected = self._select(root, text)
+        added = evals._expand_context_files(selected, root, None)
+        assert len(added) <= evals._MAX_CITED_CFR_CONTEXT_ADDED_FILES
+        assert sum(len(p.read_text()) for p, _ in added) <= 32_000
+        assert [path.stem for path in selected] == [str(n) for n in range(700, 706)]
+
+    def test_workspace_selection_includes_cited_cfr_modules(self, tree):
+        root, files = tree
+        assert (
+            evals._select_cross_section_context_files(
+                UNIT, "standard established under § 435.811", root
+            )
+            == []
+        )
+        assert self._select(root, "standard established under § 435.811") == [
+            files["811"]
+        ]
 
 
 class TestCitedRegulationGuidance:
@@ -315,20 +469,34 @@ class TestCitedRegulationGuidance:
             "executable exports."
         ) in guidance
         assert "435/230" not in guidance
-        flat = " ".join(guidance.split())
-        assert (
+        assert " ".join(guidance.split()).endswith(
             "When this source computes with a value that one of these modules "
             "exports, import that export and use its bare name in the formula."
-        ) in flat
-        assert (
-            "When the source applies a State-established amount that the cited "
-            "module only takes as a local input slot, follow the exception for "
-            "State-established amounts and reuse that slot name."
-        ) in flat
+        )
+
+    def test_lists_eight_exports_then_an_ellipsis(self, tree):
+        root, _files = tree
+        names = [f"export_{index}" for index in range(9)]
+        module = _write(
+            root / "regulations" / "42-cfr" / "435" / "503.yaml",
+            "format: rulespec/v1\nrules:\n"
+            + "".join(
+                f"  - name: {name}\n    kind: derived\n    entity: Person\n"
+                "    dtype: Judgment\n    period: Month\n    versions:\n"
+                "      - effective_from: '2014-01-01'\n        formula: 'true'\n"
+                for name in names
+            ),
+        )
+        guidance = evals._format_cited_regulation_context_guidance(
+            UNIT, "under § 435.503", self._items(root, module)
+        )
+        refs = ", ".join(f"`us:regulations/42-cfr/435/503#{n}`" for n in names[:8])
+        assert f"exports {refs}, ...." in guidance
+        assert "export_8" not in guidance
 
     def test_lists_every_input_slot_name_up_to_the_bound(self, tree):
         root, _files = tree
-        slots = tuple(f"state_amount_slot_{index:02d}" for index in range(12))
+        slots = tuple(f"state_amount_slot_{index:02d}" for index in range(34))
         module = _write(
             root / "regulations" / "42-cfr" / "435" / "500.yaml",
             _live("standard_complies", inputs=slots),
@@ -337,9 +505,9 @@ class TestCitedRegulationGuidance:
             UNIT, "the standard under § 435.500", self._items(root, module)
         )
         assert evals._MAX_CITED_CFR_CONTEXT_INPUT_SLOTS == 32
-        assert "local input slot names " + ", ".join(f"`{s}`" for s in slots) + "." in (
-            guidance
-        )
+        listed = ", ".join(f"`{s}`" for s in slots[:32])
+        assert f"local input slot names {listed}, ...." in guidance
+        assert "state_amount_slot_32" not in guidance
 
     def test_empty_for_non_cfr_unit_and_uncited_modules(self, tree):
         root, files = tree
@@ -390,86 +558,23 @@ class TestCitedRegulationGuidance:
         )
 
 
-# Each sentence of the new prompt text, asserted in both prompt copies so that
-# removing any one of them fails a test.
-STATE_AMOUNT_SENTENCES = (
-    "Exception for State-established amounts: when a branch applies an amount, "
-    "standard, rate, or limit that the source says the State or agency "
-    'establishes under another provision (such as "the income standard '
-    'established under § 435.811" or "the standard in the State plan") and no '
-    "copied context module exports that value, encode the branch; do not defer "
-    "it for that reason.",
-    "Declare the value in the document-root `inputs` list with `entity`, "
-    "`dtype`, `period`, and `unit` for money.",
-    "When the cited provision's copied module lists a local input slot for that "
-    "value, use that exact slot name; otherwise use a descriptive name for the "
-    "amount.",
-    "Give the rule that uses it a proof atom whose excerpt is the citing phrase "
-    "from this unit's source text.",
-    "Encode the branch's own comparisons, max/min, and conditions on that "
-    "input, and set the input in every companion test.",
-    "A State-established amount is not a carve-out; follow the exception for "
-    "State-established amounts.",
-)
-CROSS_REFERENCE_RULE_TAIL = (
-    "import a real export, defer the affected executable surface, or encode a "
-    "source-grounded overriding branch that avoids it."
-)
-CARVE_OUT_RULE_TAIL = (
-    "Do not emit a formula that ignores the carve-out, and do not invent a "
-    "local boolean for the cited sibling source."
-)
-
-
-def _flat(text: str) -> str:
-    return re.sub(r"\s+", " ", text)
-
-
-def _eval_prompt(tmp_path) -> str:
-    work = tmp_path / "prompt"
-    work.mkdir()
-    source = work / "source.txt"
-    source.write_text("The annual allowance is $100.\n")
-    workspace = evals.EvalWorkspace(work, source, work / "manifest.json")
-    return evals._build_eval_prompt(
-        UNIT,
-        "cold",
-        workspace,
-        [],
-        "regulations/42-cfr/435/725.yaml",
-        include_tests=True,
-        runner_backend="codex",
+def test_prepare_eval_workspace_copies_cited_cfr_modules(tree, tmp_path):
+    root, files = tree
+    # A unit in another part, so no sibling selection copies 435.811.
+    citation = "us/regulation/42/436/10"
+    workspace = evals.prepare_eval_workspace(
+        citation=citation,
+        runner=evals.parse_runner_spec("openai:gpt-5.5"),
+        output_root=tmp_path / "out",
+        source_text="The agency uses the standard established under 42 CFR 435.811.",
+        axiom_rules_path=root,
+        mode="repo-augmented",
+        source_metadata_payload={
+            "source_attestation": {"requested_corpus_citation_path": citation}
+        },
+        extra_context_paths=[],
     )
-
-
-@pytest.fixture
-def prompt_copies(tmp_path):
-    return {
-        "encoder": _flat(encoder_prompt.ENCODER_PROMPT),
-        "evals": _flat(_eval_prompt(tmp_path)),
-    }
-
-
-@pytest.mark.parametrize("copy", ["encoder", "evals"])
-@pytest.mark.parametrize("sentence", STATE_AMOUNT_SENTENCES)
-def test_state_amount_sentence_in_both_prompt_copies(prompt_copies, copy, sentence):
-    assert prompt_copies[copy].count(sentence) == 1
-
-
-@pytest.mark.parametrize("copy", ["encoder", "evals"])
-def test_state_amount_bullet_follows_cross_reference_defer_rule(prompt_copies, copy):
-    text = prompt_copies[copy]
-    tail = text.index(CROSS_REFERENCE_RULE_TAIL) + len(CROSS_REFERENCE_RULE_TAIL)
-    assert text[tail:].startswith(" - " + STATE_AMOUNT_SENTENCES[0])
-    sentences = [text.index(sentence) for sentence in STATE_AMOUNT_SENTENCES[:5]]
-    assert sentences == sorted(sentences)
-
-
-@pytest.mark.parametrize("copy", ["encoder", "evals"])
-def test_carve_out_rule_points_to_the_state_amount_exception(prompt_copies, copy):
-    text = prompt_copies[copy]
-    assert CARVE_OUT_RULE_TAIL + " " + STATE_AMOUNT_SENTENCES[5] in text
-
-
-def test_encoder_prompt_version_is_bumped_for_the_state_amount_rule():
-    assert encoder_prompt.__version__ == 7
+    manifest = json.loads(workspace.manifest_file.read_text())
+    copied = {item["source_path"]: item for item in manifest["context_files"]}
+    assert copied[str(files["811"])]["import_path"] == "us:regulations/42-cfr/435/811"
+    assert copied[str(files["811"])]["kind"] == "implementation_precedent"

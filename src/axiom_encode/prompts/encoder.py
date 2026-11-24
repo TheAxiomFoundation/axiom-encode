@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 7
+__version__ = 6
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -1152,9 +1152,7 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   usable exported rule and the carve-out changes the result, defer the affected
   executable output or encode a source-grounded overriding branch that avoids
   the dependency. Do not emit a formula that ignores the carve-out, and do not
-  invent a local boolean for the cited sibling source. A State-established
-  amount is not a carve-out; follow the exception for State-established
-  amounts.
+  invent a local boolean for the cited sibling source.
 - File-level imports without a `#symbol` fragment are acceptable only for
   non-operative provenance or boundary context, such as a pure
   `notwithstanding` override or a local source-stated override where the
@@ -1191,18 +1189,6 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   or missing the needed export, do not preserve, rename, or recreate the local
   cross-reference fact; import a real export, defer the affected executable
   surface, or encode a source-grounded overriding branch that avoids it.
-- Exception for State-established amounts: when a branch applies an amount,
-  standard, rate, or limit that the source says the State or agency
-  establishes under another provision (such as "the income standard
-  established under § 435.811" or "the standard in the State plan") and no
-  copied context module exports that value, encode the branch; do not defer it
-  for that reason. Declare the value in the document-root `inputs` list with
-  `entity`, `dtype`, `period`, and `unit` for money. When the cited
-  provision's copied module lists a local input slot for that value, use that
-  exact slot name; otherwise use a descriptive name for the amount. Give the
-  rule that uses it a proof atom whose excerpt is the citing phrase from this
-  unit's source text. Encode the branch's own comparisons, max/min, and
-  conditions on that input, and set the input in every companion test.
 - When the requested source states its own amount, cap, threshold, or formula
   but begins with a cross-reference exception such as `except as otherwise
   provided in section X`, `except as otherwise provided in subsection X`, or
