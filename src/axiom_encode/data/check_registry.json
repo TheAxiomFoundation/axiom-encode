@@ -758,6 +758,18 @@
       "why": "The step publishes verified changes. The encode itself finished; a failure here means no pull request or no signed artifact for this run."
     },
     {
+      "category": "infra:refuse-a-reviewed-candidate-without-a-source-pin",
+      "cause": "infra",
+      "fix": "Run `axiom-encode bind-source-verification` on the candidate branch, push the one-line change and dispatch the new head. If the candidate could not be read, check `rulespec_ref` and `replace_rulespec_path` and dispatch again.",
+      "gate": "workflow",
+      "id": "infra:refuse-a-reviewed-candidate-without-a-source-pin",
+      "requires": "For a reviewed-candidate promotion, the candidate primary at the exact `rulespec_ref` names the promotion citation in `module.source_verification.corpus_citation_path` and carries a 64-character `source_sha256`, in the plain block form.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Refuse a reviewed candidate without a source pin",
+      "title": "The reviewed candidate has no source pin",
+      "why": "A promotion signs the candidate bytes as they are. A primary without the pin would be refused by the protected binding check, after the signing approval."
+    },
+    {
       "category": "infra:refuse-an-encoder-head-that-no-version-bump-covers",
       "cause": "infra",
       "fix": "Wait for the automatic encoder version bump to merge, then dispatch again from the new main head.",
@@ -1143,8 +1155,8 @@
     },
     {
       "category": "proof:source-evidence",
-      "cause": "validator",
-      "fix": "Cite the unit's own corpus path in `source.corpus_citation_path` instead of the child path, and copy a short contiguous verbatim excerpt from that provision. Keep the subsection in the rule's own `source` label.",
+      "cause": "encoder_output",
+      "fix": "In the field that cites the child path (a proof atom's `source.corpus_citation_path` or an interpretation's `module.interpretations[].texts[].corpus_citation_path`), cite the unit's own corpus path instead, and copy a short contiguous verbatim excerpt from that provision. Keep the subsection in the rule's own `source` label.",
       "gate": "ci",
       "id": "proof:source-evidence/path-unsliceable",
       "requires": "Each `corpus_citation_path` that the RuleSpec cites, other than the unit's own path, resolves to one provision in the bound corpus release, including a child path that the resolver slices from its parent provision.",
@@ -1164,6 +1176,18 @@
       "site": "axiom_encode/cli.py:cmd_guard_generated",
       "title": "The repair must retain the authenticated companion contract",
       "why": "A proof repair must not silently weaken the reviewed calculation coverage."
+    },
+    {
+      "category": "source-binding",
+      "cause": "encoder_output",
+      "fix": "Write `module.source_verification` as a plain block mapping with the one line `corpus_citation_path: <the requested citation path>`. Leave `source_sha256` out: the encoder writes it. Do not use flow style, anchors, tags, merge keys, quoted keys or a multi-line value there, and no `---` line. For an existing candidate run `axiom-encode bind-source-verification`.",
+      "gate": "ci",
+      "id": "source-binding/unbound",
+      "requires": "`module.source_verification` is a plain block mapping whose `corpus_citation_path` and `source_sha256` are the resolver's attested values, or a module the encoder can bind by inserting those two lines.",
+      "severity": "important",
+      "site": "axiom_encode/harness/evals.py:_bind_generated_source_verification",
+      "title": "Generated RuleSpec is not bound to its resolver-attested source",
+      "why": "A candidate is promoted and signed as the bytes it is. Without the attested source pin the protected binding check refuses it, after the signing approval, and a pin that names another source would bind the rule to text it was not encoded from."
     },
     {
       "category": "tests:scoped-execution",
@@ -1238,6 +1262,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "4113b7ca587b2381f9aa00b822d4a72d14796e8140dcb4b6c12739ac6d240231",
+  "registry_sha256": "483515f9c1c1b11b149fa80eb2acbb0bbcaa5ebc477938843fa57d3a9c279d04",
   "schema": "axiom-encode/check-registry/v1"
 }

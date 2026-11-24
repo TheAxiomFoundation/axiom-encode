@@ -1514,6 +1514,9 @@ def test_repair_candidate_overlay_normalizes_destination_root_deferrals(tmp_path
 def test_run_model_eval_appends_repair_parameters_after_existing_public_parameters():
     signature = inspect.signature(run_model_eval)
     parameters = list(signature.parameters)
+    # Appended last, and off unless a non-apply encode asks for it.
+    assert parameters.pop() == "bind_source_verification"
+    assert signature.parameters["bind_source_verification"].default is False
     assert parameters.pop() == "producer_review_guidance"
     assert signature.parameters["producer_review_guidance"].default is None
 

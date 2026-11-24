@@ -9,9 +9,11 @@ candidate. The unit's own path still raises.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -213,7 +215,14 @@ def test_an_unsliceable_cited_child_path_is_a_typed_refusal(
     assert issue.subject.citation == child_path
     assert message in issue.found
     assert f"`{child_path}` cannot be sliced" in issue
-    assert f"Cite the unit's own path `{SECTION}`" in issue
+    assert (
+        "In `rules[].metadata.proof.atoms[].source.corpus_citation_path`, "
+        f"cite the unit's own path `{SECTION}`"
+    ) in issue
+    assert "interpretations" not in issue
+    assert issue.subject.field == (
+        "rules[].metadata.proof.atoms[].source.corpus_citation_path"
+    )
     assert "verbatim excerpt" in issue
     assert '"' not in issue
     # Blocking, never advisory: it alone refuses the candidate.
@@ -238,11 +247,16 @@ def test_an_unsliceable_interpretation_path_is_a_typed_refusal(
     result = pipeline._run_ci(rules_file)
 
     assert result.passed is False
-    assert [
-        issue.subject.citation
-        for issue in result.issues
-        if getattr(issue, "check", None) == CHECK_ID
-    ] == [child_path]
+    typed = [
+        issue for issue in result.issues if getattr(issue, "check", None) == CHECK_ID
+    ]
+    assert [issue.subject.citation for issue in typed] == [child_path]
+    # The retry text names the interpretation field, not a proof atom's.
+    assert (
+        "In `module.interpretations[].texts[].corpus_citation_path`, "
+        f"cite the unit's own path `{SECTION}`"
+    ) in typed[0]
+    assert "source.corpus_citation_path" not in typed[0]
 
 
 @pytest.mark.parametrize(("body", "child_path", "message"), SLICE_CASES)
@@ -325,7 +339,7 @@ def test_the_check_is_registered_as_a_blocking_ci_check():
     assert check is CHECK_PROOF_SOURCE_PATH_UNSLICEABLE
     assert check.gate == "ci"
     assert check.enforcement == "blocking"
-    assert check.cause == "validator"
+    assert check.cause == "encoder_output"
     assert check.category == "proof:source-evidence"
 
 
@@ -383,3 +397,85 @@ def test_the_eval_numeric_pass_refuses_instead_of_raising(
     ] == [child_path]
     assert after.ci_pass == before.ci_pass
     assert after.ci_issues == before.ci_issues
+
+
+def test_a_recorded_failure_refuses_a_result_that_otherwise_passes():
+    """Only this finding makes the result fail: no other issue is present."""
+
+    failures = validator_pipeline._CitationSliceFailures(own_path=SECTION)
+    failures.failures[f"{SECTION}/b/1"] = "missing structural marker path 'b/1'"
+    result = ValidationResult("ci", True, issues=[])
+
+    validator_pipeline._refuse_on_citation_slice_failures(
+        result, failures, content=_candidate(f"{SECTION}/b/1")
+    )
+
+    assert result.passed is False
+    assert [issue.check for issue in result.issues] == [CHECK_ID]
+    assert result.error == result.issues[0]
+
+    untouched = ValidationResult("ci", True, issues=[])
+    validator_pipeline._refuse_on_citation_slice_failures(
+        untouched, validator_pipeline._CitationSliceFailures(own_path=SECTION)
+    )
+    assert untouched.passed is True
+    assert untouched.issues == []
+
+
+@pytest.mark.parametrize(("body", "child_path", "message"), SLICE_CASES)
+def test_an_imported_module_citation_still_raises(
+    tmp_path, monkeypatch, body, child_path, message
+):
+    """Imported modules' citations are not the candidate's text: no refusal."""
+
+    pipeline, _rules_file = _pipeline(
+        tmp_path, monkeypatch, body=body, content=_candidate(SECTION)
+    )
+    imported = _candidate(child_path)
+    record = SimpleNamespace(
+        content=imported,
+        content_sha256=hashlib.sha256(imported.encode()).hexdigest(),
+        resolved_path="policies/example/imported.yaml",
+        canonical_target="us:policies/example/imported#decision_days",
+    )
+
+    with (
+        validator_pipeline._authoritative_corpus_scope(pipeline.local_corpus_release),
+        validator_pipeline._citation_slice_failure_scope(SECTION) as failures,
+    ):
+        with pytest.raises(CorpusSourceSliceError, match=message):
+            pipeline._complete_source_import_proof_context([record], None)
+
+    assert failures is not None
+    assert failures.failures == {}
+
+
+def test_no_refusal_without_the_trusted_source_text(tmp_path, monkeypatch):
+    """Without source text CI never resolves the unit path itself. An
+    unsliceable descendant of an unsliceable unit path must then still raise,
+    not hide the unit's own corpus defect behind a refusal."""
+
+    unit_path = f"{SECTION}/b/1"
+    descendant = f"{unit_path}/i"
+    release = _release(tmp_path, INLINE_HEADING_BODY)
+    with pytest.raises(CorpusSourceSliceError):
+        resolve_local_corpus_source(unit_path, release)
+    with pytest.raises(CorpusSourceSliceError):
+        resolve_local_corpus_source(descendant, release)
+    content = _candidate(descendant).replace(
+        f"  source_verification:\n    corpus_citation_path: {SECTION}\n", ""
+    )
+    assert "source_verification" not in content
+    pipeline, rules_file = _pipeline(
+        tmp_path / "repo",
+        monkeypatch,
+        body=INLINE_HEADING_BODY,
+        content=content,
+        unit_path=unit_path,
+    )
+    pipeline.local_corpus_release = release
+    pipeline.source_text = None
+
+    assert pipeline._citation_slice_refusal_own_path() is None
+    with pytest.raises(CorpusSourceSliceError):
+        pipeline._run_ci(rules_file)
