@@ -698,6 +698,56 @@ def test_fingerprint_exception_preserves_partitioned_selection_report(
         assert ("Full audit fallback:" in output.err) == (expected_scope == "full")
 
 
+def test_error_report_names_only_the_partition_even_if_selection_named_more(
+    audit_repo, capsys
+):
+    audit_repo.changed_file.write_text(f"{audit_repo.paths[0]}\n", encoding="utf-8")
+    args = _audit_args(
+        audit_repo.root,
+        audit_repo.base_file,
+        audit_repo.changed_file,
+        audit_repo.root / "corpus",
+    )
+    args.validation_waivers_command = "audit"
+    args.scope = "incremental"
+    args.partition_key = "shard-b"
+    args.partition_keys_json = '["shard-b", "shard-a"]'
+    args.json = True
+    everything = WaiverAuditScope(
+        "full",
+        tuple(audit_repo.paths),
+        {path: ["full audit fallback: uncertain"] for path in audit_repo.paths},
+        "uncertain",
+    )
+
+    with (
+        patch.object(
+            cli._validation_waivers,
+            "load_validation_waivers",
+            return_value=audit_repo.waivers,
+        ),
+        patch.object(
+            cli._validation_waivers,
+            "protected_base_transition_issues",
+            return_value=(),
+        ),
+        patch.object(cli, "select_validation_waiver_scope", return_value=everything),
+        patch.object(
+            cli,
+            "_fingerprint_validation_waiver_modules_parallel",
+            side_effect=RuntimeError("fingerprint worker failed"),
+        ),
+        pytest.raises(SystemExit),
+    ):
+        cli.cmd_validation_waivers(args)
+
+    report = json.loads(capsys.readouterr().out)
+    owned = [audit_repo.paths[1], audit_repo.paths[3]]
+    assert report["errors"] == ["fingerprint worker failed"]
+    assert report["selected"] == 2
+    assert sorted(report["selection_reasons"]) == owned
+
+
 def test_reused_args_default_full_clears_incremental_exception_metadata(
     audit_repo, capsys
 ):
