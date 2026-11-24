@@ -215,19 +215,49 @@ itself is split, a rule that no part of the source supports. The measured
 effect of chunking on review verdicts is unknown: no model call was made to
 build or test this.
 
-A pass is the
-reviewer's own JSON boolean `"passed": true` in its one verdict object, with a
-JSON number as `score`. A score without that field, a non-boolean `passed`, a
-non-number `score`, or another spelling of a verdict key (`passed`, `score`,
-`blocking_issues`; for example `"Passed"` or `"Blocking_Issues"`) is not a
-pass. The spelling rule covers every key of decoded JSON in the output. In
-the text around the verdict it covers a quoted key that is followed by its
-colon, with only whitespace and short `/* */` comments between them, also in
-an object that only a lenient reader accepts. It does not cover a quoted key
-that a comment of more than 200 characters, more than eight comments in a row
-or a line comment separates from its colon; text inside a string value; an
-unquoted key after a comma on the same line; or other words for a verdict
-(`verdict`, `failed`). Eval scoring keeps its older fallback from the score.
+A verdict is exactly one JSON object that is the whole reviewer reply. Two
+shapes are read: the object alone, or one code fence (plain or marked `json`,
+with the object on its own lines) that holds the object alone. One leading
+byte order mark and surrounding JSON whitespace (space, tab, line feed,
+carriage return) are dropped. The object is strict JSON with one repair: a
+trailing comma between a value and its closer is dropped. Every reviewer
+prompt states this shape.
+
+The object must match the schema that the reviewer prompt asks for, in keys
+and in value types:
+
+| Reviewer | Keys and types |
+| --- | --- |
+| generalist | `score` number, `passed` boolean, `blocking_issues` list of strings, `non_blocking_issues` list of strings, `reasoning` string |
+| the other reviewers | `score` number, `passed` boolean, `issues` list of strings, `reasoning` string |
+
+`score` must be present. A pass is the reviewer's own `"passed": true` in that
+object.
+
+Everything else is not a verdict, and the record says `unavailable`
+(`reviewer_error`): an array, an object under another key, two objects, text
+before or after the object or the fence, an object that the output does not
+close, an object without `score`, an object with any other key (for example
+`pass`, `failed`, `verdict`, `details` or `"Passed"`), and a value of another
+type (for example an issue written as an object, or `reasoning` as an object).
+Not strict JSON, and refused too: a repeated key, `NaN` and `Infinity`, a
+comma that follows no value (`[,]`), whitespace that JSON does not define
+(for example U+3000), and a raw control character inside a string. The last
+one is a choice: strict JSON forbids it, no stored reviewer output has one,
+and a string can then not hold a line that looks like a fence. The earlier
+checks still run first: a second verdict object and another spelling of a
+verdict key anywhere in the output are refused.
+
+The reply is read from the reviewer CLI as follows. The default backend is the
+Claude CLI; `AXIOM_ENCODE_REVIEWER_CLI=codex` selects the Codex CLI, and it is
+also the fallback when the Claude CLI is not installed. For the Claude CLI the
+reply is stdout alone when the run exits 0; stderr is logged and is not part
+of the reply. For the Codex CLI the reply is the last agent message of the
+run, which `codex exec` defines as its answer; an earlier agent message that
+holds a brace or a review key stays in the reply, so the reader refuses it. A
+run that exits non-zero has no reply for either backend, whatever it printed:
+the record says `unavailable`.
+Eval scoring keeps its older fallback from the score.
 A pass that the fallback infers never reaches the record as a pass: a score
 without `passed` is recorded as `failed` when the fallback says fail (for
 example `{"score": 2}`) and as `unavailable` otherwise, and a non-boolean

@@ -43,6 +43,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Sequence
 
 import yaml
@@ -824,13 +825,35 @@ def run_claude_code(
                 env=environment,
                 env_is_final=True,
             )
-        return result.output, result.returncode
+        return _claude_reviewer_reply(result), result.returncode
     except subprocess.TimeoutExpired as exc:
         return f"Timeout after {exc.timeout}s", 1
     except FileNotFoundError:
         return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
     except Exception as e:
         return f"Error: {e}", 1
+
+
+def _claude_reviewer_reply(result: "_SubprocessRunResult") -> str:
+    """Return the text that the reviewer reads from one Claude CLI run.
+
+    The reply of a run that exits 0 is its stdout alone: a warning on stderr
+    is not part of the reply, and it is logged. A run that exits non-zero has
+    no reply: the caller refuses it, and gets stdout and stderr together for
+    its error message.
+    """
+    # A result built without stdout (a test double) keeps the joined output.
+    stdout = getattr(result, "stdout", None)
+    if result.returncode != 0 or stdout is None:
+        return result.output
+    stderr_chars = len(result.output) - len(stdout)
+    if stderr_chars > 0:
+        logger.warning(
+            "Reviewer CLI exited 0 and wrote %d characters to stderr; "
+            "the reply is read from stdout only",
+            stderr_chars,
+        )
+    return stdout
 
 
 def _run_codex_reviewer_cli(
@@ -934,10 +957,15 @@ def _run_codex_reviewer_cli(
 
 @dataclass
 class _SubprocessRunResult:
-    """Captured subprocess output plus exit status."""
+    """Captured subprocess output plus exit status.
+
+    ``output`` is stdout followed by stderr. ``stdout`` is stdout alone, or
+    None when the caller built the result without it.
+    """
 
     output: str
     returncode: int
+    stdout: str | None = None
 
 
 def _sha256_text(text: str | None) -> str | None:
@@ -1035,7 +1063,8 @@ def _run_subprocess_with_idle_timeout(
 
                 time.sleep(poll_interval)
 
-            output = stdout_path.read_text() + stderr_path.read_text()
+            stdout = stdout_path.read_text()
+            output = stdout + stderr_path.read_text()
             normalized_output = _normalize_validation_staging_text(
                 output,
                 capture_root,
@@ -1044,6 +1073,11 @@ def _run_subprocess_with_idle_timeout(
             return _SubprocessRunResult(
                 output=normalized_output,
                 returncode=process.returncode or 0,
+                stdout=_normalize_validation_staging_text(
+                    stdout,
+                    capture_root,
+                    placeholder=_VALIDATOR_SUBPROCESS_CAPTURE_PLACEHOLDER,
+                ),
             )
     except subprocess.TimeoutExpired:
         raise
@@ -1062,8 +1096,22 @@ def _run_subprocess_with_idle_timeout(
         raise RuntimeError(normalized_error) from exc
 
 
+def _codex_reviewer_reply(assistant_messages: list[str]) -> str:
+    """Return the reply of a Codex run: its last agent message.
+
+    `codex exec` defines the last agent message as the answer of the run
+    (`--output-last-message` writes exactly that message). An earlier message
+    is dropped only when it holds no brace and no review key: text that could
+    hold a verdict stays in the reply, where the verdict reader refuses it.
+    """
+    earlier = assistant_messages[:-1]
+    if any("{" in message or _has_review_key_token(message) for message in earlier):
+        return "\n".join(assistant_messages).strip()
+    return assistant_messages[-1].strip() if assistant_messages else ""
+
+
 def _extract_codex_text_output(output: str) -> str:
-    """Return the concatenated assistant text from a Codex JSONL stream."""
+    """Return the reviewer reply from a Codex JSONL stream."""
     assistant_messages: list[str] = []
     last_error: str | None = None
 
@@ -1086,7 +1134,7 @@ def _extract_codex_text_output(output: str) -> str:
             last_error = payload.get("message") or "codex exec error"
 
     return (
-        "\n".join(assistant_messages).strip()
+        _codex_reviewer_reply(assistant_messages)
         or with_codex_model_availability_hint(last_error)
         or output
     )
@@ -1602,6 +1650,162 @@ def _extract_json_object(output: str) -> dict[str, Any]:
     return data
 
 
+# The JSON object that each reviewer prompt asks for: its keys and the type
+# of each value. A verdict holds no other key and no other value type.
+# `_GENERALIST_REVIEW_JSON_FORMAT` states the first schema; `_REVIEW_JSON_FORMAT`
+# and the inline prompt of `_run_reviewer` state the second one.
+_SCORE, _PASSED, _TEXT, _TEXT_LIST = "number", "boolean", "string", "string list"
+_GENERALIST_REVIEW_SCHEMA: Mapping[str, str] = MappingProxyType(
+    {
+        "score": _SCORE,
+        "passed": _PASSED,
+        "blocking_issues": _TEXT_LIST,
+        "non_blocking_issues": _TEXT_LIST,
+        "reasoning": _TEXT,
+    }
+)
+_REVIEW_SCHEMA: Mapping[str, str] = MappingProxyType(
+    {"score": _SCORE, "passed": _PASSED, "issues": _TEXT_LIST, "reasoning": _TEXT}
+)
+_JSON_WHITESPACE = " \t\n\r"
+# The whole of a fenced output: one code fence, plain or marked `json`, with
+# the body on its own lines.
+_REVIEWER_JSON_FENCE = re.compile(
+    r"```(?:json)?[ \t]*\r?\n(?P<body>.*)\r?\n[ \t]*```", re.DOTALL | re.IGNORECASE
+)
+
+
+def _reviewer_schema(reviewer_type: str) -> Mapping[str, str]:
+    """Return the verdict schema that the prompt of ``reviewer_type`` asks for."""
+    if reviewer_type == GENERALIST_REVIEWER_NAME:
+        return _GENERALIST_REVIEW_SCHEMA
+    return _REVIEW_SCHEMA
+
+
+def _reviewer_schema_keys(reviewer_type: str) -> frozenset[str]:
+    """Return the verdict keys that the prompt of ``reviewer_type`` asks for."""
+    return frozenset(_reviewer_schema(reviewer_type))
+
+
+def _has_reviewer_schema_type(value: Any, kind: str) -> bool:
+    """Return whether a decoded JSON value has exactly the type ``kind``."""
+    if kind == _PASSED:
+        return type(value) is bool
+    if kind == _SCORE:
+        # `true`, `"9"` and `null` are not a number. The caller refuses a
+        # number that overflows to infinity (`1e309`).
+        return type(value) in (int, float)
+    if kind == _TEXT:
+        return type(value) is str
+    return type(value) is list and all(type(item) is str for item in value)
+
+
+def _refuse_json_constant(name: str) -> Any:
+    raise ValueError(f"Reviewer output holds {name}, which is not JSON")
+
+
+def _drop_trailing_json_commas(text: str) -> str:
+    """Drop a comma that stands between a value and the closer of its container.
+
+    The one repair of the verdict reader. A comma inside a string stays, and
+    so does a comma that follows no value (`[,]`, `[1,,]`): that is not a
+    trailing comma, and the text stays invalid JSON.
+    """
+    kept: list[str] = []
+    in_string = escaped = False
+    last = ""
+    for index, current in enumerate(text):
+        if in_string:
+            kept.append(current)
+            if escaped:
+                escaped = False
+            elif current == "\\":
+                escaped = True
+            elif current == '"':
+                in_string = False
+                last = current
+            continue
+        if current == ",":
+            following = text[index + 1 :].lstrip(_JSON_WHITESPACE)[:1]
+            if following and following in "}]" and last and last not in "[{,:":
+                continue
+        if current == '"':
+            in_string = True
+        if current not in _JSON_WHITESPACE:
+            last = current
+        kept.append(current)
+    return "".join(kept)
+
+
+def _decode_whole_reviewer_output(output: str) -> Any:
+    """Decode the whole reviewer output as one JSON value, or raise ValueError.
+
+    Two shapes are read, after one leading byte order mark and surrounding
+    JSON whitespace (space, tab, line feed, carriage return) are dropped: the
+    JSON value alone, or one code fence (plain or marked `json`) that holds
+    the JSON value alone. Nothing may stand before or after it: no prose, no
+    second fence, no second value.
+
+    The value is strict JSON, with one repair: a trailing comma before a
+    closer is dropped. Refused: a repeated key, `NaN` and `Infinity`, a raw
+    control character in a string (so a string cannot hold a line that looks
+    like a fence), and whitespace that JSON does not define.
+    """
+    text = output.removeprefix("\ufeff").strip(_JSON_WHITESPACE)
+    fenced = _REVIEWER_JSON_FENCE.fullmatch(text)
+    if fenced is not None:
+        text = fenced.group("body").strip(_JSON_WHITESPACE)
+    try:
+        return json.loads(
+            _drop_trailing_json_commas(text),
+            object_pairs_hook=_unique_reviewer_json_keys,
+            parse_constant=_refuse_json_constant,
+        )
+    except RecursionError as error:
+        raise ValueError("Reviewer output nests too deep") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "Reviewer output is not one JSON value alone or in one code fence"
+        ) from error
+
+
+def _read_reviewer_verdict(output: str, reviewer_type: str) -> dict[str, Any]:
+    """Return the verdict of a reviewer output, or raise ValueError.
+
+    A verdict is exactly one top-level JSON object that is the whole output
+    (see ``_decode_whole_reviewer_output`` for the two shapes), with no key
+    outside the schema that the prompt of ``reviewer_type`` asks for, a value
+    of the schema type under each key, and a ``score``. The types: ``passed``
+    is a JSON boolean, ``score`` a JSON number, ``reasoning`` a string,
+    and each issue list a list of strings.
+
+    Not a verdict, so the caller records an unreadable review: an array, an
+    object under another key, two objects, text beside the object, an object
+    that the output does not close, an object without ``score``, an object
+    with any other key (for example `pass`, `failed` or `verdict` beside
+    `passed`), and an object or a list where the schema has a string (for
+    example an issue written as an object). The checks of
+    ``_extract_json_object`` run first and still hold.
+    """
+    # A second, independent reading. No test input is known that it refuses
+    # and the strict typed reading below accepts; it stays as a second guard.
+    _extract_json_object(output)
+    data = _decode_whole_reviewer_output(output)
+    if type(data) is not dict:
+        raise ValueError("Reviewer verdict is not the top-level JSON object of output")
+    schema = _reviewer_schema(reviewer_type)
+    for key, value in data.items():
+        if key not in schema:
+            raise ValueError(
+                "Reviewer JSON key outside the schema of the review prompt"
+            )
+        if not _has_reviewer_schema_type(value, schema[key]):
+            raise ValueError(f"Reviewer {key} must be a JSON {schema[key]}")
+    if "score" not in data:
+        raise ValueError("Reviewer verdict has no score")
+    return data
+
+
 def _legacy_generalist_reviewer_passed(
     data: Mapping[str, Any], *, score: float, blocking_issues: list[Any]
 ) -> bool:
@@ -1716,25 +1920,38 @@ def _select_reviewer_json_object(
     raise ValueError("No JSON found in output")
 
 
-_REVIEW_JSON_FORMAT = """
+# One sentence, the same in every reviewer prompt: the shape that
+# `_read_reviewer_verdict` reads.
+_REVIEW_REPLY_SHAPE = (
+    "Your whole reply must be exactly one JSON object with exactly these keys: "
+    "no text before or after it and no other key. `score` is a number, `passed` "
+    "is true or false, every issue is one string and `reasoning` is one string. "
+    "One ```json code fence around the object is allowed."
+)
+
+_REVIEW_JSON_FORMAT = f"""
 Output your review as JSON:
-{
+{{
   "score": <float 1-10>,
   "passed": <boolean>,
   "issues": ["issue1", "issue2"],
   "reasoning": "<brief explanation>"
-}
+}}
+
+{_REVIEW_REPLY_SHAPE}
 """
 
-_GENERALIST_REVIEW_JSON_FORMAT = """
+_GENERALIST_REVIEW_JSON_FORMAT = f"""
 Output your review as JSON:
-{
+{{
   "score": <float 1-10>,
   "passed": <boolean>,
   "blocking_issues": ["issue1", "issue2"],
   "non_blocking_issues": ["issue3", "issue4"],
   "reasoning": "<brief explanation>"
-}
+}}
+
+{_REVIEW_REPLY_SHAPE}
 
 Use `passed: true` when the encoding is safe to promote even if there are minor cleanup notes.
 Only place substantive statutory-fidelity defects in `blocking_issues`.
@@ -43220,6 +43437,8 @@ Output ONLY valid JSON:
   "issues": ["issue1", "issue2"],
   "reasoning": "<brief explanation>"
 }}
+
+{_REVIEW_REPLY_SHAPE}
 """
         prompt_sha256 = _sha256_text(prompt)
         # The prompt quotes a bounded prefix of each file; record whether the
@@ -43287,13 +43506,7 @@ Output ONLY valid JSON:
             # structured "reviewer_parse_failed" result instead of
             # letting the generic except below swallow the detail.
             try:
-                data = _extract_json_object(output)
-                if "passed" in data and type(data["passed"]) is not bool:
-                    raise ValueError("Reviewer passed must be a JSON boolean")
-                if "score" in data and type(data["score"]) not in (int, float):
-                    # `"9"`, `true` and `null` are not a score; a verdict
-                    # with a mistyped field is not an unambiguous verdict.
-                    raise ValueError("Reviewer score must be a JSON number")
+                data = _read_reviewer_verdict(output, reviewer_type)
             except (ValueError, json.JSONDecodeError) as parse_err:
                 duration = int((time.time() - start) * 1000)
                 raw_snippet = (output or "").strip()
