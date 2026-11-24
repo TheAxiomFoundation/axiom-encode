@@ -597,7 +597,7 @@ def prepare_units(tmp_path: Path, source: str, *, switch_on: bool):
     script = fragment(
         step("Prepare reviewed lane pull request branch")["run"],
         'promotion_units=""',
-        '\'$units | if . == "" then 0 else split(", ") | length end\')"',
+        "promotion_unit_count=\"$(jq -r 'length'",
     )
     (tmp_path / "axiom-encode").symlink_to(ROOT, target_is_directory=True)
     return subprocess.run(
@@ -608,7 +608,7 @@ def prepare_units(tmp_path: Path, source: str, *, switch_on: bool):
             + sys.executable
             + ")\n"
             + script
-            + '\nprintf "%s|%s\\n" "$promotion_units" "$promotion_unit_count"\n',
+            + '\nfi\nprintf "%s|%s\\n" "$promotion_units" "$promotion_unit_count"\n',
         ],
         cwd=tmp_path,
         capture_output=True,

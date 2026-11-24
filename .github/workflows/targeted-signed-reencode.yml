@@ -5458,19 +5458,20 @@ jobs:
           # and body; empty for every other run. Read with the wrapper's own
           # parser, here, where no repository token is present.
           promotion_units=""
+          promotion_unit_count=0
           if jq -e 'type == "object" and .schema == "axiom-encode/reviewed-pr-promotion/v1" and has("units")' \
             <<<"${ATOMIC_SOURCE_JSON:-[]}" > /dev/null; then
-            promotion_units="$("${workflow_python[@]}" \
+            # Each unit must be plain citation text before it enters a title.
+            promotion_units_json="$("${workflow_python[@]}" \
               axiom-encode/scripts/prepare_signed_backfill.py \
               split-atomic-source-input "$ATOMIC_SOURCE_JSON" \
-              | jq -er '.promotion_units | join(", ")')"
-            if ! [[ "$promotion_units" =~ ^[A-Za-z0-9._/-]+(,\ [A-Za-z0-9._/-]+)*$ ]]; then
-              echo "multi-unit promotion names a unit that is not a plain citation" >&2
-              exit 1
-            fi
+              | jq -ce '.promotion_units
+                  | if type == "array" and length > 0
+                      and all(.[]; type == "string" and test("^[A-Za-z0-9._/-]+$"))
+                    then . else error("a unit is not a plain citation") end')"
+            promotion_units="$(jq -r 'join(", ")' <<<"$promotion_units_json")"
+            promotion_unit_count="$(jq -r 'length' <<<"$promotion_units_json")"
           fi
-          promotion_unit_count="$(jq -rn --arg units "$promotion_units" \
-            '$units | if . == "" then 0 else split(", ") | length end')"
           # An exact tip publishes the signed lane unchanged. A main tip that
           # advanced only through plumbing the run neither read nor bound
           # (CI, repository tests/tools, docs, non-encode workflow pins) gets
