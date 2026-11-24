@@ -1860,3 +1860,93 @@ def test_a_source_digest_that_is_not_a_digest_never_enters_the_record(
 
     assert record["reviewed"]["source_sha256"] is None
     assert "reviewer prose" not in json.dumps(record)
+
+
+# --- on top of the strict typed verdict reader ------------------------------
+
+
+def test_every_prompt_states_the_reply_shape_exactly_once(tmp_path, monkeypatch):
+    shape = validator_pipeline._REVIEW_REPLY_SHAPE
+    module, companion, source = _large_candidate()
+    cases = {
+        "several calls": (module, companion, source),
+        "one chunked call": (
+            "format: rulespec/v1\nrules: []\n" + "# comment line\n" * 500,
+            "[]\n",
+            "Source words.",
+        ),
+        "the unchanged single call": ("format: rulespec/v1\nrules: []\n", "[]\n", "s"),
+        "above the caps": (
+            module,
+            "- name: case\n" * (MAX_CHUNKS_PER_FILE * CHUNK_TEST_CHARS // 13 + 1),
+            source,
+        ),
+    }
+    seen = {}
+    for name, (module_text, companion_text, source_text) in cases.items():
+        _result, reviewer, _rule_file = _review(
+            tmp_path,
+            monkeypatch,
+            [PASS],
+            module=module_text,
+            companion=companion_text,
+            source=source_text,
+        )
+        seen[name] = len(reviewer.prompts)
+        for prompt in reviewer.prompts:
+            assert prompt.count(shape) == 1
+            # No chunk notice gives another instruction about the reply.
+            assert prompt.count("Output ONLY valid JSON") == 1
+            assert prompt.count("JSON") == GENERALIST_REVIEWER_PROMPT.count("JSON") + 1
+    assert seen["several calls"] > 1
+    assert seen["one chunked call"] == seen["the unchanged single call"] == 1
+    assert seen["above the caps"] == 1
+
+
+@pytest.mark.parametrize(
+    "loose_output",
+    [
+        '{"passed": true, "pass": false, "score": 9}',
+        '{"passed": true, "score": 9, "failed": true}',
+        '{"passed": true, "score": 9, "verdict": "fail"}',
+        '[{"passed": true, "score": 9}]',
+        '{"result": {"passed": true, "score": 9}}',
+        '{"passed": true}',
+        'Here is my verdict: {"passed": true, "score": 9}',
+        '{"passed": true, "score": "9"}',
+    ],
+)
+@pytest.mark.parametrize("loose_call", [1, "last"])
+def test_every_chunk_call_reads_its_verdict_with_the_strict_reader(
+    tmp_path, monkeypatch, loose_output, loose_call
+):
+    module, companion, source = _large_candidate()
+    planned = len(plan_chunked_review(module, companion, source).calls)
+    loose = planned if loose_call == "last" else loose_call
+    outputs = [PASS] * planned
+    outputs[loose - 1] = loose_output
+    read = []
+    real = validator_pipeline._read_reviewer_verdict
+
+    def spy(output, reviewer_type):
+        read.append((output, reviewer_type))
+        return real(output, reviewer_type)
+
+    monkeypatch.setattr(validator_pipeline, "_read_reviewer_verdict", spy)
+
+    result, reviewer, rule = _review(
+        tmp_path,
+        monkeypatch,
+        outputs,
+        module=module,
+        companion=companion,
+        source=source,
+    )
+
+    # One strict read per call made, each as the generalist reviewer.
+    assert read == [(output, "generalist-reviewer") for output in outputs[:loose]]
+    assert len(reviewer.prompts) == loose
+    assert result.passed is False and result.score is None
+    record = _record(result, rule)
+    assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
+    assert review_requirement_refusal(record) is not None
