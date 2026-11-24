@@ -491,7 +491,7 @@ def _batch_records_base(records: object, selector: BatchPromotionSelector) -> st
     """
     if not isinstance(records, list) or len(records) != len(selector.units):
         raise AdmissionError("batch admission lacks one record per unit")
-    bases = set()
+    bases = []
     for record, (citation, rulespec_path) in zip(records, selector.units):
         binding = _object(_object(record, "batch record").get("binding"), "binding")
         if (
@@ -501,10 +501,11 @@ def _batch_records_base(records: object, selector: BatchPromotionSelector) -> st
             raise AdmissionError(
                 f"batch record is not bound to its unit {citation} ({rulespec_path})"
             )
-        bases.add(record.get("base_sha"))
-    if len(bases) != 1 or not isinstance(next(iter(bases)), str):
+        bases.append(record.get("base_sha"))
+    # Compared, not hashed: a base of any JSON type refuses as an admission.
+    if not isinstance(bases[0], str) or any(base != bases[0] for base in bases):
         raise AdmissionError("batch records differ in their main base")
-    return bases.pop()
+    return bases[0]
 
 
 def _batch_scope_issue(

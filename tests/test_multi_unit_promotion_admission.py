@@ -312,6 +312,9 @@ def test_the_switch_does_not_change_a_single_unit_admission(monkeypatch, name):
 
 def test_single_unit_admission_keeps_its_exact_shape(approval_required):
     result = verify_reviewed_pr(single(unit(1)), fetch=Reads(make_api([unit(1)])))
+    assert result["record"]["binding"]["companion_sha256"] == (
+        hashlib.sha256(("fixture " + companion(unit(1)[1])).encode()).hexdigest()
+    )
     evidence = "approvals" if approval_required else "dispatcher"
     assert list(result) == [
         "schema",
@@ -363,6 +366,9 @@ def test_a_batch_admits_one_record_per_unit_equal_to_a_single_admission(on, coun
         assert json.dumps(record) == json.dumps(alone["record"])
         assert record["binding"]["rulespec_sha256"] == (
             hashlib.sha256(("fixture " + target[1]).encode()).hexdigest()
+        )
+        assert record["binding"]["companion_sha256"] == (
+            hashlib.sha256(("fixture " + companion(target[1])).encode()).hexdigest()
         )
         for field in ("workflow_commit", "admission_basis"):
             assert result[field] == alone[field]
@@ -736,6 +742,9 @@ def test_revalidation_refuses_a_batch_after_the_head_moved(provisioned):
         (lambda p: p["records"][1].update(base_sha="f" * 40), "differ in their main"),
         (lambda p: [r.update(base_sha="f" * 40) for r in p["records"]], "differs"),
         (lambda p: [r.update(base_sha=None) for r in p["records"]], "differ in"),
+        (lambda p: [r.update(base_sha=[]) for r in p["records"]], "differ in"),
+        (lambda p: [r.update(base_sha={"a": 1}) for r in p["records"]], "differ in"),
+        (lambda p: p["records"][2].update(base_sha=[BASE]), "differ in their main"),
         (lambda p: p.update(schema=admission.SCHEMA), "invalid provisioned"),
         (lambda p: p.update(record=p["records"][0]), "invalid provisioned"),
         (lambda p: p["selector"].pop("units"), "selector has unexpected fields"),

@@ -329,6 +329,7 @@ from .harness.validator_pipeline import (
     _candidate_upstream_rulespec_roots,
     _canonical_rulespec_compile_path,
     _canonical_rulespec_target,
+    _extract_import_items_from_content,
     _extract_source_verification_text,
     _filing_status_rule_source_context,
     _has_malformed_profiled_numeric_envelope,
@@ -10335,46 +10336,63 @@ def _promotion_unit_scope(label: str | None):
 
 
 def _promotion_batch_import_issue(
-    repo_path: Path, primaries: Mapping[Path, bytes]
+    repo_path: Path,
+    primaries: Mapping[Path, bytes],
+    *,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> str | None:
     """Name a unit of a batch that imports another unit of the same batch.
 
     A unit is validated and signed as a single-unit promotion of it would be:
     against modules that are already signed. Another unit of the batch has no
     manifest until the whole batch is signed, so such an import is refused
-    before any validation. The import targets are read as
-    ``_unchanged_direct_importer_of_changed_rulespec`` reads them.
+    before any validation.
+
+    Every import is resolved by the validator's own resolver
+    (``_resolve_rulespec_import_file_static``), so a spelling the validator
+    would follow to a unit of the batch is refused whatever its case, quotes
+    or prefix. The items are read twice: from the parsed YAML and as the
+    validator reads the ``imports`` block from the text. It fails closed: a
+    primary that is not a readable mapping, an import item that is not a
+    string, and an import the resolver refuses as unsafe all stop the batch.
     """
 
-    anchors = {
-        relative: _rulespec_anchor_base_for_output(repo_path, relative)
-        for relative in primaries
-    }
+    owners: dict[Path, Path] = {}
+    for relative in primaries:
+        for member in (relative, _rulespec_test_path(relative)):
+            owners[(repo_path / member).resolve()] = relative
     for relative, raw in primaries.items():
+        label = relative.as_posix()
         try:
-            payload = yaml.safe_load(raw)
+            text = raw.decode("utf-8")
+            payload = yaml.safe_load(text)
         except (UnicodeDecodeError, yaml.YAMLError, ValueError, RecursionError):
-            return f"{relative.as_posix()} cannot be read for its imports"
-        raw_imports = payload.get("imports") if isinstance(payload, dict) else None
-        if raw_imports is None:
-            continue
-        if not isinstance(raw_imports, list):
-            return f"{relative.as_posix()} has a malformed imports list"
-        imports = {
-            item.split("#", 1)[0].strip().strip("/")
-            for item in raw_imports
-            if isinstance(item, str)
-        }
-        jurisdiction = anchors[relative].split(":", 1)[0]
-        for other, anchor in anchors.items():
-            if other == relative:
+            return f"{label} cannot be read for its imports"
+        if not isinstance(payload, dict):
+            return f"{label} cannot be read for its imports"
+        declared = payload.get("imports")
+        if declared is None:
+            declared = []
+        if not isinstance(declared, list) or any(
+            not isinstance(item, str) for item in declared
+        ):
+            return f"{label} has a malformed imports list"
+        for item in [*declared, *_extract_import_items_from_content(text)]:
+            try:
+                resolved = _resolve_rulespec_import_file_static(
+                    item,
+                    rules_file=repo_path / relative,
+                    policy_repo_path=repo_path / relative.parts[0],
+                    rulespec_dependency_roots=rulespec_dependency_roots,
+                )
+            except (ValueError, OSError):
+                return f"{label} has an import that cannot be resolved safely"
+            if resolved is None:
                 continue
-            other_jurisdiction, _separator, target = anchor.partition(":")
-            if anchor in imports or (
-                other_jurisdiction == jurisdiction and target in imports
-            ):
+            owner = owners.get(Path(resolved).resolve())
+            if owner is not None and owner != relative:
                 return (
-                    f"{relative.as_posix()} imports {other.as_posix()}, another "
+                    f"{label} imports {owner.as_posix()}, another "
                     "unit of the same batch; promote the imported unit first"
                 )
     return None
@@ -10636,6 +10654,7 @@ def cmd_promote_reviewed_candidate(args):
                 unit["rulespec_relative"]: unit["before"][unit["rulespec_relative"]]
                 for unit in units
             },
+            rulespec_dependency_roots=dependency_roots,
         )
         if import_issue:
             raise ValueError(import_issue)

@@ -252,6 +252,9 @@ citation of every unit of the candidate.
   request's own.
 - `units` with one citation is a batch of one. Its record and its manifest
   equal those of a single-unit promotion of that unit.
+- While the switch is off the wrapper does not know the `units` key: it is
+  refused with the error an unknown key had before
+  (`reviewed PR promotion requires exactly transaction and rulespec_pr`).
 
 ### One signing run
 
@@ -288,7 +291,12 @@ record per unit; each record equals the record of a single-unit admission.
   process.
 - A manifest that fails verification after the install (step 6) removes every
   manifest of the transaction.
-- The error names the unit: `unit <citation> (<path>): <reason>`.
+- An error of one unit names it: `unit <citation> (<path>): <reason>`. This
+  holds for steps 1, 3 and 5 and for the verification of an installed
+  manifest. Three errors are for the whole batch and name no unit: the import
+  refusal (it names the two files), a refused live admission, and a failure of
+  the one install transaction itself (a write error, or a unit file that
+  changed after validation).
 
 A failed batch is repaired in the candidate (fix or remove the unit) and
 dispatched again on the new head. There is no partial result to keep.
@@ -301,8 +309,18 @@ is validated and signed as a single-unit promotion of it would be, against
 modules that are already signed. The single-unit lane cannot express such an
 import at all (its candidate holds one new module), so this keeps each batch
 manifest equal to a single-unit one. Promote the imported unit first, then the
-importer in a later candidate. The check reads the `imports` list of each
-primary, as the guard does for direct importers.
+importer in a later candidate.
+
+The check uses the validator's own import resolver
+(`_resolve_rulespec_import_file_static`). It resolves every import of each
+primary and refuses when the resolved file is the primary or the companion of
+another unit of the batch. So the spelling does not matter: a different case
+of the prefix, an empty or unknown prefix, quotes and surrounding slashes are
+all followed to the file the validator would read. The import items are read
+twice: from the parsed YAML, and as the validator reads the `imports` block
+from the text. The check fails closed: a primary that is not a readable YAML
+mapping, an import item that is not a string (also a mapping-form item), and
+an import that the resolver refuses as unsafe each stop the batch.
 
 ### Limits
 
@@ -331,19 +349,36 @@ primary, as the guard does for direct importers.
 | RuleSpec CI runs on a signed head | `k` | 1 |
 | Merges, each on the newest `main` | `k` | 1 |
 
-### What is not built, and what is not verified
+### Before the switch goes on
 
-- The workflow file is unchanged. Its packaged artifact inventory
-  (`apply-manifests.json`), the commit message and the title of the lane pull
-  request name only the unit of the `citation` input. The checkpoint guard and
-  the staging step are not limited to one manifest.
-- No hosted run of a batch has been made. Before the switch is turned on, a
-  canary batch on a real candidate is required. Two points need that run:
-  that the hosted steps after the promotion command accept several manifests,
-  and that complete-source validation of one unit is not disturbed by the
-  other, still unsigned, units in the same checkout.
+From the independent review of this lane. Each item is necessary; the state is
+of this document's commit.
+
+1. **Import refusal through the real resolver.** Done (above).
+2. **Workflow packaging.** Not done here. `targeted-signed-reencode.yml`
+   records one of the `k` manifests: it expects the citation of the `citation`
+   input only, skips manifests of other citations, requires exactly one
+   manifest for that citation, and runs the tool and exact-ref check and
+   writes `context-manifest.json` for it alone. The commit message, the title
+   and body of the lane pull request and `metadata.json` name that one
+   citation. The packaging must expect, check and record all `k` manifests, or
+   fail closed on a manifest of an unexpected citation. It is a separate
+   change to the workflow.
+3. **A hosted canary batch** on a real candidate. No hosted run of a batch has
+   been made.
+4. **An engine-level check** that the other, still unsigned, units in the
+   checkout cannot make a unit pass complete-source validation. The import
+   refusal covers direct imports; it does not prove that the engine reads no
+   other unit.
+5. **The derived index.** Decide whether its content must reflect exactly the
+   `k` units. Today nothing in this lane checks the content of the index, for
+   a batch as for a single unit.
+
+### What is not built
+
 - Nothing dispatches a batch automatically, nothing merges it, and there is no
   evidence gate (reviewer verdict, oracle result) in this lane.
+- A limit above 6 units (see "Limits").
 
 ## Rollout
 

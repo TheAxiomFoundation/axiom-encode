@@ -1318,7 +1318,16 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         # candidate (docs/reviewed-pr-promotion.md, "Several units in one
         # candidate"). This is the shape only; the admission decides whether
         # a batch is in force and whether the list equals the candidate.
-        if set(payload) - {"units"} != {"schema", "transaction", "rulespec_pr"}:
+        # The key exists only while the multi-unit switch is on: with it off
+        # the wrapper is read exactly as before the key existed.
+        try:
+            from axiom_encode import reviewed_pr_admission
+
+            batch_on = reviewed_pr_admission.MULTI_UNIT_PROMOTION_ENABLED is True
+        except ImportError:  # run outside the package: the key stays unknown
+            batch_on = False
+        batch_keys = {"units"} if batch_on else set()
+        if set(payload) - batch_keys != {"schema", "transaction", "rulespec_pr"}:
             raise ValueError(
                 "reviewed PR promotion requires exactly transaction and rulespec_pr"
             )

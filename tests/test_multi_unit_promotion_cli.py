@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 import axiom_encode.cli as cli
 from axiom_encode import prepare_signed_backfill as helper
@@ -492,6 +493,32 @@ def test_a_manifest_that_fails_verification_removes_every_manifest(
     run.assert_nothing_written()
 
 
+@pytest.mark.parametrize("changed", NAMES)
+@pytest.mark.parametrize("member", ["primary", "companion"])
+def test_a_unit_file_that_changes_after_validation_stops_the_install(
+    run, monkeypatch, changed, member
+):
+    """Every unit's bytes are read again before the install, not the first's."""
+    target = run.repo / primary(changed)
+    if member == "companion":
+        target = target.with_name(f"{changed}.test.yaml")
+    real_sign = run._sign
+
+    def sign_then_change(payload, broker):
+        result = real_sign(payload, broker)
+        if payload["citation"] == citation(NAMES[-1]):
+            target.write_text("changed after validation\n")
+        return result
+
+    run._sign = sign_then_change
+    with pytest.raises((ValueError, RuntimeError)):
+        run(monkeypatch)
+    assert run.signed == list(NAMES)
+    for name in NAMES:
+        assert not manifest_of(run.repo, name).exists()
+    assert run.untracked() == []
+
+
 @pytest.mark.parametrize("field", ["rulespec_sha256", "companion_sha256"])
 def test_a_unit_whose_bytes_differ_from_its_record_is_refused_and_named(
     run, monkeypatch, field
@@ -670,7 +697,20 @@ def test_a_batch_over_the_limit_is_refused_before_any_work(run, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "target", ["us:statutes/7/2015/a#x", "statutes/7/2015/a#x", "us:statutes/7/2015/a"]
+    "target",
+    [
+        "us:statutes/7/2015/a#x",
+        "statutes/7/2015/a#x",
+        "us:statutes/7/2015/a",
+        # Spellings the validator's resolver follows to the same file.
+        "US:statutes/7/2015/a",
+        "Us:statutes/7/2015/a#x",
+        "':statutes/7/2015/a'",
+        "'x y:statutes/7/2015/a'",
+        "\"'statutes/7/2015/a'\"",
+        "'\"us:statutes/7/2015/a\"'",
+        "' /statutes/7/2015/a/ '",
+    ],
 )
 def test_a_unit_that_imports_another_unit_of_the_batch_is_refused(
     tmp_path, on, monkeypatch, target
@@ -706,6 +746,108 @@ def test_a_single_unit_promotion_is_not_checked_for_batch_imports(
     run = Run(tmp_path, repo, head, single_admission(repo, head, "b"), lead="b")
     run(monkeypatch)
     assert run.signed == ["b"]
+
+
+def test_the_import_check_follows_the_validators_resolver(tmp_path, on):
+    """Every spelling the resolver follows to a batch unit is refused."""
+    from axiom_encode.harness import validator_pipeline
+
+    repo, _head = candidate(tmp_path)
+    a, b = Path(primary("a")), Path(primary("b"))
+    for spelling in (
+        "US:statutes/7/2015/a",
+        ":statutes/7/2015/a",
+        "x y:statutes/7/2015/a",
+        "'statutes/7/2015/a'",
+        '"us:statutes/7/2015/a"',
+        "Us:statutes/7/2015/a#x",
+        "statutes/7/2015/a",
+        "us:statutes/7/2015/c#x",
+        "us:statutes/7/2014/a#x",
+        "statutes/7/2015/zz",
+    ):
+        raw = yaml.safe_dump(
+            {"format": "rulespec/v1", "imports": [spelling], "rules": []}
+        ).encode()
+        (repo / b).write_bytes(raw)
+        resolved = validator_pipeline._resolve_rulespec_import_file_static(
+            spelling, rules_file=repo / b, policy_repo_path=repo / "us"
+        )
+        issue = cli._promotion_batch_import_issue(
+            repo, {a: (repo / a).read_bytes(), b: raw}
+        )
+        in_batch = resolved is not None and resolved.resolve() in {
+            (repo / a).resolve(),
+            (repo / primary("c")).resolve(),
+        }
+        # ``c`` is not passed as a unit here, so only ``a`` counts.
+        expected = resolved is not None and resolved.resolve() == (repo / a).resolve()
+        assert (issue is not None) is expected, (spelling, resolved, issue, in_batch)
+        # The reviewed spellings of a batch unit are refused outright.
+        if spelling.replace("'", "").replace('"', "").split("#")[0].endswith("/a"):
+            assert issue == (
+                f"{primary('b')} imports {primary('a')}, another unit of the "
+                "same batch; promote the imported unit first"
+            ), spelling
+        else:
+            assert issue is None, spelling
+    assert (
+        cli._promotion_batch_import_issue(
+            repo, {a: (repo / a).read_bytes(), b: (repo / a).read_bytes()}
+        )
+        is None
+    )
+
+
+def test_an_import_of_a_companion_of_another_unit_is_refused(tmp_path, on):
+    repo, _head = candidate(tmp_path)
+    a, b = Path(primary("a")), Path(primary("b"))
+    raw = yaml.safe_dump({"imports": ["us:statutes/7/2015/a.test#x"]}).encode()
+    resolved = cli._resolve_rulespec_import_file_static(
+        "us:statutes/7/2015/a.test#x", rules_file=repo / b, policy_repo_path=repo / "us"
+    )
+    issue = cli._promotion_batch_import_issue(
+        repo, {a: (repo / a).read_bytes(), b: raw}
+    )
+    assert (issue is not None) is (resolved is not None)
+
+
+def test_an_import_the_resolver_refuses_as_unsafe_stops_the_batch(tmp_path, on):
+    repo, _head = candidate(tmp_path)
+    a, b = Path(primary("a")), Path(primary("b"))
+    raw = yaml.safe_dump({"imports": ["us:statutes/../../outside#x"]}).encode()
+    assert (
+        cli._promotion_batch_import_issue(repo, {a: (repo / a).read_bytes(), b: raw})
+        == f"{primary('b')} has an import that cannot be resolved safely"
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        (
+            b"imports:\n  - {alias: 'statutes/7/2015/a#x'}\n",
+            "has a malformed imports list",
+        ),
+        (b"imports:\n  - 7\n", "has a malformed imports list"),
+        (b"imports:\n  - [statutes/7/2015/a]\n", "has a malformed imports list"),
+        (b"- a\n- b\n", "cannot be read for its imports"),
+        (b"just text\n", "cannot be read for its imports"),
+        (b"", "cannot be read for its imports"),
+        (b"a: [\n", "cannot be read for its imports"),
+        (b"\xff\xfe", "cannot be read for its imports"),
+    ],
+)
+def test_a_primary_that_cannot_be_read_for_imports_stops_the_batch(
+    tmp_path, on, raw, message
+):
+    """Fail closed: no unit is skipped because its imports cannot be read."""
+    repo, _head = candidate(tmp_path)
+    a, b = Path(primary("a")), Path(primary("b"))
+    assert (
+        cli._promotion_batch_import_issue(repo, {a: (repo / a).read_bytes(), b: raw})
+        == f"{primary('b')} {message}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -752,7 +894,31 @@ def test_the_wrapper_without_units_is_unchanged():
     assert normalized["rulespec_pr"] == 42
 
 
-def test_the_wrapper_carries_the_unit_list():
+def test_switch_off_refuses_the_units_key_as_before():
+    """With the switch off the wrapper is read exactly as on main."""
+    assert admission.MULTI_UNIT_PROMOTION_ENABLED is False
+    with pytest.raises(
+        ValueError,
+        match="^reviewed PR promotion requires exactly transaction and rulespec_pr$",
+    ):
+        helper.split_atomic_source_input(wrapper([citation("a")]))
+    # A malformed list gets the same error: the key itself is unknown.
+    with pytest.raises(
+        ValueError, match="requires exactly transaction and rulespec_pr"
+    ):
+        helper.split_atomic_source_input(wrapper([]))
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "True"])
+def test_only_exactly_true_admits_the_units_key(monkeypatch, value):
+    monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", value)
+    with pytest.raises(
+        ValueError, match="requires exactly transaction and rulespec_pr"
+    ):
+        helper.split_atomic_source_input(wrapper([citation("a")]))
+
+
+def test_the_wrapper_carries_the_unit_list(on):
     units = [citation(name) for name in NAMES]
     normalized = helper.split_atomic_source_input(wrapper(units))
     assert normalized["promotion_units"] == units
@@ -778,12 +944,12 @@ def test_the_wrapper_carries_the_unit_list():
         {"a": 1},
     ],
 )
-def test_a_malformed_unit_list_is_refused(units):
+def test_a_malformed_unit_list_is_refused(on, units):
     with pytest.raises(ValueError, match="units must be a list of distinct citations"):
         helper.split_atomic_source_input(wrapper(units))
 
 
-def test_the_wrapper_still_refuses_an_unknown_key():
+def test_the_wrapper_still_refuses_an_unknown_key(on):
     payload = json.loads(wrapper([citation("a")]))
     payload["other"] = 1
     with pytest.raises(
@@ -873,6 +1039,19 @@ def test_the_preflight_refuses_a_unit_list_while_the_switch_is_off(
     script, monkeypatch, tmp_path
 ):
     monkeypatch.setenv("DISPATCH_JSON", dispatch([citation(name) for name in NAMES]))
+    with pytest.raises(
+        ValueError, match="requires exactly transaction and rulespec_pr"
+    ):
+        script.main()
+    assert script.verified == []
+    assert not (tmp_path / "selector.json").exists()
+    # The preflight's own check, should a unit list ever reach it with the
+    # switch off.
+    monkeypatch.setattr(
+        helper,
+        "split_atomic_source_input",
+        lambda raw: {"rulespec_pr": 42, "promotion_units": [citation("a")]},
+    )
     with pytest.raises(ValueError, match="^multi-unit promotion is switched off$"):
         script.main()
     assert script.verified == []
