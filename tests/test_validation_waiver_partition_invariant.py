@@ -14,8 +14,10 @@ def test_shard_local_discovery_error_cannot_hide_real_fingerprint_drift(real_eng
     """A changed real verdict is checked, or at least one shard must fail.
 
     The complete ledger contains three California waivers before the New York
-    waiver. Only New York's companion changes; only shard-a loses a discovery
-    read. Validation, fingerprints and import resolution use the real engine.
+    waiver. Only New York's companion changes, and shard-b owns that waiver.
+    Each shard reads only the waivers it owns, so the discovery read is lost
+    on a waiver of shard-a. Validation, fingerprints and import resolution use
+    the real engine.
     """
 
     case = invariant._RepositoryCase(
@@ -26,8 +28,9 @@ def test_shard_local_discovery_error_cannot_hide_real_fingerprint_drift(real_eng
         target=4,
     )
     target = case.module_path(case.target)
+    unreadable = case.module_path(1)
     original_audit = invariant._full_audit
-    original_read_set = _ReadSets.read_set
+    original_waiver = _ReadSets.waiver
     observed = {}
 
     def check_partition_coverage(root, corpus, engine, protected_base, changed_file):
@@ -75,18 +78,25 @@ def test_shard_local_discovery_error_cannot_hide_real_fingerprint_drift(real_eng
 
         discovery_errors = []
 
-        def transient(reader, path, **kwargs):
-            if path == target:
+        def transient(reader, path):
+            if path == unreadable:
                 discovery_errors.append(path)
                 raise OSError(24, "Too many open files")
-            return original_read_set(reader, path, **kwargs)
+            return original_waiver(reader, path)
 
-        with patch.object(_ReadSets, "read_set", transient):
+        with patch.object(_ReadSets, "waiver", transient):
             code_a, report_a = run("shard-a")
         code_b, report_b = run("shard-b")
-        assert discovery_errors == [target]
+        assert discovery_errors == [unreadable]
         assert report_a["scope"] == "full", report_a
+        assert "Too many open files" in report_a["fallback_reason"], report_a
+        # The full fallback audits what shard-a owns, and nothing else.
+        assert [entry["path"] for entry in report_a["results"]] == [
+            unreadable,
+            case.module_path(3),
+        ], report_a
         assert report_b["scope"] == "incremental", report_b
+        assert [entry["path"] for entry in report_b["results"]] == [target], report_b
         audited = {
             entry["path"]
             for partition in (report_a, report_b)
