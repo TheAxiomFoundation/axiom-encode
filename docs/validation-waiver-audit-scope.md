@@ -120,7 +120,7 @@ modules), one process, on a loaded workstation:
 | Selector run | Before | After |
 |---|---|---|
 | One Colorado waiver, one changed Arizona module | not finished after 240 s | part of the rows below |
-| Whole ledger, signed Arizona change (module, companion, manifest) | not finished after 1,500 s | 77 to 88 s |
+| Whole ledger, signed Arizona change (module, companion, manifest) | not finished after 1,500 s | 45 to 88 s, by machine load |
 | One of 52 partitions (37 or 38 waivers), same change | not measured | 3.0 to 4.9 s (12 partitions measured) |
 | Whole ledger, companion-only change (needs the country-wide walk of rule 5) | not measured | 120 s |
 
