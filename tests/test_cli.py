@@ -3072,6 +3072,18 @@ def test_legacy_pending_detection_requires_signed_untampered_evidence(
         ]
 
 
+# A candidate a non-apply encode may report as clean: bound to the default
+# `_complete_source_attestation()` values.
+_BOUND_STANDALONE_RULESPEC = (
+    "format: rulespec/v1\n"
+    "module:\n"
+    "  source_verification:\n"
+    "    corpus_citation_path: us/statute/26/1\n"
+    f"    source_sha256: {'a' * 64}\n"
+    "rules: []\n"
+)
+
+
 def _complete_source_attestation(
     citation_path: str = "us/statute/26/1",
     *,
@@ -17003,7 +17015,7 @@ rules:
                 args.output / result.runner / "statutes" / "26" / "1" / "j" / "2.yaml"
             )
             output_file.parent.mkdir(parents=True, exist_ok=True)
-            output_file.write_text("format: rulespec/v1\nrules: []\n")
+            output_file.write_text(_BOUND_STANDALONE_RULESPEC)
             output_file.with_suffix(".test.yaml").write_text("[]\n")
             result.output_file = str(output_file)
             if generated_attempts == 1:
@@ -18503,14 +18515,17 @@ rules:
         args = self._make_args(tmp_path, backend="codex")
         result = self._make_eval_result(True)
         output_file = tmp_path / "out.yaml"
-        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        output_file.write_text(_BOUND_STANDALONE_RULESPEC)
         result.output_file = str(output_file)
 
-        _, exit_code = self._run_encode(args, result)
+        mock_run, exit_code = self._run_encode(args, result)
 
         assert exit_code == 0
+        # A candidate that is not applied here is bound before validation.
+        assert mock_run.call_args.kwargs["bind_source_verification"] is True
         runs = EncodingDB(args.db).get_recent_runs(limit=1)
         assert len(runs) == 1
+        assert runs[0].outcome["source_binding"] == "bound"
         assert runs[0].citation == "26 USC 1(j)(2)"
         assert runs[0].rulespec_content.startswith("format: rulespec/v1")
         assert runs[0].session_id is not None
@@ -18520,6 +18535,29 @@ rules:
         assert session.total_tokens == 150
         assert session.event_count == 3
         assert runs[0].outcome["status"] == "standalone_validated"
+
+    def test_encode_without_apply_never_ends_clean_with_an_unbound_candidate(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+        output_file = tmp_path / "out.yaml"
+        output_file.write_text(
+            _BOUND_STANDALONE_RULESPEC.replace(f"    source_sha256: {'a' * 64}\n", "")
+        )
+        result.output_file = str(output_file)
+
+        _, exit_code = self._run_encode(args, result)
+
+        assert exit_code == 1
+        outcome = EncodingDB(args.db).get_recent_runs(limit=1)[0].outcome
+        assert outcome["status"] == "source_unbound"
+        assert outcome["source_binding"] == "unbound"
+        assert outcome["final_success"] is False
+        assert (
+            "outcome=source_unbound final_success=False source_binding=unbound"
+            in capsys.readouterr().out
+        )
 
     def test_encode_syncs_when_credentials_are_configured(self, tmp_path):
         args = self._make_args(tmp_path, backend="codex")
@@ -39379,7 +39417,7 @@ rules:
         applied_file = args.policy_repo_path / "regulations/example.yaml"
 
         with (
-            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]) as model,
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
                 return_value=(True, [], {}),
@@ -39398,10 +39436,15 @@ rules:
             cmd_encode(args)
 
         assert exc_info.value.code == 0
+        # --apply keeps its own stamp: the eval step does not pre-bind, and
+        # the outcome carries no standalone binding verdict.
+        assert model.call_args.kwargs["bind_source_verification"] is False
         output = capsys.readouterr().out
+        assert "source_binding" not in output
         assert "standalone_success=True" in output
         assert "outcome=apply_applied final_success=True" in output
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert "source_binding" not in run.outcome
         assert run.iterations[0].success is True
         assert run.outcome["standalone_validation_success"] is True
         assert run.outcome["overlay_validation_success"] is True

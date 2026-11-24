@@ -14,6 +14,7 @@ from axiom_encode.harness import evals as evals_module
 from axiom_encode.harness.evals import (
     EvalArtifactMetrics,
     EvalPromptResponse,
+    ValidationRetryCandidate,
     run_model_eval,
 )
 from axiom_encode.source_verification_binding import SourceBindingError
@@ -57,9 +58,22 @@ def _encode(tmp_path, generated: str, **kwargs):
     validated: list[bytes] = []
 
     def generate(**call):
+        if kwargs.get("accept_valid_retry_candidate") and not validated:
+            raise AssertionError("an accepted retained candidate needs no model")
         output_file = call["output_file"]
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_bytes(generated.encode())
+        materialized = {output_file}
+        if kwargs.get("repair_candidate_tests_only"):
+            companion = output_file.with_name(output_file.stem + ".test.yaml")
+            companion.write_text("[]\n")
+            materialized.add(companion)
+            return (
+                EvalPromptResponse(text="generated", duration_ms=1),
+                True,
+                0,
+                frozenset(materialized),
+            )
         return (
             EvalPromptResponse(text="generated", duration_ms=1),
             True,
@@ -205,6 +219,80 @@ def test_an_unparseable_candidate_gets_the_binding_issue_too(tmp_path):
         and issue.found == "invalid_input"
         for issue in result.metrics.ci_issues
     )
+
+
+def _bound(pin: str) -> str:
+    return MODULE.replace(
+        f"    corpus_citation_path: {CITATION}\n",
+        f"    corpus_citation_path: {CITATION}\n    source_sha256: {pin}\n",
+    )
+
+
+def test_a_retained_candidate_is_bound_before_its_preflight(tmp_path):
+    """No generation: the retained candidate is bound, validated and accepted."""
+    _result, _validated, pin = _encode(tmp_path / "probe", MODULE)
+    result, validated, _pin = _encode(
+        tmp_path,
+        "the model must not be called",
+        bind_source_verification=True,
+        validation_retry_candidate=ValidationRetryCandidate(
+            rulespec=MODULE, tests="[]\n"
+        ),
+        accept_valid_retry_candidate=True,
+    )
+    assert validated == [_bound(pin).encode()]
+    assert Path(result.output_file).read_bytes() == _bound(pin).encode()
+    assert result.success is True
+
+
+def test_a_retained_candidate_that_names_another_source_is_not_accepted(tmp_path):
+    """The preflight rejects it; the fresh generation is bound instead."""
+    _result, _validated, pin = _encode(tmp_path / "probe", MODULE)
+    retained = _bound("0f" * 32)
+    result, validated, _pin = _encode(
+        tmp_path,
+        MODULE,
+        bind_source_verification=True,
+        validation_retry_candidate=ValidationRetryCandidate(
+            rulespec=retained, tests="[]\n"
+        ),
+        accept_valid_retry_candidate=True,
+    )
+    assert validated[0] == retained.encode()
+    # The retry overlay re-serializes the fresh output (as before this change);
+    # the binder then pins that file, and those are the validated bytes.
+    final = Path(result.output_file).read_bytes()
+    assert validated[-1] == final
+    assert yaml.safe_load(final)["module"]["source_verification"] == {
+        "corpus_citation_path": CITATION,
+        "source_sha256": pin,
+    }
+    assert result.success is True
+
+
+def test_a_tests_only_repair_checks_the_pin_and_keeps_the_rulespec(tmp_path):
+    _result, _validated, pin = _encode(tmp_path / "probe", MODULE)
+    for name, retained, success in (
+        ("unbound", MODULE, False),
+        ("bound", _bound(pin), True),
+    ):
+        result, validated, _pin = _encode(
+            tmp_path / name,
+            retained,
+            bind_source_verification=True,
+            validation_retry_candidate=ValidationRetryCandidate(
+                rulespec=retained, tests="[]\n"
+            ),
+            repair_candidate_tests_only=True,
+        )
+        # The immutable RuleSpec is never edited, bound or not.
+        assert validated == [retained.encode()]
+        assert Path(result.output_file).read_bytes() == retained.encode()
+        assert result.success is success
+        if not success:
+            [issue] = result.metrics.ci_issues
+            assert issue.check == "source-binding/unbound"
+            assert "immutable in a tests-only repair" in issue
 
 
 def _staged(tmp_path, text: str) -> tuple[Path, Path]:
