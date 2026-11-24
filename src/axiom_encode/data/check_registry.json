@@ -160,7 +160,7 @@
     {
       "category": "complete-source-unit:structure",
       "cause": "encoder_output",
-      "fix": "Encode the branch in a rule that cites it (source path or proof excerpt from its own text), or add a precise `module.deferred_outputs` entry for that branch. Descendant citations do not cover a substantive parent chapeau.",
+      "fix": "Encode the branch in a rule that cites it (its rule-level `source:` locator or a proof excerpt from its own text; `corpus_citation_path` stays the unit path), or add a precise `module.deferred_outputs` entry for that branch. Descendant citations do not cover a substantive parent chapeau.",
       "gate": "ci",
       "id": "complete-source-unit:structure/branch-unencoded",
       "requires": "Every operative branch of the authoritative source unit is cited by a rule's `source:` or proof atom, or is listed in `module.deferred_outputs` with a reason that names the exact missing dependency.",
@@ -1166,6 +1166,18 @@
       "why": "A proof atom ties a rule to the exact source words it implements. An excerpt that is not in the cited provision, or not in the rule's own subsection, proves nothing and can hide an invented value or condition."
     },
     {
+      "category": "proof:source-evidence",
+      "cause": "encoder_output",
+      "fix": "In the field that cites the child path (a proof atom's `source.corpus_citation_path` or an interpretation's `module.interpretations[].texts[].corpus_citation_path`), cite the unit's own corpus path instead, and copy a short contiguous verbatim excerpt from that provision. Keep the subsection in the rule's own `source` label.",
+      "gate": "ci",
+      "id": "proof:source-evidence/path-unsliceable",
+      "requires": "Each `corpus_citation_path` that the RuleSpec cites, other than the unit's own path, resolves to one provision in the bound corpus release, including a child path that the resolver slices from its parent provision.",
+      "severity": "important",
+      "site": "axiom_encode/harness/validator_pipeline.py:_citation_slice_failure_issues",
+      "title": "Cited corpus path cannot be sliced from its parent provision",
+      "why": "A proof excerpt or a numeric value can only be checked against text that the resolver can isolate. When it cannot isolate the cited child path, nothing proves the rule, so the candidate is refused; the unit itself still has its source text."
+    },
+    {
       "category": "repair:companion-preservation",
       "cause": "encoder_output",
       "fix": "Preserve every original companion case and assertion, then regenerate and verify the signed repair with its exact seed hashes.",
@@ -1262,6 +1274,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "b45c44f704c8293cdadbf95c9022caad6bff4647d068cfb0da2062a82c89c4f9",
+  "registry_sha256": "e92c79362a24d92af5aa949f5b4d3129a10561ecd0cb6655bd60e8a18d81d1d1",
   "schema": "axiom-encode/check-registry/v1"
 }
