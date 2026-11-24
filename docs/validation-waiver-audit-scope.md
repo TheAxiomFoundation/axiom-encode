@@ -47,11 +47,13 @@ manifest. All three are classified, so its scope comes from the module.
 The manifest rule is exact. These paths are **not** manifests of a module and
 force the full audit:
 
-- every other path under `.axiom/`: `toolchain.toml`, `workflow-toolchain.toml`,
-  `policyengine-runtime.toml`, `pending-validation-fingerprints.json`,
-  `target-validation-passes.json`, `reviewed-migrations.json`,
-  `repository-structure.yaml`, `validation-waiver-audit-costs.json`,
-  `legacy-replacements/**`, any index;
+- every other path under `.axiom/`. In `rulespec-us` today these are
+  `toolchain.toml`, `workflow-toolchain.toml`,
+  `pending-validation-fingerprints.json`, `target-validation-passes.json`,
+  `reviewed-migrations.json`, `repository-structure.yaml`,
+  `upstream-source-check-baseline.txt` and `legacy-replacements/**`. A file
+  that a repository adds there later is unclassified too, for example the
+  audit cost table or a runtime pin;
 - a file under `.axiom/encoding-manifests/` that does not end in `.json`, or
   whose path is not a module path: no jurisdiction (`statutes/26/1.json`), a
   ProgramSpec (`programs/...`), a companion (`<name>.test.json`), a path with
@@ -62,6 +64,17 @@ force the full audit:
 - a manifest of another country's jurisdiction;
 - a deleted manifest, a symlink, a hard-linked file, a directory at the
   manifest path, and a manifest inside a configured execution input.
+
+Two guards do not depend on the changed-path list being right:
+
+- An empty change set forces the full audit. No changed path is not evidence
+  that nothing changed: a failed diff or a wrong base gives the same input. A
+  true empty diff is rare, and the full audit is the correct answer for it, so
+  the audit does not fail such a run.
+- A head ledger that is not the protected base ledger forces the full audit,
+  whether or not the changed paths name the ledger. The audit compares the two
+  ledgers themselves, their parsed records and their bytes. An unreadable
+  ledger file counts as a difference.
 
 The rules that held before still hold: the waiver ledger, `.github/**`,
 `programs/**`, a deleted path of any kind, a symlinked or hard-linked changed
@@ -142,6 +155,19 @@ before and after an edit, and require every waiver whose verdict changed to be
 selected. The edits include an applied manifest alone, and a new module with
 its companion and manifest in a state, in a sibling state and in the federal
 jurisdiction.
+
+**A live read trace** (`tests/test_validation_waiver_read_set_live_trace.py`,
+CI job `real-engine`). It fingerprints the modules of a small repository with
+the real engine, records each file the validator process opens and each
+directory it lists under the repository, and requires them to be inside the
+read set. A validator change that reads a file by a new route fails encoder
+CI. Two control cases add such a route and require the check to report it.
+Limits: the engine child process is not traced, a path that is only examined
+with `stat` is not recorded, and no composition is exercised. The older replay
+of recorded traces (`tests/test_validation_waiver_read_set_trace.py`) is
+skipped in every job: it needs a `rulespec-us` checkout at a fixed revision,
+its corpus release and trace files from a recorder that is not in this
+repository (TheAxiomFoundation/axiom-encode#2325).
 
 **A resolver comparison** (`tests/test_validation_waiver_scope_signed_pr.py`).
 The shared graph's closure is compared with a closure built from the
@@ -253,8 +279,9 @@ does not pass `--scope incremental` yet. These later changes turn it on.
    `incremental`. Pass `--scope incremental` to `validation-waivers audit` only
    when all of these hold: the input is `incremental`, the event is
    `pull_request`, the verifier's `validation-waivers audit --help` lists
-   `--scope` and both partition flags, and the run is not a verifier restate
-   (`--verifier-restate` requires the full scope). Keep the present command,
+   `--scope` and both partition flags, the changed-path file is not empty, the
+   comparison base equals the event base, and the run is not a verifier
+   restate (`--verifier-restate` requires the full scope). Keep the present command,
    which is the full audit, for `push`, `schedule`, `workflow_dispatch` and
    `merge_group`, and for a verifier without the flag. The audit already
    receives the changed paths and the protected base ledger; nothing else
@@ -269,3 +296,34 @@ The full audit stays on push to the default branch, on the scheduled run and
 in the merge queue. A pull request that changes a toolchain file, the ledger,
 a workflow, a ProgramSpec or any unclassified path still gets the full audit
 from the selector itself.
+
+## Before the flag is switched on for `rulespec-us` pull requests
+
+The evidence above supports merging the selector. It is not enough to make the
+incremental audit the gate. These six things come first.
+
+1. **A shadow period.** Pull requests keep `--scope full`. Each leg also
+   computes the selection (3 to 5 s) and fails, or alerts, when the full audit
+   flags a waiver that the selection does not hold.
+2. **Canary pull requests**, never merged, that must change other waivers: a
+   duplicate executable rule in `us`, a companion-only edit, a manifest-only
+   backfill, an edit of a module that another state imports. Each must show
+   the expected waivers in the selection and the expected failure.
+3. **Proof that hosted runs return `incremental`.** The audit runs under the
+   signing supervisor there. A hosted run must report scope `incremental` for
+   a signed change, not a silent full fallback.
+4. **The read-set trace in CI.** The live trace test of this document runs in
+   the `real-engine` job. Tracing the engine child process and a composition
+   is still open.
+5. **A decision for verifier `main` mode.** Either force the full audit when
+   the verifier commit differs from the one of the last green full audit of
+   the base, or accept in writing that main can be red after a landing.
+6. **Two workflow guards.** Refuse an empty change-set file in incremental
+   mode, and pass the flag only when the comparison base equals the event
+   base (`comparison_base == base_ref`).
+
+One statement of this document must be checked again later. The draft
+TheAxiomFoundation/rulespec-us#2059 proposes to replace the daily full
+validation with an event-driven drift run. If it lands, "the full audit stays
+on the scheduled run" is no longer true as written, and the control for
+verifier drift must be named again.
