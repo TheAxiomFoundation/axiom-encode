@@ -153,6 +153,15 @@ def test_generic_encoder_prompt_adds_completeness_only_when_enabled():
     assert "`us/regulation/7/273/10(a)(1)`" in complete_prompt
     assert "display-style `7 CFR 273.10(a)(1)` alone" in complete_prompt
     assert "`us/regulation/7/273/10(a)(1)`" not in default_prompt
+    flat_prompt = " ".join(complete_prompt.split())
+    assert (
+        "That parenthesized form is a text locator (in `reason` or a rule-level "
+        "`source:`), not a corpus citation path. Never write markers such as "
+        "`(a)(1)` into any `corpus_citation_path` field: "
+        "`module.source_verification` and every proof atom that cites this unit "
+        "keep the unit's own path (here `us/regulation/7/273/10`)."
+    ) in flat_prompt
+    assert "resolver-attested canonical citation" not in complete_prompt
     assert (
         "authoritative branch is exactly a bare `Repealed.` tombstone"
         in complete_prompt
@@ -336,6 +345,15 @@ def test_eval_prompt_adds_completeness_only_when_enabled(tmp_path):
     assert "`us/regulation/7/273/10(a)(1)`" in complete_prompt
     assert "display-style `7 CFR 273.10(a)(1)` alone" in complete_prompt
     assert "`us/regulation/7/273/10(a)(1)`" not in default_prompt
+    flat_prompt = " ".join(complete_prompt.split())
+    assert (
+        "That parenthesized form is a text locator (in `reason` or a rule-level "
+        "`source:`), not a corpus citation path. Never write markers such as "
+        "`(a)(1)` into any `corpus_citation_path` field: "
+        "`module.source_verification` and every proof atom that cites this unit "
+        "keep the unit's own path (here `us/regulation/7/273/10`)."
+    ) in flat_prompt
+    assert "resolver-attested canonical citation" not in complete_prompt
     assert (
         "authoritative branch is exactly a bare `Repealed.` tombstone"
         in complete_prompt

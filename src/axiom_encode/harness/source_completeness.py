@@ -2334,8 +2334,10 @@ def _imprecise_deferral_retry_shape(
             part for part in corpus_citation_path.strip("/").split("/") if part
         ]
         # `_reason_cites_exact_current_statute_branch` has no CFR-style reader;
-        # a regulation branch binds through its literal corpus path, e.g.
-        # `us/regulation/42/457/622(a)`, not `42 CFR 457.622(a)`.
+        # a regulation branch binds through its corpus path followed by its
+        # paragraph markers, e.g. `us/regulation/42/457/622(a)`, not
+        # `42 CFR 457.622(a)`. That string is a `reason` locator only: the
+        # resolver rejects it as a `corpus_citation_path`, so the hint says so.
         if len(citation_parts) >= 3 and citation_parts[1] in {"statute", "regulation"}:
             fragments = "".join(
                 f"({normalize_rulespec_path_segment(part)})" for part in path
@@ -2346,7 +2348,10 @@ def _imprecise_deferral_retry_shape(
                 f"`{corpus_citation_path.rstrip('/')}{fragments}` when the reason "
                 "cites this branch itself (a repeal, a runtime gap, or a "
                 "source-stated input); a reason naming an exact external missing "
-                "dependency need not cite it."
+                "dependency need not cite it. This parenthesized form is a text "
+                "locator for `reason`, not a corpus citation path: every "
+                "`corpus_citation_path` field that cites this unit stays "
+                f"`{corpus_citation_path.rstrip('/')}`."
             )
     example = (
         _US_IMPRECISE_DEFERRAL_RETRY_EXAMPLE
@@ -6604,8 +6609,9 @@ CHECK_STRUCTURE_BRANCH_UNENCODED = declare_check(
         "computes a result the source does not support."
     ),
     fix=(
-        "Encode the branch in a rule that cites it (source path or proof "
-        "excerpt from its own text), or add a precise "
+        "Encode the branch in a rule that cites it (its rule-level `source:` "
+        "locator or a proof excerpt from its own text; `corpus_citation_path` "
+        "stays the unit path), or add a precise "
         "`module.deferred_outputs` entry for that branch. Descendant citations "
         "do not cover a substantive parent chapeau."
     ),
@@ -7251,6 +7257,7 @@ def _analyze_rulespec_payload(
             f"Source branch {branch.label} at "
             f"{_branch_citation(corpus_citation_path, branch)} is neither "
             "encoded nor precisely deferred."
+            f"{_branch_reason_citation_note(corpus_citation_path, branch)}"
             f"{covered_descendant_detail}"
         )
         pending_deferral = max(
@@ -7412,6 +7419,7 @@ def _analyze_rulespec_payload(
                         "principal derived/relation output (`derived` or "
                         "`derived_relation`) and is not "
                         "precisely deferred; parameter-only representation is invalid."
+                        + _branch_reason_citation_note(corpus_citation_path, branch)
                         + _formula_output_binding_feedback(
                             branch,
                             corpus_citation_path=corpus_citation_path,
@@ -7457,7 +7465,8 @@ def _analyze_rulespec_payload(
                 f"{_branch_citation(corpus_citation_path, branch)} has no "
                 "principal derived/relation output (`derived` or "
                 "`derived_relation`) and is not precisely deferred; "
-                "parameter-only representation is invalid.",
+                "parameter-only representation is invalid."
+                + _branch_reason_citation_note(corpus_citation_path, branch),
                 check=CHECK_FORMULA_CONTROL_WITHOUT_OUTPUT,
                 subject=_branch_subject(corpus_citation_path, branch),
                 expected="principal derived/relation output covering the control",
@@ -16409,8 +16418,9 @@ def _branch_citation(
             f"{'subsection' if len(branch.path) > 1 else 'paragraph'} {branch.path[0]}",
             *(f"paragraph {component}" for component in branch.path[1:]),
         ]
-        path = "".join(f"({component})" for component in branch.path)
-        return f"{corpus_citation_path}{path} [{', '.join(components)}]"
+        # Name the branch beside the unit path, never as `<path>(a)(1)`: that
+        # string looks like a path but is rejected as a `corpus_citation_path`.
+        return f"{', '.join(components)} of {corpus_citation_path}"
     if _uses_english_branch_labels(corpus_citation_path):
         return _english_branch_citation(corpus_citation_path, branch)
     citation = corpus_citation_path
@@ -16438,20 +16448,72 @@ def _uses_english_branch_labels(corpus_citation_path: str) -> bool:
     return _US_CORPUS_CITATION_PATH.match(corpus_citation_path.strip()) is not None
 
 
+def _branch_reason_citation_form(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str | None:
+    """The spelling of a U.S. branch that `reason` and rule `source:` accept.
+
+    The displayed locator (`paragraph (a) of us/regulation/...`) is neither:
+    `_reason_cites_exact_current_statute_branch` reads `<unit path>(a)` (and
+    `42 U.S.C. 415(i)` for the U.S. Code). ``None`` when there is no branch,
+    the branch has sentence components, or the source is not U.S.
+    """
+
+    unit = corpus_citation_path.strip().rstrip("/")
+    if (
+        not branch.path
+        or any(component.startswith("satz-") for component in branch.path)
+        or not _uses_english_branch_labels(unit)
+    ):
+        return None
+    if unit.startswith("us/statute/"):
+        try:
+            citation = parse_usc_citation(unit)
+        except ValueError:
+            return None
+        fragments = "".join(
+            f"({normalize_rulespec_path_segment(part)})"
+            for part in (*citation.fragments, *branch.path)
+        )
+        section = normalize_rulespec_path_segment(citation.section)
+        return f"{citation.title} U.S.C. {section}{fragments}"
+    return unit + "".join(
+        f"({normalize_rulespec_path_segment(part)})" for part in branch.path
+    )
+
+
+def _branch_reason_citation_note(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str:
+    """One bounded sentence naming the accepted citation beside a locator."""
+
+    form = _branch_reason_citation_form(corpus_citation_path, branch)
+    if form is None:
+        return ""
+    return (
+        f" To cite this branch in `reason` or `source:`, write `{form}`; "
+        f"`corpus_citation_path` stays `{corpus_citation_path.strip().rstrip('/')}`."
+    )
+
+
 def _english_branch_citation(
     corpus_citation_path: str,
     branch: SourceStructureBranch,
 ) -> str:
-    """Render `us/regulation/7/273/4(a)(6)(i)(A) [paragraph (a)(6)(i)(A)]`.
+    """Render `paragraph (a)(6)(i)(A) of us/regulation/7/273/4`.
 
     Repair feedback for a U.S. source names the branch with its full
     parenthesized designation instead of German Absatz/Nummer/Buchstabe
     labels. Only the wording differs; the branch is the same. This is a
     locator, not the citation form a deferral `reason` must use (a U.S. Code
     reason cites `42 U.S.C. 415(i)(5)(B)`, see
-    `_reason_cites_exact_current_statute_branch`). The CFR calls every level
-    a paragraph; elsewhere the level nouns vary, so the label says
-    `provision`.
+    `_reason_cites_exact_current_statute_branch`). The designation stays
+    apart from the unit path: the joined form `us/regulation/7/273/4(a)` is
+    not a valid `corpus_citation_path`, and a model copied it from this
+    feedback into that field. The CFR calls every level a paragraph;
+    elsewhere the level nouns vary, so the label says `provision`.
     """
 
     display = branch.display_path
@@ -16484,7 +16546,7 @@ def _english_branch_citation(
         *((f"{noun} {fragment}",) if fragment else ()),
         *(f"sentence {sentence}" for sentence in sentences),
     ]
-    return f"{corpus_citation_path}{fragment} [{', '.join(components)}]"
+    return f"{', '.join(components)} of {corpus_citation_path}"
 
 
 def _branch_subject(
