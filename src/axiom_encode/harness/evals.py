@@ -245,6 +245,7 @@ from .validator_pipeline import (
     repair_source_table_interval_tests,
     repair_source_table_open_ended_bound_sentinels,
     repair_unsupported_chained_conditionals,
+    source_backed_half_up_increment_spans,
     source_backed_half_up_rounding_helper_count,
 )
 
@@ -9173,9 +9174,10 @@ def _evaluate_artifact_in_scope(
         ),
     )
     if require_complete_source_unit:
-        # Count exactly the source numbers that complete-source numeric recall
-        # demands (#1801): the raw unit would demand again the page numbers,
-        # table labels and locators that the recall masks remove.
+        # Count the source numbers positionally (#1801): the source inventory
+        # minus the occurrences that the numeric-recall reading removes in
+        # place (page numbers, table labels, locators), plus every number
+        # numeric recall demands. The masked text is never re-tokenized.
         typed_source_numeric_occurrences = list(
             complete_source_numeric_recall_occurrences(
                 evaluation_source_text or "",
@@ -9184,10 +9186,10 @@ def _evaluate_artifact_in_scope(
                     extract_typed_numeric_inventory_occurrences_from_text,
                     profile=numeric_profile,
                 ),
-                normalize_recall_text=(
-                    normalize_source_backed_half_up_rounding_occurrence_text
+                exempt_source_spans=(
+                    source_backed_half_up_increment_spans(evaluation_source_text or "")
                     if half_up_helper_count
-                    else None
+                    else ()
                 ),
             )
         )

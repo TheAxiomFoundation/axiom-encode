@@ -3004,45 +3004,110 @@ def complete_source_numeric_recall_occurrences(
     *,
     corpus_citation_path: str,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
-    normalize_recall_text: Callable[[str], str] | None = None,
+    exempt_source_spans: Iterable[tuple[int, int]] = (),
 ) -> tuple[NumericOccurrenceLike, ...]:
-    """Return the source numbers that complete-source numeric recall demands.
+    """Return the source numbers a complete-source occurrence count demands.
 
-    This is the source view of `analyze_complete_source_unit`, without the
-    spans a candidate represents: the same stripped text, the same prose and
-    condition-cue scopes, `authoritative_numeric_recall_text`, the US locator
-    filter and the temporal applicability preface filter. Other gates that
-    count source numbers in complete mode read this view, so a number that
-    numeric recall does not demand is not demanded again by a second reading
-    of the raw text, and every number it demands stays demanded.
+    The view is positional. It is the inventory of the source text itself,
+    minus each occurrence whose characters the numeric-recall reading removes
+    in place: a mask or deletion of `authoritative_numeric_recall_text`, or
+    the US locator or temporal-preface filter of `analyze_complete_source_unit`
+    applied to the occurrence at that place. The masked text is never read
+    again for this view, so a number whose characters survive the masks stays
+    demanded even when the masked text happens to tokenize differently.
 
-    `normalize_recall_text` lets a caller rewrite the masked recall text
-    before the inventory is read (the encode eval spells out a source-backed
-    half-up increment); it runs after every mask.
+    Every occurrence numeric recall demands (its source view) is in this view
+    too: one that does not coincide with a kept source occurrence of the same
+    value is added. So this view contains everything numeric recall demands,
+    except the characters in `exempt_source_spans` (positions in
+    `authoritative_source_text`; the encode eval passes source-backed half-up
+    increments).
+
+    The returned occurrences carry source positions, except an added recall
+    occurrence, which carries its recall-text position.
     """
 
     source_text = authoritative_source_text.strip()
+    lead = len(authoritative_source_text) - len(authoritative_source_text.lstrip())
+    exempt = {
+        position - lead
+        for start, end in exempt_source_spans
+        for position in range(start, end)
+    }
+    source_map = _NumericRecallSourceMap(list(range(len(source_text))))
     with (
         _us_manual_prose_scope(corpus_citation_path),
         _condition_cue_scope(corpus_citation_path),
     ):
         recall_text = authoritative_numeric_recall_text(
-            source_text, corpus_citation_path=corpus_citation_path
+            source_text,
+            corpus_citation_path=corpus_citation_path,
+            _source_map=source_map,
         )
-        if normalize_recall_text is not None:
-            recall_text = normalize_recall_text(recall_text)
-        occurrences = numeric_occurrences_without_us_bibliographic_locators(
+        inventory = _us_locator_filtered_inventory(
             recall_text,
             corpus_citation_path=corpus_citation_path,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
-        return tuple(
+        candidates = inventory.kept if inventory.consistent else inventory.occurrences
+        demanded = tuple(
             occurrence
-            for occurrence in occurrences
+            for occurrence in candidates
             if not _temporal_occurrence_is_recall_exempt_preface(
                 occurrence, recall_text
             )
         )
+    source_occurrences = tuple(extract_numeric_occurrences(source_text))
+    if len(source_map.offsets) != len(recall_text):
+        # Positions cannot be followed: remove nothing, demand everything.
+        return source_occurrences + demanded
+
+    surviving = {
+        origin
+        for index, origin in enumerate(source_map.offsets)
+        if origin is not None and recall_text[index] == source_text[origin]
+    }
+    # Characters of recall occurrences that a filter, not a mask, dropped.
+    demanded_ids = {id(occurrence) for occurrence in demanded}
+    filtered: set[int] = set()
+    for occurrence in inventory.occurrences:
+        if id(occurrence) in demanded_ids:
+            continue
+        span = source_map.source_span(occurrence.start, occurrence.end)
+        if span is not None:
+            filtered.update(range(*span))
+
+    def removed(start: int, end: int) -> bool:
+        characters = [
+            position
+            for position in range(start, end)
+            if source_text[position].isalnum()
+        ]
+        return bool(characters) and all(
+            position not in surviving or position in filtered or position in exempt
+            for position in characters
+        )
+
+    kept = tuple(
+        occurrence
+        for occurrence in source_occurrences
+        if not removed(occurrence.start, occurrence.end)
+    )
+    added = []
+    for occurrence in demanded:
+        span = source_map.source_span(occurrence.start, occurrence.end)
+        if span is not None and (
+            all(position in exempt for position in range(*span))
+            or any(
+                source.value == occurrence.value
+                and source.start < span[1]
+                and span[0] < source.end
+                for source in kept
+            )
+        ):
+            continue
+        added.append(occurrence)
+    return kept + tuple(added)
 
 
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
