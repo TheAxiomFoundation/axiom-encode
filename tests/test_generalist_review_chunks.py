@@ -1795,3 +1795,68 @@ def test_the_reader_recomputes_the_planned_calls_from_the_chunk_counts(
             calls_planned=stated, calls_made=stated
         )
         assert _record(changed, rule)["status"] == "partial"
+
+
+def test_survivor_guards_of_the_coverage_check():
+    from axiom_encode.generalist_review_record import _every_call_made
+
+    # An empty chunk in a text that is not empty covers nothing.
+    digest = "3" * 64
+    with_empty = {
+        "sha256": digest,
+        "size": 10,
+        "chunks": [
+            {"start": 0, "end": 0, "sha256": digest},
+            {"start": 0, "end": 10, "sha256": digest},
+        ],
+    }
+    assert not _covers(with_empty)
+    assert _covers({**with_empty, "chunks": with_empty["chunks"][1:]})
+
+    # Chunk counts that give more calls than the cap: every call made, and
+    # still not a whole review.
+    def text(count):
+        return {
+            "sha256": digest,
+            "size": count,
+            "chunks": [
+                {"start": index, "end": index + 1, "sha256": digest}
+                for index in range(count)
+            ],
+        }
+
+    def coverage(modules, sources):
+        planned = chunks.planned_call_count(modules, sources, 0)
+        return {
+            "calls_planned": planned,
+            "calls_made": planned,
+            "rulespec": text(modules),
+            "test": None,
+            "source": text(sources),
+        }
+
+    assert chunks.planned_call_count(2, 6, 0) == MAX_REVIEW_CALLS
+    assert _every_call_made(coverage(2, 6))
+    assert not _every_call_made(coverage(2, 7))
+
+
+def test_a_text_of_exactly_the_budget_needs_no_parser():
+    # Not YAML, and exactly one chunk long: it is one chunk all the same.
+    text = "key: [unclosed\n" * 4
+    assert yaml_entry_cuts(text) is None
+
+    assert len(chunk_yaml(text, budget=len(text)).chunks) == 1
+    assert chunk_yaml(text, budget=len(text) - 1) is None
+
+
+def test_a_source_digest_that_is_not_a_digest_never_enters_the_record(
+    tmp_path, monkeypatch
+):
+    result, rule = _passing_evidence(tmp_path, monkeypatch)
+    changed = copy.deepcopy(result)
+    changed.details["review_evidence"]["reviewed_source_sha256"] = "reviewer prose"
+
+    record = _record(changed, rule)
+
+    assert record["reviewed"]["source_sha256"] is None
+    assert "reviewer prose" not in json.dumps(record)
