@@ -205,11 +205,12 @@ def test_eval_passes_the_recall_view_its_corpus_text_path_and_profile(tmp_path):
     with patch.object(
         evals, "complete_source_numeric_recall_occurrences", side_effect=recording
     ):
-        _metrics(tmp_path, TABLE_PAGE, _module(GUIDANCE, TABLE_AMOUNTS))
+        _metrics(tmp_path, SOURCE_WITH_REFERENCE, _module(GUIDANCE, TABLE_AMOUNTS))
 
     assert len(calls) == 1
     text, kwargs = calls[0]
-    assert text == TABLE_PAGE
+    # The unmasked corpus body, as numeric recall receives it.
+    assert text == SOURCE_WITH_REFERENCE
     assert kwargs["corpus_citation_path"] == GUIDANCE
     extractor = kwargs["extract_numeric_occurrences"]
     assert extractor.func is extract_typed_numeric_inventory_occurrences_from_text
@@ -217,6 +218,48 @@ def test_eval_passes_the_recall_view_its_corpus_text_path_and_profile(tmp_path):
         "profile": _numeric_profile_for_citation_path(GUIDANCE)
     }
     assert kwargs["normalize_recall_text"] is None
+
+
+SOURCE_WITH_REFERENCE = TABLE_PAGE + " (See Example 1 )"
+
+
+@pytest.mark.parametrize("citation", ("us-zz/manual/agency/handbook/block-3", GUIDANCE))
+def test_recall_view_reads_the_stripped_text_in_numeric_recall_scopes(citation):
+    seen = []
+    original = sc.authoritative_numeric_recall_text
+
+    def recording(text, **kwargs):
+        seen.append(
+            (
+                text,
+                sc._US_MANUAL_PROSE_SCOPE.get(),
+                sc._CONDITION_CUE_CITATION_PATH.get(),
+            )
+        )
+        return original(text, **kwargs)
+
+    with patch.object(sc, "authoritative_numeric_recall_text", side_effect=recording):
+        _recall_values("\n  " + TABLE_PAGE + "\n", citation)
+
+    assert seen == [(TABLE_PAGE, sc._is_us_manual_citation_path(citation), citation)]
+
+
+def test_normalization_reads_the_masked_recall_text():
+    seen = []
+    sc.complete_source_numeric_recall_occurrences(
+        TABLE_PAGE,
+        corpus_citation_path=GUIDANCE,
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile=_numeric_profile_for_citation_path(GUIDANCE),
+        ),
+        normalize_recall_text=lambda text: seen.append(text) or text,
+    )
+
+    assert seen == [
+        sc.authoritative_numeric_recall_text(TABLE_PAGE, corpus_citation_path=GUIDANCE)
+    ]
+    assert seen[0] != TABLE_PAGE
 
 
 def test_half_up_increment_is_still_spelled_out_in_complete_mode(tmp_path):
