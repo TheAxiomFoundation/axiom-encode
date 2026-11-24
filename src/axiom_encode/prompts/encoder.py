@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 6
+__version__ = 7
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -1735,6 +1735,67 @@ def _assemble(*blocks: str) -> str:
 
 ENCODER_PROMPT = _assemble(*_PROMPT_BLOCKS)
 
+# The exception below is emitted only for federal CFR units
+# (`us/regulation/<title>/<part>/<section>...`). It is inserted directly after
+# the cross-reference rule that otherwise defers a branch whose cited context
+# lacks the needed export. Every other unit gets the prompt without it.
+CROSS_REFERENCE_DEFER_RULE_TAIL = """  or missing the needed export, do not preserve, rename, or recreate the local
+  cross-reference fact; import a real export, defer the affected executable
+  surface, or encode a source-grounded overriding branch that avoids it.
+"""
+CFR_STATE_SET_AMOUNT_RULE = """- Exception for State-set amounts (federal CFR units only): apply it only when
+  the citing phrase names the State or the agency as the actor that sets the
+  value, with a verb such as "establishes", "elects", "specifies", "sets",
+  "selects", or "chooses" (for example "the income standard established by
+  the agency under § 435.110(c)"), and no copied context module exports that
+  value. Then encode the branch; do not defer it for that reason, also when
+  the cited module is deferred.
+- Encode literally every number, percentage of the Federal poverty level, or
+  dollar amount that this source or a cited federal provision states; such a
+  value is never an input. A federally stated floor or ceiling, such as "at
+  least $30", stays a literal and is applied with max or min to the input.
+- Declare the State-set value in the document-root `inputs` list with
+  `entity`, `dtype`, `period`, `unit` for money, and a `description` that
+  names the provision under which the State or agency sets it. When the cited
+  module has an input identifier for that value, use the same identifier;
+  otherwise use a descriptive name.
+- Give the rule that uses the State-set value a proof atom whose excerpt is
+  the citing phrase from this unit's source text. Encode the branch's own
+  comparisons, max/min, and conditions on that value, and set the input in
+  every companion test.
+"""
+
+
+def us_cfr_unit_section_key(citation: str) -> tuple[str, str, str] | None:
+    """Return (title, part, section) when the unit is a federal CFR provision."""
+    from axiom_encode import corpus_resolver
+
+    try:
+        citation_path = corpus_resolver.normalize_corpus_identifier(citation)
+    except (corpus_resolver.CorpusResolutionError, ValueError):
+        return None
+    parts = citation_path.split("/")
+    if len(parts) < 5 or parts[0] != "us" or parts[1] != "regulation":
+        return None
+    title, part, section = parts[2:5]
+    if not (title.isdigit() and part.isdigit() and section.isdigit()):
+        return None
+    return (title, part, section)
+
+
+def with_cfr_state_set_amount_rule(prompt: str, citation: str) -> str:
+    """Insert the State-set amount exception for a federal CFR unit only."""
+    if us_cfr_unit_section_key(citation) is None:
+        return prompt
+    if CROSS_REFERENCE_DEFER_RULE_TAIL not in prompt:
+        raise ValueError("Encoder prompt lost its cross-reference defer rule")
+    # The rules follow any copied context, so the last occurrence is the rule.
+    end = prompt.rindex(CROSS_REFERENCE_DEFER_RULE_TAIL) + len(
+        CROSS_REFERENCE_DEFER_RULE_TAIL
+    )
+    return prompt[:end] + CFR_STATE_SET_AMOUNT_RULE + prompt[end:]
+
+
 _COMPLETE_SOURCE_UNIT_PROTOCOL = """
 Complete-source-unit mode is enabled for this request:
 - Treat the entire authoritative source unit as the completeness inventory.
@@ -1866,7 +1927,7 @@ affected executable surface.
 {_COMPLETE_SOURCE_UNIT_PROTOCOL.strip()}
 """
 
-    return f"""{ENCODER_PROMPT}
+    return f"""{with_cfr_state_set_amount_rule(ENCODER_PROMPT, corpus_citation_path or citation)}
 
 Target citation/source id: {citation}
 Expected output path: {output_path}

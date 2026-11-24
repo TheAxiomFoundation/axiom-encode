@@ -100,6 +100,8 @@ from axiom_encode.producer_review_guidance import (
 from axiom_encode.prompts.encoder import (
     INTERPRETATIONS_PROTOCOL,
     SOURCE_SCOPE_PROTOCOL,
+    us_cfr_unit_section_key,
+    with_cfr_state_set_amount_rule,
 )
 from axiom_encode.repair_candidate_contract import (
     VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
@@ -8382,17 +8384,7 @@ class _CitedCfrSectionGroup:
 
 def _us_cfr_unit_section_key(citation: str) -> tuple[str, str, str] | None:
     """Return (title, part, section) when the unit is a US CFR provision."""
-    try:
-        citation_path = _corpus_resolver.normalize_corpus_identifier(citation)
-    except (_corpus_resolver.CorpusResolutionError, ValueError):
-        return None
-    parts = citation_path.split("/")
-    if len(parts) < 5 or parts[0] != "us" or parts[1] != "regulation":
-        return None
-    title, part, section = parts[2:5]
-    if not (title.isdigit() and part.isdigit() and section.isdigit()):
-        return None
-    return (title, part, section)
+    return us_cfr_unit_section_key(citation)
 
 
 def _iter_cited_cfr_sections(
@@ -14342,6 +14334,9 @@ rules:
             ),
             baseline=baseline_content,
         )
+    stable_prefix = with_cfr_state_set_amount_rule(
+        stable_prefix, corpus_citation_path or citation
+    )
     dynamic_suffix = f"""\
 {coverage_index_section}{validation_retry_feedback_section}{validation_retry_candidate_section}
 {output_rules}
@@ -15783,7 +15778,9 @@ def _format_cited_regulation_context_guidance(
 Cited regulation RuleSpec context detected from source text:
 {chr(10).join(lines)}
 When this source computes with a value that one of these modules exports,
-import that export and use its bare name in the formula.
+import that export and use its bare name in the formula. When the source
+applies a State-set amount that a cited module only takes as a local input,
+follow the exception for State-set amounts.
 """
 
 
