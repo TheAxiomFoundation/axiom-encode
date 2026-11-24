@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -1639,10 +1640,250 @@ def test_one_failure_after_a_string_ending_in_brace_fails_required_review(
     result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
     record = _record_for(result, rule, required=True)
 
+    # The key `note` is outside the schema of the prompt: the failure is not
+    # read as a verdict, and the review stays unreadable.
     assert result.passed is False
-    assert result.score == 1
+    assert result.score is None
+    assert record["status"] == "unavailable"
+    assert review_requirement_refusal(record) is not None
+
+
+_GENERALIST_PASS = (
+    '{"score": 9, "passed": true, "blocking_issues": [], '
+    '"non_blocking_issues": [], "reasoning": "ok"}'
+)
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        # A key outside the schema that the prompt asks for.
+        '{"passed": true, "pass": false, "score": 9}',
+        '{"passed": true, "score": 9, "failed": true}',
+        '{"passed": true, "score": 9, "verdict": "fail"}',
+        '{"passed": true, "score": 9, "note": "extra"}',
+        # The schema of another reviewer type.
+        '{"passed": true, "score": 9, "issues": []}',
+        # Not one top-level object.
+        '[{"passed": true, "score": 9}]',
+        '{"result": {"passed": true, "score": 9}}',
+        '{"passed": true, "score": 9} {"passed": true, "score": 9}',
+        '[{"passed": true, "score": 9}, {"passed": false, "score": 2}]',
+        "[]",
+        "true",
+        "9",
+        '"passed"',
+        '{"passed": true, "score": 9, "details": {"score": 8, "checks": 4}}',
+        # Schema keys only at the top level, and a second verdict or another
+        # spelling of a verdict key inside a value.
+        '{"passed": true, "score": 9, "blocking_issues": [], '
+        '"non_blocking_issues": [{"passed": false, "score": 2}]}',
+        '{"passed": true, "score": 9, "non_blocking_issues": [{"Passed": false}]}',
+        '{"passed": true, "score": 9, "reasoning": {"passed": false}}',
+        # Text beside the object.
+        "Here is my review.\n\n```json\n" + _GENERALIST_PASS + "\n```\nDone.",
+        "I compared each branch.\n" + _GENERALIST_PASS + "\nNo further notes.",
+        "[\n" + _GENERALIST_PASS + "\n]",
+        "\ufeff\ufeff" + _GENERALIST_PASS,
+        "My review:\n" + _GENERALIST_PASS,
+        _GENERALIST_PASS + "\nDone.",
+        "My review:\n```json\n" + _GENERALIST_PASS + "\n```",
+        "```json\n" + _GENERALIST_PASS + "\n```\nDone.",
+        "```json\n"
+        + _GENERALIST_PASS
+        + "\n```\n```json\n"
+        + _GENERALIST_PASS
+        + "\n```",
+        "```yaml\n" + _GENERALIST_PASS + "\n```",
+        "```json\n[" + _GENERALIST_PASS + "]\n```",
+        # An object that the output does not close.
+        '{"passed": true, "score": 9',
+        "```json\n" + '{"passed": true, "score": 9' + "\n```",
+    ],
+)
+@pytest.mark.parametrize("required", [True, False])
+def test_output_that_is_not_one_schema_object_never_records_a_pass(
+    tmp_path, monkeypatch, output, required
+):
+    rule = _candidate(tmp_path)
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *_a, **_k: (output, 0)
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    record = _record_for(result, rule, required=required)
+
+    assert result.passed is False
+    assert result.score is None
+    assert "reviewer_parse_failed" in result.issues
+    assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
+    assert record["verdict"]["passed"] is None
+    assert review_requirement_refusal(record) is not None
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        _GENERALIST_PASS,
+        "\n  " + _GENERALIST_PASS + "\n\n",
+        "```json\n" + _GENERALIST_PASS + "\n```",
+        "```JSON\n" + _GENERALIST_PASS + "\n```\n",
+        "```\n" + _GENERALIST_PASS + "\n```",
+        "```json\n\n" + _GENERALIST_PASS + "\n\n```",
+        # One leading byte order mark is an encoding artifact, not text.
+        "\ufeff" + _GENERALIST_PASS,
+        json.dumps(json.loads(_GENERALIST_PASS), indent=2),
+        '{"score": 9, "passed": true}',
+        # A trailing comma is repaired; the object is still the whole output.
+        '{"score": 9, "passed": true, "blocking_issues": [],}',
+    ],
+)
+def test_one_schema_object_alone_or_in_one_fence_records_a_pass(
+    tmp_path, monkeypatch, output
+):
+    rule = _candidate(tmp_path)
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *_a, **_k: (output, 0)
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    record = _record_for(result, rule, required=True)
+
+    assert result.passed is True
+    assert result.score == 9
+    assert record["status"] == "passed"
+    assert review_requirement_refusal(record) is None
+
+
+def test_one_schema_object_with_a_failure_records_the_failure(tmp_path, monkeypatch):
+    rule = _candidate(tmp_path)
+    output = (
+        '{"score": 2, "passed": false, "blocking_issues": ["wrong"], '
+        '"non_blocking_issues": [], "reasoning": "no"}'
+    )
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *_a, **_k: (output, 0)
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    record = _record_for(result, rule, required=True)
+
+    assert result.score == 2
     assert record["status"] == "failed"
     assert review_requirement_refusal(record) is not None
+
+
+_REVIEWER_TYPES = [
+    "generalist-reviewer",
+    "rulespec-reviewer",
+    "Formula Reviewer",
+    "Parameter Reviewer",
+    "Integration Reviewer",
+]
+_SCHEMA_VALUES = {
+    "score": 9,
+    "passed": True,
+    "issues": [],
+    "blocking_issues": [],
+    "non_blocking_issues": [],
+    "reasoning": "ok",
+}
+
+
+def _requested_schema_keys(monkeypatch, tmp_path, reviewer_type):
+    """The keys of the JSON object that this reviewer type's prompt asks for."""
+
+    prompts = []
+
+    def reviewer(prompt, **_kwargs):
+        prompts.append(prompt)
+        return "{}", 0
+
+    monkeypatch.setattr(validator_pipeline, "run_claude_code", reviewer)
+    _pipeline(tmp_path)._run_reviewer(reviewer_type, _candidate(tmp_path))
+    (prompt,) = prompts
+    blocks = re.findall(r"^\{\n((?:  \"[a-z_]+\": [^\n]+\n)+)\}$", prompt, re.MULTILINE)
+    assert len(blocks) == 1
+    return frozenset(re.findall(r'^  "([a-z_]+)": ', blocks[0], re.MULTILINE))
+
+
+@pytest.mark.parametrize("reviewer_type", _REVIEWER_TYPES)
+def test_accepted_verdict_keys_are_the_keys_that_the_prompt_asks_for(
+    tmp_path, monkeypatch, reviewer_type
+):
+    requested = _requested_schema_keys(monkeypatch, tmp_path, reviewer_type)
+
+    assert requested == validator_pipeline._reviewer_schema_keys(reviewer_type)
+    assert {"passed", "score"} <= requested
+
+
+@pytest.mark.parametrize("reviewer_type", _REVIEWER_TYPES)
+def test_each_reviewer_type_reads_its_own_schema_and_no_other_key(
+    tmp_path, monkeypatch, reviewer_type
+):
+    rule = _candidate(tmp_path)
+    schema = validator_pipeline._reviewer_schema_keys(reviewer_type)
+    own = {key: _SCHEMA_VALUES[key] for key in sorted(schema)}
+
+    def run(payload):
+        output = json.dumps(payload)
+        monkeypatch.setattr(
+            validator_pipeline, "run_claude_code", lambda *_a, **_k: (output, 0)
+        )
+        return _pipeline(tmp_path)._run_reviewer(reviewer_type, rule)
+
+    accepted = run(own)
+    assert accepted.passed is True
+    assert accepted.score == 9
+    assert "reviewer_parse_failed" not in accepted.issues
+    for key in sorted(set(_SCHEMA_VALUES) - schema) + ["pass", "verdict", "Passed"]:
+        refused = run({**own, key: _SCHEMA_VALUES.get(key, False)})
+        assert refused.passed is False, key
+        assert refused.score is None, key
+        assert "reviewer_parse_failed" in refused.issues, key
+
+
+def test_reviewer_schema_sets_are_exact():
+    assert validator_pipeline._reviewer_schema_keys("generalist-reviewer") == {
+        "score",
+        "passed",
+        "blocking_issues",
+        "non_blocking_issues",
+        "reasoning",
+    }
+    for reviewer_type in _REVIEWER_TYPES[1:] + ["any other reviewer"]:
+        assert validator_pipeline._reviewer_schema_keys(reviewer_type) == {
+            "score",
+            "passed",
+            "issues",
+            "reasoning",
+        }
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        '{"score": 9, "passed": 1}',
+        '{"score": 9, "passed": "true"}',
+        '{"score": 9, "passed": null}',
+        '{"score": "9", "passed": true}',
+        '{"score": true, "passed": true}',
+        '{"score": null, "passed": true}',
+    ],
+)
+def test_one_schema_object_with_a_mistyped_verdict_field_never_records_a_pass(
+    tmp_path, monkeypatch, output
+):
+    rule = _candidate(tmp_path)
+    monkeypatch.setattr(
+        validator_pipeline, "run_claude_code", lambda *_a, **_k: (output, 0)
+    )
+
+    result = _pipeline(tmp_path)._run_reviewer("generalist-reviewer", rule)
+    record = _record_for(result, rule, required=True)
+
+    assert "reviewer_parse_failed" in result.issues
+    assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
 
 
 def test_reviewer_exception_never_records_a_pass(tmp_path, monkeypatch):
@@ -3114,7 +3355,11 @@ def test_score_without_an_explicit_pass_cannot_satisfy_required_review(
 
 @pytest.mark.parametrize(
     "output",
-    ['{"score":9}', '{"score":9,"blocking_issues":[]}', '{"score": 7.0, "issues": []}'],
+    [
+        '{"score":9}',
+        '{"score":9,"blocking_issues":[]}',
+        '{"score": 7.0, "non_blocking_issues": []}',
+    ],
 )
 def test_legacy_score_fallback_stays_in_eval_scoring_and_out_of_the_record(
     tmp_path, monkeypatch, output
@@ -3256,12 +3501,7 @@ _VALID_PASS = {
         '{"passed": true, "score": 9}',
         json.dumps(_VALID_PASS),
         json.dumps(_VALID_PASS, indent=2),
-        "Here is my review of the encoding.\n\n```json\n"
-        + json.dumps(_VALID_PASS, indent=2)
-        + "\n```\n\nThe module is safe to promote.",
-        "I compared each branch with the source text.\n"
-        + json.dumps(_VALID_PASS)
-        + "\nNo further notes.",
+        "```json\n" + json.dumps(_VALID_PASS, indent=2) + "\n```",
         '```json\n{"score": 8.5, "passed": true, "blocking_issues": [],}\n```',
         "\ufeff" + json.dumps(_VALID_PASS),
     ],
@@ -3807,24 +4047,22 @@ def test_competing_verdict_keys_outside_strict_json_never_yield_a_passed_record(
 @pytest.mark.parametrize(
     "output",
     [
-        # Thirteen shapes that stay valid.
+        # Shapes that stay valid: one object of the prompt schema, alone or
+        # in one code fence.
         '{"passed": true, "score": 9}',
         '{"score": 9, "passed": true}',
         '{"passed": true, "score": 9.5, "blocking_issues": []}',
-        '{"passed": true, "score": 7, "issues": [], "reasoning": "ok"}',
+        '{"passed": true, "score": 7, "non_blocking_issues": [], "reasoning": "ok"}',
         json.dumps(_VALID_PASS),
         json.dumps(_VALID_PASS, indent=2),
         "```json\n" + json.dumps(_VALID_PASS, indent=2) + "\n```",
-        "Here is my review.\n\n```json\n" + json.dumps(_VALID_PASS) + "\n```\nDone.",
-        "I compared each branch.\n" + json.dumps(_VALID_PASS) + "\nNo further notes.",
         '```json\n{"score": 8.5, "passed": true, "blocking_issues": [],}\n```',
         _BOM + json.dumps(_VALID_PASS),
-        '{"passed": true, "score": 9, "details": {"score": 8, "checks": 4}}',
         '{"passed": true, "score": 9, "reasoning": "It\'s fine: the \'cap\' rule, '
         'the \\"Passed\\": label and {braces}."}',
     ],
 )
-def test_thirteen_valid_reviewer_shapes_still_pass(tmp_path, monkeypatch, output):
+def test_valid_reviewer_shapes_still_pass(tmp_path, monkeypatch, output):
     rule, result = _review(tmp_path, monkeypatch, output)
     record = _record_for(result, rule, required=True)
 
@@ -4915,13 +5153,14 @@ def test_respelled_documents_with_one_digest_load_alike(scalars, respell):
 
 @pytest.mark.parametrize(
     ("comment_length", "status"),
-    [(199, "unavailable"), (200, "unavailable"), (201, "passed")],
+    [(199, "unavailable"), (200, "unavailable"), (201, "unavailable")],
 )
 def test_guide_bound_of_a_comment_between_a_quoted_key_and_its_colon(
     tmp_path, monkeypatch, comment_length, status
 ):
-    # The guide states this limit: a competing key is read through a comment
-    # of at most 200 characters between the key and its colon.
+    # The raw key scan reads a competing key through a comment of at most 200
+    # characters between the key and its colon. A longer comment is refused
+    # too: text after the object means the output is not one object.
     output = (
         '{"score":9,"passed":true}\n"Passed" /*' + "x" * comment_length + "*/ : false"
     )

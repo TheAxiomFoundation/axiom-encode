@@ -1591,6 +1591,83 @@ def _extract_json_object(output: str) -> dict[str, Any]:
     return data
 
 
+# The keys of the JSON object that each reviewer prompt asks for. A verdict
+# holds no other key. `_GENERALIST_REVIEW_JSON_FORMAT` states the first set;
+# `_REVIEW_JSON_FORMAT` and the inline prompt of `_run_reviewer` state the
+# second one.
+_GENERALIST_REVIEW_SCHEMA_KEYS = frozenset(
+    {"score", "passed", "blocking_issues", "non_blocking_issues", "reasoning"}
+)
+_REVIEW_SCHEMA_KEYS = frozenset({"score", "passed", "issues", "reasoning"})
+# The whole of a fenced output: one code fence, plain or marked `json`.
+_REVIEWER_JSON_FENCE = re.compile(
+    r"```(?:json)?[ \t]*\n(?P<body>.*)\n[ \t]*```", re.DOTALL | re.IGNORECASE
+)
+
+
+def _reviewer_schema_keys(reviewer_type: str) -> frozenset[str]:
+    """Return the verdict keys that the prompt of ``reviewer_type`` asks for."""
+    if reviewer_type == GENERALIST_REVIEWER_NAME:
+        return _GENERALIST_REVIEW_SCHEMA_KEYS
+    return _REVIEW_SCHEMA_KEYS
+
+
+def _decode_whole_reviewer_output(output: str) -> Any:
+    """Decode the whole reviewer output as one JSON value, or raise ValueError.
+
+    Two shapes are read, after one leading byte order mark and surrounding
+    whitespace are dropped: the JSON value alone, or one code fence (plain or
+    marked `json`) that holds the JSON value alone. Nothing may stand before
+    or after it: no prose, no second fence, no second value. Inside the value
+    the decoder keeps the tolerance of the candidate decoder: a trailing
+    comma before a closer, a raw control character in a string, and an
+    ideographic space.
+    """
+    text = output.removeprefix("\ufeff").strip()
+    fenced = _REVIEWER_JSON_FENCE.fullmatch(text)
+    if fenced is not None:
+        text = fenced.group("body").strip()
+    text = text.replace("\u3000", " ")
+    for variant in dict.fromkeys((text, _strip_trailing_json_commas(text))):
+        for strict in (True, False):
+            with contextlib.suppress(json.JSONDecodeError):
+                return json.loads(
+                    variant, strict=strict, object_pairs_hook=_unique_reviewer_json_keys
+                )
+    raise ValueError("Reviewer output is not one JSON value alone or in one code fence")
+
+
+def _read_reviewer_verdict(output: str, reviewer_type: str) -> dict[str, Any]:
+    """Return the verdict of a reviewer output, or raise ValueError.
+
+    A verdict is exactly one top-level JSON object that is the whole output
+    (see ``_decode_whole_reviewer_output`` for the two shapes), with no key
+    outside the schema that the prompt of ``reviewer_type`` asks for, an
+    exact JSON boolean for ``passed`` and a JSON number for ``score``.
+
+    Not a verdict, so the caller records an unreadable review: an array, an
+    object under another key, two objects, text beside the object, an object
+    that the output does not close, and an object with any other key (for
+    example `pass`, `failed` or `verdict` beside `passed`). The checks of
+    ``_extract_json_object`` run first and still hold; the object that they
+    select must be the top-level object.
+    """
+    selected = _extract_json_object(output)
+    data = _decode_whole_reviewer_output(output)
+    # An array or a scalar never equals the selected object.
+    if data != selected:
+        raise ValueError("Reviewer verdict is not the top-level JSON object of output")
+    if not _reviewer_schema_keys(reviewer_type).issuperset(data):
+        raise ValueError("Reviewer JSON key outside the schema of the review prompt")
+    if "passed" in data and type(data["passed"]) is not bool:
+        raise ValueError("Reviewer passed must be a JSON boolean")
+    if "score" in data and type(data["score"]) not in (int, float):
+        # `"9"`, `true` and `null` are not a score; a verdict with a
+        # mistyped field is not an unambiguous verdict.
+        raise ValueError("Reviewer score must be a JSON number")
+    return data
+
+
 def _legacy_generalist_reviewer_passed(
     data: Mapping[str, Any], *, score: float, blocking_issues: list[Any]
 ) -> bool:
@@ -43210,13 +43287,7 @@ Output ONLY valid JSON:
             # structured "reviewer_parse_failed" result instead of
             # letting the generic except below swallow the detail.
             try:
-                data = _extract_json_object(output)
-                if "passed" in data and type(data["passed"]) is not bool:
-                    raise ValueError("Reviewer passed must be a JSON boolean")
-                if "score" in data and type(data["score"]) not in (int, float):
-                    # `"9"`, `true` and `null` are not a score; a verdict
-                    # with a mistyped field is not an unambiguous verdict.
-                    raise ValueError("Reviewer score must be a JSON number")
+                data = _read_reviewer_verdict(output, reviewer_type)
             except (ValueError, json.JSONDecodeError) as parse_err:
                 duration = int((time.time() - start) * 1000)
                 raw_snippet = (output or "").strip()

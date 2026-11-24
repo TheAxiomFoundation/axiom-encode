@@ -147,19 +147,24 @@ and 53 companions exceed these limits. Without the flag the record of such a
 file says `partial`, which is accurate. Do not turn the flag on for a signed
 lane before the limits are raised or removed (#2252).
 
-A pass is the
-reviewer's own JSON boolean `"passed": true` in its one verdict object, with a
-JSON number as `score`. A score without that field, a non-boolean `passed`, a
-non-number `score`, or another spelling of a verdict key (`passed`, `score`,
-`blocking_issues`; for example `"Passed"` or `"Blocking_Issues"`) is not a
-pass. The spelling rule covers every key of decoded JSON in the output. In
-the text around the verdict it covers a quoted key that is followed by its
-colon, with only whitespace and short `/* */` comments between them, also in
-an object that only a lenient reader accepts. It does not cover a quoted key
-that a comment of more than 200 characters, more than eight comments in a row
-or a line comment separates from its colon; text inside a string value; an
-unquoted key after a comma on the same line; or other words for a verdict
-(`verdict`, `failed`). Eval scoring keeps its older fallback from the score.
+A verdict is exactly one JSON object that is the whole reviewer output. Two
+shapes are read: the object alone, or one code fence (plain or marked `json`)
+that holds the object alone. Surrounding whitespace and one leading byte order
+mark are dropped; a trailing comma before a closer is repaired. The keys of
+the object must be within the schema that the reviewer prompt asks for:
+`score`, `passed`, `blocking_issues`, `non_blocking_issues` and `reasoning`
+for the generalist reviewer; `score`, `passed`, `issues` and `reasoning` for
+the other reviewers. `passed` must be a JSON boolean and `score` a JSON
+number. A pass is the reviewer's own `"passed": true` in that object.
+
+Everything else is not a verdict, and the record says `unavailable`
+(`reviewer_error`): an array, an object under another key, two objects, text
+before or after the object or the fence, an object that the output does not
+close, a non-boolean `passed`, a non-number `score`, and an object with any
+other key (for example `pass`, `failed`, `verdict`, `details` or `"Passed"`).
+The earlier checks still run first: a repeated key, a second verdict object
+and another spelling of a verdict key anywhere in the output are refused.
+Eval scoring keeps its older fallback from the score.
 A pass that the fallback infers never reaches the record as a pass: a score
 without `passed` is recorded as `failed` when the fallback says fail (for
 example `{"score": 2}`) and as `unavailable` otherwise, and a non-boolean
