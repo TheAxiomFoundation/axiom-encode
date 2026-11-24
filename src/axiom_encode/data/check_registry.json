@@ -160,7 +160,7 @@
     {
       "category": "complete-source-unit:structure",
       "cause": "encoder_output",
-      "fix": "Encode the branch in a rule that cites it (source path or proof excerpt from its own text), or add a precise `module.deferred_outputs` entry for that branch. Descendant citations do not cover a substantive parent chapeau.",
+      "fix": "Encode the branch in a rule that cites it (its rule-level `source:` locator or a proof excerpt from its own text; `corpus_citation_path` stays the unit path), or add a precise `module.deferred_outputs` entry for that branch. Descendant citations do not cover a substantive parent chapeau.",
       "gate": "ci",
       "id": "complete-source-unit:structure/branch-unencoded",
       "requires": "Every operative branch of the authoritative source unit is cited by a rule's `source:` or proof atom, or is listed in `module.deferred_outputs` with a reason that names the exact missing dependency.",
@@ -1226,6 +1226,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "248fce960d2d4e97fda21688a6e6f1ee95efd1d4c3c05f777c9c399c11bb0002",
+  "registry_sha256": "575bdfdcbcbb72f84bf74fc5e11114eec8d8757acb957ab6ccfd9202ccd4c8ac",
   "schema": "axiom-encode/check-registry/v1"
 }

@@ -1055,6 +1055,21 @@ def _complete_source_obligations(module, complete_source_module, outline):
         r"(?P<fragment>(?:\([^()\s]+\))+) \[(?P<english>(?:paragraph|"
         r"provision|sentence) [^\]]*)\])"
     )
+    # U.S. findings now name a branch beside the unit path,
+    # `paragraph (a)(1) of us/x`, so the joined `us/x(a)(1)` never reads as a
+    # corpus citation path. Rewrite that form to the bracketed English form
+    # first; the old form has no ` of ` after its labels, so it is untouched.
+    beside_unit = _re.compile(
+        r"\b(?P<labels>(?:(?:paragraph|provision) "
+        r"(?P<fragment>(?:\([^()\s]+\))+)|sentence \S+)"
+        r"(?:, (?:paragraph|provision|sentence) \S+)*)"
+        r" of (?P<citation>[^\s()\[\]`]+?)(?=[\s,;:`]|\.(?:\s|$)|$)"
+    )
+
+    def _bracketed(match):
+        fragment = match.group("fragment") or ""
+        return f"{match.group('citation')}{fragment} [{match.group('labels')}]"
+
     payload = dataclasses.asdict(result)
     # Companion-case synthesis hints are not findings and postdate the baseline.
     payload.pop("companion_test_obligations", None)
@@ -1078,7 +1093,12 @@ def _complete_source_obligations(module, complete_source_module, outline):
     payload["issues"] = tuple(
         rendered_branch.sub(
             _branch_path,
-            head.group(0) if (head := recall_head.match(issue)) is not None else issue,
+            beside_unit.sub(
+                _bracketed,
+                head.group(0)
+                if (head := recall_head.match(issue)) is not None
+                else issue,
+            ),
         )
         for issue in payload["issues"]
     )

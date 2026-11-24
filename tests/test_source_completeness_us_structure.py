@@ -93,13 +93,11 @@ def test_cfr_omitted_branch_fails_with_english_paragraph_label():
     structure = _structure_issues(result)
 
     assert any(
-        "Source branch (B) at us/regulation/7/273/4(a)(6)(i)(B) "
-        "[paragraph (a)(6)(i)(B)] is neither encoded nor precisely deferred." in issue
+        "Source branch (B) at paragraph (a)(6)(i)(B) of us/regulation/7/273/4 "
+        "is neither encoded nor precisely deferred." in issue
         for issue in structure
     ), structure
-    assert any(
-        "us/regulation/7/273/4(b) [paragraph (b)]" in issue for issue in structure
-    )
+    assert any("paragraph (b) of us/regulation/7/273/4" in issue for issue in structure)
     assert not any("(a)(6)(i)(A) " in issue for issue in structure)
     assert not any(
         word in issue
@@ -128,11 +126,11 @@ def test_us_statute_omitted_branch_fails_with_english_provision_label():
     )
 
     assert any(
-        "Source branch (C) at us/statute/7/2015/f(2)(C) [provision (2)(C)] is "
+        "Source branch (C) at provision (2)(C) of us/statute/7/2015/f is "
         "neither encoded nor precisely deferred." in issue
         for issue in structure
     ), structure
-    assert not any("2015/f(2)(B) " in issue for issue in structure)
+    assert not any("provision (2)(B) of " in issue for issue in structure)
 
 
 def test_state_statute_labels_are_english_and_keep_printed_case():
@@ -149,7 +147,7 @@ def test_state_statute_labels_are_english_and_keep_printed_case():
 
     assert (
         completeness._branch_citation(citation, branch)
-        == "us-co/statute/39/39-22-2003(1)(a)(II) [provision (1)(a)(II)]"
+        == "provision (1)(a)(II) of us-co/statute/39/39-22-2003"
     )
 
 
@@ -240,17 +238,17 @@ def test_us_sources_do_not_recognize_german_sentence_markers():
 def test_english_structure_and_formula_locators_still_pair_for_retry():
     structure = (
         "[complete-source-unit:structure] Source branch (ii) at "
-        "us/regulation/7/273/4(a)(6)(ii) [paragraph (a)(6)(ii)] is neither "
+        "paragraph (a)(6)(ii) of us/regulation/7/273/4 is neither "
         "encoded nor precisely deferred."
     )
     formula = (
         "[complete-source-unit:formula-output] Source-stated control (ii) in "
-        "us/regulation/7/273/4(a)(6)(ii) [paragraph (a)(6)(ii)] has no "
+        "paragraph (a)(6)(ii) of us/regulation/7/273/4 has no "
         "principal derived/relation output (`derived` or `derived_relation`)."
     )
     other = (
         "[complete-source-unit:formula-output] Source-stated control (iii) in "
-        "us/regulation/7/273/4(a)(6)(iii) [paragraph (a)(6)(iii)] has no "
+        "paragraph (a)(6)(iii) of us/regulation/7/273/4 has no "
         "principal derived/relation output (`derived` or `derived_relation`)."
     )
 
@@ -334,14 +332,17 @@ def test_cited_range_covers_only_its_own_branches():
     structure = _structure_issues(result)
 
     for covered in ("(a)(1) ", "(a)(2) ", "(a)(3) "):
-        assert not any(f"273/4{covered}" in issue for issue in structure), covered
+        assert not any(
+            f"paragraph {covered}of us/regulation/7/273/4" in issue
+            for issue in structure
+        ), covered
     # Negative controls: omitted siblings outside the range still fail.
     assert any(
-        "Source branch (4) at us/regulation/7/273/4(a)(4) [paragraph (a)(4)]" in issue
+        "Source branch (4) at paragraph (a)(4) of us/regulation/7/273/4" in issue
         for issue in structure
     ), structure
-    assert any("273/4(a)(6) [paragraph (a)(6)]" in issue for issue in structure)
-    assert any("273/4(b) [paragraph (b)]" in issue for issue in structure)
+    assert any("paragraph (a)(6) of us/" in issue for issue in structure)
+    assert any("paragraph (b) of us/" in issue for issue in structure)
 
 
 def test_parameter_citation_list_does_not_encode_the_branches_it_lists():
@@ -376,7 +377,7 @@ rules:
         formula: '18'
 """
     structure = _structure_issues(_analyze(content, source, CFR_273_4))
-    for branch in ("(c)(3)(vi) [paragraph", "(c)(3)(vii) [paragraph"):
+    for branch in ("paragraph (c)(3)(vi) of", "paragraph (c)(3)(vii) of"):
         assert any(branch in issue for issue in structure), (branch, structure)
 
     # The same citation on a principal derived output does encode them.
@@ -384,7 +385,7 @@ rules:
         "dtype: Integer", "dtype: Judgment"
     )
     structure = _structure_issues(_analyze(derived, source, CFR_273_4))
-    for branch in ("(c)(3)(vi) [paragraph", "(c)(3)(vii) [paragraph"):
+    for branch in ("paragraph (c)(3)(vi) of", "paragraph (c)(3)(vii) of"):
         assert not any(branch in issue for issue in structure), (branch, structure)
 
 
@@ -502,8 +503,8 @@ def test_list_shapes_that_name_no_branch_here_leave_it_reported():
             _analyze(_module(CFR_273_4, rule_source), _LETTER_I_SOURCE, CFR_273_4)
         )
 
-    top_level_i = "Source branch (i) at us/regulation/7/273/4(i) [paragraph (i)]"
-    roman_ii = "273/4(a)(1)(ii) [paragraph (a)(1)(ii)]"
+    top_level_i = "Source branch (i) at paragraph (i) of us/regulation/7/273/4"
+    roman_ii = "paragraph (a)(1)(ii) of us/regulation/7/273/4"
     issues = structure("7 CFR 273.4(a)(1)(ii), (i)")
     assert any(top_level_i in issue for issue in issues), issues
     issues = structure("7 CFR 273.4(a)(1)(i), (ii) in 7 CFR 273.9")
@@ -511,7 +512,7 @@ def test_list_shapes_that_name_no_branch_here_leave_it_reported():
     # Positive control: the plain list covers both romans.
     issues = structure("7 CFR 273.4(a)(1)(i), (ii)")
     assert not any(roman_ii in issue for issue in issues), issues
-    assert not any("273/4(a)(1)(i) [" in issue for issue in issues), issues
+    assert not any("paragraph (a)(1)(i) of " in issue for issue in issues), issues
 
 
 def test_section_sign_list_after_another_title_names_only_its_first_branch():
