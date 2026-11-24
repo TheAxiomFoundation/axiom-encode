@@ -901,6 +901,52 @@ def test_owner_rerun_of_a_run_that_another_account_dispatched_is_refused(
 
 
 @dispatch_policy
+@pytest.mark.parametrize(
+    "writer",
+    [
+        {"id": 999, "login": "other-writer", "type": "User"},
+        {"id": 6076111, "login": "other-writer", "type": "User"},
+        {"id": 999, "login": "MaxGhenis", "type": "User"},
+    ],
+    ids=["not-enrolled", "enrolled-id-other-login", "enrolled-login-other-id"],
+)
+def test_one_account_that_is_not_enrolled_in_both_run_fields_is_refused(api, writer):
+    # Both run accounts and the selector agree, so only the enrolment rule
+    # stands between this account and an admission.
+    api[RUN]["actor"] = dict(writer)
+    api[RUN]["triggering_actor"] = dict(writer)
+    selector = replace(SELECTOR, actor=writer["login"])
+    with pytest.raises(AdmissionError, match="enrolled signing owner"):
+        verify_reviewed_pr(selector, fetch=api.__getitem__)
+    with pytest.raises(AdmissionError, match="enrolled signing owner"):
+        admission_module._enrolled_dispatcher(api[RUN], selector)
+
+
+@dispatch_policy
+def test_revalidation_refuses_one_unenrolled_account_in_both_run_fields(api):
+    import json
+
+    admission = json.loads(
+        json.dumps(verify_reviewed_pr(SELECTOR, fetch=api.__getitem__))
+    )
+    writer = {"id": 999, "login": "other-writer", "type": "User"}
+    api[RUN]["actor"] = dict(writer)
+    api[RUN]["triggering_actor"] = dict(writer)
+    # A record forged to agree with the live run does not help either.
+    forged = copy.deepcopy(admission)
+    forged["selector"]["actor"] = writer["login"]
+    assert forged["dispatcher"]["login"] == "PavelMakarchuk"
+    forged["dispatcher"] = {
+        "login": writer["login"],
+        "actor_id": writer["id"],
+        "triggering_actor_id": writer["id"],
+    }
+    for candidate in (admission, forged):
+        with pytest.raises(AdmissionError):
+            revalidate_admission(candidate, fetch=api.__getitem__)
+
+
+@dispatch_policy
 def test_run_without_an_actor_field_is_refused(api):
     del api[RUN]["actor"]
     with pytest.raises(AdmissionError, match="run actor"):
