@@ -44,7 +44,10 @@ from dataclasses import dataclass
 
 import yaml
 
+from .checks import declare_check
+
 __all__ = [
+    "CHECK_SOURCE_BINDING",
     "SourceBinding",
     "SourceBindingConflict",
     "SourceBindingError",
@@ -71,6 +74,35 @@ _PLAIN_SAFE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@+-]*")
 # reader, although PyYAML reads the exponent form as a string.
 _NUMBER_LIKE = re.compile(r"[-+]?[0-9][0-9_]*(?:[eE][-+]?[0-9]+)?")
 _QUOTABLE = re.compile(r"[\x20-\x7e]+")
+
+
+CHECK_SOURCE_BINDING = declare_check(
+    "source-binding/unbound",
+    title="Generated RuleSpec is not bound to its resolver-attested source",
+    requires=(
+        "`module.source_verification` is a plain block mapping whose "
+        "`corpus_citation_path` and `source_sha256` are the resolver's "
+        "attested values, or a module the encoder can bind by inserting those "
+        "two lines."
+    ),
+    why=(
+        "A candidate is promoted and signed as the bytes it is. Without the "
+        "attested source pin the protected binding check refuses it, after "
+        "the signing approval, and a pin that names another source would bind "
+        "the rule to text it was not encoded from."
+    ),
+    fix=(
+        "Write `module.source_verification` in block form with exactly "
+        "`corpus_citation_path` and `source_sha256`, each on its own line, "
+        "copied from `source_attestation` in `./source-metadata.json` "
+        "(`requested_corpus_citation_path` and `source_sha256`). Do not use "
+        "flow style, anchors, merge keys or a multi-line value there. For an "
+        "existing candidate run `axiom-encode bind-source-verification`."
+    ),
+    cause="encoder_output",
+    gate="ci",
+    site="axiom_encode/harness/evals.py:_bind_generated_source_verification",
+)
 
 
 class SourceBindingError(ValueError):

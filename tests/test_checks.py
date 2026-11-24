@@ -71,6 +71,7 @@ TYPED_ISSUE_FACTORIES = frozenset(
         "_rules_engine_compile_failed_issue",
         "_rules_engine_compile_crashed_issue",
         "_out_of_scope_issue",
+        "_source_binding_issue",
     }
 )
 

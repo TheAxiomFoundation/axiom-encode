@@ -29,6 +29,30 @@ SELECTOR = PromotionSelector(
     "PavelMakarchuk",
     "12345",
 )
+# A promotable primary: the citation and a 64-hex pin, in the plain block form.
+PIN = "d" * 64
+PRIMARY = (
+    "format: rulespec/v1\n"
+    "module:\n"
+    "  source_verification:\n"
+    f"    corpus_citation_path: {SELECTOR.citation}\n"
+    f"    source_sha256: {PIN}\n"
+    "  summary: |-\n"
+    "    Synthetic fixture text.\n"
+    "rules: []\n"
+).encode()
+
+
+def _fixture_bytes(path: str) -> bytes:
+    return PRIMARY if path == PATH else ("fixture " + path).encode()
+
+
+def _set_primary(api: dict, raw: bytes) -> None:
+    entry = api[f"{ROOT}/contents/{PATH}?ref={HEAD}"]
+    entry["content"] = base64.b64encode(raw).decode()
+    entry["size"] = len(raw)
+
+
 ROOT = "/repos/TheAxiomFoundation/rulespec-us"
 PR = ROOT + "/pulls/42"
 RUN = "/repos/TheAxiomFoundation/axiom-encode/actions/runs/12345"
@@ -117,7 +141,7 @@ def api():
         },
     }
     for path in files:
-        raw = ("fixture " + path).encode()
+        raw = _fixture_bytes(path)
         result[f"{ROOT}/contents/{path}?ref={HEAD}"] = {
             "type": "file",
             "path": path,
@@ -135,7 +159,7 @@ def test_exact_bound_admission(api):
     assert result["record"]["base_sha"] == BASE
     assert (
         result["record"]["binding"]["rulespec_sha256"]
-        == hashlib.sha256(("fixture " + PATH).encode()).hexdigest()
+        == hashlib.sha256(PRIMARY).hexdigest()
     )
     assert result["record"]["pr_base_branch"] == SELECTOR.branch
     assert result["approvals"] == [{"review_id": 1, "reviewer_id": 6076111}]

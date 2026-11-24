@@ -71911,6 +71911,7 @@ def _record_encode_source_binding(result, outcome: dict) -> None:
         message = str(exc) if isinstance(exc, SourceBindingError) else "unreadable"
     else:
         outcome["source_binding"] = "bound"
+        print("  source_binding=bound")
         return
     outcome["source_binding"] = "unbound"
     outcome["source_binding_error"] = f"{kind}: {message}"
