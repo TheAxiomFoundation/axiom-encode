@@ -2741,7 +2741,11 @@ class TestEncoderSnapshotProvisioning:
         admission = {
             "schema": "axiom-encode/live-reviewed-pr-admission/v2",
             "admission_basis": "owner_dispatch",
-            "dispatcher": {"id": 110687043, "login": "PavelMakarchuk"},
+            "dispatcher": {
+                "login": "PavelMakarchuk",
+                "actor_id": 110687043,
+                "triggering_actor_id": 110687043,
+            },
             "selector": {"run_id": "123"},
         }
         out = provisioner._publish_runtime_attestation(

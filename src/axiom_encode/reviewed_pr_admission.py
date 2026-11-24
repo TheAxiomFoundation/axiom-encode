@@ -24,10 +24,13 @@ TRUSTED_SIGNING_REVIEWERS = {6076111: "MaxGhenis", 110687043: "PavelMakarchuk"}
 # What authorizes one promotion (#2301). Read at call time; there is no
 # environment variable, CLI flag or repository setting.
 #   False: no APPROVED review is required. The accountable act is the dispatch
-#     of the protected signing run by an enrolled owner: the live run's
-#     triggering actor must be a ``TRUSTED_SIGNING_REVIEWERS`` identity (numeric
-#     id, login and type ``User``). No second person sees the candidate before
-#     it is signed. An outstanding changes-requested review still refuses.
+#     of the protected signing run by an enrolled owner account: the live run's
+#     actor (who chose the inputs) and its triggering actor (who started this
+#     attempt) must be the same ``TRUSTED_SIGNING_REVIEWERS`` identity (numeric
+#     id, login and type ``User``). This identifies an account, not a person:
+#     a tool or agent session that holds an owner's token passes. No second
+#     person sees the candidate before it is signed. An outstanding
+#     changes-requested review still refuses.
 #   True (or any value that is not exactly ``False``): an independent enrolled
 #     owner must have approved the exact candidate head, and any account with
 #     write access may dispatch. This is the rule that was in force before.
@@ -222,24 +225,41 @@ def _admission_basis() -> str:
     )
 
 
-def _enrolled_dispatcher(run: dict, selector: PromotionSelector) -> dict:
-    """The live run's triggering actor as an enrolled owner, or refuse.
-
-    The numeric id is the identity; the login and the selector's actor must
-    both be the enrolled login of that id, and the account must be a human
-    ``User``. A missing or malformed field refuses.
-    """
-    actor = _object(run.get("triggering_actor"), "triggering actor")
-    identity = actor.get("id")
+def _enrolled_run_account(run: dict, field: str, label: str) -> tuple[int, str]:
+    account = _object(run.get(field), label)
+    identity = account.get("id")
     if (
         type(identity) is not int
         or identity not in TRUSTED_SIGNING_REVIEWERS
-        or actor.get("login") != TRUSTED_SIGNING_REVIEWERS[identity]
-        or actor.get("type") != "User"
-        or selector.actor != TRUSTED_SIGNING_REVIEWERS[identity]
+        or account.get("login") != TRUSTED_SIGNING_REVIEWERS[identity]
+        or account.get("type") != "User"
     ):
         raise AdmissionError("dispatch actor is not a verified enrolled signing owner")
-    return {"id": identity, "login": actor["login"]}
+    return identity, account["login"]
+
+
+def _enrolled_dispatcher(run: dict, selector: PromotionSelector) -> dict:
+    """The live run's dispatcher as one enrolled owner account, or refuse.
+
+    Two accounts are read from the live run and must be the same enrolled
+    identity: ``actor``, who dispatched the run and chose its inputs, and
+    ``triggering_actor``, who started this attempt. So an owner's re-run of
+    another account's dispatch refuses, and so does another account's re-run
+    of an owner's dispatch. For each, the numeric id is the identity, the
+    login must be the enrolled login of that id, and the account type must be
+    ``User``. The selector's actor must be that login. A missing or malformed
+    field refuses.
+
+    Type ``User`` excludes Apps and bots. It does not prove that a person
+    acted: any session that holds the owner's token is that ``User``.
+    """
+    actor_id, _login = _enrolled_run_account(run, "actor", "run actor")
+    triggering_id, login = _enrolled_run_account(
+        run, "triggering_actor", "triggering actor"
+    )
+    if actor_id != triggering_id or selector.actor != login:
+        raise AdmissionError("dispatch actor is not a verified enrolled signing owner")
+    return {"login": login, "actor_id": actor_id, "triggering_actor_id": triggering_id}
 
 
 def revalidate_admission(
@@ -349,10 +369,20 @@ def _decisive_reviews(reviews: list[dict]) -> dict[int, dict]:
     Any reviewer's outstanding changes-requested review refuses, under both
     admission bases. It is not limited to enrolled owners.
     """
+    # Order and reviewer identity decide the veto, so neither may be guessed.
+    for review in reviews:
+        if any(
+            type(value) is not int or value <= 0
+            for value in (
+                review.get("id"),
+                _object(review.get("user"), "reviewer").get("id"),
+            )
+        ):
+            raise AdmissionError("review or reviewer identity is malformed")
     decisive: dict[int, dict] = {}
-    for review in sorted(reviews, key=lambda item: item.get("id", 0)):
-        reviewer = _object(review.get("user"), "reviewer")
-        identity = reviewer.get("id")
+    for review in sorted(reviews, key=lambda item: item["id"]):
+        reviewer = review["user"]
+        identity = reviewer["id"]
         state = review.get("state")
         if state in {"CHANGES_REQUESTED", "APPROVED", "DISMISSED"}:
             decisive[identity] = review

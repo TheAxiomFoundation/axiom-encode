@@ -1958,8 +1958,9 @@ def test_promote_reviewed_candidate_changes_only_manifest(
                                 ),
                                 "admission_basis": "owner_waiver",
                                 "dispatcher": {
-                                    "id": 110687043,
                                     "login": "PavelMakarchuk",
+                                    "actor_id": 110687043,
+                                    "triggering_actor_id": 110687043,
                                 },
                             }
                             if admission == "live-unknown-basis"

@@ -34,6 +34,11 @@ PR = ROOT + "/pulls/42"
 RUN = "/repos/TheAxiomFoundation/axiom-encode/actions/runs/12345"
 REVIEWS = PR + "/reviews?per_page=100&page=1"
 PAVEL = {"id": 110687043, "login": "PavelMakarchuk"}
+DISPATCHER = {
+    "login": "PavelMakarchuk",
+    "actor_id": 110687043,
+    "triggering_actor_id": 110687043,
+}
 
 
 @pytest.fixture(
@@ -71,6 +76,7 @@ def api():
             "head_branch": "main",
             "head_sha": "e" * 40,
             "status": "in_progress",
+            "actor": {**PAVEL, "type": "User"},
             "triggering_actor": {**PAVEL, "type": "User"},
         },
         PR: {
@@ -549,7 +555,7 @@ def test_owner_dispatch_admission_names_its_basis_and_dispatcher(api):
     }
     assert result["schema"] == "axiom-encode/live-reviewed-pr-admission/v2"
     assert result["admission_basis"] == "owner_dispatch"
-    assert result["dispatcher"] == PAVEL
+    assert result["dispatcher"] == DISPATCHER
     assert result["record"]["purpose"] == (
         "Enrolled signing-owner dispatch of the protected signing run; no "
         "owner approval of the RuleSpec PR; new-module promotion only."
@@ -626,7 +632,7 @@ def test_renamed_owner_login_is_refused(api):
 def test_enrolled_dispatcher_binds_the_selector_actor(api):
     # The helper does not rely on its caller's login comparison.
     selector = replace(SELECTOR, actor="MaxGhenis")
-    assert admission_module._enrolled_dispatcher(api[RUN], SELECTOR) == PAVEL
+    assert admission_module._enrolled_dispatcher(api[RUN], SELECTOR) == DISPATCHER
     with pytest.raises(AdmissionError, match="enrolled signing owner"):
         admission_module._enrolled_dispatcher(api[RUN], selector)
 
@@ -691,14 +697,18 @@ def test_veto_ends_when_its_reviewer_withdraws_it(api, state):
         {"id": 7, "state": "CHANGES_REQUESTED", "commit_id": HEAD, "user": reviewer},
         {"id": 8, "state": state, "commit_id": HEAD, "user": reviewer},
     ]
-    assert verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)["dispatcher"] == PAVEL
+    assert (
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)["dispatcher"] == DISPATCHER
+    )
 
 
 @dispatch_policy
 @pytest.mark.parametrize("state", ["DISMISSED", "COMMENTED", "PENDING"])
 def test_owner_dispatch_needs_no_approval(api, state):
     api[REVIEWS][0]["state"] = state
-    assert verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)["dispatcher"] == PAVEL
+    assert (
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)["dispatcher"] == DISPATCHER
+    )
 
 
 def test_unknown_review_state_refuses_under_both_policies(api):
@@ -781,9 +791,12 @@ def test_owner_dispatch_revalidation_rejects_changed_authority(api, change):
 @pytest.mark.parametrize(
     "dispatcher",
     [
-        {"id": 6076111, "login": "MaxGhenis"},
-        {"id": 110687043, "login": "MaxGhenis"},
-        {"id": 110687043},
+        {"login": "MaxGhenis", "actor_id": 6076111, "triggering_actor_id": 6076111},
+        {**DISPATCHER, "login": "MaxGhenis"},
+        {**DISPATCHER, "actor_id": 6076111},
+        {**DISPATCHER, "triggering_actor_id": 6076111},
+        {"login": "PavelMakarchuk", "triggering_actor_id": 110687043},
+        PAVEL,
         None,
     ],
 )
@@ -853,3 +866,199 @@ def test_pre_basis_record_shape_is_refused(api):
     }
     with pytest.raises(AdmissionError, match="unknown admission basis"):
         revalidate_admission(legacy, fetch=_no_fetch)
+
+
+# --- review round 1 -----------------------------------------------------------
+
+
+def _max_account():
+    return {"id": 6076111, "login": "MaxGhenis", "type": "User"}
+
+
+@dispatch_policy
+@pytest.mark.parametrize(
+    "run_actor",
+    [
+        {"id": 999, "login": "other-writer", "type": "User"},
+        {"id": 999, "login": "PavelMakarchuk", "type": "User"},
+        {"id": 6076111, "login": "MaxGhenis", "type": "User"},
+        {"id": 110687043, "login": "PavelMakarchuk", "type": "Bot"},
+        {"id": 110687043, "login": "PavelMakarchuk"},
+        {"login": "PavelMakarchuk", "type": "User"},
+        {"id": "110687043", "login": "PavelMakarchuk", "type": "User"},
+        "PavelMakarchuk",
+        None,
+    ],
+    ids=str,
+)
+def test_owner_rerun_of_a_run_that_another_account_dispatched_is_refused(
+    api, run_actor
+):
+    # ``actor`` chose the inputs; ``triggering_actor`` is the enrolled owner.
+    api[RUN]["actor"] = run_actor
+    with pytest.raises(AdmissionError):
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+
+
+@dispatch_policy
+def test_run_without_an_actor_field_is_refused(api):
+    del api[RUN]["actor"]
+    with pytest.raises(AdmissionError, match="run actor"):
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+
+
+@dispatch_policy
+def test_run_without_a_triggering_actor_does_not_fall_back_to_the_actor(api):
+    del api[RUN]["triggering_actor"]
+    with pytest.raises(AdmissionError, match="triggering actor"):
+        admission_module._enrolled_dispatcher(api[RUN], SELECTOR)
+
+
+@approval_policy
+def test_approval_policy_does_not_read_the_run_actor(api):
+    # The rule in force before #2301: any account may have dispatched.
+    api[RUN]["actor"] = {"id": 999, "login": "other-writer", "type": "User"}
+    assert verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)["approvals"]
+
+
+@dispatch_policy
+@pytest.mark.parametrize("field", ["actor", "triggering_actor"])
+def test_revalidation_rereads_both_run_accounts(api, field):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    api[RUN][field]["id"] = 999
+    with pytest.raises(AdmissionError, match="enrolled signing owner"):
+        revalidate_admission(admission, fetch=api.__getitem__)
+
+
+def test_logins_are_compared_exactly(api):
+    lower = "pavelmakarchuk"
+    with pytest.raises(AdmissionError, match="enrolled signing owner"):
+        admission_module._enrolled_dispatcher(api[RUN], replace(SELECTOR, actor=lower))
+    for field in ("actor", "triggering_actor"):
+        run = copy.deepcopy(api[RUN])
+        run[field]["login"] = lower
+        with pytest.raises(AdmissionError, match="enrolled signing owner"):
+            admission_module._enrolled_dispatcher(run, SELECTOR)
+    run = copy.deepcopy(api[RUN])
+    run["actor"]["login"] = run["triggering_actor"]["login"] = lower
+    with pytest.raises(AdmissionError, match="enrolled signing owner"):
+        admission_module._enrolled_dispatcher(run, replace(SELECTOR, actor=lower))
+
+
+@dispatch_policy
+def test_revalidation_of_a_record_read_back_from_json(api):
+    # Production reads the record from the runtime attestation file.
+    import json
+
+    admission = json.loads(
+        json.dumps(verify_reviewed_pr(SELECTOR, fetch=api.__getitem__))
+    )
+    assert admission["admission_basis"] is not admission_module.BASIS_OWNER_DISPATCH
+    assert revalidate_admission(admission, fetch=api.__getitem__) == admission
+    api[RUN]["triggering_actor"]["id"] = 999
+    with pytest.raises(AdmissionError, match="enrolled signing owner"):
+        revalidate_admission(admission, fetch=api.__getitem__)
+    api[RUN]["triggering_actor"]["id"] = PAVEL["id"]
+    admission["dispatcher"]["actor_id"] = 6076111
+    with pytest.raises(AdmissionError, match="dispatching owner changed"):
+        revalidate_admission(admission, fetch=api.__getitem__)
+
+
+def _comments(count):
+    return [
+        {
+            "id": number,
+            "state": "COMMENTED",
+            "user": {"id": 555, "login": "outside-reader", "type": "User"},
+        }
+        for number in range(100, 100 + count)
+    ]
+
+
+@dispatch_policy
+@pytest.mark.parametrize("stage", ["admission", "revalidation"])
+def test_changes_requested_on_the_second_review_page_refuses(api, stage):
+    veto = {
+        "id": 500,
+        "state": "CHANGES_REQUESTED",
+        "user": {"id": 777, "login": "second-page", "type": "User"},
+    }
+    api[REVIEWS][:] = _comments(100)
+    api[PR + "/reviews?per_page=100&page=2"] = []
+    if stage == "admission":
+        api[PR + "/reviews?per_page=100&page=2"] = [veto]
+        with pytest.raises(AdmissionError, match="unresolved changes requested"):
+            verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+        return
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    assert revalidate_admission(admission, fetch=api.__getitem__) == admission
+    api[PR + "/reviews?per_page=100&page=2"] = [veto]
+    with pytest.raises(AdmissionError, match="unresolved changes requested"):
+        revalidate_admission(admission, fetch=api.__getitem__)
+
+
+def test_review_order_is_by_review_id_not_by_api_order(api):
+    reviewer = {"id": 555, "login": "outside-reader", "type": "User"}
+    api[REVIEWS].extend(
+        [
+            {"id": 9, "state": "CHANGES_REQUESTED", "user": reviewer},
+            {"id": 8, "state": "APPROVED", "commit_id": HEAD, "user": reviewer},
+        ]
+    )
+    with pytest.raises(AdmissionError, match="unresolved changes requested"):
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+
+
+@pytest.mark.parametrize("bad", [None, 0, -1, True, "7", 7.0], ids=repr)
+@pytest.mark.parametrize("where", ["review", "reviewer"])
+def test_review_with_a_malformed_identity_refuses(api, where, bad):
+    veto = {
+        "id": 7,
+        "state": "CHANGES_REQUESTED",
+        "user": {"id": 555, "login": "outside-reader", "type": "User"},
+    }
+    if where == "review":
+        veto["id"] = bad
+    else:
+        veto["user"]["id"] = bad
+    api[REVIEWS].append(veto)
+    with pytest.raises(AdmissionError, match="identity is malformed"):
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+
+
+@pytest.mark.parametrize("key", ["id", "user"])
+def test_review_without_an_identity_refuses(api, key):
+    del api[REVIEWS][0][key]
+    with pytest.raises(AdmissionError):
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+
+
+@dispatch_policy
+def test_an_approval_without_a_reviewer_id_cannot_hide_a_veto(api):
+    # Reviewer probe: two reviewers with no id collided on one key.
+    api[REVIEWS][:] = [
+        {"id": 7, "state": "CHANGES_REQUESTED", "user": {"login": "first"}},
+        {"id": 8, "state": "APPROVED", "commit_id": HEAD, "user": {"login": "second"}},
+    ]
+    with pytest.raises(AdmissionError, match="identity is malformed"):
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+
+
+@dispatch_policy
+def test_a_veto_without_a_review_id_cannot_lose_to_an_earlier_approval(api):
+    # Reviewer probe: a missing review id sorted first.
+    reviewer = {"id": 555, "login": "outside-reader", "type": "User"}
+    api[REVIEWS][:] = [
+        {"id": 7, "state": "APPROVED", "commit_id": HEAD, "user": reviewer},
+        {"state": "CHANGES_REQUESTED", "user": reviewer},
+    ]
+    with pytest.raises(AdmissionError, match="identity is malformed"):
+        verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+
+
+@dispatch_policy
+def test_malformed_review_refuses_at_revalidation(api):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    api[REVIEWS].append({"state": "COMMENTED", "user": {"id": 555, "login": "x"}})
+    with pytest.raises(AdmissionError, match="identity is malformed"):
+        revalidate_admission(admission, fetch=api.__getitem__)
