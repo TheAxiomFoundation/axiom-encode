@@ -73,6 +73,7 @@ from axiom_encode.encode_timing import (
     mark_encode_phase,
     timed_phase,
 )
+from axiom_encode.generalist_review_chunks import ReviewSource
 from axiom_encode.harness.same_case_execution import (
     ExecutionGitOrigin,
     bind_execution_overlay_origin,
@@ -9060,14 +9061,17 @@ def _evaluate_artifact_in_scope(
                 "issues": policyengine_result.issues,
                 "duration_ms": policyengine_result.duration_ms,
             }
-        review_context = (
+        # The text before the source excerpt and the text after it. One call
+        # shows the first 4,000 characters of the excerpt between them; a
+        # chunked review shows each chunk of the excerpt between them.
+        review_context_before = (
             "This review is running inside an eval-suite benchmark workspace. "
             "The artifact file path is generic benchmark output and is not itself the legal citation. "
             "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
             "The benchmark target is an atomic source slice/unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RuleSpec claims to encode them. "
             "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
-            f"{source_text.strip()[:4000]}"
         )
+        review_context = ""
         if re.search(
             r"\bon the first day\b|\bnext benefit week\b|\bon or after the day\b",
             source_text,
@@ -9090,6 +9094,12 @@ def _evaluate_artifact_in_scope(
         )
         if advisory_context:
             review_context += "\n\n" + advisory_context
+        review_source = ReviewSource(
+            text=source_text.strip(),
+            context_before=review_context_before,
+            context_after=review_context,
+        )
+        review_context = review_source.single_call_context()
         # The encode retry loop feeds only compile/CI findings back to the
         # model and never gates apply on the reviewer, so in that lane a
         # reviewer call on an already-rejected candidate is pure latency.
@@ -9110,6 +9120,7 @@ def _evaluate_artifact_in_scope(
                     validation_file,
                     oracle_context or None,
                     review_context=review_context,
+                    review_source=review_source,
                 )
             except Exception as exc:
                 generalist_review_result = ValidationResult(

@@ -18,6 +18,7 @@ from axiom_encode.generalist_review_record import (
     build_generalist_review_record,
     review_evidence_digests,
 )
+from tests.generalist_review_fixtures import whole_review_coverage
 from tests.test_cli import TestCmdEncode as _MigrationCases
 from tests.test_cli import (
     _pin_test_encoder_execution_identity as _pin_test_encoder_execution_identity,
@@ -72,6 +73,9 @@ def test_finalized_exact_dependents_refuse_required_review_before_signing(
                 **review_evidence_digests(output.read_bytes(), companion.read_bytes()),
                 "rulespec_complete": True,
                 "test_complete": True,
+                "coverage": whole_review_coverage(
+                    output.read_bytes(), companion.read_bytes()
+                ),
                 "explicit_passed": True,
                 "reviewer_backend": "codex",
                 "reviewer_model": "fixture",

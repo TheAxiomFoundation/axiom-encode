@@ -129,6 +129,17 @@ from axiom_encode.form_numeric_structure import (
     mask_form_numeric_locators,
 )
 from axiom_encode.form_source_structure import mask_form_display
+from axiom_encode.generalist_review_chunks import (
+    MAX_PROMPT_BYTES,
+    SINGLE_CALL_SOURCE_CHARS,
+    ReviewSource,
+    chunked_prompt_sha256,
+    chunked_review_prompts,
+    fits_single_call,
+    plan_chunked_review,
+    prefix_chunks,
+    review_coverage_evidence,
+)
 from axiom_encode.generalist_review_record import (
     EVIDENCE_EXPLICIT_PASSED,
     GENERALIST_REVIEWER_NAME,
@@ -43055,6 +43066,7 @@ class ValidatorPipeline:
         rulespec_file: Path,
         oracle_context: Optional[dict] = None,
         review_context: str | None = None,
+        review_source: ReviewSource | None = None,
     ) -> ValidationResult:
         """Run a reviewer agent via Claude Code CLI with oracle context.
 
@@ -43062,9 +43074,19 @@ class ValidatorPipeline:
             reviewer_type: Type of reviewer (rulespec-reviewer, formula-reviewer, etc.)
             rulespec_file: Path to the RuleSpec file to review
             oracle_context: Results from the explicit PolicyEngine oracle for context
+            review_context: Review context of the one call
+            review_source: The source excerpt of the generalist review, apart
+                from the context around it. With it, ``review_context`` is
+                its ``single_call_context()``.
 
         Returns:
             ValidationResult with score, issues, and raw output
+
+        The generalist reviewer makes one call when the module, the
+        companion test and the source excerpt fit the single-call limits;
+        that prompt is unchanged. A larger candidate is reviewed in ordered
+        chunks (``generalist_review_chunks``), and passes only when every
+        call passes. A candidate with no chunk plan gets the one call.
         """
         start = time.time()
 
@@ -43141,6 +43163,22 @@ class ValidatorPipeline:
                 f"{test_content[:3000]}{'...' if len(test_content) > 3000 else ''}\n"
             )
 
+        source_text = None if review_source is None else review_source.text
+        if reviewer_type == GENERALIST_REVIEWER_NAME and not fits_single_call(
+            rulespec_content, test_content, source_text
+        ):
+            chunked = self._run_chunked_generalist_review(
+                rulespec_content=rulespec_content,
+                test_content=test_content,
+                review_source=review_source,
+                review_context=review_context,
+                oracle_section=oracle_section,
+                review_evidence=review_evidence,
+                start=start,
+            )
+            if chunked is not None:
+                return chunked
+
         if prompt_template is not None:
             prompt = f"""{prompt_template}
 
@@ -43185,6 +43223,39 @@ Output ONLY valid JSON:
         review_evidence["test_complete"] = (
             test_content is None or len(test_content) <= 3000
         )
+        review_evidence["source_complete"] = (
+            source_text is None or len(source_text) <= SINGLE_CALL_SOURCE_CHARS
+        )
+        # The byte range of each text that this one call showed.
+        with contextlib.suppress(UnicodeError):
+            review_evidence["coverage"] = review_coverage_evidence(
+                prefix_chunks(rulespec_content, rulespec_limit),
+                None if test_content is None else prefix_chunks(test_content, 3000),
+                None
+                if source_text is None
+                else prefix_chunks(source_text, SINGLE_CALL_SOURCE_CHARS),
+                calls_planned=1,
+                calls_made=1,
+            )
+        return self._reviewer_call_result(
+            reviewer_type,
+            prompt,
+            prompt_sha256=prompt_sha256,
+            review_evidence=review_evidence,
+            start=start,
+        )
+
+    def _reviewer_call_result(
+        self,
+        reviewer_type: str,
+        prompt: str,
+        *,
+        prompt_sha256: str | None,
+        review_evidence: dict[str, Any],
+        start: float,
+    ) -> ValidationResult:
+        """Make one reviewer call and read its verdict with the strict parser."""
+
         _note_reviewer_cli_started(None, None)
 
         try:
@@ -43326,6 +43397,127 @@ Output ONLY valid JSON:
                 error=str(e),
                 prompt_sha256=prompt_sha256,
             )
+
+    def _run_chunked_generalist_review(
+        self,
+        *,
+        rulespec_content: str,
+        test_content: str | None,
+        review_source: ReviewSource | None,
+        review_context: str | None,
+        oracle_section: str,
+        review_evidence: dict[str, Any],
+        start: float,
+    ) -> ValidationResult | None:
+        """Review a candidate that does not fit one call, in ordered chunks.
+
+        None when the candidate has no chunk plan (a cap is exceeded, or a
+        text cannot be split): the caller then makes its one call.
+
+        The calls run in plan order and stop at the first call that does not
+        pass. The result passes only when every planned call passed; a call
+        that failed makes it fail, and a call with no readable verdict makes
+        it a reviewer error. The evidence says the reviewer wrote
+        ``passed: true`` itself only when every call did.
+        """
+
+        plan = plan_chunked_review(
+            rulespec_content,
+            test_content,
+            None if review_source is None else review_source.text,
+        )
+        if plan is None:
+            return None
+        try:
+            prompts = chunked_review_prompts(
+                plan,
+                prompt_template=GENERALIST_REVIEWER_PROMPT,
+                review_source=review_source,
+                review_context=review_context,
+                oracle_section=oracle_section,
+            )
+            if any(
+                len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES for prompt in prompts
+            ):
+                return None
+        except UnicodeError:
+            return None
+        prompt_sha256s = tuple(str(_sha256_text(prompt)) for prompt in prompts)
+        prompt_sha256 = chunked_prompt_sha256(prompt_sha256s)
+
+        results: list[ValidationResult] = []
+        identities: set[tuple[object, object]] = set()
+        every_call_explicit = True
+        stopped: ValidationResult | None = None
+        for prompt, call_sha256 in zip(prompts, prompt_sha256s, strict=True):
+            call_evidence: dict[str, Any] = {}
+            result = self._reviewer_call_result(
+                GENERALIST_REVIEWER_NAME,
+                prompt,
+                prompt_sha256=call_sha256,
+                review_evidence=call_evidence,
+                start=time.time(),
+            )
+            results.append(result)
+            identities.add(
+                (
+                    call_evidence.get("reviewer_backend"),
+                    call_evidence.get("reviewer_model"),
+                )
+            )
+            if call_evidence.get(EVIDENCE_EXPLICIT_PASSED) is not True:
+                every_call_explicit = False
+            if result.passed is not True or result.score is None:
+                stopped = result
+                break
+
+        calls_made = len(results)
+        number = f"review call {calls_made} of {len(prompts)}"
+        duration = int((time.time() - start) * 1000)
+        issues = [
+            f"[review call {index} of {len(prompts)}] {issue}"
+            for index, result in enumerate(results, start=1)
+            for issue in result.issues
+        ]
+        if stopped is not None and stopped.score is None:
+            # No readable verdict for one chunk: never a pass, and not a
+            # failed review either.
+            return ValidationResult(
+                validator_name=GENERALIST_REVIEWER_NAME,
+                passed=False,
+                score=None,
+                issues=issues,
+                duration_ms=duration,
+                raw_output=stopped.raw_output,
+                error=f"{number}: {stopped.error or 'no verdict'}",
+                prompt_sha256=prompt_sha256,
+            )
+
+        whole = stopped is None and calls_made == len(prompts)
+        backend, model = identities.pop() if len(identities) == 1 else (None, None)
+        review_evidence["reviewer_backend"] = backend
+        review_evidence["reviewer_model"] = model
+        review_evidence[EVIDENCE_EXPLICIT_PASSED] = whole and every_call_explicit
+        review_evidence["rulespec_complete"] = whole
+        review_evidence["test_complete"] = whole
+        review_evidence["source_complete"] = whole
+        review_evidence["coverage"] = review_coverage_evidence(
+            plan.rulespec,
+            plan.test,
+            plan.source,
+            calls_planned=len(prompts),
+            calls_made=calls_made,
+        )
+        return ValidationResult(
+            validator_name=GENERALIST_REVIEWER_NAME,
+            passed=whole,
+            score=min(float(result.score) for result in results),
+            issues=issues,
+            duration_ms=duration,
+            raw_output="\n".join(result.raw_output or "" for result in results),
+            prompt_sha256=prompt_sha256,
+            details={"review_evidence": review_evidence},
+        )
 
     def _required_policyengine_runtime(self) -> PolicyEngineRuntime:
         """Return the one admitted runtime bound to this canonical RuleSpec root."""

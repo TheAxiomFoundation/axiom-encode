@@ -22,6 +22,7 @@ import pytest
 
 from axiom_encode import cli
 from axiom_encode import validation_waivers as waivers_module
+from tests.generalist_review_fixtures import whole_review_coverage
 from tests.test_cli import TEST_PINNED_ENCODER_IDENTITY
 from tests.test_retired_apply_paths import (
     _commit,
@@ -578,6 +579,7 @@ def test_real_apply_staging_reads_the_record_gate_from_the_real_checkout(
                 **review_evidence_digests(rule_bytes, test_bytes),
                 "rulespec_complete": True,
                 "test_complete": True,
+                "coverage": whole_review_coverage(rule_bytes, test_bytes),
                 "explicit_passed": True,
             },
             required=True,

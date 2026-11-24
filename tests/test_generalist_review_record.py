@@ -24,6 +24,11 @@ from axiom_encode.cli import (
     _write_applied_encoding_manifest,
     cmd_encode,
 )
+from axiom_encode.generalist_review_chunks import (
+    CHUNK_RULESPEC_CHARS,
+    CHUNK_TEST_CHARS,
+    MAX_CHUNKS_PER_FILE,
+)
 from axiom_encode.generalist_review_record import (
     GENERALIST_REVIEW_FIELD,
     GENERALIST_REVIEW_SCHEMA,
@@ -41,6 +46,7 @@ from axiom_encode.harness.evals import (
     GENERALIST_REVIEW_EVIDENCE_ATTR,
     EvalArtifactMetrics,
 )
+from tests.generalist_review_fixtures import whole_review_coverage
 from tests.test_cli import (
     TEST_APPLY_SIGNING_BROKER,
     TEST_PINNED_ENCODER_IDENTITY,
@@ -232,11 +238,17 @@ def _files(*entries):
     )
 
 
+def _coverage(rulespec=RULE_BYTES, test=TEST_BYTES, source=None, calls=1):
+    return whole_review_coverage(rulespec, test, source, calls=calls)
+
+
 def _evidence(rulespec=RULE_BYTES, test=TEST_BYTES, **overrides):
     evidence = {
         **review_evidence_digests(rulespec, test),
         "rulespec_complete": True,
         "test_complete": True,
+        "source_complete": True,
+        "coverage": _coverage(rulespec, test),
         "explicit_passed": True,
         "reviewer_backend": "codex",
         "reviewer_model": "gpt-test",
@@ -537,6 +549,7 @@ def test_passed_record_carries_identity_verdict_and_digests():
             "rulespec_path": RULE_PATH,
             "test_path": TEST_PATH,
         },
+        "coverage": _coverage(),
         "files": _files(
             (RULE_PATH, PAIR.rulespec_sha256, True, True),
             (TEST_PATH, PAIR.test_sha256, True, True),
@@ -822,9 +835,12 @@ def test_reader_refuses_a_pass_that_marks_an_unread_file_reviewed():
     for entry in forged["files"]:
         entry["reviewed"] = entry["complete"] = True
 
-    # Every file now reads as reviewed in full, but the record names one pair.
+    # Every file now reads as reviewed in full, but the record names one pair,
+    # and no chunk range covers the other files.
     assert _issues(forged) == [
-        "generalist_review verdict is not bound to the applied file digests"
+        "generalist_review verdict is not bound to the applied file digests",
+        "generalist_review marks a file complete without chunk ranges that "
+        "cover it exactly once",
     ]
 
 
@@ -967,7 +983,8 @@ def _tampered(record, path, value):
 @pytest.mark.parametrize(
     ("path", "value"),
     [
-        (("schema",), "axiom-encode/generalist-review/v2"),
+        (("schema",), "axiom-encode/generalist-review/v1"),
+        (("schema",), "axiom-encode/generalist-review/v3"),
         (("status",), "approved"),
         (("status",), "failed"),
         (("status",), "unavailable"),
@@ -1252,6 +1269,8 @@ def test_scored_review_records_the_digests_of_the_bytes_it_read(tmp_path, monkey
         "reviewed_rulespec_dumped_content_sha256": PAIR.rulespec_content_sha256,
         "rulespec_complete": True,
         "test_complete": True,
+        "source_complete": True,
+        "coverage": _coverage(rule.read_bytes(), test.read_bytes()),
         "explicit_passed": True,
         # The mocked runner started no CLI, so the identity stays unknown.
         "reviewer_backend": None,
@@ -1463,7 +1482,12 @@ def test_applied_pairs_pair_each_rulespec_with_its_companion_test(tmp_path):
 
 
 def test_review_of_a_truncated_candidate_says_so(tmp_path, monkeypatch):
-    rule = _candidate(tmp_path, rule_text="format: rulespec/v1\n" + "# x\n" * 2000)
+    # Above the chunk cap: the reviewer makes its one call and sees the start.
+    rule = _candidate(
+        tmp_path,
+        rule_text="format: rulespec/v1\n"
+        + "# x\n" * (MAX_CHUNKS_PER_FILE * CHUNK_RULESPEC_CHARS // 4),
+    )
     monkeypatch.setattr(
         validator_pipeline,
         "run_claude_code",
@@ -1484,7 +1508,8 @@ def test_review_of_a_truncated_companion_test_says_so(tmp_path, monkeypatch):
     rule = _candidate(
         tmp_path,
         rule_text=RULE_BYTES.decode(),
-        test_text="".join(f"- name: case_{i}\n" for i in range(400)),
+        # Above the chunk cap: the one call shows the start of the companion.
+        test_text="- name: case\n" * (MAX_CHUNKS_PER_FILE * CHUNK_TEST_CHARS // 13 + 1),
     )
     monkeypatch.setattr(
         validator_pipeline,
@@ -3453,7 +3478,9 @@ def test_reader_refuses_a_pass_that_credits_an_unseen_companion():
     forged["reviewed"]["test_content_sha256"] = absent
     forged["applied"]["test_content_sha256"] = absent
     assert _issues(forged, manifest) == [
-        "generalist_review verdict is not bound to the applied file digests"
+        "generalist_review verdict is not bound to the applied file digests",
+        "generalist_review marks a file complete without chunk ranges that "
+        "cover it exactly once",
     ]
     # A reviewed companion file never has the content of an absent one.
     forged = copy.deepcopy(passed)
@@ -4519,7 +4546,9 @@ def test_manifest_reader_gives_each_applied_path_to_the_record_check(tmp_path):
     for entry in record["files"]:
         entry["reviewed"] = entry["complete"] = True
     assert added(forged) == [
-        "manifest generalist_review verdict is not bound to the applied file digests"
+        "manifest generalist_review verdict is not bound to the applied file digests",
+        "manifest generalist_review marks a file complete without chunk ranges "
+        "that cover it exactly once",
     ]
     # A manifest entry at another path than the record lists is refused.
     renamed = copy.deepcopy(payload)

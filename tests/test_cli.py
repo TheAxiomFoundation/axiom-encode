@@ -374,6 +374,7 @@ from tests.eval_evidence_fixtures import (
     TEST_APPLY_PUBLIC_KEY_B64,
     install_test_eval_evidence_keys,
 )
+from tests.generalist_review_fixtures import whole_review_coverage
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     bind_test_corpus_release,
@@ -23708,6 +23709,9 @@ rules: []
                     ),
                     "rulespec_complete": review.get("rulespec_complete", True),
                     "test_complete": True,
+                    "coverage": whole_review_coverage(
+                        output_file.read_bytes(), test_file.read_bytes()
+                    ),
                     "explicit_passed": True,
                     "reviewer_backend": "codex",
                     "reviewer_model": "gpt-test",
@@ -24103,6 +24107,9 @@ rules: []
                 **review_evidence_digests(b"format: rulespec/v1\nrules: []\n", b"[]\n"),
                 "rulespec_complete": True,
                 "test_complete": True,
+                "coverage": whole_review_coverage(
+                    b"format: rulespec/v1\nrules: []\n", b"[]\n"
+                ),
                 "explicit_passed": True,
                 "reviewer_backend": "codex",
                 "reviewer_model": "gpt-test",
