@@ -343,6 +343,7 @@ from .harness.validator_pipeline import (
     _candidate_upstream_rulespec_roots,
     _canonical_rulespec_compile_path,
     _canonical_rulespec_target,
+    _extract_import_items_from_content,
     _extract_source_verification_text,
     _filing_status_rule_source_context,
     _has_malformed_profiled_numeric_envelope,
@@ -606,6 +607,16 @@ from .toolchain import (
     verify_rulespec_validation_waiver_set,
 )
 from .validation_waiver_scope import WaiverAuditScope, select_validation_waiver_scope
+from .validation_waiver_shadow import (
+    SHADOW_SCHEMA,
+    append_shadow_summary,
+    compare_incremental_shadow,
+    remove_stale_shadow_record,
+    same_output_path,
+    shadow_output_path_issue,
+    shadow_summary_line,
+    write_shadow_record,
+)
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
@@ -2279,6 +2290,23 @@ def main():
         help="Audit all waivers (default) or conservatively select changed read sets",
     )
     validation_waivers_audit_parser.add_argument(
+        "--incremental-shadow-report",
+        type=Path,
+        help=(
+            "Report only, with --scope full: after the full audit, compute the "
+            "incremental selection of the same partition and write a JSON "
+            "comparison here; never changes the exit code"
+        ),
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--incremental-shadow-summary",
+        type=Path,
+        help=(
+            "With --incremental-shadow-report: also append one Markdown line "
+            "here, for example $GITHUB_STEP_SUMMARY"
+        ),
+    )
+    validation_waivers_audit_parser.add_argument(
         "--verifier-restate",
         action="store_true",
         help=(
@@ -3256,6 +3284,70 @@ def main():
         "--run-id",
         default=None,
         help="Optional protected workflow run identifier recorded in the manifest",
+    )
+
+    bind_source_parser = subparsers.add_parser(
+        "bind-source-verification",
+        help=(
+            "Set module.source_verification.corpus_citation_path and "
+            "source_sha256 of one existing candidate module to the "
+            "resolver-attested values by a minimal text edit (no model, no "
+            "network write, no signing)"
+        ),
+    )
+    bind_source_parser.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="RuleSpec policy checkout that holds the candidate module",
+    )
+    bind_source_parser.add_argument(
+        "--citation",
+        required=True,
+        help="Exact canonical corpus citation of the candidate module",
+    )
+    _add_required_corpus_path_argument(bind_source_parser)
+    bind_source_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Verify only: exit 1 when the module is not bound; write nothing",
+    )
+    bind_source_parser.add_argument(
+        "--expect-source-sha256",
+        default=None,
+        metavar="HEX",
+        help=(
+            "The source_sha256 of the source attestation that the encode run "
+            "recorded for this candidate. The command refuses unless the corpus "
+            "release pinned by the checkout still attests exactly this source "
+            "body. Use it for every existing candidate: without it the pin "
+            "attests the current corpus release, which may hold another body "
+            "than the one the candidate was encoded from"
+        ),
+    )
+    bind_source_parser.add_argument(
+        "--corpus-release-public-key",
+        default=None,
+        help=(
+            "Verification-only local run: verify the pinned corpus release "
+            "with this public root, as encode --corpus-release-public-key does"
+        ),
+    )
+    bind_source_parser.add_argument(
+        "--corpus-release-retired-public-key",
+        action="append",
+        default=[],
+        help="With --corpus-release-public-key, a retired corpus release key",
+    )
+    bind_source_parser.add_argument(
+        "--apply-public-key",
+        default=None,
+        help="With --corpus-release-public-key, the apply-manifest public root",
+    )
+    bind_source_parser.add_argument(
+        "--eval-public-key",
+        default=None,
+        help="With --corpus-release-public-key, the eval-evidence public root",
     )
 
     signed_import_parser = subparsers.add_parser(
@@ -4551,6 +4643,23 @@ def main():
     _judge_cli.register_judge_subparsers(subparsers)
 
     args = parser.parse_args()
+    if (
+        args.command == "validation-waivers"
+        and getattr(args, "validation_waivers_command", None) == "audit"
+    ):
+        shadow_report = getattr(args, "incremental_shadow_report", None)
+        shadow_summary = getattr(args, "incremental_shadow_summary", None)
+        if shadow_summary is not None and shadow_report is None:
+            parser.error(
+                "--incremental-shadow-summary requires --incremental-shadow-report"
+            )
+        if shadow_summary is not None and same_output_path(
+            Path(shadow_summary), Path(shadow_report)
+        ):
+            parser.error(
+                "--incremental-shadow-summary and --incremental-shadow-report "
+                "must be different files"
+            )
     _apply_encoder_producer_floor_argument(args)
     if args.command == "encode" and args.escalation_model is None:
         args.escalation_model = (
@@ -4666,6 +4775,8 @@ def main():
         apply_reviewed_repair(args)
     elif args.command == "promote-reviewed-candidate":
         cmd_promote_reviewed_candidate(args)
+    elif args.command == "bind-source-verification":
+        sys.exit(cmd_bind_source_verification(args))
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
     elif args.command == "checks":
@@ -5865,6 +5976,8 @@ def _validation_waiver_ledger_differs(
 def _cmd_validation_waivers_audit(args) -> int:
     if hasattr(args, "_validation_waiver_audit_selection"):
         del args._validation_waiver_audit_selection
+    if hasattr(args, "_validation_waiver_shadow_done"):
+        del args._validation_waiver_shadow_done
     root = Path(args.root).resolve()
     requested_scope = getattr(args, "scope", "full")
     if requested_scope not in {"full", "incremental"}:
@@ -5931,6 +6044,11 @@ def _cmd_validation_waivers_audit(args) -> int:
                 fallback_reason="protected base transition checks failed",
             )
         _print_validation_waiver_audit_report(report, as_json=args.json)
+        _validation_waiver_incremental_shadow(
+            args,
+            full_report=report,
+            unavailable="protected base transition checks failed",
+        )
         return 1
 
     active_paths = set(head.active_paths)
@@ -5975,15 +6093,12 @@ def _cmd_validation_waivers_audit(args) -> int:
             # Without a table the report keeps its legacy bytes.
             partition["cost_table_sha256"] = costs.sha256
 
-    scope = "full"
-    selection_reasons: dict[str, list[str]] = {}
-    fallback_reason = None
-    if requested_scope == "incremental":
+    def _select_incremental(owned: Sequence[str]) -> WaiverAuditScope:
         # Select within this job's own partition only. Each waiver is decided
         # from its own read set, so the partition's selection is its share of
         # the whole ledger's selection, at a cost that follows the partition.
         selection = select_validation_waiver_scope(
-            list(classified),
+            list(owned),
             root=root,
             changed_paths=changed_paths,
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
@@ -6011,10 +6126,17 @@ def _cmd_validation_waivers_audit(args) -> int:
             )
             selection = WaiverAuditScope(
                 "full",
-                tuple(classified),
-                {path: [f"full audit fallback: {reason}"] for path in classified},
+                tuple(owned),
+                {path: [f"full audit fallback: {reason}"] for path in owned},
                 reason,
             )
+        return selection
+
+    scope = "full"
+    selection_reasons: dict[str, list[str]] = {}
+    fallback_reason = None
+    if requested_scope == "incremental":
+        selection = _select_incremental(list(classified))
         scope = selection.scope
         selection_reasons = selection.reasons
         fallback_reason = selection.fallback_reason
@@ -6227,7 +6349,212 @@ def _cmd_validation_waivers_audit(args) -> int:
     if partition is not None:
         report["partition"] = partition
     _print_validation_waiver_audit_report(report, as_json=args.json)
+    # Report-only: the selection runs after the full audit has finished and
+    # printed, so it cannot change the audit's results, report or exit code.
+    if requested_scope != "full":
+        shadow_unavailable = "the shadow compares a --scope full audit"
+    elif verifier_restate:
+        shadow_unavailable = "a verifier restate requires the full audit"
+    else:
+        shadow_unavailable = None
+    _validation_waiver_incremental_shadow(
+        args,
+        full_report=report,
+        select=lambda: _select_incremental(list(classified)),
+        unavailable=shadow_unavailable,
+    )
     return 0 if report["success"] else 1
+
+
+# Every path-typed input of `validation-waivers audit` besides `--root` and the
+# shadow outputs. The shadow never writes to, or inside, any of them.
+_VALIDATION_WAIVER_AUDIT_PATH_INPUTS = (
+    "protected_base",
+    "changed_paths",
+    "corpus_path",
+    "axiom_rules_path",
+    "axiom_compose_path",
+    "rulespec_dependency_root",
+)
+
+
+def _validation_waiver_shadow_partition(args) -> dict[str, Any]:
+    """The partition a shadow record belongs to, from the arguments alone."""
+
+    key = getattr(args, "partition_key", None)
+    if key is None:
+        return {"key": None, "count": 1}
+    count: int | None = None
+    try:
+        keys = json.loads(getattr(args, "partition_keys_json", None) or "null")
+        if isinstance(keys, list):
+            count = len(keys)
+    except ValueError:
+        count = None
+    return {"key": key, "count": count}
+
+
+def _validation_waiver_shadow_binding(args) -> dict[str, Any]:
+    """What ties a shadow record to one run: revision, inputs and verifier."""
+
+    def digest(value: object) -> str | None:
+        if value is None:
+            return None
+        try:
+            return "sha256:" + hashlib.sha256(Path(value).read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    head_commit: str | None = None
+    root = getattr(args, "root", None)
+    if root is not None:
+        try:
+            # No GIT_* variable (GIT_DIR, GIT_WORK_TREE, ...) may point the
+            # probe at another repository.
+            completed = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "--show-toplevel", "HEAD"],
+                capture_output=True,
+                timeout=30,
+                check=False,
+                env={"PATH": os.environ.get("PATH", os.defpath)},
+            )
+            lines = completed.stdout.decode("utf-8").splitlines()
+            # Only the root's own checkout counts, never an enclosing one.
+            if (
+                completed.returncode == 0
+                and len(lines) == 2
+                and os.path.samefile(lines[0], root)
+                and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", lines[1])
+            ):
+                head_commit = lines[1]
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # UnicodeDecodeError is a ValueError. Only head_commit is lost.
+            head_commit = None
+    return {
+        "encoder_version": __version__,
+        "head_commit": head_commit,
+        "github_sha": os.environ.get("GITHUB_SHA"),
+        "protected_base_sha256": digest(getattr(args, "protected_base", None)),
+        "changed_paths_sha256": digest(getattr(args, "changed_paths", None)),
+    }
+
+
+def _validation_waiver_incremental_shadow(
+    args,
+    *,
+    full_report: dict[str, Any] | None,
+    select: Callable[[], WaiverAuditScope] | None = None,
+    unavailable: str | None = None,
+) -> None:
+    """Write the report-only comparison of the incremental selection.
+
+    It runs only when `--incremental-shadow-report` is given. It never raises
+    an `Exception` and never changes the audit's exit code: every failure
+    becomes an `inconclusive` record, or, if the record cannot be written,
+    diagnostic lines. An interrupt or a kill leaves no record; a collector
+    must treat a missing record as unsafe.
+    """
+
+    record_path = getattr(args, "incremental_shadow_report", None)
+    if record_path is None or getattr(args, "_validation_waiver_shadow_done", False):
+        return
+    args._validation_waiver_shadow_done = True
+    record_path = Path(record_path)
+    summary_path = getattr(args, "incremental_shadow_summary", None)
+    try:
+        selection: dict[str, Any] | None = None
+        selection_error = unavailable
+        seconds: float | None = None
+        if selection_error is None and select is None:
+            selection_error = "incremental selection was not computed"
+        if selection_error is None and select is not None:
+            started = time.monotonic()
+            try:
+                chosen = select()
+                selection = {"scope": chosen.scope, "paths": list(chosen.paths)}
+                if chosen.fallback_reason is not None:
+                    selection["fallback_reason"] = chosen.fallback_reason
+            except Exception as error:
+                selection_error = f"{type(error).__name__}: {error}"
+            seconds = time.monotonic() - started
+        record = compare_incremental_shadow(
+            full_report=full_report,
+            selection=selection,
+            selection_error=selection_error,
+            selection_seconds=seconds,
+            partition=_validation_waiver_shadow_partition(args),
+            binding=_validation_waiver_shadow_binding(args),
+        )
+        if unavailable is not None and not any(
+            unavailable in error for error in record["errors"]
+        ):
+            record["errors"].append(unavailable)
+    except Exception as error:
+        record = {
+            "schema": SHADOW_SCHEMA,
+            "verdict": "inconclusive",
+            "unsafe": True,
+            "report_only": True,
+            "partition": _validation_waiver_shadow_partition(args),
+            "errors": [f"shadow comparison failed: {type(error).__name__}: {error}"],
+        }
+
+    # Never write into the checked repository, over an input of the audit,
+    # or through a symbolic link. A refused path leaves the record in the log.
+    root = getattr(args, "root", None)
+    inputs: list[Path] = []
+    for name in _VALIDATION_WAIVER_AUDIT_PATH_INPUTS:
+        value = getattr(args, name, None)
+        values = value if isinstance(value, (list, tuple)) else [value]
+        inputs.extend(Path(item) for item in values if item is not None)
+    refused: list[str] = []
+    try:
+        for target in (record_path, summary_path):
+            if target is None:
+                continue
+            issue = shadow_output_path_issue(
+                Path(target), root=None if root is None else Path(root), inputs=inputs
+            )
+            if issue is not None:
+                refused.append(issue)
+    except Exception as error:
+        refused.append(f"output paths cannot be checked: {error}")
+    if refused:
+        record = {
+            **record,
+            "verdict": "inconclusive",
+            "unsafe": True,
+            "errors": [*record.get("errors", []), *refused],
+        }
+
+    line = "validation-waivers " + shadow_summary_line(record)
+    if refused:
+        line += "; record and summary not written: output path refused"
+    else:
+        try:
+            write_shadow_record(record_path, record)
+        except Exception as error:
+            line += f"; record not written: {error}"
+            try:
+                if remove_stale_shadow_record(record_path):
+                    line += "; the record of an earlier run at that path was removed"
+            except Exception:
+                pass
+        if summary_path is not None:
+            try:
+                append_shadow_summary(Path(summary_path), record)
+            except Exception as error:
+                line += f"; summary not written: {error}"
+    try:
+        _waiver_partition.write_audit_line(line)
+        # The same record in the log, for a run whose record file cannot be
+        # written or collected.
+        _waiver_partition.write_audit_line(
+            "validation-waivers incremental shadow record: "
+            + json.dumps(record, sort_keys=True, separators=(",", ":"))
+        )
+    except Exception:
+        pass
 
 
 def _print_validation_waiver_audit_report(
@@ -6280,6 +6607,12 @@ def cmd_validation_waivers(args) -> None:
     except Exception as error:
         _emit_validation_waiver_error(args, error)
         exit_code = 2
+        if getattr(args, "validation_waivers_command", None) == "audit":
+            _validation_waiver_incremental_shadow(
+                args,
+                full_report=None,
+                unavailable=f"the full audit did not complete: {error}",
+            )
     sys.exit(exit_code)
 
 
@@ -10552,6 +10885,40 @@ def _write_promotion_review_record(
         handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
+def _promotion_batch_isolated_paths(
+    units: Sequence[Mapping[str, object]], unit: Mapping[str, object]
+) -> tuple[Path, ...]:
+    """The primary and companion of every other unit of a batch, in order."""
+
+    return tuple(
+        member
+        for other in units
+        if other is not unit
+        for member in (other["rulespec_relative"], other["companion_relative"])
+    )
+
+
+@contextlib.contextmanager
+def _promotion_batch_review_cwd(
+    repo_path: Path, rulespec_relative: Path, isolate_from: Sequence[Path]
+):
+    """The reviewer's working directory for one unit of a multi-unit batch.
+
+    The generalist reviewer CLI starts in this directory. For a unit of a
+    batch it is the content root of a temporary copy of the checkout from
+    which the primary and the companion of every other unit are removed, as
+    for the unit's validation (``_isolate_promotion_batch_overlay``). The
+    reviewer of one unit so starts in the tree of a candidate that holds that
+    unit alone. Only the copy is changed, never the checkout.
+    """
+
+    with tempfile.TemporaryDirectory() as temporary:
+        overlay_repo = Path(temporary) / repo_path.name
+        _stage_apply_overlay_dependency_root(source=repo_path, target=overlay_repo)
+        _isolate_promotion_batch_overlay(overlay_repo, isolate_from)
+        yield overlay_repo / rulespec_relative.parts[0]
+
+
 def _promotion_generalist_review_record(
     *,
     source_text: str,
@@ -10612,8 +10979,97 @@ def _promotion_generalist_review_record(
     )
 
 
+@contextlib.contextmanager
+def _promotion_unit_scope(label: str | None):
+    """Name the unit of a multi-unit promotion in an error raised under it.
+
+    ``label`` is ``None`` for a single-unit promotion: its errors are unchanged.
+    """
+
+    try:
+        yield
+    except Exception as exc:
+        if label is None:
+            raise
+        kind = type(exc) if type(exc) in (ValueError, RuntimeError) else RuntimeError
+        raise kind(f"{label}: {exc}") from exc
+
+
+def _promotion_batch_import_issue(
+    repo_path: Path,
+    primaries: Mapping[Path, bytes],
+    *,
+    rulespec_dependency_roots: Sequence[Path] = (),
+) -> str | None:
+    """Name a unit of a batch that imports another unit of the same batch.
+
+    A unit is validated and signed as a single-unit promotion of it would be:
+    against modules that are already signed. Another unit of the batch has no
+    manifest until the whole batch is signed, so such an import is refused
+    before any validation.
+
+    Every import is resolved by the validator's own resolver
+    (``_resolve_rulespec_import_file_static``), so a spelling the validator
+    would follow to a unit of the batch is refused whatever its case, quotes
+    or prefix. The items are read twice: from the parsed YAML and as the
+    validator reads the ``imports`` block from the text. It fails closed: a
+    primary that is not a readable mapping, an import item that is not a
+    string, and an import the resolver refuses as unsafe all stop the batch.
+    """
+
+    # Keyed by the case-folded resolved path: on a file system that ignores
+    # case, a spelling in another case reaches the same file.
+    owners: dict[str, Path] = {}
+    for relative in primaries:
+        for member in (relative, _rulespec_test_path(relative)):
+            owners[str((repo_path / member).resolve()).casefold()] = relative
+    for relative, raw in primaries.items():
+        label = relative.as_posix()
+        try:
+            text = raw.decode("utf-8")
+            payload = yaml.safe_load(text)
+        except (UnicodeDecodeError, yaml.YAMLError, ValueError, RecursionError):
+            return f"{label} cannot be read for its imports"
+        if not isinstance(payload, dict):
+            return f"{label} cannot be read for its imports"
+        declared = payload.get("imports")
+        if declared is None:
+            declared = []
+        if not isinstance(declared, list) or any(
+            not isinstance(item, str) for item in declared
+        ):
+            return f"{label} has a malformed imports list"
+        for item in [*declared, *_extract_import_items_from_content(text)]:
+            try:
+                resolved = _resolve_rulespec_import_file_static(
+                    item,
+                    rules_file=repo_path / relative,
+                    policy_repo_path=repo_path / relative.parts[0],
+                    rulespec_dependency_roots=rulespec_dependency_roots,
+                )
+            except (ValueError, OSError):
+                return f"{label} has an import that cannot be resolved safely"
+            if resolved is None:
+                continue
+            owner = owners.get(str(Path(resolved).resolve()).casefold())
+            if owner is not None and owner != relative:
+                return (
+                    f"{label} imports {owner.as_posix()}, another "
+                    "unit of the same batch; promote the imported unit first"
+                )
+    return None
+
+
 def cmd_promote_reviewed_candidate(args):
-    """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
+    """Validate and sign one exact allowlisted reviewed RuleSpec commit.
+
+    With a run-scoped multi-unit admission
+    (``reviewed_pr_admission.MULTI_UNIT_PROMOTION_ENABLED``) it validates and
+    signs every unit of the candidate: one manifest per unit, each in the form
+    of a single-unit promotion, installed in one transaction. Every unit is
+    validated before the first signature is requested, and every signature is
+    made before the first manifest is written.
+    """
 
     # Telemetry only: the live row never changes the result or the exit code.
     with PromotionLiveRun(
@@ -10684,65 +11140,130 @@ def _promote_reviewed_candidate(args):
         live_admission = json.loads(Path(runtime["path"]).read_text()).get(
             "reviewed_pr_admission"
         )
+    # The units of this operation as (citation, path). A multi-unit admission
+    # names its own; the arguments then name one of them.
+    unit_targets: list[tuple[str, str]] = [
+        (str(args.citation), str(args.rulespec_path))
+    ]
+    admissions: list[object] = [admission]
+    batch = False
     if live_admission is not None:
-        from .reviewed_pr_admission import revalidate_admission, selector_from_payload
+        from .reviewed_pr_admission import (
+            BatchPromotionSelector,
+            revalidate_admission,
+            selector_from_payload,
+        )
 
         selector = selector_from_payload(live_admission.get("selector"))
+        batch = isinstance(selector, BatchPromotionSelector)
         if (
             live_admission.get("workflow_commit") != runtime["commit"]
             or selector.country != country
             or selector.head != reviewed_ref
-            or selector.citation != str(args.citation)
-            or selector.rulespec_path != str(args.rulespec_path)
+            or (
+                unit_targets[0] not in selector.units
+                if batch
+                else selector.citation != str(args.citation)
+                or selector.rulespec_path != str(args.rulespec_path)
+            )
             or selector.run_id != str(args.run_id)
         ):
             raise ValueError(
                 "run-scoped reviewed PR admission does not match this operation"
             )
-        revalidate_admission(live_admission)
-        record = live_admission["record"]
-        issue = _reviewed_rulespec_record_issue(
-            record, country=country, rulespec_ref=reviewed_ref
-        )
-        if issue:
-            raise ValueError(issue)
-        admission = ReviewedRulespecRecord(country, reviewed_ref, record)
-    if admission is None:
-        raise ValueError("reviewed candidate ref is not explicitly allowlisted")
-    # A record's binding names the one module, and the exact primary and
-    # companion bytes, that its code-owner review admitted. Only the frozen
-    # pre-record admissions, which never recorded a module, may promote unbound
-    # (their behaviour is unchanged: any eligible module at that commit).
-    binding = admission.payload["binding"]
-    if binding is None:
-        if (country, reviewed_ref) not in UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS:
+        if batch and review_record_target is not None and len(selector.units) > 1:
+            # The record file holds the record of one unit (schema
+            # PROMOTION_REVIEW_RECORD_SCHEMA). A batch of several units needs
+            # a list form that does not exist yet: refuse it before any
+            # validation, review or signature.
             raise ValueError(
-                "reviewed candidate admission record has no promotion binding"
+                "promote-reviewed-candidate --review-record-file: the review "
+                "record file holds one record; a batch needs the list form, "
+                f"see issue #2319 (this batch names {len(selector.units)} units)"
             )
-    elif not isinstance(binding, dict) or (
-        str(args.citation) != binding["citation"]
-        or str(args.rulespec_path) != binding["rulespec_path"]
-    ):
-        raise ValueError(
-            "reviewed candidate citation or path differs from its admission record"
+        revalidate_admission(live_admission)
+        if batch:
+            unit_targets = list(selector.units)
+            records = live_admission["records"]
+        else:
+            records = [live_admission["record"]]
+        admissions = []
+        for record in records:
+            issue = _reviewed_rulespec_record_issue(
+                record, country=country, rulespec_ref=reviewed_ref
+            )
+            if issue:
+                raise ValueError(issue)
+            admissions.append(ReviewedRulespecRecord(country, reviewed_ref, record))
+        if len(admissions) != len(unit_targets):
+            raise ValueError(
+                "run-scoped reviewed PR admission does not match this operation"
+            )
+
+    def unit_scope(target: tuple[str, str]):
+        return _promotion_unit_scope(
+            f"unit {target[0]} ({target[1]})" if batch else None
         )
 
-    rulespec_relative = Path(args.rulespec_path)
-    expected_relative = Path(citation_rulespec_path(str(args.citation)))
-    if rulespec_relative != expected_relative:
-        raise ValueError(
-            "reviewed candidate path does not match the citation's canonical path"
+    # One entry per unit: its relative paths, exact bytes and binding.
+    units: list[dict[str, object]] = []
+    for target, admission in zip(unit_targets, admissions):
+        citation, rulespec_path = target
+        with unit_scope(target):
+            if admission is None:
+                raise ValueError("reviewed candidate ref is not explicitly allowlisted")
+            # A record's binding names the one module, and the exact primary
+            # and companion bytes, that its code-owner review admitted. Only
+            # the frozen pre-record admissions, which never recorded a module,
+            # may promote unbound (their behaviour is unchanged: any eligible
+            # module at that commit).
+            binding = admission.payload["binding"]
+            if binding is None:
+                if (
+                    batch
+                    or (country, reviewed_ref)
+                    not in UNBOUND_PROMOTION_REVIEWED_RULESPEC_REFS
+                ):
+                    raise ValueError(
+                        "reviewed candidate admission record has no promotion binding"
+                    )
+            elif not isinstance(binding, dict) or (
+                citation != binding["citation"]
+                or rulespec_path != binding["rulespec_path"]
+            ):
+                raise ValueError(
+                    "reviewed candidate citation or path differs from its admission record"
+                )
+
+            rulespec_relative = Path(rulespec_path)
+            expected_relative = Path(citation_rulespec_path(citation))
+            if rulespec_relative != expected_relative:
+                raise ValueError(
+                    "reviewed candidate path does not match the citation's canonical path"
+                )
+            if (
+                rulespec_relative.is_absolute()
+                or rulespec_relative.as_posix() != rulespec_path
+                or any(part in {"", ".", ".."} for part in rulespec_relative.parts)
+                or not _is_protected_rulespec_yaml_path(
+                    rulespec_relative,
+                    roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+                )
+            ):
+                raise ValueError(
+                    "reviewed candidate path is not a protected RuleSpec module"
+                )
+        units.append(
+            {
+                "target": target,
+                "citation": citation,
+                "binding": binding,
+                "rulespec_relative": rulespec_relative,
+                "companion_relative": _rulespec_test_path(rulespec_relative),
+                "manifest_path": repo_path
+                / _applied_encoding_manifest_path(rulespec_relative),
+            }
         )
-    if (
-        rulespec_relative.is_absolute()
-        or rulespec_relative.as_posix() != str(args.rulespec_path)
-        or any(part in {"", ".", ".."} for part in rulespec_relative.parts)
-        or not _is_protected_rulespec_yaml_path(
-            rulespec_relative,
-            roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
-        )
-    ):
-        raise ValueError("reviewed candidate path is not a protected RuleSpec module")
 
     # GIT_OPTIONAL_LOCKS=0 keeps this preflight read-only: a plain status may
     # refresh stat data and rewrite .git/index before a binding refusal. It is
@@ -10764,12 +11285,6 @@ def _promote_reviewed_candidate(args):
     )
     if status:
         raise ValueError("reviewed candidate promotion requires a clean checkout")
-    rulespec_file = repo_path / rulespec_relative
-    companion_relative = _rulespec_test_path(rulespec_relative)
-    companion_file = repo_path / companion_relative
-    manifest_path = repo_path / _applied_encoding_manifest_path(rulespec_relative)
-    if manifest_path.exists() or manifest_path.is_symlink():
-        raise ValueError("reviewed candidate already has an apply manifest")
 
     def exact_head_bytes(relative: Path, *, label: str) -> bytes:
         try:
@@ -10788,25 +11303,45 @@ def _promote_reviewed_candidate(args):
             raise ValueError(f"{label} differs from the reviewed HEAD")
         return raw
 
-    before = {
-        rulespec_relative: exact_head_bytes(
-            rulespec_relative,
-            label="reviewed candidate RuleSpec",
-        ),
-        companion_relative: exact_head_bytes(
-            companion_relative,
-            label="reviewed candidate companion",
-        ),
-    }
-    if binding is not None and (
-        hashlib.sha256(before[rulespec_relative]).hexdigest()
-        != binding["rulespec_sha256"]
-        or hashlib.sha256(before[companion_relative]).hexdigest()
-        != binding["companion_sha256"]
-    ):
-        raise ValueError(
-            "reviewed candidate bytes differ from its admission record binding"
+    for unit in units:
+        rulespec_relative = unit["rulespec_relative"]
+        companion_relative = unit["companion_relative"]
+        manifest_path = unit["manifest_path"]
+        binding = unit["binding"]
+        with unit_scope(unit["target"]):
+            if manifest_path.exists() or manifest_path.is_symlink():
+                raise ValueError("reviewed candidate already has an apply manifest")
+            before = {
+                rulespec_relative: exact_head_bytes(
+                    rulespec_relative,
+                    label="reviewed candidate RuleSpec",
+                ),
+                companion_relative: exact_head_bytes(
+                    companion_relative,
+                    label="reviewed candidate companion",
+                ),
+            }
+            if binding is not None and (
+                hashlib.sha256(before[rulespec_relative]).hexdigest()
+                != binding["rulespec_sha256"]
+                or hashlib.sha256(before[companion_relative]).hexdigest()
+                != binding["companion_sha256"]
+            ):
+                raise ValueError(
+                    "reviewed candidate bytes differ from its admission record binding"
+                )
+        unit["before"] = before
+    if batch:
+        import_issue = _promotion_batch_import_issue(
+            repo_path,
+            {
+                unit["rulespec_relative"]: unit["before"][unit["rulespec_relative"]]
+                for unit in units
+            },
+            rulespec_dependency_roots=dependency_roots,
         )
+        if import_issue:
+            raise ValueError(import_issue)
     _recover_apply_transaction(repo_path)
     with _authoritative_rulespec_dependency_scope(dependency_roots):
         with _isolated_apply_manifest_signer(preflight=True) as signing_broker:
@@ -10814,249 +11349,183 @@ def _promote_reviewed_candidate(args):
                 repo_path,
                 corpus_path,
             )
-            _verifications, rulespec_root = _manifest_primary_source_verifications(
-                manifest_root=repo_path,
-                applied_files=[rulespec_file, companion_file],
-            )
-            source_unit = resolve_corpus_source_unit(
-                str(args.citation),
-                local_corpus_release,
-            )
-            normalized_source = source_unit.body.replace("\r\n", "\n").replace(
-                "\r", "\n"
-            )
-            source_attestation = {
-                **source_unit.source_attestation,
-                "generation_input_sha256": hashlib.sha256(
-                    normalized_source.encode("utf-8")
-                ).hexdigest(),
-                "rulespec_root": rulespec_root,
-            }
-            content_root = repo_path / rulespec_relative.parts[0]
-            relative_output = Path(*rulespec_relative.parts[1:])
-            with tempfile.TemporaryDirectory() as temporary:
-                output_root = Path(temporary)
-                context_root = output_root / "reviewed-candidate-context"
-                context_root.mkdir()
-                source_text_file = context_root / "source.txt"
-                source_text_file.write_text(
-                    normalized_source,
-                    encoding="utf-8",
-                    newline="",
-                )
-                context_manifest = context_root / "context-manifest.json"
-                context_manifest.write_text(
-                    json.dumps(
-                        {
-                            "source_text_file": source_text_file.name,
-                            "source_metadata": {
-                                "source_attestation": source_attestation,
-                            },
-                        },
-                        indent=2,
-                        sort_keys=True,
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
-                generated_file = output_root / "reviewed-candidate" / relative_output
-                generated_file.parent.mkdir(parents=True)
-                shutil.copyfile(rulespec_file, generated_file)
-                generated_companion = _rulespec_test_path(generated_file)
-                shutil.copyfile(companion_file, generated_companion)
-                result = argparse.Namespace(
-                    output_file=str(generated_file),
-                    runner="reviewed-candidate",
-                    backend="openai",
-                    model="reviewed-candidate-promotion-v1",
-                    tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
-                    citation=str(args.citation),
-                    generation_prompt_sha256=None,
-                    trace_file=None,
-                    context_manifest_file=str(context_manifest),
-                    source_attestation=source_attestation,
-                )
-                setattr(
-                    result,
-                    _IMMUTABLE_RULESPEC_SHA256_ATTR,
-                    hashlib.sha256(before[rulespec_relative]).hexdigest(),
-                )
-                setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
-                report_promotion_stage(PROMOTION_STAGE_VALIDATION)
-                valid, validation_issues, supplemental_files = (
-                    _run_generated_encoding_overlay_validation(
-                        result,
-                        output_root=output_root,
-                        policy_repo_path=content_root,
+            report_promotion_stage(PROMOTION_STAGE_VALIDATION)
+            # Every unit is validated before any payload is built or signed.
+            for unit in units:
+                with unit_scope(unit["target"]):
+                    (
+                        unit["source_attestation"],
+                        unit["validation_execution"],
+                        unit["normalized_source"],
+                    ) = _validate_reviewed_candidate_unit(
+                        repo_path=repo_path,
+                        citation=unit["citation"],
+                        rulespec_relative=unit["rulespec_relative"],
+                        companion_relative=unit["companion_relative"],
+                        before=unit["before"],
+                        local_corpus_release=local_corpus_release,
                         axiom_rules_path=axiom_rules_path,
                         axiom_compose_path=axiom_compose_path,
-                        local_corpus_release=local_corpus_release,
-                        rulespec_dependency_roots=dependency_roots,
-                        amendment_documents=source_unit.amendment_documents,
-                        amendment_source_texts={
-                            document.citation_path: document.body
-                            for document in source_unit.amendment_documents
-                        },
-                        require_complete_source_unit=True,
-                    )
-                )
-                if not valid:
-                    raise RuntimeError(
-                        "reviewed candidate failed current overlay validation: "
-                        + "; ".join(validation_issues)
-                    )
-                reviewed_artifact_bytes = {
-                    relative_output: generated_file.read_bytes(),
-                    _rulespec_test_path(relative_output): (
-                        generated_companion.read_bytes()
-                    ),
-                }
-                supplemental_files = {
-                    path: content
-                    for path, content in supplemental_files.items()
-                    if reviewed_artifact_bytes.get(path) != content.encode("utf-8")
-                }
-                if supplemental_files:
-                    raise RuntimeError(
-                        "reviewed candidate validation produced supplemental changes"
-                    )
-                generated_after = {
-                    rulespec_relative: generated_file.read_bytes(),
-                    companion_relative: generated_companion.read_bytes(),
-                }
-                if generated_after != before:
-                    raise RuntimeError(
-                        "reviewed candidate validation changed RuleSpec bytes"
-                    )
-                snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
-                validation_execution = (
-                    snapshot.get("manifest_validation_execution")
-                    if isinstance(snapshot, dict)
-                    else None
-                )
-                if not isinstance(validation_execution, dict):
-                    raise RuntimeError(
-                        "reviewed candidate validation lacks execution provenance"
+                        dependency_roots=dependency_roots,
+                        # A unit of a batch is validated without the files
+                        # of the other units: its verdict is the verdict of
+                        # a single-unit promotion of it.
+                        isolate_from=_promotion_batch_isolated_paths(units, unit),
                     )
 
-            # Validation is complete. The reviewer runs after it and before
-            # the admission is revalidated and any signature is requested.
+            # Validation of every unit is complete. The reviewer runs after it
+            # and before the admission is revalidated and any signature is
+            # requested: one review per unit, in unit order, each on the exact
+            # bytes that unit's manifest signs. The first unit without a
+            # passed review stops the batch; no unit is signed.
             if _promotion_requires_review(args):
-                review_record = _promotion_generalist_review_record(
-                    source_text=normalized_source,
-                    cwd=content_root,
-                    applied=before,
-                    rulespec_relative=rulespec_relative,
-                )
-                print(
-                    "reviewed candidate generalist review: "
-                    + json.dumps(review_record, sort_keys=True)
-                )
-                if review_record_target is not None:
-                    _write_promotion_review_record(
-                        review_record_target,
-                        args=args,
-                        reviewed_ref=reviewed_ref,
-                        review_record=review_record,
-                    )
-                if review_requirement_refusal(review_record) is not None:
-                    reason = review_record.get("reason")
-                    raise RuntimeError(
-                        "reviewed candidate promotion requires a passed "
-                        "generalist review of every promoted file "
-                        "(--require-review) and has none: status "
-                        f"{review_record.get('status')}"
-                        + (f" ({reason})" if reason else "")
-                        + ". Nothing was signed."
-                    )
+                for unit in units:
+                    with contextlib.ExitStack() as review_scope:
+                        review_scope.enter_context(unit_scope(unit["target"]))
+                        if batch:
+                            # The reviewer of a batch unit starts in a copy of
+                            # the checkout without the other units' files.
+                            review_cwd = review_scope.enter_context(
+                                _promotion_batch_review_cwd(
+                                    repo_path,
+                                    unit["rulespec_relative"],
+                                    isolate_from=_promotion_batch_isolated_paths(
+                                        units, unit
+                                    ),
+                                )
+                            )
+                        else:
+                            review_cwd = repo_path / unit["rulespec_relative"].parts[0]
+                        review_record = _promotion_generalist_review_record(
+                            source_text=unit["normalized_source"],
+                            cwd=review_cwd,
+                            applied=unit["before"],
+                            rulespec_relative=unit["rulespec_relative"],
+                        )
+                        print(
+                            "reviewed candidate generalist review: "
+                            + json.dumps(review_record, sort_keys=True)
+                        )
+                        if review_record_target is not None:
+                            _write_promotion_review_record(
+                                review_record_target,
+                                args=args,
+                                reviewed_ref=reviewed_ref,
+                                review_record=review_record,
+                            )
+                        if review_requirement_refusal(review_record) is not None:
+                            reason = review_record.get("reason")
+                            raise RuntimeError(
+                                "reviewed candidate promotion requires a passed "
+                                "generalist review of every promoted file "
+                                "(--require-review) and has none: status "
+                                f"{review_record.get('status')}"
+                                + (f" ({reason})" if reason else "")
+                                + ". Nothing was signed."
+                            )
             report_promotion_stage(PROMOTION_STAGE_SIGNING)
             axiom_encode_git = _require_clean_axiom_encode_git_provenance()
-            payload: dict[str, object] = {
-                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "tool": APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
-                "axiom_encode_version": __version__,
-                "axiom_encode_git": axiom_encode_git,
-                "run_id": args.run_id,
-                "citation": str(args.citation),
-                "reviewed_rulespec_ref": reviewed_ref,
-                "applied_files": [
-                    {
-                        "path": relative.as_posix(),
-                        "sha256": hashlib.sha256(raw).hexdigest(),
+            for unit in units:
+                before = unit["before"]
+                validation_execution = unit["validation_execution"]
+                with unit_scope(unit["target"]):
+                    payload: dict[str, object] = {
+                        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                        "generated_at": datetime.now(timezone.utc).isoformat(),
+                        "tool": APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                        "axiom_encode_version": __version__,
+                        "axiom_encode_git": axiom_encode_git,
+                        "run_id": args.run_id,
+                        "citation": unit["citation"],
+                        "reviewed_rulespec_ref": reviewed_ref,
+                        "applied_files": [
+                            {
+                                "path": relative.as_posix(),
+                                "sha256": hashlib.sha256(raw).hexdigest(),
+                            }
+                            for relative, raw in before.items()
+                        ],
+                        "source_attestation": unit["source_attestation"],
+                        "validation_execution": validation_execution,
                     }
-                    for relative, raw in before.items()
-                ],
-                "source_attestation": source_attestation,
-                "validation_execution": validation_execution,
-            }
-            validated_policy = validation_execution.get("policy_pre_apply")
-            validated_waiver_set_sha256 = (
-                validated_policy.get("validation_waiver_set_sha256")
-                if isinstance(validated_policy, dict)
-                else None
-            )
-            if _target_uses_per_file_waiver_bindings(repo_path):
-                payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
-                    _build_applied_manifest_file_waiver_bindings(
-                        repo_path,
-                        covered_paths={relative.as_posix() for relative in before},
-                        validated_waiver_set_sha256=validated_waiver_set_sha256,
+                    validated_policy = validation_execution.get("policy_pre_apply")
+                    validated_waiver_set_sha256 = (
+                        validated_policy.get("validation_waiver_set_sha256")
+                        if isinstance(validated_policy, dict)
+                        else None
                     )
-                )
-            else:
-                # A pinned verifier admits only the repository waiver-set
-                # digest.
-                payload[VALIDATION_WAIVER_SET_SHA256_FIELD] = (
-                    verify_rulespec_validation_waiver_set(repo_path)
-                )
+                    if _target_uses_per_file_waiver_bindings(repo_path):
+                        payload[VALIDATION_WAIVER_BINDINGS_FIELD] = (
+                            _build_applied_manifest_file_waiver_bindings(
+                                repo_path,
+                                covered_paths={
+                                    relative.as_posix() for relative in before
+                                },
+                                validated_waiver_set_sha256=validated_waiver_set_sha256,
+                            )
+                        )
+                    else:
+                        # A pinned verifier admits only the repository waiver-set
+                        # digest.
+                        payload[VALIDATION_WAIVER_SET_SHA256_FIELD] = (
+                            verify_rulespec_validation_waiver_set(repo_path)
+                        )
+                unit["payload"] = payload
+                unit["validated_waiver_set_sha256"] = validated_waiver_set_sha256
             if live_admission is not None:
                 # Validation may take time. A dismissed approval, moved head,
                 # or changed main base must fail before any signature request.
                 revalidate_admission(live_admission)
-            _sign_applied_encoding_manifest(payload, signing_broker)
-            manifest_bytes = (
-                json.dumps(payload, indent=2, sort_keys=True) + "\n"
-            ).encode("utf-8")
+            # Every unit is signed before any manifest is written.
+            for unit in units:
+                with unit_scope(unit["target"]):
+                    _sign_applied_encoding_manifest(unit["payload"], signing_broker)
+                    unit["manifest_bytes"] = (
+                        json.dumps(unit["payload"], indent=2, sort_keys=True) + "\n"
+                    ).encode("utf-8")
 
             def require_unchanged_reviewed_head() -> None:
-                for relative, expected in before.items():
-                    if (
-                        exact_head_bytes(relative, label="reviewed candidate file")
-                        != expected
-                    ):
-                        raise RuntimeError(
-                            "reviewed candidate changed after successful validation"
-                        )
+                for unit in units:
+                    for relative, expected in unit["before"].items():
+                        if (
+                            exact_head_bytes(relative, label="reviewed candidate file")
+                            != expected
+                        ):
+                            raise RuntimeError(
+                                "reviewed candidate changed after successful validation"
+                            )
 
             def verify_installed_manifest() -> None:
                 require_unchanged_reviewed_head()
-                verified, _prefix, _digest, issues = (
-                    _load_verified_applied_encoding_manifest_payload(
-                        repo_path,
-                        manifest_path.relative_to(repo_path).as_posix(),
-                        roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
-                        signing_broker=signing_broker,
-                        expected_waiver_set_sha256=payload.get(
-                            VALIDATION_WAIVER_SET_SHA256_FIELD,
-                            validated_waiver_set_sha256,
-                        ),
-                        local_corpus_release=local_corpus_release,
-                        expected_encoder_identity=(
-                            _current_guard_encoder_execution_identity()
-                        ),
+                for unit in units:
+                    verified, _prefix, _digest, issues = (
+                        _load_verified_applied_encoding_manifest_payload(
+                            repo_path,
+                            unit["manifest_path"].relative_to(repo_path).as_posix(),
+                            roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+                            signing_broker=signing_broker,
+                            expected_waiver_set_sha256=unit["payload"].get(
+                                VALIDATION_WAIVER_SET_SHA256_FIELD,
+                                unit["validated_waiver_set_sha256"],
+                            ),
+                            local_corpus_release=local_corpus_release,
+                            expected_encoder_identity=(
+                                _current_guard_encoder_execution_identity()
+                            ),
+                        )
                     )
-                )
-                if verified is None or issues:
-                    raise RuntimeError(
-                        "installed reviewed candidate manifest failed verification: "
-                        + "; ".join(issues)
-                    )
+                    if verified is None or issues:
+                        with unit_scope(unit["target"]):
+                            raise RuntimeError(
+                                "installed reviewed candidate manifest failed "
+                                "verification: " + "; ".join(issues)
+                            )
 
+            # One transaction for every manifest: all are installed or none is.
             _install_apply_transaction(
-                [(manifest_path, manifest_bytes)],
+                [(unit["manifest_path"], unit["manifest_bytes"]) for unit in units],
                 checkout_root=repo_path,
-                expected_originals={manifest_path: None},
+                expected_originals={unit["manifest_path"]: None for unit in units},
                 pre_install_check=require_unchanged_reviewed_head,
                 post_install_check=verify_installed_manifest,
             )
@@ -11078,12 +11547,172 @@ def _promote_reviewed_candidate(args):
         ).split(b"\0")
         if record
     }
-    expected_manifest = manifest_path.relative_to(repo_path).as_posix()
-    if changed_records != {b"?? " + os.fsencode(expected_manifest)}:
+    expected_manifests = [
+        unit["manifest_path"].relative_to(repo_path).as_posix() for unit in units
+    ]
+    if changed_records != {
+        b"?? " + os.fsencode(expected_manifest)
+        for expected_manifest in expected_manifests
+    }:
         raise RuntimeError(
             "reviewed candidate promotion changed paths other than its manifest"
         )
-    print(f"promoted reviewed candidate {expected_manifest}")
+    for expected_manifest in expected_manifests:
+        print(f"promoted reviewed candidate {expected_manifest}")
+
+
+def _validate_reviewed_candidate_unit(
+    *,
+    repo_path: Path,
+    citation: str,
+    rulespec_relative: Path,
+    companion_relative: Path,
+    before: Mapping[Path, bytes],
+    local_corpus_release,
+    axiom_rules_path: Path,
+    axiom_compose_path: Path | None,
+    dependency_roots,
+    isolate_from: Sequence[Path] = (),
+) -> tuple[dict, dict, str]:
+    """Rerun complete-source validation of one reviewed unit's exact bytes.
+
+    Returns the unit's source attestation and validation execution: what its
+    signed manifest records. It also returns the normalized source text that
+    the validation read, for the generalist review of the unit
+    (``--require-review``). It writes nothing to the checkout.
+
+    ``isolate_from`` names the checkout-relative files of the other units of
+    a multi-unit promotion. They are removed from the temporary validation
+    overlay, never from the checkout, so validation sees the tree of a
+    candidate that holds this unit alone.
+    """
+
+    rulespec_file = repo_path / rulespec_relative
+    companion_file = repo_path / companion_relative
+    _verifications, rulespec_root = _manifest_primary_source_verifications(
+        manifest_root=repo_path,
+        applied_files=[rulespec_file, companion_file],
+    )
+    source_unit = resolve_corpus_source_unit(
+        citation,
+        local_corpus_release,
+    )
+    normalized_source = source_unit.body.replace("\r\n", "\n").replace("\r", "\n")
+    source_attestation = {
+        **source_unit.source_attestation,
+        "generation_input_sha256": hashlib.sha256(
+            normalized_source.encode("utf-8")
+        ).hexdigest(),
+        "rulespec_root": rulespec_root,
+    }
+    content_root = repo_path / rulespec_relative.parts[0]
+    relative_output = Path(*rulespec_relative.parts[1:])
+    with tempfile.TemporaryDirectory() as temporary:
+        output_root = Path(temporary)
+        context_root = output_root / "reviewed-candidate-context"
+        context_root.mkdir()
+        source_text_file = context_root / "source.txt"
+        source_text_file.write_text(
+            normalized_source,
+            encoding="utf-8",
+            newline="",
+        )
+        context_manifest = context_root / "context-manifest.json"
+        context_manifest.write_text(
+            json.dumps(
+                {
+                    "source_text_file": source_text_file.name,
+                    "source_metadata": {
+                        "source_attestation": source_attestation,
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        generated_file = output_root / "reviewed-candidate" / relative_output
+        generated_file.parent.mkdir(parents=True)
+        shutil.copyfile(rulespec_file, generated_file)
+        generated_companion = _rulespec_test_path(generated_file)
+        shutil.copyfile(companion_file, generated_companion)
+        result = argparse.Namespace(
+            output_file=str(generated_file),
+            runner="reviewed-candidate",
+            backend="openai",
+            model="reviewed-candidate-promotion-v1",
+            tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            citation=citation,
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=str(context_manifest),
+            source_attestation=source_attestation,
+        )
+        setattr(
+            result,
+            _IMMUTABLE_RULESPEC_SHA256_ATTR,
+            hashlib.sha256(before[rulespec_relative]).hexdigest(),
+        )
+        setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
+        if isolate_from:
+            setattr(
+                result,
+                _PROMOTION_BATCH_ISOLATION_ATTR,
+                tuple(Path(member) for member in isolate_from),
+            )
+        valid, validation_issues, supplemental_files = (
+            _run_generated_encoding_overlay_validation(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                axiom_rules_path=axiom_rules_path,
+                axiom_compose_path=axiom_compose_path,
+                local_corpus_release=local_corpus_release,
+                rulespec_dependency_roots=dependency_roots,
+                amendment_documents=source_unit.amendment_documents,
+                amendment_source_texts={
+                    document.citation_path: document.body
+                    for document in source_unit.amendment_documents
+                },
+                require_complete_source_unit=True,
+            )
+        )
+        if not valid:
+            raise RuntimeError(
+                "reviewed candidate failed current overlay validation: "
+                + "; ".join(validation_issues)
+            )
+        reviewed_artifact_bytes = {
+            relative_output: generated_file.read_bytes(),
+            _rulespec_test_path(relative_output): (generated_companion.read_bytes()),
+        }
+        supplemental_files = {
+            path: content
+            for path, content in supplemental_files.items()
+            if reviewed_artifact_bytes.get(path) != content.encode("utf-8")
+        }
+        if supplemental_files:
+            raise RuntimeError(
+                "reviewed candidate validation produced supplemental changes"
+            )
+        generated_after = {
+            rulespec_relative: generated_file.read_bytes(),
+            companion_relative: generated_companion.read_bytes(),
+        }
+        if generated_after != before:
+            raise RuntimeError("reviewed candidate validation changed RuleSpec bytes")
+        snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
+        validation_execution = (
+            snapshot.get("manifest_validation_execution")
+            if isinstance(snapshot, dict)
+            else None
+        )
+        if not isinstance(validation_execution, dict):
+            raise RuntimeError(
+                "reviewed candidate validation lacks execution provenance"
+            )
+    return source_attestation, validation_execution, normalized_source
 
 
 def cmd_signed_import_inventory(args):
@@ -13141,6 +13770,135 @@ def _manifest_census_badge(census: dict[str, object]) -> dict[str, object]:
         "message": f"{pct}% ({census.get('encoder', 0)}/{total})",
         "color": color,
     }
+
+
+def cmd_bind_source_verification(args) -> int:
+    """Bind one existing candidate module to its resolver-attested source."""
+
+    try:
+        local_roots = _local_verification_encode_roots(args)
+        if local_roots is None:
+            return _bind_source_verification_in_checkout(args)
+        with local_corpus_release_verification(
+            local_roots.corpus_release_public_key,
+            retired_public_keys=local_roots.retired_corpus_release_public_keys,
+            apply_public_key=local_roots.apply_public_key,
+            eval_public_key=local_roots.eval_public_key,
+        ):
+            return _bind_source_verification_in_checkout(args)
+    except (ValueError, RuntimeError, OSError) as exc:
+        # A wrong checkout, corpus or citation is an operator error, not a
+        # crash: one line, nothing written, a status apart from "unbound".
+        print("status=error")
+        print(f"error={exc}")
+        return 2
+
+
+def _bind_source_verification_in_checkout(args) -> int:
+    """Resolve the attestation as a promotion does, then bind by a minimal edit.
+
+    The corpus release is the one the checkout's toolchain lock pins, and the
+    source is resolved by the resolver the promotion uses, so the pin written
+    here is the pin the protected binding check recomputes. The module is the
+    citation's canonical path. Only that file can change, and only in the two
+    lines of ``module.source_verification``.
+    """
+
+    from .corpus_resolver import require_canonical_corpus_citation_path
+    from .prepare_signed_backfill import citation_rulespec_path
+    from .source_verification_binding import (
+        SourceBindingError,
+        bind_source_verification,
+    )
+
+    repo_path = _resolve_explicit_existing_directory(
+        args.repo,
+        label="RuleSpec checkout",
+    )
+    corpus_path = _resolve_explicit_existing_directory(
+        args.corpus_path,
+        label="Axiom Corpus",
+    )
+    citation = require_canonical_corpus_citation_path(str(args.citation))
+    expected_pin = getattr(args, "expect_source_sha256", None)
+    if expected_pin is not None and (
+        re.fullmatch(r"[0-9a-f]{64}", str(expected_pin)) is None
+    ):
+        raise ValueError(
+            "--expect-source-sha256 must be 64 lowercase hexadecimal characters"
+        )
+    relative = Path(citation_rulespec_path(citation))
+    if relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        raise ValueError("citation does not name a canonical RuleSpec module path")
+    corpus_release = load_rulespec_local_corpus_release(repo_path, corpus_path)
+    source_unit = resolve_corpus_source_unit(citation, corpus_release)
+    attestation = dict(source_unit.source_attestation)
+    module_file = repo_path / relative
+    try:
+        raw = read_bounded_regular_file(
+            repo_path,
+            module_file,
+            label="candidate RuleSpec",
+            max_bytes=10 * 1024 * 1024,
+        )
+        mode = stat.S_IMODE(os.lstat(module_file).st_mode)
+    except (OSError, UnsafeCorpusPathError) as exc:
+        raise ValueError(
+            "candidate RuleSpec is not a regular file in the checkout: "
+            + relative.as_posix()
+        ) from exc
+    print(f"citation={citation}")
+    print(f"module={relative.as_posix()}")
+    print(f"corpus_release={corpus_release.name} ({corpus_release.content_sha256})")
+    print(f"attested_source_sha256={attestation.get('source_sha256')}")
+    expected = getattr(args, "expect_source_sha256", None)
+    if expected is None:
+        # The resolver attests the body the pinned corpus release stores now.
+        # It cannot know which body the candidate was encoded from.
+        print(
+            "warning=NO --expect-source-sha256: this pin attests the source as "
+            f"corpus release {corpus_release.name} stores it now. Compare "
+            "attested_source_sha256 with the source attestation of the encode "
+            "run before you push; if they differ, encode the candidate again"
+        )
+    elif expected != attestation.get("source_sha256"):
+        print(f"expected_source_sha256={expected}")
+        print("status=refused:source_changed")
+        print(
+            "error=the corpus release pinned by this checkout attests another "
+            "source body than the one the candidate was encoded from; do not "
+            "re-pin it, encode the candidate again from the current source"
+        )
+        return 1
+    else:
+        print(f"expected_source_sha256={expected}")
+    print(f"old_sha256={hashlib.sha256(raw).hexdigest()}")
+    try:
+        binding = bind_source_verification(raw, attestation)
+    except SourceBindingError as exc:
+        print(f"status=refused:{exc.kind}")
+        print(f"error={exc}")
+        return 1
+    print(f"new_sha256={hashlib.sha256(binding.content).hexdigest()}")
+    for line in difflib.unified_diff(
+        raw.decode("utf-8").splitlines(),
+        binding.content.decode("utf-8").splitlines(),
+        lineterm="",
+        n=0,
+    ):
+        if line[:1] in "+-" and line[:3] not in ("+++", "---"):
+            print(f"diff={line}")
+    if not binding.changed:
+        print("status=already_bound")
+        return 0
+    if args.check:
+        print("status=unbound")
+        return 1
+    _atomic_replace_bytes(module_file, binding.content, mode=mode)
+    print("status=bound:" + ",".join(binding.edits))
+    return 0
 
 
 def cmd_checks(args):
@@ -36454,6 +37212,9 @@ _GENERALIST_REVIEW_STATE_ATTR = "_axiom_generalist_review_state"
 # The record the manifest writer built against the files it signs.
 _GENERALIST_REVIEW_APPLIED_RECORD_ATTR = "_axiom_generalist_review_applied_record"
 _REVIEWED_CANDIDATE_PROMOTION_ATTR = "_axiom_reviewed_candidate_promotion"
+# The checkout-relative files of the other units of a multi-unit promotion.
+# The apply overlay of this unit is staged without them.
+_PROMOTION_BATCH_ISOLATION_ATTR = "_axiom_promotion_batch_isolation"
 _PRESERVED_COMPANION_TESTS_ATTR = "_axiom_preserved_companion_tests"
 _REQUIRED_TEST_CASE_CONTRACTS_ATTR = "_axiom_required_test_case_contracts"
 _PRESERVED_REPAIR_COMPANION_ATTR = "_axiom_preserved_repair_companion"
@@ -36692,6 +37453,57 @@ def _exact_dependent_review_refusal(result: object, *, required: bool) -> str | 
             "by the generalist review"
         )
     return None
+
+
+def _result_promotion_batch_isolation(result: object) -> tuple[Path, ...]:
+    """The files a multi-unit promotion hides from this unit's validation."""
+
+    try:
+        state = vars(result)
+    except TypeError:
+        return ()
+    paths = state.get(_PROMOTION_BATCH_ISOLATION_ATTR, ())
+    if not isinstance(paths, tuple) or any(
+        not isinstance(path, Path) for path in paths
+    ):
+        raise ValueError("promotion batch isolation is malformed")
+    return paths
+
+
+def _isolate_promotion_batch_overlay(
+    overlay_repo: Path, isolated_paths: Sequence[Path]
+) -> None:
+    """Remove the other units of a batch from one unit's validation overlay.
+
+    The overlay is a temporary copy of the candidate checkout. After this it
+    is the tree of a candidate that holds this unit alone: every named file
+    is gone, and so is a directory that held nothing else (Git tracks no
+    empty directory). It fails closed: a path that is not a plain relative
+    path, or that is not a regular file in the overlay, stops the validation.
+    Only the overlay is changed; the checkout is never written.
+    """
+
+    root = overlay_repo.resolve(strict=True)
+    for relative in isolated_paths:
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            raise ValueError(
+                f"cannot isolate a unit from an unsafe batch path: {relative}"
+            )
+        candidate = root / relative
+        if candidate.is_symlink() or not candidate.is_file():
+            raise ValueError(
+                "cannot isolate a unit from a batch file that is not a regular "
+                f"file of the candidate: {relative.as_posix()}"
+            )
+        candidate.unlink()
+        parent = candidate.parent
+        while parent != root and not any(parent.iterdir()):
+            parent.rmdir()
+            parent = parent.parent
 
 
 def _result_replacement_overlay_scope(result: object) -> bool:
@@ -40398,6 +41210,9 @@ def _run_encode_attempt(
             else None
         ),
         replacement_overlay_scope=replacement_target is not None,
+        # A candidate that is not applied here is promoted later as it stands,
+        # so it is bound before validation. --apply keeps its own stamp.
+        bind_source_verification=getattr(args, "apply", False) is not True,
     )
 
     result = results[0]
@@ -40512,6 +41327,8 @@ def _run_encode_attempt(
         _ensure_logged_run()
 
     outcome = _initial_encode_outcome(result, apply_requested=apply_requested)
+    if not apply_requested:
+        _record_encode_source_binding(result, outcome)
     if (
         replacement_target is not None
         and replacement_target.retired_source_admission is not None
@@ -67434,6 +68251,9 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
             source=policy_checkout_path,
             target=overlay_repo,
         )
+        promotion_batch_isolation = _result_promotion_batch_isolation(result)
+        if promotion_batch_isolation:
+            _isolate_promotion_batch_overlay(overlay_repo, promotion_batch_isolation)
         if legacy_replacement is not None or replacement_overlay_scope:
             try:
                 if legacy_replacement is not None:
@@ -67586,6 +68406,19 @@ def _validate_generated_encoding_candidate_in_policy_overlay_with_release(
             for dependent in dependents
             if dependent not in scheduled_dependents
         ]
+        if promotion_batch_isolation and dependents:
+            # A dependent is compared with a baseline read from the checkout,
+            # which holds the other units of the batch. Refused rather than
+            # validated outside the isolation.
+            return (
+                False,
+                [
+                    f"{relative_output}: an existing module depends on this unit; "
+                    "a unit with dependents cannot be part of a multi-unit "
+                    "promotion and must be promoted alone"
+                ],
+                {},
+            )
         dependent_pipeline = (
             _DependentRegressionPipeline(
                 overlay_pipeline=ValidatorPipeline(
@@ -72419,6 +73252,80 @@ def _initial_encode_outcome(result, *, apply_requested: bool) -> dict:
         except Exception:
             outcome["validation_failure_counts"] = {"telemetry:error": 1}
     return outcome
+
+
+_SOURCE_UNBOUND_STATUS = "source_unbound"
+_SOURCE_UNBOUND_ERROR = (
+    "Generated RuleSpec is not bound to its resolver-attested source"
+)
+
+
+def _record_encode_source_binding(result, outcome: dict) -> None:
+    """Record whether a non-apply candidate is promotable as it stands.
+
+    The eval step binds the candidate before validation and fails the try when
+    it cannot. This reads the final bytes again, so the outcome states the
+    binding of the file the encode leaves behind. An unbound candidate is
+    never a clean result: the outcome gets ``source_binding: unbound`` and
+    ``final_success: False``, the result is failed, and the status is
+    ``source_unbound`` unless the file is not YAML at all (the validation
+    status then already says so). A successful result that recorded a
+    candidate digest but whose file cannot be read is unbound too. Only a
+    result with no candidate (``no_candidate``), or a failed or digest-less
+    one whose file is absent (``unverified``), keeps its verdict.
+    """
+
+    from .source_verification_binding import (
+        SourceBindingError,
+        check_source_verification,
+    )
+
+    output_file = str(getattr(result, "output_file", "") or "")
+    if not output_file:
+        outcome["source_binding"] = "no_candidate"
+        return
+    try:
+        try:
+            raw = Path(output_file).read_bytes()
+        except OSError:
+            recorded = getattr(result, "generated_output_sha256", None)
+            if (
+                getattr(result, "success", False) is not True
+                or not isinstance(recorded, str)
+                or re.fullmatch(r"[0-9a-f]{64}", recorded) is None
+            ):
+                # A failed result, or one that recorded no candidate digest,
+                # has no file to promote; its verdict is left alone.
+                outcome["source_binding"] = "unverified"
+                print("  source_binding=unverified")
+                return
+            unreadable = SourceBindingError(
+                "the candidate file that the eval recorded cannot be read"
+            )
+            unreadable.kind = "unreadable"
+            raise unreadable from None
+        attestation = getattr(result, "source_attestation", None)
+        if not isinstance(attestation, dict):
+            raise SourceBindingError("the encode has no resolver source attestation")
+        check_source_verification(raw, attestation)
+    except SourceBindingError as exc:
+        kind, message = exc.kind, str(exc)
+    else:
+        outcome["source_binding"] = "bound"
+        print("  source_binding=bound")
+        return
+    outcome["source_binding"] = "unbound"
+    outcome["source_binding_error"] = f"{kind}: {message}"
+    outcome["final_success"] = False
+    if getattr(result, "success", False) is True:
+        # The eval step refuses an unbound candidate; keep the exit status
+        # honest if a later step changed the file.
+        result.success = False
+        result.error = _SOURCE_UNBOUND_ERROR
+        outcome["primary_error"] = _SOURCE_UNBOUND_ERROR
+    if kind != "invalid_input" or outcome["status"] == "standalone_validated":
+        outcome["status"] = _SOURCE_UNBOUND_STATUS
+    print(f"  outcome={outcome['status']} final_success=False source_binding=unbound")
 
 
 def _safe_typed_issue_document(

@@ -304,7 +304,9 @@ incremental audit the gate. These six things come first.
 
 1. **A shadow period.** Pull requests keep `--scope full`. Each leg also
    computes the selection (3 to 5 s) and fails, or alerts, when the full audit
-   flags a waiver that the selection does not hold.
+   flags a waiver that the selection does not hold. The encoder side is
+   `--incremental-shadow-report` (see "Shadow comparison" below); the
+   workflow side and the period itself are still open.
 2. **Canary pull requests**, never merged, that must change other waivers: a
    duplicate executable rule in `us`, a companion-only edit, a manifest-only
    backfill, an edit of a module that another state imports. Each must show
@@ -327,3 +329,76 @@ TheAxiomFoundation/rulespec-us#2059 proposes to replace the daily full
 validation with an event-driven drift run. If it lands, "the full audit stays
 on the scheduled run" is no longer true as written, and the control for
 verifier drift must be named again.
+
+## Shadow comparison (report only)
+
+`validation-waivers audit --scope full --incremental-shadow-report <file>`
+runs the full audit exactly as without the option. After the full audit has
+printed its report, it computes the incremental selection of the same
+partition, with the same guards as `--scope incremental` (empty change set,
+ledger that differs from the protected base), and compares the two. The option
+is off by default. It never changes the report on standard output or the exit
+code.
+
+The comparison is per partition. For a deterministic verifier, a selected
+waiver is flagged by the incremental audit when and only when the full audit
+flags it, because both would fingerprint the same tree with the same verifier;
+so the full audit's results are reused and nothing runs twice. This derived
+verdict has a limit: the isolated-recheck budget of an unpartitioned audit
+depends on how many modules ran, so it differs between the scopes, and a flaky
+result is not replayed. A flake that the full audit's recheck did not absorb
+shows as a difference in the record, not as a second run. The record (schema
+`axiom-encode/validation-waiver-incremental-shadow/v1`) has one verdict:
+
+| Verdict | Meaning | `unsafe` |
+|---|---|---|
+| `agree` | Every waiver the full audit flags is selected | false |
+| `incremental_missed` | The full audit flags a waiver that the incremental audit would not: the incremental gate would pass what the full gate fails. `missed` lists them | true |
+| `incremental_extra` | The incremental audit flags a waiver that the full audit does not (only possible with a separate incremental report) | false |
+| `inconclusive` | No comparison: the selection raised, the full audit did not finish or failed before its results (ledger transition, systemic discrepancy), the run used `--scope incremental` or `--verifier-restate`, or an input was malformed | true |
+
+The record also holds the full audit's checked and flagged counts, and the
+selection's scope, size, fallback reason and time in seconds. Every record,
+also an `inconclusive` one written after the audit raised, holds `partition`
+(`key` and `count`; `{"key": null, "count": 1}` for an unpartitioned audit) and
+`binding`: the encoder version, the head commit of the `--root` checkout when
+`git` can read it (run with no `GIT_*` variable, and only when the checkout's
+top level is `--root` itself; otherwise `null`), `GITHUB_SHA` when set, and the SHA-256 of the protected base
+ledger and of the changed-path file.
+
+A run that is interrupted or killed (for example by a step timeout) writes no
+record, and the option does not catch an interrupt to change the exit code. So
+a collector must require exactly one record per partition, with the expected
+binding, and treat a missing, duplicate or unbound record as unsafe.
+
+The option refuses an output path that is, or is inside, the `--root`
+checkout or any other path input of the audit (protected base ledger,
+changed-path file, `--corpus-path`, `--axiom-rules-engine-path`,
+`--axiom-compose-path`, every `--rulespec-dependency-root`), or that exists as
+a symbolic link or as anything but a regular file. Containment and equality are
+decided by file identity (device and inode) over the resolved path and its
+existing ancestors, not by names, so another spelling on a case-insensitive
+filesystem, a hard link or `link/..` cannot pass. Then it writes no file, and the
+`inconclusive` record goes only to standard error. The record is written to a
+temporary file created exclusively in the same directory, then renamed. When
+the write fails, a record of this schema left at the path by an earlier run
+is removed, and no other file. A workflow should still use a fresh path per
+run, for example under `$RUNNER_TEMP`.
+`--incremental-shadow-summary` requires `--incremental-shadow-report` and a
+different file (by identity when both exist, otherwise by resolved path
+without case).
+`--incremental-shadow-summary <file>` appends one Markdown line to a file, for
+example `$GITHUB_STEP_SUMMARY` (the signing supervisor does not pass that
+variable to the audit, so the workflow passes the path). The same summary line
+and the record as one JSON line are written to standard error, prefixed
+`validation-waivers incremental shadow record: `, so a run whose record file
+cannot be written or collected still has the record in its log.
+
+A later change of the reusable workflow can use it in the step "Enforce
+validation waiver ratchet": when the verifier's `audit --help` lists
+`--incremental-shadow-report`, add
+`--incremental-shadow-report "$RUNNER_TEMP/waiver-shadow-${{ matrix.shard }}.json"`
+on `pull_request` events, keep `--scope full`, and upload the record as an
+artifact. A separate job can then collect all partitions and fail or alert on
+any `unsafe` record. Whether an `incremental_missed` record fails the pull
+request or only alerts is that workflow's decision; this option only reports.
