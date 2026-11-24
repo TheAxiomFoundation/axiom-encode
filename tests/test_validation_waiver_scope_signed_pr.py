@@ -799,7 +799,8 @@ def test_selector_work_follows_the_waivers_given_not_the_ledger(
     original_read = Path.read_text
 
     def read_text(self, *args, **kwargs):
-        reads[self.name] += 1
+        if self.suffix == ".yaml":
+            reads[self.relative_to(root.resolve()).as_posix()] += 1
         return original_read(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", read_text)
@@ -813,12 +814,13 @@ def test_selector_work_follows_the_waivers_given_not_the_ledger(
     # Every file of the shared chain is parsed once for 60 waivers, each
     # jurisdiction's candidate roots are resolved once, and so are its
     # placement-search roots.
-    assert all(reads[f"chain-{index}.yaml"] == 1 for index in range(1, 6))
-    assert reads["base.yaml"] == 1
-    assert max(reads[Path(path).name] for path in waivers) <= 3
+    assert all(reads[f"us/statutes/chain-{index}.yaml"] == 1 for index in range(1, 6))
+    assert reads["us/statutes/base.yaml"] == 1
+    assert all(reads[path] == 1 for path in waivers)
     assert sum(root_lookups.values()) <= 6
     assert sum(upstream_lookups.values()) == 3
     whole_reads = sum(reads.values())
+    assert whole_reads <= len(waivers) + 6 + 3
 
     reads.clear()
     root_lookups.clear()
@@ -829,8 +831,8 @@ def test_selector_work_follows_the_waivers_given_not_the_ledger(
     assert one.paths == ("us-ny/statutes/w-0.yaml",)
     # One waiver costs its own closure: its module, the chain and the changed
     # module check. It does not read the other 59 waivers.
-    assert not any(reads[f"w-{index}.yaml"] for index in range(1, 20))
-    assert sum(reads.values()) <= 10
+    assert not any(reads[path] for path in waivers if path != one.paths[0])
+    assert sum(reads.values()) <= 1 + 6 + 3
     assert sum(reads.values()) * 5 < whole_reads
 
 
@@ -858,6 +860,15 @@ def test_alias_keys_decide_exactly_what_same_decides(tmp_path: Path):
             assert (aliases.key(candidate) in keys) == aliases.same(
                 existing, candidate
             ), (existing.name, candidate.name)
+    # A case-sensitive filesystem: the lower-case spelling does not exist, and
+    # an existing file still matches it by its case-folded name.
+    sensitive = _PathAliases()
+    lower = tmp_path / "present.yaml"
+    sensitive.identities[Path(os.path.abspath(lower))] = None
+    assert sensitive.same(present, lower)
+    assert sensitive.key(lower) == ("name", os.path.abspath(lower).casefold())
+    assert sensitive.key(lower) in sensitive.existing_keys(present)
+    assert sensitive.key(lower) not in sensitive.existing_keys(other)
     assert aliases.key(present) != aliases.key(other)
     assert aliases.key(present) == aliases.key(linked)
     assert aliases.key(tmp_path / "absent.yaml") == aliases.key(
@@ -888,3 +899,85 @@ def test_filesystem_failure_while_reading_a_closure_audits_every_path_given(
     assert selection.fallback_reason == (
         "could not establish validation read set: [Errno 24] Too many open files"
     )
+
+
+def test_waiver_of_an_absent_jurisdiction_still_searches_its_ancestors(
+    tmp_path: Path,
+):
+    root = tmp_path / "rulespec-us"
+    # A ledger entry can outlive its module and even its jurisdiction
+    # directory. Its ancestors remain its placement-search roots.
+    gone = "us-zz/statutes/gone.yaml"
+    nested_gone = "us-ca-la/statutes/gone.yaml"
+    _module(root, "us-ca/statutes/present.yaml")
+    federal = "us/statutes/new.yaml"
+    _module(root, federal)
+    state = "us-ca/statutes/new.yaml"
+    _module(root, state)
+
+    by_federal = select_validation_waiver_scope(
+        [gone, nested_gone], root=root, changed_paths={federal}
+    )
+    by_state = select_validation_waiver_scope(
+        [gone, nested_gone], root=root, changed_paths={state}
+    )
+
+    assert by_federal.scope == by_state.scope == "incremental"
+    assert by_federal.paths == (nested_gone, gone)
+    assert by_state.paths == (nested_gone,)
+    assert by_state.reasons[nested_gone] == [
+        f"validation searches changed module: {state}"
+    ]
+
+
+def test_signed_change_selects_a_composition_without_walking_the_country(
+    tmp_path: Path, monkeypatch
+):
+    root = tmp_path / "rulespec-us"
+    composition = "us/policies/tariff/composition.yaml"
+    _composition(root, composition)
+    for index in range(12):
+        _module(root, f"us-tx/statutes/unrelated-{index}.yaml")
+    changed = _signed_change(root, "us-az/policies/des/block-7.yaml")
+    walked: list[Path] = []
+    original = _ReadSets.country_keys
+
+    def country_keys(self, content_root):
+        walked.append(content_root)
+        return original(self, content_root)
+
+    monkeypatch.setattr(_ReadSets, "country_keys", country_keys)
+
+    signed = select_validation_waiver_scope(
+        [composition], root=root, changed_paths=changed
+    )
+    companion_only = select_validation_waiver_scope(
+        [composition],
+        root=root,
+        changed_paths={"us-az/policies/des/block-7.test.yaml"},
+    )
+
+    # A changed module selects the composition by itself. Only a change with
+    # no module needs the walk over every module of the country.
+    assert signed.paths == (composition,)
+    assert companion_only.paths == ()
+    assert walked == [(root / "us").resolve()]
+
+
+def test_full_fallback_returns_the_given_paths_once_and_sorted(tmp_path: Path):
+    root = tmp_path / "rulespec-us"
+    waivers = ["us-ny/statutes/b.yaml", "us-ca/statutes/a.yaml", "us/statutes/c.yaml"]
+    for path in waivers:
+        _module(root, path)
+
+    selection = select_validation_waiver_scope(
+        [*waivers, waivers[0]], root=root, changed_paths={".axiom/toolchain.toml"}
+    )
+
+    assert selection.scope == "full"
+    assert selection.paths == (
+        "us-ca/statutes/a.yaml",
+        "us-ny/statutes/b.yaml",
+        "us/statutes/c.yaml",
+    )
+    assert list(selection.reasons) == list(selection.paths)

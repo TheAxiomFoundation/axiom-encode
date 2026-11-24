@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from axiom_encode import cli
+from axiom_encode.validation_waiver_scope import WaiverAuditScope
 from tests.test_validation_waiver_audit_cli import (
     _audit_args,
     _entry,
@@ -412,6 +413,29 @@ def test_each_partition_selects_only_among_the_waivers_it_owns(audit_repo, capsy
         **reports["shard-a"]["selection_reasons"],
         **reports["shard-b"]["selection_reasons"],
     }
+
+
+def test_selection_can_never_widen_the_partition_a_job_owns(audit_repo, capsys):
+    everything = WaiverAuditScope(
+        "full",
+        tuple(audit_repo.paths),
+        {path: ["full audit fallback: uncertain"] for path in audit_repo.paths},
+        "uncertain",
+    )
+    with patch.object(cli, "select_validation_waiver_scope", return_value=everything):
+        code, report, executed = _run_audit(
+            audit_repo,
+            capsys,
+            changed=[audit_repo.paths[0]],
+            scope="incremental",
+            partition_key="shard-b",
+        )
+
+    owned = [audit_repo.paths[1], audit_repo.paths[3]]
+    assert code == 0
+    assert executed == owned
+    assert report["selected"] == report["checked"] == 2
+    assert sorted(report["selection_reasons"]) == owned
 
 
 def test_unreadable_waiver_is_audited_by_its_own_partition_only(audit_repo, capsys):

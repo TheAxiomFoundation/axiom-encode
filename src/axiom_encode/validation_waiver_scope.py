@@ -586,15 +586,22 @@ class _ReadSets:
             pending.extend(node.targets)
 
     def node_keys(self, current: Path, content_root: Path) -> frozenset[_AliasKey]:
-        """Return the comparison keys of one file and its direct dependencies."""
+        """Return the comparison keys of one file's direct dependencies.
+
+        The file's own key is not needed: a walked file is either a start,
+        which selection compares directly, or a candidate of the file that
+        named it.
+        """
 
         cache_key = (current, content_root)
         if cache_key not in self._node_keys:
-            paths: set[Path] = {current}
-            if self._is_regular(current):
-                paths.update(self.node(current, content_root).dependencies)
+            dependencies = (
+                self.node(current, content_root).dependencies
+                if self._is_regular(current)
+                else frozenset()
+            )
             self._node_keys[cache_key] = frozenset(
-                key for path in paths if (key := self.key(path)) is not None
+                key for path in dependencies if (key := self.key(path)) is not None
             )
         return self._node_keys[cache_key]
 
@@ -745,7 +752,6 @@ def _waiver_selection_reasons(
     changed_keys: dict[str, frozenset[_AliasKey]],
     ancestor_keys: dict[str, frozenset[_AliasKey]],
     wanted: frozenset[_AliasKey],
-    shared_keys: frozenset[_AliasKey],
 ) -> list[str]:
     """Return why the changed paths select one waiver; empty when they do not."""
 
@@ -754,9 +760,11 @@ def _waiver_selection_reasons(
     if starts and companion.is_file():
         starts.append(companion)
     # The walk also proves that every import of this waiver's closure can be
-    # classified, whatever changed.
+    # classified, whatever changed. The inputs every waiver reads (the ledger,
+    # the toolchain file, Git identity files) need no comparison here: none of
+    # them can be a classified module or companion, and a change of any of
+    # them already forced the full audit above.
     read_keys = reader.reachable_keys(starts, content_root, wanted)
-    read_keys.update(shared_keys & wanted)
     module_key = reader.key(module)
     companion_key = reader.key(companion)
     search_keys = frozenset(aliases.key(search_root) for search_root in upstream_roots)
@@ -952,11 +960,6 @@ def select_validation_waiver_scope(
                 for _label, kind, matched in meaningful
                 if kind == "module"
             }
-            shared_keys = frozenset(
-                key
-                for dependency in reader.shared_dependencies()
-                if (key := reader.key(dependency)) is not None
-            )
             for path in ordered:
                 try:
                     selected_reasons = _waiver_selection_reasons(
@@ -967,7 +970,6 @@ def select_validation_waiver_scope(
                         changed_keys=changed_keys,
                         ancestor_keys=ancestor_keys,
                         wanted=wanted,
-                        shared_keys=shared_keys,
                     )
                 except (ValueError, yaml.YAMLError) as exc:
                     # A waiver whose own read set cannot be classified is
