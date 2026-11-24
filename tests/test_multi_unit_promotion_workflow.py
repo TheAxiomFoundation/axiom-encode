@@ -662,7 +662,10 @@ def test_a_run_without_units_publishes_no_unit_list(tmp_path, source):
 
 
 @needs_shell
-@pytest.mark.parametrize("unit", ["x`id`", "a b", "a, b", "$(id)", "a'b", 'a"b'])
+@pytest.mark.parametrize(
+    "unit",
+    ["x`id`", "a b", "a, b", "$(id)", "a'b", 'a"b', "abc\n", "\nabc", "a\nb", "abc\r"],
+)
 def test_a_unit_that_is_not_a_plain_citation_stops_the_publication(tmp_path, unit):
     """The title and body take the units only as plain citation text."""
     completed = prepare_units(tmp_path, wrapper([citation("a"), unit]), switch_on=True)
@@ -681,8 +684,9 @@ def publish_title_and_body(units: str, count: str) -> list[str]:
     script = fragment(
         step("Push lane branch and open draft pull request")["run"],
         'title="Add signed encoding manifest for ${CITATION}"',
-        "fi",
+        "body=\"$(printf '%s\\n' \"$body\" '' \"Units",
     )
+    script += "\nfi"
     completed = subprocess.run(
         [
             "bash",
@@ -711,6 +715,16 @@ def test_the_pull_request_title_and_body_name_every_unit():
         "existing body",
         "",
         "Units (3): `us/statute/7/2015/a, us/statute/7/2015/b, us/statute/7/2015/c`",
+    ]
+
+
+@needs_shell
+def test_a_batch_of_one_keeps_the_singular_title_and_lists_its_unit():
+    assert publish_title_and_body(citation("a"), "1") == [
+        "Add signed encoding manifest for us/statute/7/2015/a",
+        "existing body",
+        "",
+        "Units (1): `us/statute/7/2015/a`",
     ]
 
 

@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -847,6 +848,72 @@ def test_a_unit_that_names_itself_in_its_imports_is_not_a_batch_import(tmp_path,
     )
 
 
+def test_an_import_reached_through_an_alias_of_the_checkout_is_refused(tmp_path, on):
+    """Through a symlinked checkout path the batch import is still refused."""
+    repo, _head = candidate(tmp_path / "real")
+    alias = tmp_path / "alias"
+    alias.symlink_to(tmp_path / "real", target_is_directory=True)
+    a, b = Path(primary("a")), Path(primary("b"))
+    raw = yaml.safe_dump({"imports": ["us:statutes/7/2015/a#x"], "rules": []}).encode()
+    (repo / b).write_bytes(raw)
+    units = {a: (repo / a).read_bytes(), b: raw}
+    assert cli._promotion_batch_import_issue(repo, units) == (
+        f"{primary('b')} imports {primary('a')}, another unit of the same "
+        "batch; promote the imported unit first"
+    )
+    # The resolver refuses the aliased root as unsafe: refused, fail closed.
+    assert cli._promotion_batch_import_issue(alias / "rulespec-us", units) in {
+        f"{primary('b')} has an import that cannot be resolved safely",
+        f"{primary('b')} imports {primary('a')}, another unit of the same "
+        "batch; promote the imported unit first",
+    }
+
+
+def test_an_import_in_another_letter_case_is_refused_when_it_reaches_a_unit(
+    tmp_path, on, monkeypatch
+):
+    """A resolver result that differs from a unit file in case only is the unit."""
+    repo, _head = candidate(tmp_path)
+    a, b = Path(primary("a")), Path(primary("b"))
+    raw = yaml.safe_dump({"imports": ["us:statutes/7/2015/A#x"], "rules": []}).encode()
+    monkeypatch.setattr(
+        cli,
+        "_resolve_rulespec_import_file_static",
+        lambda item, **kwargs: repo / "us/statutes/7/2015/A.yaml",
+    )
+    assert cli._promotion_batch_import_issue(
+        repo, {a: (repo / a).read_bytes(), b: raw}
+    ) == (
+        f"{primary('b')} imports {primary('a')}, another unit of the same batch; "
+        "promote the imported unit first"
+    )
+
+
+def test_the_import_check_resolves_with_the_runs_dependency_roots(
+    tmp_path, on, monkeypatch
+):
+    """The resolver gets the dependency roots of the run, as validation does."""
+    repo, head = candidate(tmp_path, imports={"b": ("us:statutes/7/2014/x#y",)})
+    roots = (tmp_path / "rulespec-ca",)
+    seen = []
+    real = cli._resolve_rulespec_import_file_static
+
+    def spy(item, **kwargs):
+        seen.append(kwargs["rulespec_dependency_roots"])
+        return real(item, **{**kwargs, "rulespec_dependency_roots": ()})
+
+    monkeypatch.setattr(cli, "_resolve_rulespec_import_file_static", spy)
+    monkeypatch.setattr(cli, "_normalize_rulespec_dependency_roots", lambda _r: roots)
+    monkeypatch.setattr(
+        cli,
+        "_authoritative_rulespec_dependency_scope",
+        lambda _roots: contextlib.nullcontext(),
+    )
+    run = Run(tmp_path, repo, head, batch_admission(repo, head))
+    run(monkeypatch)
+    assert seen and all(value == roots for value in seen)
+
+
 def test_an_import_of_a_companion_of_another_unit_is_refused(tmp_path, on):
     repo, _head = candidate(tmp_path)
     a, b = Path(primary("a")), Path(primary("b"))
@@ -964,6 +1031,27 @@ def test_only_exactly_true_admits_the_units_key(monkeypatch, value):
         ValueError, match="requires exactly transaction and rulespec_pr"
     ):
         helper.split_atomic_source_input(wrapper([citation("a")]))
+
+
+def test_the_units_key_stays_unknown_when_the_switch_cannot_be_read(monkeypatch):
+    """Outside the package the wrapper cannot read the switch: the key is refused."""
+    import axiom_encode
+
+    monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", True)
+    assert helper.split_atomic_source_input(wrapper([citation("a")]))[
+        "promotion_units"
+    ] == [citation("a")]
+    monkeypatch.delattr(axiom_encode, "reviewed_pr_admission")
+    monkeypatch.setitem(sys.modules, "axiom_encode.reviewed_pr_admission", None)
+    with pytest.raises(ImportError):
+        from axiom_encode import reviewed_pr_admission  # noqa: F401
+    with pytest.raises(
+        ValueError,
+        match="^reviewed PR promotion requires exactly transaction and rulespec_pr$",
+    ):
+        helper.split_atomic_source_input(wrapper([citation("a")]))
+    # Without the key the wrapper still reads.
+    assert helper.split_atomic_source_input(wrapper())["rulespec_pr"] == 42
 
 
 def test_the_wrapper_carries_the_unit_list(on):

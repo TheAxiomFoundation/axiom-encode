@@ -5467,7 +5467,9 @@ jobs:
               split-atomic-source-input "$ATOMIC_SOURCE_JSON" \
               | jq -ce '.promotion_units
                   | if type == "array" and length > 0
-                      and all(.[]; type == "string" and test("^[A-Za-z0-9._/-]+$"))
+                      and all(.[]; type == "string"
+                        and test("^[A-Za-z0-9._/-]+$")
+                        and (test("[^A-Za-z0-9._/-]") | not))
                     then . else error("a unit is not a plain citation") end')"
             promotion_units="$(jq -r 'join(", ")' <<<"$promotion_units_json")"
             promotion_unit_count="$(jq -r 'length' <<<"$promotion_units_json")"
@@ -5579,7 +5581,9 @@ jobs:
           title="Add signed encoding manifest for ${CITATION}"
           if [ -n "$PROMOTION_UNITS" ]; then
             # A multi-unit promotion: one signed manifest per unit.
-            title="Add signed encoding manifests for ${PROMOTION_UNIT_COUNT} units (${CITATION} and others)"
+            if [ "$PROMOTION_UNIT_COUNT" != "1" ]; then
+              title="Add signed encoding manifests for ${PROMOTION_UNIT_COUNT} units (${CITATION} and others)"
+            fi
             body="$(printf '%s\n' "$body" '' "Units (${PROMOTION_UNIT_COUNT}): \`${PROMOTION_UNITS}\`")"
           fi
           gh auth setup-git

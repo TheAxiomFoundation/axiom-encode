@@ -265,7 +265,7 @@ admission, not from its arguments, and processes them in path order:
    `HEAD` against the admission record.
 2. No unit may import another unit of the same batch (below).
 3. Every unit: complete-source validation of its exact bytes, the same call as
-   for a single unit.
+   for a single unit, without the files of the other units (below).
 4. The admission is read live again, once.
 5. Every unit: the signature.
 6. One transaction installs every manifest, then verifies every installed
@@ -274,9 +274,14 @@ admission, not from its arguments, and processes them in path order:
 The result is one signed manifest per unit, at the unit's own canonical
 manifest path, in the form of a single-unit promotion: the same schema
 (`axiom-encode/applied-rulespec/v5`), tool, fields and signature form. With
-the clock held, each manifest is byte-identical to the manifest of a
-single-unit promotion of that unit. A verifier reads each manifest by itself,
-so it needs no change. The units of one batch share `run_id` and
+the clock held, each manifest is byte-identical to the manifest that a
+single-unit promotion of that unit writes on the same checkout. One recorded
+value describes the checkout and not the unit:
+`validation_execution.policy_pre_apply` (`pre_apply_content_sha256`,
+`pre_apply_file_count`) is the content of the candidate head, which holds
+every unit of the batch, although each unit is validated without the others
+(below). A verifier reads each manifest by itself and does not recompute that
+value, so it needs no change. The units of one batch share `run_id` and
 `reviewed_rulespec_ref`. The admission record in the runtime attestation is a
 separate form (`axiom-encode/live-reviewed-pr-batch-admission/v1`) with one
 record per unit; each record equals the record of a single-unit admission.
@@ -301,15 +306,37 @@ record per unit; each record equals the record of a single-unit admission.
 A failed batch is repaired in the candidate (fix or remove the unit) and
 dispatched again on the new head. There is no partial result to keep.
 
+### Each unit is validated alone
+
+A unit of a batch must not pass because another unit of the batch is in the
+checkout. This holds by construction, not by a list of reference kinds.
+Validation of a unit runs in a temporary copy of the checkout (the apply
+overlay). For a batch, the primary and the companion of every other unit are
+removed from that copy before anything is validated, and so is a directory
+that held nothing else. The tree that validation reads for unit `i` is
+therefore the tree of a candidate that holds unit `i` alone. Any reference to
+another unit of the batch (an import, a companion input or output key, a proof
+import target, an absolute reference in a formula, a relation target, or any
+other route) finds no file, and the unit is refused exactly as its single-unit
+promotion is refused.
+
+- Only the temporary copy is changed. The checkout is never written by this
+  step; the final check that only the manifests changed still holds.
+- It fails closed: if a file of another unit is not a regular file of the
+  copy, the validation of the unit stops.
+- A unit that an existing module depends on cannot be part of a batch. The
+  dependent comparison reads a baseline from the checkout, outside the
+  isolation, so such a unit is refused in a batch and must be promoted alone.
+  (A new module with a dependent on `main` is not expected: the dependent
+  would import a module that does not exist.)
+
 ### Imports between units of one batch
 
-Refused. A unit whose primary imports another unit of the same batch stops
-the run before validation, and the error names both files. Reason: each unit
-is validated and signed as a single-unit promotion of it would be, against
-modules that are already signed. The single-unit lane cannot express such an
-import at all (its candidate holds one new module), so this keeps each batch
-manifest equal to a single-unit one. Promote the imported unit first, then the
-importer in a later candidate.
+Refused early, with a clearer message than the isolation gives. A unit whose
+primary imports another unit of the same batch stops the run before
+validation, and the error names both files. Since each unit is validated
+alone, this check is no longer the only barrier; it tells the operator what to
+do. Promote the imported unit first, then the importer in a later candidate.
 
 The check uses the validator's own import resolver
 (`_resolve_rulespec_import_file_static`). It resolves every import of each
@@ -354,7 +381,11 @@ an import that the resolver refuses as unsafe each stop the batch.
 From the independent review of this lane. Each item is necessary; the state is
 of this document's commit.
 
-1. **Import refusal through the real resolver.** Done (above).
+1. **No unit passes because of another unit.** Done by construction: each
+   unit is validated without the files of the other units ("Each unit is
+   validated alone"). The import refusal through the real resolver is the
+   early message. Proven on the staging code with the real overlay and a
+   probe validator; the engine itself was not run (items 3 and 4).
 2. **Workflow packaging.** Done in `targeted-signed-reencode.yml`. For a run
    that names its units, the packaging step expects one changed manifest per
    unit at the unit's canonical position and nothing else: a manifest of an
@@ -370,10 +401,11 @@ of this document's commit.
    embedded code; not yet run on a hosted runner (item 3).
 3. **A hosted canary batch** on a real candidate. No hosted run of a batch has
    been made.
-4. **An engine-level check** that the other, still unsigned, units in the
-   checkout cannot make a unit pass complete-source validation. The import
-   refusal covers direct imports; it does not prove that the engine reads no
-   other unit.
+4. **An engine-level run.** The isolation removes the other units from the
+   tree that the engine is given. It is not yet shown with the real engine
+   that the engine reads no path outside that tree; the canary of item 3
+   should include one batch whose unit names another unit and must be
+   refused.
 5. **The derived index.** Decide whether its content must reflect exactly the
    `k` units. Today nothing in this lane checks the content of the index, for
    a batch as for a single unit.
