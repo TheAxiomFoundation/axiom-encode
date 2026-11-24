@@ -10,6 +10,7 @@ deleting or introducing a module cannot evade selection.
 from __future__ import annotations
 
 import os
+import stat
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -20,18 +21,18 @@ from axiom_encode.constants import (
     RULESPEC_ATOMIC_MODULE_ROOTS,
     RULESPEC_COMPOSITION_SPEC_ROOT,
 )
+from axiom_encode.harness.dependency_stubs import UnsafeRulespecContextPath
 from axiom_encode.harness.validator_pipeline import (
+    _candidate_rulespec_repo_roots,
     _candidate_upstream_rulespec_roots,
     _extract_import_items_from_content,
     _normalize_rulespec_dependency_roots,
+    _normalize_rulespec_import_path_static,
     _parse_rulespec_target,
     _reject_rulespec_checkout_symlinks,
-    _resolve_rulespec_import_file_static,
-    _resolve_rulespec_target_file,
     _rulespec_import_file_candidates_static,
     _rulespec_import_prefix_static,
     _rulespec_resolution_cache_scope,
-    _rulespec_target_file_candidates,
     _safe_load_unique_keys,
 )
 from axiom_encode.repo_routing import (
@@ -52,6 +53,8 @@ from axiom_encode.validation_waivers import (
     _contains_control_or_format,
     _module_path,
 )
+
+_AliasKey = tuple[object, ...]
 
 
 @dataclass(frozen=True)
@@ -94,6 +97,59 @@ class _PathAliases:
     def within(self, path: Path, parent: Path) -> bool:
         return any(self.same(ancestor, parent) for ancestor in (path, *path.parents))
 
+    def key(self, path: Path) -> _AliasKey:
+        """Return the key that ``same`` compares an existing path with.
+
+        A present path is its filesystem identity and an absent path is its
+        case-folded spelling. ``same(existing, other)`` holds exactly when
+        ``key(other)`` is one of ``existing_keys(existing)``.
+        """
+
+        identity = self.identity(path)
+        if identity is not None:
+            return ("identity", *identity)
+        return ("name", os.path.abspath(path).casefold())
+
+    def existing_keys(self, path: Path) -> frozenset[_AliasKey]:
+        """Return both keys an existing path can be matched by."""
+
+        keys: set[_AliasKey] = {("name", os.path.abspath(path).casefold())}
+        identity = self.identity(path)
+        if identity is not None:
+            keys.add(("identity", *identity))
+        return frozenset(keys)
+
+
+# The signed apply writer stores one manifest per module under this directory,
+# at the module's own repository-relative path with a ``.json`` suffix.
+_APPLIED_MANIFEST_PARTS = (".axiom", "encoding-manifests")
+# Top-level surfaces that can change toolchain, audit, runtime or composition
+# behavior. Nothing beneath them is a module, a companion or inert text.
+_SHARED_SURFACE_PARTS = frozenset({".axiom", ".github", RULESPEC_COMPOSITION_SPEC_ROOT})
+
+
+def _applied_manifest_module(path: str) -> str | None:
+    """Return the module a signed apply manifest path belongs to, if exact.
+
+    Only ``.axiom/encoding-manifests/<module path>.json`` is recognized, where
+    ``<module path>.yaml`` is a canonical atomic module path. Every other
+    ``.axiom`` path (toolchain files, ledgers, indexes, legacy manifest
+    layouts, manifests of companions or ProgramSpecs) stays unclassified.
+    """
+
+    parts = PurePosixPath(path).parts
+    prefix = len(_APPLIED_MANIFEST_PARTS)
+    if parts[:prefix] != _APPLIED_MANIFEST_PARTS or not path.endswith(".json"):
+        return None
+    module_parts = parts[prefix:]
+    if not module_parts or any(part in _SHARED_SURFACE_PARTS for part in module_parts):
+        return None
+    module = "/".join(module_parts).removesuffix(".json") + ".yaml"
+    try:
+        return _module_path(module)
+    except WaiverSchemaError:
+        return None
+
 
 def _changed_path_kind(path: str) -> str | None:
     """Recognize only the repository's module contract and inert Markdown."""
@@ -109,10 +165,14 @@ def _changed_path_kind(path: str) -> str | None:
         or _contains_control_or_format(path)
     ):
         return None
+    if _applied_manifest_module(path) is not None:
+        # A signed apply manifest is bound to exactly one module. The scope
+        # treats it as a change of that module, never as an inert file.
+        return "manifest"
     # These surfaces can change toolchain, audit, runtime or composition
     # behavior. Their documentation is deliberately not an inert exception.
     if path == DEFAULT_WAIVER_PATH or any(
-        part in {".axiom", ".github", RULESPEC_COMPOSITION_SPEC_ROOT} for part in parts
+        part in _SHARED_SURFACE_PARTS for part in parts
     ):
         return None
     candidate = path
@@ -173,8 +233,32 @@ def _yaml_strings(payload: object) -> Iterator[str]:
                 pending.extend(value)
 
 
+@dataclass(frozen=True)
+class _ParsedFile:
+    """One file's dependency declarations, independent of who reads it."""
+
+    imports: tuple[str, ...]
+    targets: tuple[tuple[str, str, Path], ...]
+    composition: bool
+
+
+@dataclass(frozen=True)
+class _Node:
+    """Direct read dependencies of one file as read for one caller root."""
+
+    dependencies: frozenset[Path]
+    targets: tuple[Path, ...]
+
+
 class _ReadSets:
-    """Share directory listings and parsed closures within one fixed-tree audit."""
+    """Share directory listings and parsed closures within one fixed-tree audit.
+
+    Every repository-wide input is computed once. A file is parsed once, its
+    direct dependencies are built once per caller root, and the candidate
+    content roots of a jurisdiction are resolved once. A waiver's read set is
+    then a walk over that shared graph, so its cost follows the size of its
+    own closure and not the size of the repository.
+    """
 
     def __init__(self, root: Path, dependency_roots: Sequence[Path]):
         self.root = Path(root).resolve()
@@ -202,6 +286,17 @@ class _ReadSets:
         self.atomic_files: dict[Path, set[Path]] = {}
         self.closures: dict[tuple[Path, Path], set[Path]] = {}
         self.aliases = _PathAliases()
+        self._parsed: dict[Path, _ParsedFile] = {}
+        self._nodes: dict[tuple[Path, Path], _Node] = {}
+        self._node_keys: dict[tuple[Path, Path], frozenset[_AliasKey]] = {}
+        self._regular: dict[Path, bool] = {}
+        self._repo_roots: dict[tuple[str, str, Path], tuple[Path, ...]] = {}
+        self._content_roots: dict[Path, Path | None] = {}
+        self._upstream_roots: dict[tuple[Path, str], frozenset[Path]] = {}
+        self._identity_inputs: tuple[Path, ...] | None = None
+        self._keys: dict[Path, _AliasKey | None] = {}
+        self._country_keys: dict[Path, frozenset[_AliasKey]] = {}
+        self._country_module_keys: frozenset[_AliasKey] | None = None
 
     def relative(self, path: Path) -> str | None:
         # Do not resolve an absent target through a different path. The same
@@ -227,152 +322,381 @@ class _ReadSets:
             }
         return self.atomic_files[content_root]
 
+    def key(self, path: Path) -> _AliasKey | None:
+        """Return a dependency's comparison key, or None outside the checkout.
+
+        A dependency is compared at its repository-relative location, as the
+        read set records it. A changed path matches the dependency exactly
+        when the dependency's key is one of the changed path's keys.
+        """
+
+        if path not in self._keys:
+            relative = self.relative(path)
+            self._keys[path] = (
+                None if relative is None else self.aliases.key(self.root / relative)
+            )
+        return self._keys[path]
+
+    def _is_regular(self, path: Path) -> bool:
+        """Return whether ``path`` is a regular file; refuse any other entry."""
+
+        if path not in self._regular:
+            try:
+                mode = os.lstat(path).st_mode
+            except (FileNotFoundError, NotADirectoryError):
+                self._regular[path] = False
+            else:
+                if not stat.S_ISREG(mode):
+                    # The validator's resolver refuses a directory, a symlink
+                    # or a special file at a dependency path. Selection must
+                    # not guess what such a tree validates as.
+                    raise ValueError(
+                        "unsafe RuleSpec dependency candidate: "
+                        f"{self.relative(path) or path.name}"
+                    )
+                self._regular[path] = True
+        return self._regular[path]
+
+    def content_root(self, path: Path) -> Path | None:
+        """Return the jurisdiction root of ``path``, resolved once per directory."""
+
+        directory = path.parent
+        if directory not in self._content_roots:
+            self._content_roots[directory] = find_policy_repo_root(path)
+        return self._content_roots[directory]
+
+    def upstream_roots(self, content_root: Path, jurisdiction: str) -> frozenset[Path]:
+        """Return the placement-search roots of one jurisdiction, resolved once."""
+
+        cache_key = (content_root, jurisdiction)
+        if cache_key not in self._upstream_roots:
+            roots = (
+                set(
+                    _candidate_upstream_rulespec_roots(
+                        content_root,
+                        rulespec_dependency_roots=self.dependency_roots,
+                    )
+                )
+                if content_root.is_dir()
+                else set()
+            )
+            # Include nonexistent ancestor jurisdictions as search roots too:
+            # adding their first module changes upstream placement validation.
+            prefix_parts = jurisdiction.split("-")
+            roots.update(
+                self.root / "-".join(prefix_parts[:length])
+                for length in range(1, len(prefix_parts) + 1)
+            )
+            self._upstream_roots[cache_key] = frozenset(roots)
+        return self._upstream_roots[cache_key]
+
+    def identity_inputs(self) -> tuple[Path, ...]:
+        if self._identity_inputs is None:
+            self._identity_inputs = _git_identity_input_paths(
+                self.root,
+                git_boundary=self.git_boundary,
+                git_config_inputs=self.git_config_inputs,
+            )
+        return self._identity_inputs
+
+    def parsed(self, current: Path) -> _ParsedFile:
+        """Parse one file's imports and canonical targets exactly once."""
+
+        if current in self._parsed:
+            return self._parsed[current]
+        content = current.read_text(encoding="utf-8")
+        payload = _safe_load_unique_keys(content)
+        imports = _extract_import_items_from_content(content)
+        declared_imports = payload.get("imports") if isinstance(payload, dict) else None
+        if declared_imports is not None and not isinstance(declared_imports, list):
+            raise ValueError(
+                f"unclassifiable imports in {self.relative(current) or current.name}"
+            )
+        if isinstance(declared_imports, list) and any(
+            not isinstance(item, str) for item in declared_imports
+        ):
+            raise ValueError(
+                f"unclassifiable import item in {self.relative(current) or current.name}"
+            )
+        if isinstance(declared_imports, list):
+            # The engine accepts inline YAML sequences too, while the
+            # static line extractor intentionally handles block syntax.
+            imports.extend(item for item in declared_imports if isinstance(item, str))
+        unique_imports = tuple(dict.fromkeys(imports))
+        for imported in unique_imports:
+            import_base = imported.split("#", 1)[0].strip().strip("\"'")
+            if not _rulespec_import_prefix_static(imported) and import_base.endswith(
+                (".yaml", ".yml")
+            ):
+                raise ValueError(
+                    f"ambiguous import {imported!r} in "
+                    f"{self.relative(current) or current.name}"
+                )
+        # Proof import hashes and source_relation verification read targets
+        # even when they are absent from the imports block. A target's rule
+        # symbol does not change which file is read.
+        targets: dict[tuple[str, str, Path], None] = {}
+        for value in _yaml_strings(payload):
+            target_ref = _parse_rulespec_target(value)
+            if target_ref is not None:
+                targets[
+                    (target_ref.repo_name, target_ref.prefix, target_ref.relative_path)
+                ] = None
+        module_data = payload.get("module") if isinstance(payload, dict) else None
+        result = _ParsedFile(
+            imports=unique_imports,
+            targets=tuple(targets),
+            composition=isinstance(module_data, dict)
+            and module_data.get("kind") == "composition",
+        )
+        self._parsed[current] = result
+        return result
+
+    def repo_roots(
+        self, repo_name: str, prefix: str, resolution_root: Path
+    ) -> tuple[Path, ...]:
+        """Return the validator's candidate content roots, resolved once."""
+
+        cache_key = (repo_name, prefix, resolution_root)
+        if cache_key not in self._repo_roots:
+            self._repo_roots[cache_key] = tuple(
+                _candidate_rulespec_repo_roots(
+                    repo_name,
+                    resolution_root,
+                    prefix=prefix,
+                    rulespec_dependency_roots=self.dependency_roots,
+                )
+            )
+        return self._repo_roots[cache_key]
+
+    def target_candidates(
+        self, target: tuple[str, str, Path], resolution_root: Path
+    ) -> tuple[Path, ...]:
+        """Return every path a canonical target can resolve to, present or not."""
+
+        repo_name, prefix, relative_path = target
+        return tuple(
+            content_root / relative_path
+            for content_root in self.repo_roots(repo_name, prefix, resolution_root)
+        )
+
+    def import_candidates(
+        self, imported: str, *, rules_file: Path, resolution_root: Path
+    ) -> tuple[Path, ...]:
+        """Return the import resolver's ordered candidates, present or not.
+
+        A jurisdiction-prefixed import routes only through candidate content
+        roots, which this reader resolves once per jurisdiction. An unprefixed
+        import depends on the importing file, so it keeps the validator's own
+        candidate function.
+        """
+
+        if not _rulespec_import_prefix_static(imported):
+            return tuple(
+                _rulespec_import_file_candidates_static(
+                    imported,
+                    rules_file=rules_file,
+                    policy_repo_path=resolution_root,
+                    rulespec_dependency_roots=self.dependency_roots,
+                )
+            )
+        normalized = _normalize_rulespec_import_path_static(imported)
+        if not normalized:
+            return ()
+        normalized_path = Path(normalized)
+        if normalized_path.is_absolute() or any(
+            part in {"", ".", ".."} for part in normalized_path.parts
+        ):
+            raise UnsafeRulespecContextPath(
+                f"RuleSpec import target is outside the active policy root: {imported}"
+            )
+        if (
+            not normalized_path.parts
+            or normalized_path.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+        ):
+            return ()
+        target_ref = _parse_rulespec_target(imported)
+        if target_ref is None:
+            return ()
+        return self.target_candidates(
+            (target_ref.repo_name, target_ref.prefix, target_ref.relative_path),
+            resolution_root,
+        )
+
+    def node(self, current: Path, content_root: Path) -> _Node:
+        """Return one existing file's direct dependencies for one caller root."""
+
+        cache_key = (current, content_root)
+        if cache_key in self._nodes:
+            return self._nodes[cache_key]
+        parsed = self.parsed(current)
+        current_root = self.content_root(current) or content_root
+        # Engine import recursion routes from each imported module's own
+        # jurisdiction; static source-relation recursion can retain the
+        # original caller root. Cover both with the shared resolver.
+        resolution_roots = tuple(dict.fromkeys((content_root, current_root)))
+        dependencies: dict[Path, None] = {}
+        for imported in parsed.imports:
+            candidates_found = False
+            for resolution_root in resolution_roots:
+                candidates = self.import_candidates(
+                    imported, rules_file=current, resolution_root=resolution_root
+                )
+                dependencies.update(dict.fromkeys(candidates))
+                candidates_found |= bool(candidates)
+            if not candidates_found:
+                raise ValueError(
+                    f"unclassifiable import {imported!r} in "
+                    f"{self.relative(current) or current.name}"
+                )
+        for target in parsed.targets:
+            for resolution_root in resolution_roots:
+                dependencies.update(
+                    dict.fromkeys(self.target_candidates(target, resolution_root))
+                )
+        # The validator's resolver reads one of these candidates. Following
+        # every present candidate is a superset of whichever one it picks, and
+        # keeping the absent ones covers a target that is added or deleted.
+        node = _Node(
+            dependencies=frozenset(dependencies),
+            targets=tuple(
+                candidate for candidate in dependencies if self._is_regular(candidate)
+            ),
+        )
+        self._nodes[cache_key] = node
+        return node
+
+    def reachable(
+        self, starts: Sequence[Path], content_root: Path
+    ) -> Iterator[tuple[Path, _Node | None]]:
+        """Walk every file the starts transitively read for one caller root."""
+
+        pending = list(starts)
+        seen: set[Path] = set()
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            if not self._is_regular(current):
+                yield current, None
+                continue
+            node = self.node(current, content_root)
+            yield current, node
+            pending.extend(node.targets)
+
+    def node_keys(self, current: Path, content_root: Path) -> frozenset[_AliasKey]:
+        """Return the comparison keys of one file and its direct dependencies."""
+
+        cache_key = (current, content_root)
+        if cache_key not in self._node_keys:
+            paths: set[Path] = {current}
+            if self._is_regular(current):
+                paths.update(self.node(current, content_root).dependencies)
+            self._node_keys[cache_key] = frozenset(
+                key for path in paths if (key := self.key(path)) is not None
+            )
+        return self._node_keys[cache_key]
+
+    def reachable_keys(
+        self,
+        starts: Sequence[Path],
+        content_root: Path,
+        wanted: frozenset[_AliasKey],
+    ) -> set[_AliasKey]:
+        """Return the wanted keys that the starts transitively read."""
+
+        found: set[_AliasKey] = set()
+        for current, _node in self.reachable(starts, content_root):
+            found.update(self.node_keys(current, content_root) & wanted)
+        return found
+
     def closure(self, module: Path, content_root: Path) -> set[Path]:
         cache_key = (module, content_root)
         if cache_key in self.closures:
             return self.closures[cache_key]
         dependencies: set[Path] = set()
-        pending = [module]
-        parsed: set[Path] = set()
-        while pending:
-            current = pending.pop()
+        for current, node in self.reachable([module], content_root):
             dependencies.add(current)
-            if current in parsed or not current.is_file():
-                continue
-            parsed.add(current)
-            content = current.read_text(encoding="utf-8")
-            payload = _safe_load_unique_keys(content)
-            current_root = find_policy_repo_root(current) or content_root
-            # Engine import recursion routes from each imported module's
-            # own jurisdiction; static source-relation recursion can retain
-            # the original caller root. Cover both with the shared resolver.
-            resolution_roots = tuple(dict.fromkeys((content_root, current_root)))
-            imports = _extract_import_items_from_content(content)
-            declared_imports = (
-                payload.get("imports") if isinstance(payload, dict) else None
-            )
-            if declared_imports is not None and not isinstance(declared_imports, list):
-                raise ValueError(
-                    f"unclassifiable imports in {self.relative(current) or current.name}"
-                )
-            if isinstance(declared_imports, list) and any(
-                not isinstance(item, str) for item in declared_imports
-            ):
-                raise ValueError(
-                    f"unclassifiable import item in {self.relative(current) or current.name}"
-                )
-            if isinstance(declared_imports, list):
-                # The engine accepts inline YAML sequences too, while the
-                # static line extractor intentionally handles block syntax.
-                imports.extend(
-                    item for item in declared_imports if isinstance(item, str)
-                )
-            for imported in dict.fromkeys(imports):
-                import_base = imported.split("#", 1)[0].strip().strip("\"'")
-                if not _rulespec_import_prefix_static(
-                    imported
-                ) and import_base.endswith((".yaml", ".yml")):
-                    raise ValueError(
-                        f"ambiguous import {imported!r} in "
-                        f"{self.relative(current) or current.name}"
-                    )
-                candidates_found = False
-                for resolution_root in resolution_roots:
-                    candidates = tuple(
-                        _rulespec_import_file_candidates_static(
-                            imported,
-                            rules_file=current,
-                            policy_repo_path=resolution_root,
-                            rulespec_dependency_roots=self.dependency_roots,
-                        )
-                    )
-                    dependencies.update(candidates)
-                    candidates_found |= bool(candidates)
-                    target = _resolve_rulespec_import_file_static(
-                        imported,
-                        rules_file=current,
-                        policy_repo_path=resolution_root,
-                        rulespec_dependency_roots=self.dependency_roots,
-                    )
-                    if target is not None:
-                        pending.append(target)
-                if not candidates_found:
-                    raise ValueError(
-                        f"unclassifiable import {imported!r} in "
-                        f"{self.relative(current) or current.name}"
-                    )
-            # Proof import hashes and source_relation verification read
-            # targets even when they are absent from the imports block.
-            for value in _yaml_strings(payload):
-                target_ref = _parse_rulespec_target(value)
-                if target_ref is None:
-                    continue
-                for resolution_root in resolution_roots:
-                    dependencies.update(
-                        _rulespec_target_file_candidates(
-                            target_ref,
-                            resolution_root,
-                            rulespec_dependency_roots=self.dependency_roots,
-                        )
-                    )
-                    target = _resolve_rulespec_target_file(
-                        target_ref,
-                        resolution_root,
-                        rulespec_dependency_roots=self.dependency_roots,
-                    )
-                    if target is not None:
-                        pending.append(target)
+            if node is not None:
+                dependencies.update(node.dependencies)
         self.closures[cache_key] = dependencies
         return dependencies
 
-    def read_set(
-        self, path: str, *, include_index_files: bool = True
-    ) -> tuple[set[str], set[Path], bool]:
+    def waiver(self, path: str) -> tuple[Path, Path, Path, frozenset[Path], bool]:
+        """Return a waiver's module, companion, root, search roots and kind."""
+
         _module_path(path)
         module = self.root / path
-        content_root = find_policy_repo_root(module)
+        content_root = self.content_root(module)
         if content_root is None:
             # Removed ledger entries can have an absent module. Their
             # lexical jurisdiction root still determines the search scope.
             content_root = self.root / PurePosixPath(path).parts[0]
-        upstream_roots = (
-            set(
-                _candidate_upstream_rulespec_roots(
-                    content_root,
-                    rulespec_dependency_roots=self.dependency_roots,
-                )
-            )
-            if content_root.is_dir()
-            else set()
-        )
-        # Include nonexistent ancestor jurisdictions as search roots too:
-        # adding their first module changes upstream placement validation.
-        jurisdiction = PurePosixPath(path).parts[0]
-        prefix_parts = jurisdiction.split("-")
-        upstream_roots.update(
-            self.root / "-".join(prefix_parts[:length])
-            for length in range(1, len(prefix_parts) + 1)
-        )
-        dependencies = {
-            module,
-            module.with_name(f"{module.stem}.test.yaml"),
+        upstream_roots = self.upstream_roots(content_root, PurePosixPath(path).parts[0])
+        companion = module.with_name(f"{module.stem}.test.yaml")
+        composition = module.is_file() and self.parsed(module).composition
+        return module, companion, content_root, upstream_roots, composition
+
+    def shared_dependencies(self) -> set[Path]:
+        """Return the inputs every waiver's validation reads."""
+
+        return {
             self.root / DEFAULT_WAIVER_PATH,
             self.root / ".axiom" / "toolchain.toml",
+            *self.identity_inputs(),
         }
-        dependencies.update(
-            _git_identity_input_paths(
-                self.root,
-                git_boundary=self.git_boundary,
-                git_config_inputs=self.git_config_inputs,
+
+    def country_modules(self) -> Iterator[Path]:
+        """Yield every atomic module of every jurisdiction in the checkout."""
+
+        for jurisdiction in jurisdiction_subdir_names(
+            self.root, allow_composition_specs=True
+        ):
+            yield from self.modules(self.root / jurisdiction)
+
+    def country_module_keys(self) -> frozenset[_AliasKey]:
+        """Return the keys of every atomic module in the checkout, once."""
+
+        if self._country_module_keys is None:
+            self._country_module_keys = frozenset(
+                key
+                for candidate in self.country_modules()
+                if (key := self.key(candidate)) is not None
             )
-        )
+        return self._country_module_keys
+
+    def country_keys(self, content_root: Path) -> frozenset[_AliasKey]:
+        """Return the keys a composition's program scan can read, once per root.
+
+        Program ownership scans every ProgramSpec and its transitive scope
+        before the owning program is composed. Country-wide modules
+        conservatively cover those discovered scope targets.
+        """
+
+        if content_root not in self._country_keys:
+            keys: set[_AliasKey] = set()
+            program_root = self.root / RULESPEC_COMPOSITION_SPEC_ROOT
+            for program in program_root.rglob("*.yaml"):
+                if (key := self.key(program)) is not None:
+                    keys.add(key)
+            for current, _node in self.reachable(
+                sorted(self.country_modules()), content_root
+            ):
+                keys.update(self.node_keys(current, content_root))
+            self._country_keys[content_root] = frozenset(keys)
+        return self._country_keys[content_root]
+
+    def read_set(
+        self, path: str, *, include_index_files: bool = True
+    ) -> tuple[set[str], set[Path], bool]:
+        module, companion, content_root, upstream_roots, composition = self.waiver(path)
+        dependencies = {module, companion, *self.shared_dependencies()}
         if include_index_files:
             for upstream_root in upstream_roots:
                 dependencies.update(self.modules(upstream_root))
-        composition = False
         if module.is_file():
             dependencies.update(self.closure(module, content_root))
-            companion = module.with_name(f"{module.stem}.test.yaml")
             if companion.is_file():
                 # CI checks resolve absolute companion references against
                 # their source modules, including targets the module never
@@ -380,29 +704,24 @@ class _ReadSets:
                 # can all carry these references. Keep absent candidates as
                 # well so deleting or adding a referenced module is covered.
                 dependencies.update(self.closure(companion, content_root))
-            payload = _safe_load_unique_keys(module.read_text(encoding="utf-8"))
-            module_data = payload.get("module") if isinstance(payload, dict) else None
-            composition = (
-                isinstance(module_data, dict)
-                and module_data.get("kind") == "composition"
-            )
         if composition:
             # Program ownership scans every ProgramSpec and its transitive
             # scope before the owning program is composed. Country-wide
             # modules conservatively cover those discovered scope targets.
             program_root = self.root / RULESPEC_COMPOSITION_SPEC_ROOT
             dependencies.update(program_root.rglob("*.yaml"))
-            for jurisdiction in jurisdiction_subdir_names(
-                self.root, allow_composition_specs=True
+            for current, node in self.reachable(
+                sorted(self.country_modules()), content_root
             ):
-                for candidate in self.modules(self.root / jurisdiction):
-                    dependencies.update(self.closure(candidate, content_root))
+                dependencies.add(current)
+                if node is not None:
+                    dependencies.update(node.dependencies)
         relative_dependencies = {
             relative
             for dependency in dependencies
             if (relative := self.relative(dependency)) is not None
         }
-        return relative_dependencies, upstream_roots, composition
+        return relative_dependencies, set(upstream_roots), composition
 
 
 def validation_waiver_read_set(
@@ -417,6 +736,61 @@ def validation_waiver_read_set(
         return _ReadSets(root, rulespec_dependency_roots).read_set(path)[0]
 
 
+def _waiver_selection_reasons(
+    reader: _ReadSets,
+    aliases: _PathAliases,
+    path: str,
+    *,
+    meaningful: Sequence[tuple[str, str, str]],
+    changed_keys: dict[str, frozenset[_AliasKey]],
+    ancestor_keys: dict[str, frozenset[_AliasKey]],
+    wanted: frozenset[_AliasKey],
+    shared_keys: frozenset[_AliasKey],
+) -> list[str]:
+    """Return why the changed paths select one waiver; empty when they do not."""
+
+    module, companion, content_root, upstream_roots, composition = reader.waiver(path)
+    starts = [module] if module.is_file() else []
+    if starts and companion.is_file():
+        starts.append(companion)
+    # The walk also proves that every import of this waiver's closure can be
+    # classified, whatever changed.
+    read_keys = reader.reachable_keys(starts, content_root, wanted)
+    read_keys.update(shared_keys & wanted)
+    module_key = reader.key(module)
+    companion_key = reader.key(companion)
+    search_keys = frozenset(aliases.key(search_root) for search_root in upstream_roots)
+    module_changed = bool(ancestor_keys)
+    selected_reasons: list[str] = []
+    for label, kind, matched in meaningful:
+        keys = changed_keys[matched]
+        if module_key in keys:
+            selected_reasons.append(f"module changed: {label}")
+        elif companion_key in keys:
+            selected_reasons.append(f"companion changed: {label}")
+        elif keys & read_keys:
+            selected_reasons.append(f"validation reads changed path: {label}")
+        elif kind == "module" and composition:
+            # Composing a program indexes every module of the country
+            # checkout, so a changed module anywhere is read.
+            selected_reasons.append(
+                f"validation reads changed path: {label}"
+                if keys & reader.country_module_keys()
+                else f"validation searches changed module: {label}"
+            )
+        elif kind == "module" and ancestor_keys[matched] & search_keys:
+            selected_reasons.append(f"validation searches changed module: {label}")
+        elif composition and not module_changed:
+            # Only a companion can reach this point. A program scan can read
+            # targets that no module of the waiver's own closure names, so
+            # decide the companion from the country-wide walk. With a changed
+            # module the composition is selected already, and the walk could
+            # add a reason but never a waiver.
+            if keys & reader.country_keys(content_root):
+                selected_reasons.append(f"validation reads changed path: {label}")
+    return selected_reasons
+
+
 def select_validation_waiver_scope(
     paths: Sequence[str],
     *,
@@ -425,7 +799,13 @@ def select_validation_waiver_scope(
     rulespec_dependency_roots: Sequence[Path] = (),
     shared_execution_inputs: Sequence[Path] = (),
 ) -> WaiverAuditScope:
-    """Select only when every changed path has a proven dependency class."""
+    """Select only when every changed path has a proven dependency class.
+
+    ``paths`` may be one partition of the ledger: each waiver is decided from
+    its own read set and the changed paths, never from another waiver, so a
+    partition's selection equals its share of the whole ledger's selection.
+    A read set that cannot be established falls back to every path given.
+    """
 
     ordered = tuple(sorted(set(paths)))
     root = Path(root).resolve()
@@ -456,14 +836,21 @@ def select_validation_waiver_scope(
         return full(f"could not establish configured execution input paths: {exc}")
 
     changed_kinds: dict[str, str] = {}
+    manifest_modules: dict[str, str] = {}
     aliases = _PathAliases()
     for changed in sorted(changed_paths):
         kind = _changed_path_kind(changed)
         if kind is None:
             return full(f"unclassified or shared validation input changed: {changed}")
+        module_relative = changed
+        if kind == "companion":
+            module_relative = changed.removesuffix(".test.yaml") + ".yaml"
+        elif kind == "manifest":
+            module_relative = str(_applied_manifest_module(changed))
         if (
-            kind in {"module", "companion"}
-            and monorepo_checkout_name(PurePosixPath(changed).parts[0]) != root.name
+            kind in {"module", "companion", "manifest"}
+            and monorepo_checkout_name(PurePosixPath(module_relative).parts[0])
+            != root.name
         ):
             return full(f"changed path belongs to another country: {changed}")
         try:
@@ -477,18 +864,22 @@ def select_validation_waiver_scope(
                 # A deleted path no longer proves which physical file its
                 # spelling denoted. Its old aliases may affect any waiver.
                 return full(f"could not establish changed path identity: {changed}")
-            module_relative = (
-                changed.removesuffix(".test.yaml") + ".yaml"
-                if kind == "companion"
-                else changed
-            )
-            if kind == "companion":
+            if kind in {"companion", "manifest"}:
                 _require_plain_changed_path(root, module_relative)
                 if not (root / module_relative).is_file():
+                    if kind == "manifest":
+                        # A manifest whose module is absent proves nothing
+                        # about which validation inputs the change touched.
+                        return full(
+                            f"changed applied manifest has no RuleSpec module: {changed}"
+                        )
                     return full(
                         f"changed path is not an adjacent RuleSpec companion: {changed}"
                     )
-            if kind in {"module", "companion"} and (root / module_relative).is_file():
+            if (
+                kind in {"module", "companion", "manifest"}
+                and (root / module_relative).is_file()
+            ):
                 payload = _safe_load_unique_keys(
                     (root / module_relative).read_text(encoding="utf-8")
                 )
@@ -498,11 +889,32 @@ def select_validation_waiver_scope(
                 ):
                     return full(f"changed path has no valid RuleSpec module: {changed}")
         except (OSError, ValueError, yaml.YAMLError) as exc:
-            if kind in {"module", "companion"}:
+            if kind in {"module", "companion", "manifest"}:
                 return full(f"could not classify changed {kind} {changed}: {exc}")
             return full(str(exc))
         changed_kinds[changed] = kind
-    meaningful = {path: kind for path, kind in changed_kinds.items() if kind != "inert"}
+        if kind == "manifest":
+            manifest_modules[changed] = module_relative
+    # Each entry is (reason label, kind, repository path that is matched). A
+    # manifest stands for its module; when the module changed too, the module
+    # entry already selects everything the manifest could.
+    meaningful: list[tuple[str, str, str]] = []
+    for changed, kind in sorted(changed_kinds.items()):
+        if kind == "inert":
+            continue
+        if kind == "manifest":
+            module_relative = manifest_modules[changed]
+            if changed_kinds.get(module_relative) == "module":
+                continue
+            meaningful.append(
+                (
+                    f"{module_relative} (applied manifest {changed})",
+                    "module",
+                    module_relative,
+                )
+            )
+        else:
+            meaningful.append((changed, kind, changed))
     reasons: dict[str, list[str]] = {}
     try:
         with _rulespec_routing_cache_scope(), _rulespec_resolution_cache_scope():
@@ -522,39 +934,49 @@ def select_validation_waiver_scope(
                 return full(f"Git configuration input changed: {config_changes[0]}")
             if not changed_paths:
                 return WaiverAuditScope("incremental", (), {})
-            for path in ordered:
-                # This cache contains only fixed-tree dependency discovery;
-                # fingerprints retain their independent validation scopes.
-                # Search-root membership is equivalent to materializing the
-                # jurisdiction index for changed modules, including deletes.
-                # Avoid building the same large string set for every waiver.
-                read_set, upstream_roots, composition = reader.read_set(
-                    path, include_index_files=False
+            # This reader contains only fixed-tree dependency discovery;
+            # fingerprints retain their independent validation scopes.
+            changed_keys = {
+                matched: aliases.existing_keys(root / matched)
+                for _label, _kind, matched in meaningful
+            }
+            wanted = frozenset(key for keys in changed_keys.values() for key in keys)
+            # Search-root membership is equivalent to materializing the
+            # jurisdiction index for changed modules, including deletes.
+            ancestor_keys = {
+                matched: frozenset(
+                    key
+                    for ancestor in (root / matched, *(root / matched).parents)
+                    for key in aliases.existing_keys(ancestor)
                 )
-                selected_reasons: list[str] = []
-                companion = path.removesuffix(".yaml") + ".test.yaml"
-                for changed, kind in sorted(meaningful.items()):
-                    if aliases.same(root / changed, root / path):
-                        selected_reasons.append(f"module changed: {changed}")
-                    elif aliases.same(root / changed, root / companion):
-                        selected_reasons.append(f"companion changed: {changed}")
-                    elif any(
-                        aliases.same(root / changed, root / dependency)
-                        for dependency in read_set
-                    ):
-                        selected_reasons.append(
-                            f"validation reads changed path: {changed}"
-                        )
-                    elif kind == "module" and (
-                        composition
-                        or any(
-                            aliases.within(root / changed, search_root)
-                            for search_root in upstream_roots
-                        )
-                    ):
-                        selected_reasons.append(
-                            f"validation searches changed module: {changed}"
-                        )
+                for _label, kind, matched in meaningful
+                if kind == "module"
+            }
+            shared_keys = frozenset(
+                key
+                for dependency in reader.shared_dependencies()
+                if (key := reader.key(dependency)) is not None
+            )
+            for path in ordered:
+                try:
+                    selected_reasons = _waiver_selection_reasons(
+                        reader,
+                        aliases,
+                        path,
+                        meaningful=meaningful,
+                        changed_keys=changed_keys,
+                        ancestor_keys=ancestor_keys,
+                        wanted=wanted,
+                        shared_keys=shared_keys,
+                    )
+                except (OSError, ValueError, yaml.YAMLError) as exc:
+                    # A waiver whose own read set cannot be established is
+                    # audited, whatever changed. Every other waiver is still
+                    # decided from its own established read set.
+                    detail = " ".join(str(exc).split())
+                    selected_reasons = [
+                        f"validation read set could not be established: {detail}"
+                    ]
                 if selected_reasons:
                     reasons[path] = selected_reasons
     except (OSError, ValueError, yaml.YAMLError, _GitProbeError) as exc:

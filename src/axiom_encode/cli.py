@@ -5818,10 +5818,42 @@ def _cmd_validation_waivers_audit(args) -> int:
     # a different shard that selected a smaller incremental scope.
     all_classified = list(classified.items())
     total_waivers = len(all_classified)
+    partition_key = getattr(args, "partition_key", None)
+    partition_keys_json = getattr(args, "partition_keys_json", None)
+    if (partition_key is None) != (partition_keys_json is None):
+        raise ValueError(
+            "--partition-key and --partition-keys-json must be provided together"
+        )
+    # The table only places and orders work; no fingerprint or verdict reads it.
+    costs = _waiver_partition.load_waiver_audit_costs(root)
+    partition: dict[str, Any] | None = None
+    owned_count = len(all_classified)
+    if partition_key is not None:
+        owned, partition_index, partition_count = _validation_waiver_audit_partition(
+            all_classified,
+            partition_key=partition_key,
+            partition_keys_json=partition_keys_json,
+            costs=costs,
+        )
+        owned_count = len(owned)
+        classified = dict(owned)
+        partition = {
+            "key": partition_key,
+            "index": partition_index,
+            "count": partition_count,
+            "total_paths": len(all_classified),
+        }
+        if costs is not None:
+            # Without a table the report keeps its legacy bytes.
+            partition["cost_table_sha256"] = costs.sha256
+
     scope = "full"
     selection_reasons: dict[str, list[str]] = {}
     fallback_reason = None
     if requested_scope == "incremental":
+        # Select within this job's own partition only. Each waiver is decided
+        # from its own read set, so the partition's selection is its share of
+        # the whole ledger's selection, at a cost that follows the partition.
         selection = select_validation_waiver_scope(
             list(classified),
             root=root,
@@ -5849,42 +5881,6 @@ def _cmd_validation_waivers_audit(args) -> int:
         }
         if fallback_reason is not None:
             args._validation_waiver_audit_selection["fallback_reason"] = fallback_reason
-
-    partition_key = getattr(args, "partition_key", None)
-    partition_keys_json = getattr(args, "partition_keys_json", None)
-    if (partition_key is None) != (partition_keys_json is None):
-        raise ValueError(
-            "--partition-key and --partition-keys-json must be provided together"
-        )
-    # The table only places and orders work; no fingerprint or verdict reads it.
-    costs = _waiver_partition.load_waiver_audit_costs(root)
-    partition: dict[str, Any] | None = None
-    owned_count = len(all_classified)
-    if partition_key is not None:
-        owned, partition_index, partition_count = _validation_waiver_audit_partition(
-            all_classified,
-            partition_key=partition_key,
-            partition_keys_json=partition_keys_json,
-            costs=costs,
-        )
-        owned_count = len(owned)
-        classified = {path: kind for path, kind in owned if path in classified}
-        partition = {
-            "key": partition_key,
-            "index": partition_index,
-            "count": partition_count,
-            "total_paths": len(all_classified),
-        }
-        if costs is not None:
-            # Without a table the report keeps its legacy bytes.
-            partition["cost_table_sha256"] = costs.sha256
-        if requested_scope == "incremental":
-            args._validation_waiver_audit_selection.update(
-                selected=len(classified),
-                selection_reasons={
-                    path: selection_reasons[path] for path in classified
-                },
-            )
 
     deleted_removed: set[str] = set()
     missing_required: set[str] = set()
