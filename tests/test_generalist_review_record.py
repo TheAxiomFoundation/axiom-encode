@@ -6050,6 +6050,60 @@ def test_codex_reply_is_the_one_agent_message(tmp_path, monkeypatch):
     assert record["reviewer"]["backend"] == "codex"
 
 
+@pytest.mark.parametrize("character", ["\u0085", "\u2028", "\u2029", "\x0b", "\x0c"])
+def test_codex_event_line_ends_only_at_a_line_feed(tmp_path, monkeypatch, character):
+    # JSON allows U+0085, U+2028 and U+2029 raw inside a string, and
+    # `str.splitlines` breaks a line at each of them (and at an escaped-away
+    # form feed or vertical tab in the outer event, which stay escaped here).
+    verdict = json.loads(_GENERALIST_PASS)
+    verdict["reasoning"] = f"line one{character}line two"
+    reply = json.dumps(verdict, ensure_ascii=False)
+    raw = character in "\u0085\u2028\u2029"
+    assert (character in reply) is raw
+    lines = [
+        json.dumps({"type": "thread.started", "thread_id": "t"}),
+        json.dumps({"type": "turn.started"}),
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": reply},
+            },
+            ensure_ascii=False,
+        ),
+        json.dumps({"type": "turn.completed", "usage": {}}),
+    ]
+    assert (character in lines[2]) is raw
+
+    assert validator_pipeline._extract_codex_text_output("\n".join(lines)) == reply
+    # A carriage return before the line feed is not part of the event.
+    assert validator_pipeline._extract_codex_text_output("\r\n".join(lines)) == reply
+    blank_lines = "\r\n \t\r\n".join(lines) + "\r\n\r\n"
+    assert validator_pipeline._extract_codex_text_output(blank_lines) == reply
+    # The character outside a string is not JSON whitespace: not an event.
+    beside = "\n".join([*lines[:2], character + lines[2], lines[3]])
+    assert validator_pipeline._extract_codex_text_output(beside).startswith(
+        "Codex reviewer stream is unreadable (a line is not a JSON object)"
+    )
+    result, record = _codex_record(tmp_path, monkeypatch, lines)
+    assert (result.passed, result.score) == (True, 9)
+    assert record["status"] == "passed"
+    # The same reply on the Claude path.
+    rule, claude = _review(tmp_path, monkeypatch, reply)
+    assert (claude.passed, claude.score) == (True, 9)
+    assert _record_for(claude, rule, required=True)["status"] == "passed"
+
+
+def test_codex_event_split_by_a_line_feed_is_unreadable(tmp_path, monkeypatch):
+    event = _codex_stream(_GENERALIST_PASS)
+    middle = len(event) // 2
+    result, record = _codex_record(
+        tmp_path, monkeypatch, [event[:middle], event[middle:]]
+    )
+
+    assert result.passed is False
+    assert (record["status"], record["reason"]) == ("unavailable", "reviewer_error")
+
+
 _CODEX_EARLIER_MESSAGES = [
     # The seven inputs of the review of a68ea4b17: no brace, no quoted key.
     "passed: false\nscore: 2\nblocking_issues:\n- the rate is wrong",
@@ -6112,11 +6166,14 @@ _CODEX_PASS_EVENT = _codex_stream(_GENERALIST_PASS)
             "error",
         ),
         ([json.dumps({"type": "turn.failed"}), _CODEX_PASS_EVENT], "error"),
-        # A line that is not a JSON event.
-        ([_codex_stream(_GENERALIST_FAIL)[:-5], _CODEX_PASS_EVENT], "not a JSON event"),
-        ([_CODEX_PASS_EVENT, "warning: not an event"], "not a JSON event"),
-        (["[]", _CODEX_PASS_EVENT], "not a JSON event"),
-        ([_CODEX_PASS_EVENT, '"text"'], "not a JSON event"),
+        # A line that is not a JSON object.
+        (
+            [_codex_stream(_GENERALIST_FAIL)[:-5], _CODEX_PASS_EVENT],
+            "not a JSON object",
+        ),
+        ([_CODEX_PASS_EVENT, "warning: not an event"], "not a JSON object"),
+        (["[]", _CODEX_PASS_EVENT], "not a JSON object"),
+        ([_CODEX_PASS_EVENT, '"text"'], "not a JSON object"),
         (
             [
                 json.dumps(
@@ -6126,7 +6183,7 @@ _CODEX_PASS_EVENT = _codex_stream(_GENERALIST_PASS)
                     }
                 )
             ],
-            "not a JSON event",
+            "not a JSON object",
         ),
         # No agent message: a bare verdict is not a Codex event stream, and a
         # verdict in another item or another event is not the reply.
