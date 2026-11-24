@@ -511,9 +511,18 @@ def test_a_unit_file_that_changes_after_validation_stops_the_install(
         return result
 
     run._sign = sign_then_change
+    verified = []
+    real_verify = run._verify
+    run._verify = lambda *args, **kwargs: (
+        verified.append(args[1]),
+        real_verify(*args, **kwargs),
+    )[1]
     with pytest.raises((ValueError, RuntimeError)):
         run(monkeypatch)
     assert run.signed == list(NAMES)
+    # Stopped by the check before the install: no manifest was ever written,
+    # so none was verified.
+    assert verified == []
     for name in NAMES:
         assert not manifest_of(run.repo, name).exists()
     assert run.untracked() == []
@@ -795,6 +804,45 @@ def test_the_import_check_follows_the_validators_resolver(tmp_path, on):
         cli._promotion_batch_import_issue(
             repo, {a: (repo / a).read_bytes(), b: (repo / a).read_bytes()}
         )
+        is None
+    )
+
+
+def test_an_import_hidden_by_a_second_imports_key_is_refused(tmp_path, on):
+    """The text is read as the validator reads it, not only the parsed YAML.
+
+    A YAML parser keeps the last of two ``imports`` keys; the validator's text
+    reading sees both blocks.
+    """
+    repo, _head = candidate(tmp_path)
+    a, b = Path(primary("a")), Path(primary("b"))
+    raw = (
+        b"imports:\n  - us:statutes/7/2015/a#x\n"
+        b"rules: []\n"
+        b"imports:\n  - us:statutes/7/2014/other#x\n"
+    )
+    assert yaml.safe_load(raw)["imports"] == ["us:statutes/7/2014/other#x"]
+    assert cli._promotion_batch_import_issue(
+        repo, {a: (repo / a).read_bytes(), b: raw}
+    ) == (
+        f"{primary('b')} imports {primary('a')}, another unit of the same batch; "
+        "promote the imported unit first"
+    )
+
+
+def test_a_unit_that_names_itself_in_its_imports_is_not_a_batch_import(tmp_path, on):
+    """The rule is about another unit; the validator judges a self-import."""
+    repo, _head = candidate(tmp_path)
+    a, b = Path(primary("a")), Path(primary("b"))
+    raw = yaml.safe_dump({"imports": ["us:statutes/7/2015/b#x"], "rules": []}).encode()
+    assert (
+        cli._resolve_rulespec_import_file_static(
+            "us:statutes/7/2015/b#x", rules_file=repo / b, policy_repo_path=repo / "us"
+        )
+        is not None
+    )
+    assert (
+        cli._promotion_batch_import_issue(repo, {a: (repo / a).read_bytes(), b: raw})
         is None
     )
 
