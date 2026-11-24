@@ -189,8 +189,14 @@ class Promotion:
         self.root, self.repo, self.head = root, repo, head
         self.names = tuple(names)
         self.batch = batch
+        # The first pass of a unit (isolated in a batch) and, for a batch of
+        # several units, the second pass with every unit present.
         self.trees: dict[str, dict[str, bytes]] = {}
         self.verdicts: dict[str, list[str]] = {}
+        self.full_trees: dict[str, dict[str, bytes]] = {}
+        self.full_verdicts: dict[str, list[str]] = {}
+        self.passes: list[tuple[str, str]] = []
+        self._second = False
         self.refuse = True
         self.signed: list[str] = []
         for directory in ("axiom-rules-engine", "axiom-corpus"):
@@ -264,15 +270,28 @@ class Promotion:
             parent for parent in overlay_target.parents if parent.name == "rulespec-us"
         )
         name = overlay_target.stem
-        self.trees[name] = tree_of(overlay_repo)
-        self.verdicts[name] = probe_issues(overlay_target, overlay_repo / "us")
+        trees, verdicts = (
+            (self.full_trees, self.full_verdicts)
+            if self._second
+            else (self.trees, self.verdicts)
+        )
+        trees[name] = tree_of(overlay_repo)
+        verdicts[name] = self.judge(overlay_target, overlay_repo / "us")
         return [(overlay_target, SimpleNamespace(all_passed=True, results={}))]
+
+    judge = staticmethod(probe_issues)
 
     def _validate(self, result, **kwargs):
         name = Path(result.output_file).stem
+        hidden = vars(result).get(cli._PROMOTION_BATCH_ISOLATION_ATTR, ())
+        # A unit of a batch of several units has two passes; the second one
+        # carries no isolation marker.
+        self._second = self.batch and len(self.names) > 1 and not hidden
+        self.passes.append((name, "batch" if self._second else "first"))
         outcome = self._real_validate(result, **kwargs)
-        if self.refuse and outcome[0] and self.verdicts.get(name):
-            return False, list(self.verdicts[name]), {}
+        verdicts = self.full_verdicts if self._second else self.verdicts
+        if self.refuse and outcome[0] and verdicts.get(name):
+            return False, list(verdicts[name]), {}
         return outcome
 
     def _sign(self, payload, broker):

@@ -10877,111 +10877,131 @@ def _validate_reviewed_candidate_unit(
     }
     content_root = repo_path / rulespec_relative.parts[0]
     relative_output = Path(*rulespec_relative.parts[1:])
-    with tempfile.TemporaryDirectory() as temporary:
-        output_root = Path(temporary)
-        context_root = output_root / "reviewed-candidate-context"
-        context_root.mkdir()
-        source_text_file = context_root / "source.txt"
-        source_text_file.write_text(
-            normalized_source,
-            encoding="utf-8",
-            newline="",
-        )
-        context_manifest = context_root / "context-manifest.json"
-        context_manifest.write_text(
-            json.dumps(
-                {
-                    "source_text_file": source_text_file.name,
-                    "source_metadata": {
-                        "source_attestation": source_attestation,
-                    },
-                },
-                indent=2,
-                sort_keys=True,
+
+    def validate_once(hidden: Sequence[Path], failure: str) -> dict:
+        """One complete-source validation; ``hidden`` is absent from its overlay."""
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output_root = Path(temporary)
+            context_root = output_root / "reviewed-candidate-context"
+            context_root.mkdir()
+            source_text_file = context_root / "source.txt"
+            source_text_file.write_text(
+                normalized_source,
+                encoding="utf-8",
+                newline="",
             )
-            + "\n",
-            encoding="utf-8",
-        )
-        generated_file = output_root / "reviewed-candidate" / relative_output
-        generated_file.parent.mkdir(parents=True)
-        shutil.copyfile(rulespec_file, generated_file)
-        generated_companion = _rulespec_test_path(generated_file)
-        shutil.copyfile(companion_file, generated_companion)
-        result = argparse.Namespace(
-            output_file=str(generated_file),
-            runner="reviewed-candidate",
-            backend="openai",
-            model="reviewed-candidate-promotion-v1",
-            tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
-            citation=citation,
-            generation_prompt_sha256=None,
-            trace_file=None,
-            context_manifest_file=str(context_manifest),
-            source_attestation=source_attestation,
-        )
-        setattr(
-            result,
-            _IMMUTABLE_RULESPEC_SHA256_ATTR,
-            hashlib.sha256(before[rulespec_relative]).hexdigest(),
-        )
-        setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
-        if isolate_from:
+            context_manifest = context_root / "context-manifest.json"
+            context_manifest.write_text(
+                json.dumps(
+                    {
+                        "source_text_file": source_text_file.name,
+                        "source_metadata": {
+                            "source_attestation": source_attestation,
+                        },
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            generated_file = output_root / "reviewed-candidate" / relative_output
+            generated_file.parent.mkdir(parents=True)
+            shutil.copyfile(rulespec_file, generated_file)
+            generated_companion = _rulespec_test_path(generated_file)
+            shutil.copyfile(companion_file, generated_companion)
+            result = argparse.Namespace(
+                output_file=str(generated_file),
+                runner="reviewed-candidate",
+                backend="openai",
+                model="reviewed-candidate-promotion-v1",
+                tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                citation=citation,
+                generation_prompt_sha256=None,
+                trace_file=None,
+                context_manifest_file=str(context_manifest),
+                source_attestation=source_attestation,
+            )
             setattr(
                 result,
-                _PROMOTION_BATCH_ISOLATION_ATTR,
-                tuple(Path(member) for member in isolate_from),
+                _IMMUTABLE_RULESPEC_SHA256_ATTR,
+                hashlib.sha256(before[rulespec_relative]).hexdigest(),
             )
-        valid, validation_issues, supplemental_files = (
-            _run_generated_encoding_overlay_validation(
-                result,
-                output_root=output_root,
-                policy_repo_path=content_root,
-                axiom_rules_path=axiom_rules_path,
-                axiom_compose_path=axiom_compose_path,
-                local_corpus_release=local_corpus_release,
-                rulespec_dependency_roots=dependency_roots,
-                amendment_documents=source_unit.amendment_documents,
-                amendment_source_texts={
-                    document.citation_path: document.body
-                    for document in source_unit.amendment_documents
-                },
-                require_complete_source_unit=True,
+            setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
+            if hidden:
+                setattr(
+                    result,
+                    _PROMOTION_BATCH_ISOLATION_ATTR,
+                    tuple(Path(member) for member in hidden),
+                )
+            valid, validation_issues, supplemental_files = (
+                _run_generated_encoding_overlay_validation(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=content_root,
+                    axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=axiom_compose_path,
+                    local_corpus_release=local_corpus_release,
+                    rulespec_dependency_roots=dependency_roots,
+                    amendment_documents=source_unit.amendment_documents,
+                    amendment_source_texts={
+                        document.citation_path: document.body
+                        for document in source_unit.amendment_documents
+                    },
+                    require_complete_source_unit=True,
+                )
             )
+            if not valid:
+                raise RuntimeError(failure + "; ".join(validation_issues))
+            reviewed_artifact_bytes = {
+                relative_output: generated_file.read_bytes(),
+                _rulespec_test_path(relative_output): (
+                    generated_companion.read_bytes()
+                ),
+            }
+            supplemental_files = {
+                path: content
+                for path, content in supplemental_files.items()
+                if reviewed_artifact_bytes.get(path) != content.encode("utf-8")
+            }
+            if supplemental_files:
+                raise RuntimeError(
+                    "reviewed candidate validation produced supplemental changes"
+                )
+            generated_after = {
+                rulespec_relative: generated_file.read_bytes(),
+                companion_relative: generated_companion.read_bytes(),
+            }
+            if generated_after != before:
+                raise RuntimeError(
+                    "reviewed candidate validation changed RuleSpec bytes"
+                )
+            snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
+            validation_execution = (
+                snapshot.get("manifest_validation_execution")
+                if isinstance(snapshot, dict)
+                else None
+            )
+            if not isinstance(validation_execution, dict):
+                raise RuntimeError(
+                    "reviewed candidate validation lacks execution provenance"
+                )
+        return validation_execution
+
+    validation_execution = validate_once(
+        isolate_from, "reviewed candidate failed current overlay validation: "
+    )
+    if isolate_from:
+        # The second pass of a multi-unit promotion: the tree that exists
+        # after the whole batch lands. A unit that is valid alone but is
+        # refused beside another unit of the batch stops the batch. What the
+        # manifest records is the first, isolated, pass.
+        validate_once(
+            (),
+            "reviewed candidate failed overlay validation with the other "
+            "units of the batch present: ",
         )
-        if not valid:
-            raise RuntimeError(
-                "reviewed candidate failed current overlay validation: "
-                + "; ".join(validation_issues)
-            )
-        reviewed_artifact_bytes = {
-            relative_output: generated_file.read_bytes(),
-            _rulespec_test_path(relative_output): (generated_companion.read_bytes()),
-        }
-        supplemental_files = {
-            path: content
-            for path, content in supplemental_files.items()
-            if reviewed_artifact_bytes.get(path) != content.encode("utf-8")
-        }
-        if supplemental_files:
-            raise RuntimeError(
-                "reviewed candidate validation produced supplemental changes"
-            )
-        generated_after = {
-            rulespec_relative: generated_file.read_bytes(),
-            companion_relative: generated_companion.read_bytes(),
-        }
-        if generated_after != before:
-            raise RuntimeError("reviewed candidate validation changed RuleSpec bytes")
-        snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
-        validation_execution = (
-            snapshot.get("manifest_validation_execution")
-            if isinstance(snapshot, dict)
-            else None
-        )
-        if not isinstance(validation_execution, dict):
-            raise RuntimeError(
-                "reviewed candidate validation lacks execution provenance"
-            )
     return source_attestation, validation_execution
 
 
@@ -36399,6 +36419,8 @@ def _isolate_promotion_batch_overlay(
     """
 
     root = overlay_repo.resolve(strict=True)
+    candidates: list[Path] = []
+    # Every path is judged before the first file is removed.
     for relative in isolated_paths:
         if (
             relative.is_absolute()
@@ -36414,6 +36436,15 @@ def _isolate_promotion_batch_overlay(
                 "cannot isolate a unit from a batch file that is not a regular "
                 f"file of the candidate: {relative.as_posix()}"
             )
+        # No component may be a link: the file to remove is inside the overlay.
+        resolved = candidate.resolve(strict=True)
+        if resolved != candidate or not resolved.is_relative_to(root):
+            raise ValueError(
+                "cannot isolate a unit from a batch file that is outside the "
+                f"validation overlay: {relative.as_posix()}"
+            )
+        candidates.append(candidate)
+    for candidate in candidates:
         candidate.unlink()
         parent = candidate.parent
         while parent != root and not any(parent.iterdir()):
