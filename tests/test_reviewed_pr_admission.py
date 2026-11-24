@@ -1185,6 +1185,11 @@ def test_admission_refuses_a_candidate_without_the_pin_and_names_the_command(api
         (BOUND_BLOCK.replace(PIN, PIN + " extra"), "plain block form"),
         (BOUND_BLOCK + f"    source_sha256: {PIN}\n", "no duplicate key"),
         (BOUND_BLOCK + "    nested:\n      key: value\n", "plain block form"),
+        # One column short of the block's entries: not a key of the block.
+        (
+            BOUND_BLOCK.replace("    source_sha256", "   xsource_sha256"),
+            "plain block form",
+        ),
         (BOUND_BLOCK.replace(PIN, "&a " + PIN), "plain block form"),
         (BOUND_BLOCK.replace(PIN, "!!str " + PIN), "plain block form"),
         (BOUND_BLOCK.replace(PIN, "|\n      " + PIN), "not a plain string"),

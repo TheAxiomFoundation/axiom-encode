@@ -300,6 +300,50 @@ def test_an_incomplete_attestation_binds_nothing(attestation):
         bind_source_verification(PATH_ONLY.encode(), attestation)
 
 
+def test_a_quoted_path_that_continues_on_the_next_line_is_refused():
+    text = (
+        "module:\n  source_verification:\n"
+        '    corpus_citation_path: "xx/statute/\\\n      1/2"\n'
+    )
+    assert yaml.safe_load(text)["module"]["source_verification"] == {
+        "corpus_citation_path": PATH
+    }
+    with pytest.raises(SourceBindingShapeError, match="multi-line"):
+        bind(text)
+
+
+def test_an_edit_that_does_not_read_back_is_refused_not_returned(monkeypatch):
+    """The proof, not the planner, has the last word on a wrong edit."""
+    from axiom_encode import source_verification_binding as binder
+
+    original = binder._render_scalar
+    monkeypatch.setattr(
+        binder,
+        "_render_scalar",
+        lambda value: "wrong-value" if value == PIN else original(value),
+    )
+    with pytest.raises(SourceBindingShapeError, match="does not read back"):
+        bind(PATH_ONLY)
+
+
+def test_an_edit_that_changes_another_value_is_refused(monkeypatch):
+    """A parse that differs anywhere outside the two keys fails the proof."""
+    from axiom_encode import source_verification_binding as binder
+
+    original = binder._plan
+
+    def plan(text, requested, resolved, pin):
+        edits = original(text, requested, resolved, pin)
+        if edits:
+            anchor = text.index("required: true")
+            edits.append(binder._Edit("stray", anchor, anchor + 14, "required: 1"))
+        return edits
+
+    monkeypatch.setattr(binder, "_plan", plan)
+    with pytest.raises(SourceBindingShapeError, match="does not read back"):
+        bind(PATH_ONLY)
+
+
 def test_the_binding_check_is_declared_and_blocking():
     assert CHECK_SOURCE_BINDING.id == "source-binding/unbound"
     assert CHECK_SOURCE_BINDING.enforcement == "blocking"
