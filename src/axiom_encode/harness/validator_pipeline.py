@@ -17880,6 +17880,128 @@ def _occurrence_value_matches(left: float, right: float) -> bool:
     )
 
 
+# Chinese (zh-Hant / zh-Hans) statutes print amounts, rates and years as
+# numerals written in characters: Taiwan's Statute for Industrial Innovation
+# Article 10-1 states its band as 新臺幣一百萬元以上、二十億元以下, its rates as
+# 百分之五 / 百分之三十 and its window as 中華民國一百十四年一月一日. None of these
+# contain an ASCII digit, so every rate and threshold of such a provision was
+# ungrounded.
+_CJK_NUMERAL_DIGITS = {
+    "零": 0,
+    "〇": 0,
+    "一": 1,
+    "二": 2,
+    "兩": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+_CJK_NUMERAL_SMALL_UNITS = {"十": 10, "百": 100, "千": 1000}
+_CJK_NUMERAL_TEN_THOUSAND = frozenset("萬万")
+_CJK_NUMERAL_HUNDRED_MILLION = frozenset("億亿")
+_CJK_NUMERAL_CLASS = "[零〇一二兩两三四五六七八九十百千萬万億亿]"
+_CJK_NUMERAL_RUN_PATTERN = re.compile(f"{_CJK_NUMERAL_CLASS}+")
+_CJK_PERCENT_PATTERN = re.compile(f"百分之({_CJK_NUMERAL_CLASS}+)")
+_CJK_MONEY_PATTERN = re.compile(f"({_CJK_NUMERAL_CLASS}+)(?=元)")
+# A Republic of China (民國, Minguo) era year: year N is Gregorian N + 1911.
+_ROC_ERA_YEAR_OFFSET = 1911
+_ROC_ERA_YEAR_PATTERN = re.compile(
+    f"(?:中華民國|民國)\\s*({_CJK_NUMERAL_CLASS}+|\\d{{1,3}})\\s*年"
+)
+_CJK_ERA_YEAR_CONTINUATION_PATTERN = re.compile(f"({_CJK_NUMERAL_CLASS}+)年")
+
+
+def _cjk_numeral_value(raw: str) -> int | None:
+    """Read a Chinese numeral written in characters.
+
+    一百十四 is 114, 二十億 is 2,000,000,000, 一億二千萬 is 120,000,000. A ten
+    with no digit before it counts one ten (十八 is 18). Returns None for a run
+    that holds anything else.
+    """
+    total = 0
+    section = 0
+    digit: int | None = None
+    for char in raw:
+        if char in _CJK_NUMERAL_DIGITS:
+            digit = _CJK_NUMERAL_DIGITS[char]
+        elif char in _CJK_NUMERAL_SMALL_UNITS:
+            section += (1 if digit is None else digit) * _CJK_NUMERAL_SMALL_UNITS[char]
+            digit = None
+        elif char in _CJK_NUMERAL_TEN_THOUSAND:
+            section += digit or 0
+            total += (section or 1) * 10**4
+            section = 0
+            digit = None
+        elif char in _CJK_NUMERAL_HUNDRED_MILLION:
+            total = ((total + section + (digit or 0)) or 1) * 10**8
+            section = 0
+            digit = None
+        else:
+            return None
+    return total + section + (digit or 0)
+
+
+def _iter_cjk_percent_phrase_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Return (span, rate) for each 百分之N phrase: 百分之五 is the rate 0.05."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _CJK_PERCENT_PATTERN.finditer(text):
+        value = _cjk_numeral_value(match.group(1))
+        if value is not None:
+            matches.append((match.span(), value / 100))
+    return matches
+
+
+def _iter_cjk_money_matches(text: str) -> list[tuple[tuple[int, int], float]]:
+    """Return (span, amount) for a character numeral followed by 元 (dollars)."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _CJK_MONEY_PATTERN.finditer(text):
+        value = _cjk_numeral_value(match.group(1))
+        if value is not None:
+            matches.append((match.span(1), float(value)))
+    return matches
+
+
+def _iter_cjk_numeral_run_matches(text: str) -> list[tuple[tuple[int, int], float]]:
+    """Return (span, value) for every run of character numerals."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _CJK_NUMERAL_RUN_PATTERN.finditer(text):
+        value = _cjk_numeral_value(match.group(0))
+        if value is not None:
+            matches.append((match.span(), float(value)))
+    return matches
+
+
+def _iter_roc_era_year_matches(text: str) -> list[tuple[tuple[int, int], float]]:
+    """Return (span, Gregorian year) for each 民國 year: 民國一百十四年 is 2025."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    seen: list[tuple[int, int]] = []
+    for match in _ROC_ERA_YEAR_PATTERN.finditer(text):
+        raw = match.group(1)
+        value = int(raw) if raw.isdigit() else _cjk_numeral_value(raw)
+        if value is not None:
+            matches.append((match.span(1), float(value + _ROC_ERA_YEAR_OFFSET)))
+            seen.append(match.span(1))
+    # The far end of a window names the era once ("自中華民國一百十四年...至
+    # 一百十八年...止"). In a text that names the era, a year of 100 to 199
+    # written in characters before 年 is an era year too; a duration such as
+    # 三年 (three years) is never in that range.
+    if seen:
+        for match in _CJK_ERA_YEAR_CONTINUATION_PATTERN.finditer(text):
+            if match.span(1) in seen:
+                continue
+            value = _cjk_numeral_value(match.group(1))
+            if value is not None and 100 <= value <= 199:
+                matches.append((match.span(1), float(value + _ROC_ERA_YEAR_OFFSET)))
+    return matches
+
+
 # Complete-source-unit analysis re-tokenizes the same branch texts once per
 # formula rule they are matched against; on one module ~95% of calls repeat
 # an already-seen text. The result is a tuple of frozen occurrences, so it
@@ -18135,6 +18257,41 @@ def _tokenize_numeric_occurrences_from_text(
         )
         grounding_spans.append(span)
         inventory_spans.append(span)
+
+    # Chinese character numerals: rates (百分之五) and amounts (二十億元) are
+    # stated values and enter both streams; every other run (三年, 第一項,
+    # 一經) and a 民國 year's Gregorian reading only ground, so a numeral used
+    # as a word or a label never becomes a value the encoding must recall.
+    for span, rate in _iter_cjk_percent_phrase_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        add_both(
+            cleaned_view,
+            span,
+            rate,
+            source_value=rate * 100,
+            force_rate_context=True,
+            requires_rate_context=True,
+        )
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    for span, value in _iter_cjk_money_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    for span, value in (
+        *_iter_cjk_numeral_run_matches(cleaned),
+        *_iter_roc_era_year_matches(cleaned),
+    ):
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
 
     for span, rate in _iter_hebrew_percent_range_lower_matches(
         cleaned, _structural_numeric_component_spans(cleaned)
