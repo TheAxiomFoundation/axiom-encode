@@ -1345,24 +1345,109 @@ def test_a_merge_dated_in_the_future_refuses(repo: Path, tmp_path: Path):
     assert not _provisioner_accepts(repo, tmp_path / "home2", head, bump, opened - 1)
 
 
-def test_a_git_failure_never_makes_a_newer_commit_look_unversioned(
+def _git_failing_for(tmp_path: Path, argument: str) -> Path:
+    """A git that fails, as on an I/O error, for one object and is git otherwise."""
+    wrapper = tmp_path / "failing-git"
+    wrapper.write_text(
+        "#!/bin/bash\n"
+        f'for a in "$@"; do if [ "$a" = "{argument}" ]; then '
+        'echo "fatal: simulated I/O error" >&2; exit 128; fi; done\n'
+        f'exec {shutil.which("git")} "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    return wrapper
+
+
+def _newer_versioned_history(repo: Path) -> tuple[str, str, str]:
+    """(bump, a newer versioned docs merge, an unversioned head)."""
+    bump = _signing_repo(repo)
+    newer = _merge(repo, "docs", _write(repo, "docs/x.md", "x\n"))
+    head = _encoder_merge(repo, "encoder")
+    return bump, newer, head
+
+
+@pytest.mark.parametrize(
+    "unreadable", ["pyproject.toml", "src/axiom_encode/__init__.py", "uv.lock"]
+)
+def test_an_unreadable_version_file_never_lets_an_older_commit_sign(
+    repo: Path, tmp_path: Path, monkeypatch, unreadable: str
+):
+    # git cannot read one version file of the newest versioned commit. That
+    # is not "the file is absent": the commit must not look unversioned, so
+    # neither the selector nor the provisioner falls back to the older bump.
+    bump, newer, head = _newer_versioned_history(repo)
+    assert version_provenance.signing_commit(repo, head) == newer
+    git = _git_failing_for(tmp_path, f"{newer}:{unreadable}")
+    for number, encoder in enumerate((bump, newer)):
+        home = tmp_path / f"home-{number}"
+        home.mkdir()
+        with pytest.raises(provisioner._HardenedGitFailure, match="simulated I/O"):
+            provisioner._require_newest_versioned_commit(
+                git, repo / ".git", home, head, encoder
+            )
+
+    monkeypatch.setattr(version_provenance, "_git_binary", lambda: str(git))
+    with pytest.raises(subprocess.CalledProcessError):
+        version_provenance.signing_commit(repo, head)
+    assert version_provenance.main(["signing-commit", "--repo", str(repo)]) == 1
+
+
+def test_an_unreadable_tree_never_lets_an_older_commit_sign(
     repo: Path, tmp_path: Path, monkeypatch
 ):
-    # If the provisioner cannot read the head, it cannot know that the head is
-    # unversioned, so the older commit must not sign: the failure is a refusal.
+    # The same when git cannot list the commit's tree at all.
+    bump, newer, head = _newer_versioned_history(repo)
+
+    wrapper = tmp_path / "failing-git"
+    wrapper.write_text(
+        "#!/bin/bash\n"
+        f'case " $* " in *" ls-tree "*" {newer} "*) '
+        'echo "fatal: simulated I/O error" >&2; exit 128;; esac\n'
+        f'exec {shutil.which("git")} "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    (tmp_path / "home").mkdir()
+    with pytest.raises(provisioner._HardenedGitFailure, match="simulated I/O"):
+        provisioner._require_newest_versioned_commit(
+            wrapper, repo / ".git", tmp_path / "home", head, bump
+        )
+    monkeypatch.setattr(version_provenance, "_git_binary", lambda: str(wrapper))
+    with pytest.raises(subprocess.CalledProcessError):
+        version_provenance.signing_commit(repo, head)
+
+
+def test_an_absent_version_file_is_still_a_normal_answer(repo: Path, tmp_path: Path):
     bump = _signing_repo(repo)
-    head = _encoder_merge(repo, "encoder")
+    head = _merge(repo, "no-lock", lambda: (repo / "uv.lock").unlink())
+    assert version_provenance.versions_at(repo, head)["lock"] is None
+    assert version_provenance.show_file(repo, head, "uv.lock") is None
+    assert version_provenance.show_file(repo, "0" * 40, "uv.lock") is None
+
+    assert version_provenance.signing_commit(repo, head) == bump
     assert _provisioner_accepts(repo, tmp_path / "home", head, bump)
-    real = provisioner._require_snapshot_version_bump
+    assert not _provisioner_accepts(repo, tmp_path / "home2", head, head)
 
-    def unreadable_head(trusted_git, git_dir, home, commit):
-        if commit == head:
-            raise provisioner._HardenedGitFailure("refusing to provision: hardened git")
-        return real(trusted_git, git_dir, home, commit)
 
-    monkeypatch.setattr(provisioner, "_require_snapshot_version_bump", unreadable_head)
+def test_a_different_workflow_file_refuses_on_its_own(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    # The scope rule already refuses any .github/ change. The separate blob
+    # comparison must refuse too: prove it with a workflow path that the
+    # scope rule lets through.
+    inert = "docs/signing-workflow.yml"
+    _write(repo, inert, "name: signing\n")()
+    _commit(repo, "a workflow at an inert path")
+    bump = _signing_repo(repo)
+    _encoder_merge(repo, "encoder")
+    head = _merge(repo, "workflow", _write(repo, inert, "name: changed\n"))
+    assert version_provenance.signing_commit(repo, head) == bump
+    assert _provisioner_accepts(repo, tmp_path / "home", head, bump)
+
+    with pytest.raises(ValueError, match=f"{inert} differs"):
+        version_provenance.signing_commit(repo, head, workflow=inert)
+    monkeypatch.setattr(provisioner, "_SIGNING_WORKFLOW", inert)
     (tmp_path / "home2").mkdir()
-    with pytest.raises(provisioner._HardenedGitFailure):
+    with pytest.raises(SystemExit, match=f"{inert} differs"):
         provisioner._require_newest_versioned_commit(
             Path(shutil.which("git")), repo / ".git", tmp_path / "home2", head, bump
         )

@@ -257,7 +257,7 @@ def test_the_head_only_variable_fails_closed(tmp_path: Path, setting, head_only)
     assert ("--head-only" in log.read_text()) == (head_only == "true")
 
 
-def _encoder_checkout(root: Path) -> tuple[str, str]:
+def _encoder_checkout(root: Path, older_has_selector: bool = True) -> tuple[str, str]:
     """axiom-encode with two commits: (older C, head H)."""
     repo = root / "axiom-encode"
     repo.mkdir(parents=True)
@@ -273,7 +273,8 @@ def _encoder_checkout(root: Path) -> tuple[str, str]:
     selector.parent.mkdir(parents=True)
     for marker in ("versioned", "head"):
         (repo / "file.txt").write_text(marker + "\n")
-        selector.write_text(f"# selector of the {marker} commit\n")
+        if marker == "head" or older_has_selector:
+            selector.write_text(f"# selector of the {marker} commit\n")
         subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
         subprocess.run(["git", "-C", str(repo), "commit", "-qm", marker], check=True)
         commits.append(
@@ -297,8 +298,9 @@ def _run_select(
     attempt: str = "1",
     selected: str = "OLDER",
     extra_commits: int = 0,
+    older_has_selector: bool = True,
 ):
-    older, head = _encoder_checkout(tmp_path)
+    older, head = _encoder_checkout(tmp_path, older_has_selector)
     for number in range(extra_commits):
         subprocess.run(
             [
@@ -516,3 +518,14 @@ def test_the_selection_step_refuses_an_ignored_leftover(tmp_path: Path):
     )
     assert completed.returncode != 0
     assert not env_file.exists()
+
+
+def test_the_selection_step_refuses_a_candidate_without_a_selector(tmp_path: Path):
+    # A commit from before the selector existed cannot prove itself, and the
+    # head's selector is not used in its place.
+    completed, _, _, log, env_file = _run_select(
+        tmp_path, head_only="false", budget="OLDER", older_has_selector=False
+    )
+    assert completed.returncode != 0 and not env_file.exists()
+    assert "carries no version_provenance.py" in completed.stderr
+    assert not log.exists()

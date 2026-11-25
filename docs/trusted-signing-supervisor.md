@@ -989,3 +989,23 @@ The active public root is published as the `AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KE
 Actions variable, which the workflows provision into the supervisors' root-owned
 trust file. The active private seed is the `production-signing` environment's
 signing secret.
+
+### Signing while a version bump is pending
+
+A signed re-encode dispatched at a `main` head that waits for its version bump
+executes the newest versioned commit of main's first-parent history
+(`version_provenance.signing_commit`), not the head. A pending change to the
+workflow, `scripts/`, the Go sources, `data/`, or a signing-lane module
+(`SIGNING_LANE_FILES`, `SIGNING_LANE_PREFIXES`) closes signing until the bump.
+A pending change to other encoder source does not: the older, versioned code
+keeps signing for at most 5 merges and 4 hours.
+
+Rule for a validator fix or a security fix outside the lane list (for example
+in `cli.py` or `harness/validator_pipeline.py`):
+
+1. Before the merge, set the repository variable `AXIOM_SIGNING_HEAD_ONLY` to
+   `true`. Every run then signs only from a versioned head; re-runs included.
+2. Merge the fix and wait for its version bump to land.
+3. Set the variable to `false` or delete it.
+
+The same variable is the rollback for this behavior.

@@ -138,15 +138,26 @@ def _git(repo: Path, *args: str, environment: dict[str, str] | None = None) -> s
 
 
 def show_file(repo: Path, ref: str, path: str) -> str | None:
-    """``path`` at ``ref`` as stored, or None when it is missing."""
-    return _show(repo, ref, path)
+    """``path`` at ``ref`` as stored, or None when it is missing or unreadable."""
+    try:
+        return _show(repo, ref, path)
+    except subprocess.CalledProcessError:
+        return None
 
 
 def _show(repo: Path, ref: str, path: str) -> str | None:
-    try:
-        return _git(repo, "show", "--end-of-options", f"{ref}:{path}", "--")
-    except subprocess.CalledProcessError:
+    """``path`` at ``ref`` as stored, or None when ``ref``'s tree has no such
+    path.
+
+    Only a tree that was read and does not list the path is "absent". A git
+    failure raises ``CalledProcessError``: the version rule must never take an
+    unreadable version file for a missing one, which would make a versioned
+    commit look unversioned and let an older commit sign.
+    """
+    listed = _git(repo, "ls-tree", "-z", "--full-tree", ref, "--", path)
+    if not listed:
         return None
+    return _git(repo, "show", "--end-of-options", f"{ref}:{path}", "--")
 
 
 def _first(pattern: re.Pattern[str], text: str | None) -> str | None:
@@ -703,6 +714,14 @@ def main(argv: list[str] | None = None) -> int:
             print(signing_commit(args.repo, args.ref, head_only=args.head_only))
         except ValueError as exc:
             print(f"encoder version provenance: {exc}", file=sys.stderr)
+            return 1
+        except subprocess.CalledProcessError as exc:
+            # A git read that failed is a refusal, never "unversioned".
+            print(
+                f"encoder version provenance: git failed ({exc.stderr.strip()}); "
+                "no commit can sign",
+                file=sys.stderr,
+            )
             return 1
         return 0
     if args.command == "pull-request":

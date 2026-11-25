@@ -1418,12 +1418,16 @@ def _encoder_versions_at_ref(
     """Return {pyproject, package, lock} versions declared at one commit."""
 
     def show(path: str) -> str:
-        try:
-            return _hardened_git_text(
-                trusted_git, git_dir, home, "show", f"{ref}:{path}"
-            )
-        except SystemExit:
+        # Only a tree that was read and does not list the path is "absent".
+        # A git failure propagates as a refusal: an unreadable version file
+        # must never read as a missing one, which would make a versioned
+        # commit look unversioned and let an older commit sign.
+        listed = _hardened_git(
+            trusted_git, git_dir, home, "ls-tree", "-z", "--full-tree", ref, "--", path
+        )
+        if not listed:
             return ""
+        return _hardened_git_text(trusted_git, git_dir, home, "show", f"{ref}:{path}")
 
     return {
         "pyproject": _extract_pyproject_version(show("pyproject.toml")),
