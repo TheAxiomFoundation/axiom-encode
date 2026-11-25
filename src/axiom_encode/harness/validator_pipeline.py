@@ -36917,7 +36917,7 @@ def _symlink_audit_memo_scope() -> Iterator[None]:
     the same lstat stamp (device, inode, mode, size, mtime, ctime): adding,
     removing or renaming any entry changes its directory's stamp. A failed
     audit is never kept, and an audit is kept only when no directory changed
-    while it ran. Off when ``AXIOM_ENCODE_SCAN_CACHE`` is off.
+    while it ran and the walk could list every directory. Off when ``AXIOM_ENCODE_SCAN_CACHE`` is off.
     """
 
     if _SYMLINK_AUDIT_MEMO.get() is not None or not scan_cache_enabled():
@@ -36999,7 +36999,15 @@ def _reject_rulespec_checkout_symlinks_memoized(checkout: Path, *, label: str) -
         memo.pop(memo_key, None)
 
     directory_stamps: list[tuple[Path, _PathMutationStamp]] = []
-    for current, directory_names, file_names in os.walk(checkout, followlinks=False):
+    # ``os.walk`` skips a directory it cannot list and reports it only to
+    # ``onerror``. Such a directory was not audited and has no stamp here, so
+    # a symlink added to it later would not change any recorded stamp.
+    walk_errors: list[OSError] = []
+    for current, directory_names, file_names in os.walk(
+        checkout,
+        followlinks=False,
+        onerror=walk_errors.append,
+    ):
         current_path = Path(current)
         current_stamp = _path_mutation_stamp(current_path)
         if current_stamp is None:
@@ -37018,7 +37026,8 @@ def _reject_rulespec_checkout_symlinks_memoized(checkout: Path, *, label: str) -
         for directory, _stamp in directory_stamps
     )
     if (
-        stable_stamps == tuple(directory_stamps)
+        not walk_errors
+        and stable_stamps == tuple(directory_stamps)
         and Path(checkout).resolve() == memo_key
     ):
         memo[memo_key] = _CachedSymlinkAudit(directory_stamps=stable_stamps)

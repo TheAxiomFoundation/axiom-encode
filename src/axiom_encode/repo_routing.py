@@ -578,6 +578,12 @@ def _git_identity_input_paths(
                     common_directory,
                     common_directory / "config",
                     common_directory / "config.worktree",
+                    # Git also reads ``origin`` from these legacy remote
+                    # files when the configuration does not define it.
+                    common_directory / "remotes",
+                    common_directory / "remotes" / "origin",
+                    common_directory / "branches",
+                    common_directory / "branches" / "origin",
                 }
             )
     home = Path(os.environ.get("HOME", str(Path.home()))).expanduser()
