@@ -14,10 +14,12 @@ from axiom_encode import entrypoint
 from axiom_encode.corpus_attestation_carry import (
     RELEASE_IDENTITY_FIELDS,
     CarryStatus,
+    CitationNotFound,
+    CorpusView,
     ResolvedCitationEvidence,
     ResolvedUnitEvidence,
-    _corpus_resolvers,
     classify_attestation_carry,
+    corpus_view,
     iter_manifest_attestations,
     run_corpus_attestation_carry,
 )
@@ -338,8 +340,6 @@ def _evidence(attestation: dict, **overrides) -> ResolvedUnitEvidence:
         for key, value in attestation.items()
         if key != "generation_input_sha256"
     }
-    for identity_field in RELEASE_IDENTITY_FIELDS:
-        resolved[identity_field] = "the-new-release-identity"
     resolved.update(overrides.pop("fields", {}))
     return ResolvedUnitEvidence(
         attestation=resolved,
@@ -350,137 +350,256 @@ def _evidence(attestation: dict, **overrides) -> ResolvedUnitEvidence:
     )
 
 
+def _view(unit=None, citations=None, row_scopes=None) -> CorpusView:
+    def resolve_unit(requested):
+        if isinstance(unit, Exception):
+            raise unit
+        return unit
+
+    def resolve_citation(path):
+        value = (citations or {}).get(path, CitationNotFound(path))
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    return CorpusView(
+        unit=resolve_unit,
+        citation=resolve_citation,
+        row_scopes=lambda path: frozenset((row_scopes or {}).get(path, ())),
+    )
+
+
+@pytest.fixture()
+def gained(base):
+    root, old = base
+    _write_scope(root, ADDED, "us/statute/7/2016", "added words")
+    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR, ADDED])
+    return root, old, new, _attestation(root, old)
+
+
 @pytest.mark.parametrize(
-    ("overrides", "status"),
+    ("b_overrides", "status"),
     [
         ({}, CarryStatus.CARRIED),
         ({"fields": {"source_sha256": "e" * 64}}, CarryStatus.UNIT_CHANGED),
         ({"fields": {"resolved_text_sha256": "f" * 64}}, CarryStatus.UNIT_CHANGED),
+        ({"fields": {"extra_field": "x"}}, CarryStatus.UNIT_CHANGED),
         ({"generation_input_sha256": "0" * 64}, CarryStatus.UNIT_CHANGED),
         ({"has_amendment_context": True}, CarryStatus.CONTEXT_CHANGED),
     ],
 )
-def test_resolution_evidence_decides_after_artifacts(base, overrides, status):
-    root, old = base
-    _write_scope(root, ADDED, "us/statute/7/2016", "added words")
-    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR, ADDED])
-    attestation = _attestation(root, old)
-    calls: list[str] = []
-
-    def resolve(requested: str) -> ResolvedUnitEvidence:
-        calls.append(requested)
-        return _evidence(attestation, **dict(overrides))
-
-    verdict = _carry(attestation, new, old, resolve=resolve)
-    assert calls == [UNIT_CITATION]
+def test_unit_resolution_in_a_and_b_decides(gained, b_overrides, status):
+    _root, old, new, attestation = gained
+    view_a = _view(_evidence(attestation))
+    view_b = _view(_evidence(attestation, **dict(b_overrides)))
+    verdict = _carry(attestation, new, old, view_a=view_a, view_b=view_b)
     assert verdict.status is status
     assert verdict.resolution_checked is True
     assert verdict.pair_gained_scopes == ("us/statute/2026-01-04-added",)
 
 
-def _cited_resolver(files):
-    def resolve_citation(path: str) -> ResolvedCitationEvidence:
-        if files is None:
-            raise ValueError("not found")
-        return ResolvedCitationEvidence(tuple(files))
-
-    return resolve_citation
-
-
-def test_cited_paths_must_resolve_to_identical_artifacts(base):
-    root, old = base
-    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR])
-    attestation = _attestation(root, old)
-    other = (
-        _rel(OTHER_PAIR),
-        _attestation(root, old, OTHER_PAIR)["provision_file_sha256"],
-    )
-
-    def resolve(requested):
-        return _evidence(attestation)
-
-    good = _carry(
-        attestation,
-        new,
-        old,
-        cited_paths=[OTHER_CITATION],
-        resolve=resolve,
-        resolve_citation=_cited_resolver([other]),
-    )
-    assert good.status is CarryStatus.CARRIED
-    assert good.resolution_checked is True
-    for files in (
-        None,
-        [],
-        [(other[0], "4" * 64)],
-        [("data/corpus/provisions/us/regulation/new.jsonl", other[1])],
-    ):
-        verdict = _carry(
-            attestation,
-            new,
-            old,
-            cited_paths=[OTHER_CITATION],
-            resolve=resolve,
-            resolve_citation=_cited_resolver(files),
-        )
-        assert verdict.status is CarryStatus.CONTEXT_CHANGED, files
-        assert verdict.resolution_checked is True
-
-
-def test_unit_resolution_without_a_citation_resolver_is_not_enough(base):
-    root, old = base
-    _write_scope(root, ADDED, "us/statute/7/2016", "added words")
-    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR, ADDED])
-    attestation = _attestation(root, old)
+def test_identity_fields_do_not_count_as_a_unit_change(gained):
+    _root, old, new, attestation = gained
+    renamed = {field: "the-new-identity" for field in RELEASE_IDENTITY_FIELDS}
     verdict = _carry(
         attestation,
         new,
         old,
-        cited_paths=[UNIT_CITATION],
-        resolve=lambda requested: _evidence(attestation),
+        view_a=_view(_evidence(attestation)),
+        view_b=_view(_evidence(attestation, fields=renamed)),
     )
-    assert verdict.status is CarryStatus.NOT_VERIFIABLE
+    assert verdict.status is CarryStatus.CARRIED
 
 
-def test_unresolvable_citation_does_not_carry(base):
-    root, old = base
-    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR])
+@pytest.mark.parametrize(
+    "a_overrides",
+    [
+        {"fields": {"source_sha256": "e" * 64}},
+        {"generation_input_sha256": "0" * 64},
+    ],
+)
+def test_attestation_must_match_its_resolution_in_a(gained, a_overrides):
+    _root, old, new, attestation = gained
+    verdict = _carry(
+        attestation,
+        new,
+        old,
+        view_a=_view(_evidence(attestation, **dict(a_overrides))),
+        view_b=_view(_evidence(attestation, **dict(a_overrides))),
+    )
+    assert verdict.status is CarryStatus.NOT_IN_LINEAGE
 
-    def resolve(requested: str) -> ResolvedUnitEvidence:
-        raise ValueError("not found")
 
-    verdict = _carry(_attestation(root, old), new, old, resolve=resolve)
-    assert verdict.status is CarryStatus.UNIT_MISSING
+def test_amendment_context_in_a_alone_refuses(gained):
+    _root, old, new, attestation = gained
+    verdict = _carry(
+        attestation,
+        new,
+        old,
+        view_a=_view(_evidence(attestation, has_amendment_context=True)),
+        view_b=_view(_evidence(attestation)),
+    )
+    assert verdict.status is CarryStatus.CONTEXT_CHANGED
+
+
+@pytest.mark.parametrize(
+    ("view_a_unit", "view_b_unit", "status"),
+    [
+        (ValueError("gone"), None, CarryStatus.NOT_IN_LINEAGE),
+        (None, ValueError("gone"), CarryStatus.UNIT_MISSING),
+    ],
+)
+def test_unit_that_does_not_resolve(gained, view_a_unit, view_b_unit, status):
+    _root, old, new, attestation = gained
+    good = _evidence(attestation)
+    verdict = _carry(
+        attestation,
+        new,
+        old,
+        view_a=_view(view_a_unit if view_a_unit is not None else good),
+        view_b=_view(view_b_unit if view_b_unit is not None else good),
+    )
+    assert verdict.status is status
     assert verdict.resolution_checked is True
 
 
-def test_missing_requested_citation_is_malformed_when_resolving(base):
-    root, old = base
-    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR])
-    attestation = _attestation(root, old)
+def test_one_view_is_not_enough(gained):
+    _root, old, new, attestation = gained
+    good = _view(_evidence(attestation))
+    for views in ({"view_b": good}, {"view_a": good}):
+        verdict = _carry(attestation, new, old, **views)
+        assert verdict.status is CarryStatus.NOT_VERIFIABLE
+
+
+def test_missing_requested_citation_is_malformed_when_resolving(gained):
+    _root, old, new, attestation = gained
     attestation.pop("requested_corpus_citation_path")
-    verdict = _carry(
-        attestation, new, old, resolve=lambda requested: pytest.fail("must not")
-    )
+    verdict = _carry(attestation, new, old, view_a=_view(None), view_b=_view(None))
     assert verdict.status is CarryStatus.MALFORMED
 
 
 def test_artifact_refusal_happens_before_resolution(base):
     root, old = base
     new = _signed(root, "carry-new", [SIBLING, OTHER_PAIR])
-    verdict = _carry(
-        _attestation(root, old),
-        new,
-        old,
-        resolve=lambda requested: pytest.fail("must not resolve"),
-    )
+    failing = _view(ValueError("must not resolve"))
+    verdict = _carry(_attestation(root, old), new, old, view_a=failing, view_b=failing)
     assert verdict.status is CarryStatus.UNIT_MISSING
     assert verdict.resolution_checked is False
 
 
-# Attacks from the independent review of #2348: each adds a scope to the unit's
-# pair in B without changing any artifact of A. Rules 1-3 alone must not carry
-# them, and the real resolver must refuse them.
+def _other_digest(root):
+    return hashlib.sha256(_provisions_path(root, OTHER_PAIR).read_bytes()).hexdigest()
+
+
+def _cited(files, route=("r",), text="t"):
+    return ResolvedCitationEvidence(tuple(files), route, text)
+
+
+def test_cited_paths_resolve_identically_in_both_releases(gained):
+    root, old, new, attestation = gained
+    other = (_rel(OTHER_PAIR), _other_digest(root))
+    unit = _evidence(attestation)
+    same = {OTHER_CITATION: _cited([other])}
+    good = _carry(
+        attestation,
+        new,
+        old,
+        cited_paths=[OTHER_CITATION],
+        view_a=_view(unit, same),
+        view_b=_view(unit, same),
+    )
+    assert good.status is CarryStatus.CARRIED
+    variants = [
+        {},
+        {OTHER_CITATION: ValueError("ambiguous")},
+        {OTHER_CITATION: _cited([other], route=("slice",))},
+        {OTHER_CITATION: _cited([other], text="other text")},
+        {OTHER_CITATION: _cited([(other[0], "4" * 64)])},
+        {OTHER_CITATION: _cited([])},
+    ]
+    for b_citations in variants:
+        verdict = _carry(
+            attestation,
+            new,
+            old,
+            cited_paths=[OTHER_CITATION],
+            view_a=_view(unit, same),
+            view_b=_view(unit, b_citations),
+        )
+        assert verdict.status is CarryStatus.CONTEXT_CHANGED, b_citations
+    for files in ([(other[0], "4" * 64)], []):
+        both = {OTHER_CITATION: _cited(files)}
+        verdict = _carry(
+            attestation,
+            new,
+            old,
+            cited_paths=[OTHER_CITATION],
+            view_a=_view(unit, both),
+            view_b=_view(unit, both),
+        )
+        assert verdict.status is CarryStatus.CONTEXT_CHANGED, files
+
+
+def test_import_candidates_may_be_absent_in_both_releases(gained):
+    _root, old, new, attestation = gained
+    unit = _evidence(attestation)
+    candidate = "us/statute/7/9000"
+    verdict = _carry(
+        attestation,
+        new,
+        old,
+        dependency_paths=[candidate],
+        view_a=_view(unit),
+        view_b=_view(unit),
+    )
+    assert verdict.status is CarryStatus.CARRIED
+    appears = {candidate: _cited([])}
+    verdict = _carry(
+        attestation,
+        new,
+        old,
+        dependency_paths=[candidate],
+        view_a=_view(unit),
+        view_b=_view(unit, appears),
+    )
+    assert verdict.status is CarryStatus.CONTEXT_CHANGED
+    verdict = _carry(
+        attestation,
+        new,
+        old,
+        cited_paths=[candidate],
+        view_a=_view(unit),
+        view_b=_view(unit),
+    )
+    assert verdict.status is CarryStatus.CONTEXT_CHANGED
+
+
+def test_import_candidate_pairs_are_closed(base):
+    root, old = base
+    _write_scope(root, OTHER_PAIR, OTHER_CITATION, "other words changed")
+    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR])
+    verdict = _carry(
+        _attestation(root, old), new, old, dependency_paths=["us/regulation/9/1"]
+    )
+    assert verdict.status is CarryStatus.CONTEXT_CHANGED
+
+
+def test_dormant_row_naming_a_gained_scope_refuses(gained):
+    _root, old, new, attestation = gained
+    unit = _evidence(attestation)
+    dormant = {_rel(SIBLING): {"us/statute/2026-01-04-added"}}
+    verdict = _carry(
+        attestation,
+        new,
+        old,
+        view_a=_view(unit),
+        view_b=_view(unit, row_scopes=dormant),
+    )
+    assert verdict.status is CarryStatus.CONTEXT_CHANGED
+    assert any("rows of a scope" in reason for reason in verdict.reasons)
+
+
+# Attacks from the independent reviews of #2348, with the real resolver.
 
 STATUTE_BASE = ("us", "statute", "2026-01-01-base")
 STATUTE_ADDED = ("us", "statute", "2026-02-01-recovery")
@@ -497,20 +616,19 @@ def _real_attestation(root: Path, scopes, citation: str) -> dict:
     return attestation
 
 
-def _attack(root: Path, attestation: dict, new_scopes, cited=()):
-    old = _signed(root, "rel-a", [STATUTE_BASE])
+def _attack(root: Path, attestation: dict, a_scopes, new_scopes, cited=()):
+    old = _signed(root, "rel-a", a_scopes)
     new = _signed(root, "rel-b", new_scopes)
     plain = classify_attestation_carry(
         attestation, target=new, attested_releases=[old], cited_paths=cited
     )
-    resolve, resolve_citation = _corpus_resolvers(root, new, TEST_RELEASE_PUBLIC_KEY)
     checked = classify_attestation_carry(
         attestation,
         target=new,
         attested_releases=[old],
         cited_paths=cited,
-        resolve=resolve,
-        resolve_citation=resolve_citation,
+        view_a=corpus_view(root, old, [TEST_RELEASE_PUBLIC_KEY]),
+        view_b=corpus_view(root, new, [TEST_RELEASE_PUBLIC_KEY]),
     )
     return plain, checked
 
@@ -534,7 +652,9 @@ def test_attack_added_exact_child_row_shadows_a_parent_slice(tmp_path):
         STATUTE_ADDED,
         [{"citation_path": "us/statute/7/2014/b", "body": "(b) Limit.--$900."}],
     )
-    _assert_refused(*_attack(tmp_path, attestation, [STATUTE_BASE, STATUTE_ADDED]))
+    _assert_refused(
+        *_attack(tmp_path, attestation, [STATUTE_BASE], [STATUTE_BASE, STATUTE_ADDED])
+    )
 
 
 def test_attack_added_scope_duplicates_the_exact_citation(tmp_path):
@@ -549,7 +669,9 @@ def test_attack_added_scope_duplicates_the_exact_citation(tmp_path):
         STATUTE_ADDED,
         [{"citation_path": "us/statute/7/2015", "body": "Re-ingested, different."}],
     )
-    _assert_refused(*_attack(tmp_path, attestation, [STATUTE_BASE, STATUTE_ADDED]))
+    _assert_refused(
+        *_attack(tmp_path, attestation, [STATUTE_BASE], [STATUTE_BASE, STATUTE_ADDED])
+    )
 
 
 def test_attack_added_scope_amends_the_unit(tmp_path):
@@ -574,7 +696,9 @@ def test_attack_added_scope_amends_the_unit(tmp_path):
             }
         ],
     )
-    _assert_refused(*_attack(tmp_path, attestation, [STATUTE_BASE, STATUTE_ADDED]))
+    _assert_refused(
+        *_attack(tmp_path, attestation, [STATUTE_BASE], [STATUTE_BASE, STATUTE_ADDED])
+    )
 
 
 def test_attack_dormant_row_activated_by_an_added_scope(tmp_path):
@@ -595,7 +719,9 @@ def test_attack_dormant_row_activated_by_an_added_scope(tmp_path):
     _write_rows(
         tmp_path, dormant, [{"citation_path": "us/statute/7/9999", "body": "filler"}]
     )
-    _assert_refused(*_attack(tmp_path, attestation, [STATUTE_BASE, dormant]))
+    _assert_refused(
+        *_attack(tmp_path, attestation, [STATUTE_BASE], [STATUTE_BASE, dormant])
+    )
 
 
 def test_attack_composed_container_gains_a_descendant(tmp_path):
@@ -603,11 +729,7 @@ def test_attack_composed_container_gains_a_descendant(tmp_path):
         tmp_path,
         STATUTE_BASE,
         [
-            {
-                "citation_path": "us/statute/7/2018",
-                "body": None,
-                "heading": "Sec. 2018",
-            },
+            {"citation_path": "us/statute/7/2018", "body": None, "heading": "Sec."},
             {
                 "citation_path": "us/statute/7/2018/a",
                 "body": "(a) First.",
@@ -619,15 +741,74 @@ def test_attack_composed_container_gains_a_descendant(tmp_path):
     _write_rows(
         tmp_path,
         STATUTE_ADDED,
+        [{"citation_path": "us/statute/7/2018/b", "body": "(b) New.", "heading": "b"}],
+    )
+    _assert_refused(
+        *_attack(tmp_path, attestation, [STATUTE_BASE], [STATUTE_BASE, STATUTE_ADDED])
+    )
+
+
+REGULATION = ("us", "regulation", "2026-01-06-reg")
+DORMANT_REGULATION = ("us", "regulation", "2026-02-01-dormant")
+REGULATION_CITATION = "us/regulation/7/273/1"
+
+
+def _dormant_cited_setup(root: Path):
+    _write_rows(root, STATUTE_BASE, [{"citation_path": UNIT_CITATION, "body": "Unit."}])
+    _write_rows(
+        root,
+        REGULATION,
         [
             {
-                "citation_path": "us/statute/7/2018/b",
-                "body": "(b) New rule.",
-                "heading": "b",
-            }
+                "citation_path": REGULATION_CITATION,
+                "body": "(a) Alpha amount is $100.\n(b) Beta amount.",
+            },
+            {
+                "citation_path": REGULATION_CITATION + "/a",
+                "body": "(a) Alpha amount is $999.",
+                "version": DORMANT_REGULATION[2],
+            },
         ],
     )
-    _assert_refused(*_attack(tmp_path, attestation, [STATUTE_BASE, STATUTE_ADDED]))
+    _write_rows(
+        root,
+        DORMANT_REGULATION,
+        [{"citation_path": "us/regulation/7/9999", "body": "filler"}],
+    )
+
+
+def test_attack_cited_slice_becomes_a_dormant_exact_row(tmp_path):
+    """Round 2, A1: a cited child sliced from its parent in A resolves to a
+    dormant exact row in B, from the same unchanged file."""
+
+    _dormant_cited_setup(tmp_path)
+    attestation = _real_attestation(tmp_path, [STATUTE_BASE, REGULATION], UNIT_CITATION)
+    plain, checked = _attack(
+        tmp_path,
+        attestation,
+        [STATUTE_BASE, REGULATION],
+        [STATUTE_BASE, REGULATION, DORMANT_REGULATION],
+        cited=[REGULATION_CITATION + "/a"],
+    )
+    _assert_refused(plain, checked)
+    assert any("differently" in r or "rows of a scope" in r for r in checked.reasons)
+
+
+def test_attack_unit_slice_becomes_a_dormant_exact_row(tmp_path):
+    """Round 2, A1u: the same trick on the unit itself."""
+
+    _dormant_cited_setup(tmp_path)
+    attestation = _real_attestation(
+        tmp_path, [STATUTE_BASE, REGULATION], REGULATION_CITATION + "/a"
+    )
+    _assert_refused(
+        *_attack(
+            tmp_path,
+            attestation,
+            [STATUTE_BASE, REGULATION],
+            [STATUTE_BASE, REGULATION, DORMANT_REGULATION],
+        )
+    )
 
 
 def test_real_resolver_carries_an_unaffected_unit(tmp_path):
@@ -636,12 +817,14 @@ def test_real_resolver_carries_an_unaffected_unit(tmp_path):
     )
     attestation = _real_attestation(tmp_path, [STATUTE_BASE], UNIT_CITATION)
     _write_rows(
-        tmp_path,
-        STATUTE_ADDED,
-        [{"citation_path": "us/statute/7/2016", "body": "added"}],
+        tmp_path, STATUTE_ADDED, [{"citation_path": "us/statute/7/2016", "body": "x"}]
     )
     plain, checked = _attack(
-        tmp_path, attestation, [STATUTE_BASE, STATUTE_ADDED], cited=[UNIT_CITATION]
+        tmp_path,
+        attestation,
+        [STATUTE_BASE],
+        [STATUTE_BASE, STATUTE_ADDED],
+        cited=[UNIT_CITATION],
     )
     assert plain.status is CarryStatus.NOT_VERIFIABLE
     assert checked.status is CarryStatus.CARRIED
@@ -649,8 +832,10 @@ def test_real_resolver_carries_an_unaffected_unit(tmp_path):
     assert checked.pair_gained_scopes == ("us/statute/2026-02-01-recovery",)
 
     tampered = dict(attestation, source_sha256="9" * 64)
-    _plain, checked = _attack(tmp_path, tampered, [STATUTE_BASE, STATUTE_ADDED])
-    assert checked.status is CarryStatus.UNIT_CHANGED
+    _plain, checked = _attack(
+        tmp_path, tampered, [STATUTE_BASE], [STATUTE_BASE, STATUTE_ADDED]
+    )
+    assert checked.status is CarryStatus.NOT_IN_LINEAGE
 
 
 def test_real_resolver_refuses_a_cited_path_that_does_not_resolve(tmp_path):
@@ -659,13 +844,12 @@ def test_real_resolver_refuses_a_cited_path_that_does_not_resolve(tmp_path):
     )
     attestation = _real_attestation(tmp_path, [STATUTE_BASE], UNIT_CITATION)
     _write_rows(
-        tmp_path,
-        STATUTE_ADDED,
-        [{"citation_path": "us/statute/7/2016", "body": "added"}],
+        tmp_path, STATUTE_ADDED, [{"citation_path": "us/statute/7/2016", "body": "x"}]
     )
     _plain, checked = _attack(
         tmp_path,
         attestation,
+        [STATUTE_BASE],
         [STATUTE_BASE, STATUTE_ADDED],
         cited=["us/statute/7/4040"],
     )
@@ -681,7 +865,7 @@ def test_real_resolver_refuses_a_cited_path_that_does_not_resolve(tmp_path):
         ((), "us/statute/7/2014/e", True),
     ],
 )
-def test_corpus_resolver_reports_amendment_context(
+def test_corpus_view_reports_amendment_context(
     base, monkeypatch, documents, request_path, expected
 ):
     root, old = base
@@ -696,12 +880,54 @@ def test_corpus_resolver_reports_amendment_context(
     monkeypatch.setattr(
         evals, "resolve_corpus_source_unit", lambda requested, release: _Unit()
     )
-    resolve, _resolve_citation = _corpus_resolvers(root, old, TEST_RELEASE_PUBLIC_KEY)
-    evidence = resolve(UNIT_CITATION)
+    evidence = corpus_view(root, old, [TEST_RELEASE_PUBLIC_KEY]).unit(UNIT_CITATION)
     assert evidence.has_amendment_context is expected
-    assert (
-        evidence.generation_input_sha256 == hashlib.sha256(b"unit\nwords").hexdigest()
+    assert evidence.generation_input_sha256 == (
+        hashlib.sha256(b"unit\nwords").hexdigest()
     )
+
+
+def test_corpus_view_reads_row_scopes(base):
+    root, old = base
+    _write_rows(
+        root,
+        SIBLING,
+        [
+            {"citation_path": "us/statute/7/2015", "body": "a"},
+            {"citation_path": "us/statute/7/2015/x", "body": "b", "version": "v9"},
+        ],
+    )
+    view = corpus_view(root, old, [TEST_RELEASE_PUBLIC_KEY])
+    assert view.row_scopes(_rel(SIBLING)) == {
+        "us/statute/2026-01-02-sibling",
+        "us/statute/v9",
+    }
+    with pytest.raises(ValueError):
+        view.row_scopes("data/corpus/provisions/us/statute/missing.jsonl")
+
+
+def test_cited_artifact_must_be_identical_in_both_releases(tmp_path):
+    only_old = ("us", "policy", "2026-01-07-old-only")
+    _write_scope(tmp_path, UNIT, UNIT_CITATION, "unit words")
+    _write_scope(tmp_path, OTHER_PAIR, OTHER_CITATION, "other words")
+    _write_scope(tmp_path, only_old, "us/policy/p/1", "old policy")
+    old = _signed(tmp_path, "carry-old", [UNIT, OTHER_PAIR, only_old])
+    attestation = _attestation(tmp_path, old)
+    _write_scope(tmp_path, ADDED_OTHER_PAIR, "us/guidance/x/1", "added words")
+    new = _signed(tmp_path, "carry-new", [UNIT, OTHER_PAIR, ADDED_OTHER_PAIR])
+    unit = _evidence(attestation)
+    for scope in (only_old, ADDED_OTHER_PAIR):
+        digest = hashlib.sha256(_provisions_path(tmp_path, scope).read_bytes())
+        cited = {OTHER_CITATION: _cited([(_rel(scope), digest.hexdigest())])}
+        verdict = _carry(
+            attestation,
+            new,
+            old,
+            cited_paths=[OTHER_CITATION],
+            view_a=_view(unit, cited),
+            view_b=_view(unit, cited),
+        )
+        assert verdict.status is CarryStatus.CONTEXT_CHANGED, scope
 
 
 def _rulespec(citations: list[str]) -> bytes:
@@ -736,8 +962,8 @@ def _bind(repo: Path, relative: str, raw: bytes) -> dict:
 def test_manifest_walk_reads_nested_attestations_and_citations(tmp_path):
     repo = _manifest_repo(tmp_path, {})
     module = _bind(repo, "us/a.yaml", _rulespec([UNIT_CITATION, "us/guidance/g/1"]))
-    ledger = {"path": "known-validation-gaps.yaml", "sha256": "0" * 64}
-    (repo / "known-validation-gaps.yaml").write_text("entries: []\n")
+    ledger = _bind(repo, "known-validation-gaps.yaml", b"entries: []\n")
+    tests_file = _bind(repo, "us/a.test.yaml", b"- name: case\n  output: {}\n")
     repo = _manifest_repo(
         tmp_path,
         {
@@ -746,6 +972,7 @@ def test_manifest_walk_reads_nested_attestations_and_citations(tmp_path):
                 "applied_files": [
                     module,
                     ledger,
+                    tests_file,
                     {"path": "gone.yaml", "deleted": True},
                 ],
             },
@@ -994,28 +1221,277 @@ def test_console_entrypoint_dispatches_the_dry_run(base, monkeypatch, capsys):
     assert "current\tcurrent.json" in capsys.readouterr().out
 
 
-def test_cited_artifact_must_be_identical_in_both_releases(tmp_path):
-    only_old = ("us", "policy", "2026-01-07-old-only")
-    _write_scope(tmp_path, UNIT, UNIT_CITATION, "unit words")
-    _write_scope(tmp_path, OTHER_PAIR, OTHER_CITATION, "other words")
-    _write_scope(tmp_path, only_old, "us/policy/p/1", "old policy")
-    old = _signed(tmp_path, "carry-old", [UNIT, OTHER_PAIR, only_old])
-    attestation = _attestation(tmp_path, old)
-    _write_scope(tmp_path, ADDED_OTHER_PAIR, "us/guidance/x/1", "added words")
-    new = _signed(tmp_path, "carry-new", [UNIT, OTHER_PAIR, ADDED_OTHER_PAIR])
+def _single_entry(tmp_path: Path, raw: bytes, *, name="us/a.yaml", tamper=None):
+    repo = _manifest_repo(tmp_path, {})
+    module = _bind(repo, name, raw)
+    if tamper is not None:
+        tamper(repo)
+    repo = _manifest_repo(
+        tmp_path, {"a.json": {"source_attestation": {}, "applied_files": [module]}}
+    )
+    (entry,) = iter_manifest_attestations(repo / ".axiom" / "encoding-manifests")
+    return entry
 
-    def digest(scope):
-        return hashlib.sha256(
-            _provisions_path(tmp_path, scope).read_bytes()
-        ).hexdigest()
 
-    for scope in (only_old, ADDED_OTHER_PAIR):
-        verdict = _carry(
-            attestation,
-            new,
-            old,
-            cited_paths=[OTHER_CITATION],
-            resolve=lambda requested: _evidence(attestation),
-            resolve_citation=_cited_resolver([(_rel(scope), digest(scope))]),
+@pytest.mark.parametrize(
+    "citation",
+    [
+        " us/guidance/x/1",
+        "us/guidance/x/1 ",
+        "US/guidance/x/1",
+        "/us/guidance/x/1",
+        "us/guidance/x/1/",
+        "us/guidances/x/1",
+    ],
+)
+def test_non_canonical_citations_are_refused(base, tmp_path, citation):
+    root, old = base
+    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR])
+    entry = _single_entry(tmp_path, _rulespec([json.dumps(citation)]))
+    assert entry.problems == ()
+    assert citation in entry.cited_paths
+    verdict = _carry(_attestation(root, old), new, old, cited_paths=entry.cited_paths)
+    assert verdict.status is CarryStatus.MALFORMED
+
+
+@pytest.mark.parametrize(
+    ("raw", "problem"),
+    [
+        (b"format: [unclosed\n", "not strict YAML"),
+        (b"format: rulespec/v2\nmodule: {}\n", "unsupported format"),
+        (
+            b"format: rulespec/v1\nmodule:\n  source_verification:\n"
+            b"    corpus_citation_path: us/guidance/x/1\n"
+            b"    corpus_citation_path: us/statute/7/2015\n",
+            "duplicate key",
+        ),
+        (b"- just\n- a list\n", "not a YAML mapping"),
+        (
+            b"format: rulespec/v1\nmodule:\n  corpus_citation_path: [us/x/1]\n",
+            "not a string",
+        ),
+        (
+            b"format: rulespec/v1\nmodule:\n  corpus_citation_paths: us/x/1\n",
+            "not a list of strings",
+        ),
+        (b"format: rulespec/v1\nimports: us-az:x\n", "imports is not a list"),
+    ],
+)
+def test_bound_files_that_do_not_parse_strictly_are_malformed(tmp_path, raw, problem):
+    entry = _single_entry(tmp_path, raw)
+    assert any(problem in item for item in entry.problems), entry.problems
+
+
+def test_sha256_is_checked_before_the_format(tmp_path):
+    def replace(repo):
+        (repo / "us" / "a.yaml").write_text("format: rulespec/v2\n")
+
+    entry = _single_entry(tmp_path, _rulespec([UNIT_CITATION]), tamper=replace)
+    assert entry.problems == ("applied file us/a.yaml differs from the manifest",)
+
+
+def test_yml_files_and_imports_are_read(tmp_path):
+    raw = _rulespec([UNIT_CITATION]) + b"imports:\n- us-az:policies/des/x/y#z\n"
+    entry = _single_entry(tmp_path, raw, name="us/a.yml")
+    assert entry.problems == ()
+    assert UNIT_CITATION in entry.cited_paths
+    assert entry.dependency_paths == ("us-az/policy/des/x/y",)
+
+
+def test_bound_file_under_a_symlinked_directory_is_refused(tmp_path):
+    def link(repo):
+        (repo / "us").rename(repo / "real")
+        (repo / "us").symlink_to(repo / "real")
+
+    entry = _single_entry(tmp_path, _rulespec([UNIT_CITATION]), tamper=link)
+    assert any("not a regular file" in item for item in entry.problems)
+
+
+def test_duplicate_json_keys_are_malformed(tmp_path):
+    manifests = tmp_path / "repo" / ".axiom" / "encoding-manifests"
+    manifests.mkdir(parents=True)
+    (manifests / "a.json").write_text(
+        '{"source_attestation": {"corpus_release": "evil"},'
+        ' "source_attestation": {}, "applied_files": []}'
+    )
+    (entry,) = iter_manifest_attestations(manifests)
+    assert entry.attestation is None
+    assert "duplicate key" in entry.problems[0]
+
+
+def test_retired_key_is_accepted_for_the_attested_release_only(base, capsys):
+    from base64 import b64encode
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    root, old = base
+    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR])
+    other = b64encode(
+        Ed25519PrivateKey.generate()
+        .public_key()
+        .public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    ).decode()
+    repo = _manifest_repo(
+        root,
+        {
+            "a.json": {
+                "source_attestation": _attestation(root, old),
+                "applied_files": [],
+            }
+        },
+    )
+    common = [
+        "--rulespec-repo",
+        str(repo),
+        "--to-release",
+        str(_release_file(root, new)),
+    ]
+    from_old = ["--from-release", str(_release_file(root, old))]
+    # The fixture key signs both releases: as a retired key it verifies A only.
+    assert (
+        run_corpus_attestation_carry(
+            [
+                *common,
+                *from_old,
+                "--public-key",
+                other,
+                "--retired-public-key",
+                TEST_RELEASE_PUBLIC_KEY,
+            ]
         )
-        assert verdict.status is CarryStatus.CONTEXT_CHANGED, scope
+        == 2
+    )
+    assert "signature is invalid" in capsys.readouterr().err
+    assert (
+        run_corpus_attestation_carry(
+            [
+                "--rulespec-repo",
+                str(repo),
+                "--to-release",
+                str(_release_file(root, old)),
+                "--from-release",
+                str(_release_file(root, old)),
+                "--public-key",
+                other,
+                "--retired-public-key",
+                TEST_RELEASE_PUBLIC_KEY,
+            ]
+        )
+        == 2
+    )
+    capsys.readouterr()
+    assert (
+        run_corpus_attestation_carry(
+            [
+                *common,
+                *from_old,
+                "--public-key",
+                other,
+                "--public-key",
+                TEST_RELEASE_PUBLIC_KEY,
+            ]
+        )
+        == 0
+    )
+
+
+def _tree_bytes(*roots: Path) -> dict[str, bytes]:
+    return {
+        str(path): path.read_bytes()
+        for root in roots
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_a_plain_corpus_and_the_rulespec_repo_are_not_written(tmp_path, capsys):
+    corpus = tmp_path / "corpus"
+    _write_rows(corpus, STATUTE_BASE, [{"citation_path": UNIT_CITATION, "body": "u"}])
+    attestation = _real_attestation(corpus, [STATUTE_BASE], UNIT_CITATION)
+    old = _signed(corpus, "rel-a", [STATUTE_BASE])
+    _write_rows(
+        corpus, STATUTE_ADDED, [{"citation_path": "us/statute/7/2016", "body": "x"}]
+    )
+    new = _signed(corpus, "rel-b", [STATUTE_BASE, STATUTE_ADDED])
+    repo = _manifest_repo(tmp_path, {})
+    module = _bind(
+        repo,
+        "us/a.yaml",
+        f"format: rulespec/v1\nmodule:\n  corpus_citation_path: {UNIT_CITATION}\n".encode(),
+    )
+    repo = _manifest_repo(
+        tmp_path,
+        {"a.json": {"source_attestation": attestation, "applied_files": [module]}},
+    )
+    before = _tree_bytes(corpus, repo)
+    code = run_corpus_attestation_carry(
+        [
+            "--rulespec-repo",
+            str(repo),
+            "--to-release",
+            str(_release_file(corpus, new)),
+            "--from-release",
+            str(_release_file(corpus, old)),
+            "--corpus-root",
+            str(corpus),
+            "--public-key",
+            TEST_RELEASE_PUBLIC_KEY,
+            "--json",
+        ]
+    )
+    assert _tree_bytes(corpus, repo) == before
+    report = json.loads(capsys.readouterr().out)
+    (row,) = report["manifests"]
+    assert (code, row["status"], row["resolution_checked"]) == (0, "carried", True)
+
+
+def test_attested_release_may_be_signed_with_the_retired_key(base, tmp_path, capsys):
+    from base64 import b64encode
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from axiom_encode.corpus_release import canonical_release_object_bytes
+
+    root, old = base
+    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR])
+    current = Ed25519PrivateKey.generate()
+    current_public = b64encode(
+        current.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        )
+    ).decode()
+    payload = json.loads(_release_file(root, new).read_text("utf-8"))
+    payload["signature"]["value"] = b64encode(
+        current.sign(canonical_release_object_bytes(payload))
+    ).decode()
+    resigned = tmp_path / "b.json"
+    resigned.write_text(json.dumps(payload), encoding="utf-8")
+    repo = _manifest_repo(
+        root,
+        {
+            "a.json": {
+                "source_attestation": _attestation(root, old),
+                "applied_files": [],
+            }
+        },
+    )
+    argv = [
+        "--rulespec-repo",
+        str(repo),
+        "--to-release",
+        str(resigned),
+        "--from-release",
+        str(_release_file(root, old)),
+        "--public-key",
+        current_public,
+    ]
+    assert run_corpus_attestation_carry(argv) == 2
+    capsys.readouterr()
+    assert (
+        run_corpus_attestation_carry(
+            [*argv, "--retired-public-key", TEST_RELEASE_PUBLIC_KEY]
+        )
+        == 0
+    )
