@@ -220,6 +220,7 @@ from .validator_pipeline import (
     _authoritative_rulespec_dependency_scope,
     _citation_slice_failure_issues,
     _citation_slice_failure_scope,
+    _engine_import_items,
     _module_numeric_citation_path,
     _normalize_rulespec_dependency_roots,
     _numeric_profile_for_citation_path,
@@ -10352,7 +10353,7 @@ def _imported_named_scalar_occurrences(
     """Count numeric values from imported RuleSpec files and import symbols."""
     occurrences: Counter[float] = Counter()
     seen: set[Path] = set()
-    for import_target in _extract_import_targets(content):
+    for import_target in _engine_import_targets(content):
         if "#" in import_target:
             occurrences.update(
                 _numeric_occurrences_from_concept_text(import_target.rsplit("#", 1)[1])
@@ -17305,6 +17306,23 @@ def _resolve_context_imports(source_path: Path, policy_root: Path) -> list[Path]
                 dependencies.append(dependency)
                 break
     return dependencies
+
+
+def _engine_import_targets(content: str) -> list[str]:
+    """Line-reader targets that the rules engine also loads.
+
+    Numeric credit reads this list. ``_extract_import_targets`` is a line
+    reader that also matches ``imports:`` text in a block scalar, so a target
+    counts only when the engine's top-level import list has it too. The
+    result is never wider than the line reader's: this narrows credit and
+    adds none.
+    """
+    engine_targets = {item.split("#", 1)[0] for item in _engine_import_items(content)}
+    return [
+        target
+        for target in _extract_import_targets(content)
+        if target in engine_targets
+    ]
 
 
 def _extract_import_targets(content: str) -> list[str]:
