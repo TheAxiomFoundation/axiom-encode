@@ -1,0 +1,1 @@
+Add `python -m axiom_encode.replacement_check`, an inactive dry-run check for replacing a RuleSpec module already on main: preserved exports and their readers (importers, program specs, co-scoped modules), program input bindings, and a declared, effective-dated behavior-change record (#1881).

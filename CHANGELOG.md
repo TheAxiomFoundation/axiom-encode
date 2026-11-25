@@ -1,3 +1,30 @@
+## 0.2.2401
+
+- Keep page furniture and example-only numbers of US manual pages out of numeric recall (#2354)
+
+## 0.2.2400
+
+- Turn the multi-unit promotion switch on for the hosted canary (#2301) (#2350)
+- Memoize repository-scan text facts and checkout identity within one encode process (#2349)
+
+## 0.2.2399
+
+- Add an inactive dry-run check for replacing a module already on main (#1881) (#2341)
+- Mask USDA jurisdiction row labels and table titles; read range-header N+ as a label (stacked on #2336) (#2343)
+
+## 0.2.2398
+
+- Count the complete-mode numeric-occurrence check positionally on the numeric-recall view (#1801) (#2336)
+- Validate each unit of a multi-unit promotion twice: isolated and with every unit present (#2301) (#2324)
+
+## 0.2.2397
+
+- Give CFR units their cited-section context; encode State-established amounts as inputs (#2335)
+
+## 0.2.2396
+
+- Keep branch locators out of corpus_citation_path fields (prompt and feedback wording) (#2331)
+
 ## 0.2.2395
 
 - Refuse an unsliceable cited child path instead of crashing CI (#2330)

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ast
+import bisect
 import contextlib
+import functools
 import hashlib
 import json
 import math
@@ -201,6 +203,7 @@ from .source_completeness import (
     _deferral_anchor_bases,
     _rulespec_target_base,
     collect_artifact_numeric_values,
+    complete_source_numeric_recall_occurrences,
     mask_armenian_amendment_history,
     mask_example_cross_references,
 )
@@ -245,6 +248,7 @@ from .validator_pipeline import (
     repair_source_table_interval_tests,
     repair_source_table_open_ended_bound_sentinels,
     repair_unsupported_chained_conditionals,
+    source_backed_half_up_increment_spans,
     source_backed_half_up_rounding_helper_count,
 )
 
@@ -7386,13 +7390,33 @@ def prepare_eval_workspace(
                 _reject_composition_spec_eval_context(path)
                 selected.append(path)
                 explicit_context_paths.add(path)
-
-        expanded_context = _expand_context_files(
-            selected,
+        cited_cfr_modules = _select_cited_cfr_section_context_files(
+            citation,
+            source_text,
             context_corpus_root,
-            target_rel,
+            base_selected=selected,
+            target_rel=target_rel,
             explicit_context_paths=explicit_context_paths,
         )
+        cited_cfr_tests = _cited_cfr_context_added_tests(
+            context_corpus_root,
+            base_selected=selected,
+            cited_modules=cited_cfr_modules,
+            target_rel=target_rel,
+            explicit_context_paths=explicit_context_paths,
+        )
+        selected.extend(cited_cfr_modules)
+
+        expanded_context = [
+            (path, kind)
+            for path, kind in _expand_context_files(
+                selected,
+                context_corpus_root,
+                target_rel,
+                explicit_context_paths=explicit_context_paths,
+            )
+            if path.resolve() not in cited_cfr_tests
+        ]
 
         for source_path, kind in expanded_context:
             relative_target = _context_import_relative_target(
@@ -8290,6 +8314,444 @@ def _select_cross_section_context_files(
     return selected
 
 
+# CFR citations in a CFR unit's source text. One closed grammar with two
+# forms: `N CFR P.S` (title from the citation, an optional `§` after `CFR`)
+# and `§ P.S` (title from the unit). Each form takes optional paragraph
+# fragments `(b)(1)`. Not read: `§§` lists and ranges, part-only citations
+# (`§ 435`, `42 CFR part 435`), `section P.S`, lettered or hyphenated sections
+# (`435.811a`, `1.414(v)-1`). Every hit is re-parsed by the corpus resolver
+# (`normalize_corpus_identifier`) and dropped unless both agree. A bare
+# `§ P.S` in a sentence whose earlier `N CFR` citation names another title is
+# dropped: its title is not known.
+_CFR_SOURCE_CITATION_RE = re.compile(
+    r"(?<![\w§.])"
+    r"(?:(?P<title>\d{1,3})\s+C\.?\s?F\.?\s?R\.?\s+(?:§\s*)?|§\s*)"
+    r"(?P<part>\d{1,4})\.(?P<section>\d{1,4})"
+    r"(?P<fragments>(?:\([A-Za-z0-9]{1,8}\))*)"
+    r"(?![\w(-]|\.\d)"
+)
+# A sentence ends at `.`, `;` or `:` after a lower-case letter, a digit or `)`
+# and before white space and an upper-case letter, `(` or `§`, or at a blank
+# line. A single line break is white space. `C.F.R.` does not end a sentence.
+_CFR_SOURCE_SENTENCE_END_RE = re.compile(
+    r"(?<=[a-z0-9)])[.;:]\s+(?=[A-Z(§])|\n[ \t]*\n"
+)
+# `§§ P.S, P.S and P.S` and `§§ P.S through P.S`: each listed section (range
+# endpoints only) is read as a bare `§ P.S` citation.
+_CFR_SOURCE_SECTION_LIST_RE = re.compile(r"(?<![\w§.])§§\s*")
+_CFR_SOURCE_LIST_ITEM_RE = re.compile(
+    r"(?P<part>\d{1,4})\.(?P<section>\d{1,4})"
+    r"(?P<fragments>(?:\([A-Za-z0-9]{1,8}\))*)"
+    r"(?![\w(-]|\.\d)"
+)
+_CFR_SOURCE_LIST_SEPARATOR_RE = re.compile(
+    r"\s*(?:,\s*(?:(?:and|or)\s+)?|\s(?:and|or|through|to)\s+)\s*"
+)
+# `of this chapter`, `of this part` or `of this subpart` after a bare `§`
+# citation binds it to the unit's title.
+_CFR_SOURCE_SAME_TITLE_SUFFIX_RE = re.compile(
+    r"\s*,?\s*of\s+this\s+(?:chapter|part|subpart)\b"
+)
+# Bounds for the cited-CFR context. At most 8 sections, ordered by citation
+# count, then first citation; per section at most 4 modules (modules for cited
+# paragraphs first, then the section file, then its live subdirectory modules
+# by depth and path); at most 12 candidate modules. After transitive
+# expansion (imports; companion tests of added modules are not copied) the
+# feature adds at most 16 files and 32,000 characters.
+_MAX_CITED_CFR_CONTEXT_SECTIONS = 8
+_MAX_CITED_CFR_CONTEXT_MODULES_PER_SECTION = 4
+_MAX_CITED_CFR_CONTEXT_MODULES = 12
+_MAX_CITED_CFR_CONTEXT_ADDED_FILES = 16
+_MAX_CITED_CFR_CONTEXT_ADDED_CHARS = 32_000
+
+
+@dataclass(frozen=True)
+class _CitedCfrSection:
+    """One CFR provision cited by source text, as resolver path segments."""
+
+    title: str
+    part: str
+    section: str
+    fragments: tuple[str, ...]
+
+    @property
+    def section_key(self) -> tuple[str, str, str]:
+        return (self.title, self.part, self.section)
+
+    def corpus_citation_path(self, fragment_count: int) -> str:
+        return "/".join(
+            (
+                "us",
+                "regulation",
+                self.title,
+                self.part,
+                self.section,
+                *self.fragments[:fragment_count],
+            )
+        )
+
+    @property
+    def label(self) -> str:
+        tail = "".join(f"({fragment})" for fragment in self.fragments)
+        return f"{self.title} CFR {self.part}.{self.section}{tail}"
+
+
+@dataclass(frozen=True)
+class _CitedCfrSectionGroup:
+    """Every cited fragment path of one cited section, in source order."""
+
+    title: str
+    part: str
+    section: str
+    fragment_paths: tuple[tuple[str, ...], ...]
+
+    @property
+    def section_key(self) -> tuple[str, str, str]:
+        return (self.title, self.part, self.section)
+
+    @property
+    def label(self) -> str:
+        return f"{self.title} CFR {self.part}.{self.section}"
+
+
+def _us_cfr_unit_section_key(citation: str) -> tuple[str, str, str] | None:
+    """Return (title, part, section) when the unit is a US CFR provision."""
+    try:
+        citation_path = _corpus_resolver.normalize_corpus_identifier(citation)
+    except (_corpus_resolver.CorpusResolutionError, ValueError):
+        return None
+    parts = citation_path.split("/")
+    if len(parts) < 5 or parts[0] != "us" or parts[1] != "regulation":
+        return None
+    title, part, section = parts[2:5]
+    if not (title.isdigit() and part.isdigit() and section.isdigit()):
+        return None
+    return (title, part, section)
+
+
+def _cfr_source_citation_hits(
+    source_text: str,
+) -> list[tuple[int, int, str | None, str, str, str]]:
+    """Return (start, end, title, part, section, fragments) hits in order.
+
+    Single citations come from `_CFR_SOURCE_CITATION_RE`; each item of a
+    `§§` list is a bare hit (no title).
+    """
+    hits = [
+        (
+            match.start(),
+            match.end(),
+            match.group("title"),
+            match.group("part"),
+            match.group("section"),
+            match.group("fragments"),
+        )
+        for match in _CFR_SOURCE_CITATION_RE.finditer(source_text)
+    ]
+    for list_start in _CFR_SOURCE_SECTION_LIST_RE.finditer(source_text):
+        position = list_start.end()
+        while item := _CFR_SOURCE_LIST_ITEM_RE.match(source_text, position):
+            hits.append(
+                (
+                    item.start(),
+                    item.end(),
+                    None,
+                    item.group("part"),
+                    item.group("section"),
+                    item.group("fragments"),
+                )
+            )
+            separator = _CFR_SOURCE_LIST_SEPARATOR_RE.match(source_text, item.end())
+            if separator is None:
+                break
+            position = separator.end()
+    return sorted(hits)
+
+
+def _iter_cited_cfr_sections(
+    source_text: str,
+    unit_title: str,
+) -> Iterator[_CitedCfrSection]:
+    """Yield CFR citations read by the closed grammar, in source order."""
+    sentence_ends = [
+        match.end() for match in _CFR_SOURCE_SENTENCE_END_RE.finditer(source_text)
+    ]
+    explicit_titles_by_sentence: dict[int, set[str]] = defaultdict(set)
+    for (
+        start,
+        end,
+        explicit_title,
+        part,
+        section,
+        raw_fragments,
+    ) in _cfr_source_citation_hits(source_text):
+        sentence = bisect.bisect_right(sentence_ends, start)
+        if explicit_title is not None:
+            explicit_titles_by_sentence[sentence].add(explicit_title)
+            title = explicit_title
+        elif _CFR_SOURCE_SAME_TITLE_SUFFIX_RE.match(source_text, end):
+            title = unit_title
+        elif explicit_titles_by_sentence[sentence] - {unit_title}:
+            continue
+        else:
+            title = unit_title
+        fragments = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", raw_fragments))
+        cited = _CitedCfrSection(
+            title=title,
+            part=part,
+            section=section,
+            fragments=fragments,
+        )
+        try:
+            resolver_path = _corpus_resolver.normalize_corpus_identifier(cited.label)
+        except (_corpus_resolver.CorpusResolutionError, ValueError):
+            continue
+        if resolver_path != cited.corpus_citation_path(len(fragments)):
+            continue
+        yield cited
+
+
+def _cited_cfr_sections_for_unit(
+    citation: str,
+    source_text: str,
+) -> list[_CitedCfrSectionGroup]:
+    """Return cited CFR sections other than the unit's own.
+
+    Sections are ordered by how often the source cites them (most first),
+    then by first citation; at most 8 are kept.
+    """
+    unit_key = _us_cfr_unit_section_key(citation)
+    if unit_key is None:
+        return []
+    order: list[tuple[str, str, str]] = []
+    counts: Counter[tuple[str, str, str]] = Counter()
+    fragment_paths: dict[tuple[str, str, str], list[tuple[str, ...]]] = {}
+    for cited in _iter_cited_cfr_sections(source_text, unit_key[0]):
+        key = cited.section_key
+        if key == unit_key:
+            continue
+        if key not in fragment_paths:
+            order.append(key)
+            fragment_paths[key] = []
+        counts[key] += 1
+        if cited.fragments and cited.fragments not in fragment_paths[key]:
+            fragment_paths[key].append(cited.fragments)
+    ranked = sorted(order, key=lambda key: (-counts[key], order.index(key)))
+    return [
+        _CitedCfrSectionGroup(*key, fragment_paths=tuple(fragment_paths[key]))
+        for key in ranked[:_MAX_CITED_CFR_CONTEXT_SECTIONS]
+    ]
+
+
+def _context_module_is_live(path: Path) -> bool:
+    """Return whether a RuleSpec module has executable exports (not deferred)."""
+    source_path = str(path)
+    return (
+        _context_file_unavailable_reason(
+            source_path, _context_file_exports(source_path)
+        )
+        is None
+    )
+
+
+def _cfr_provision_context_modules(
+    policy_root: Path, relative: Path
+) -> tuple[list[Path], Path | None]:
+    """Return (live modules, provision file) for one CFR provision path.
+
+    Live modules are the provision file `S.yaml` when it has executable
+    rules, then live modules under `S/` by depth and path.
+    """
+    candidate = policy_root / relative
+    if candidate.is_symlink():
+        validate_rulespec_context_file(candidate, policy_root)
+    provision_file = (
+        validate_rulespec_context_file(candidate, policy_root)
+        if candidate.exists()
+        else None
+    )
+    children: list[Path] = []
+    child_root = validate_rulespec_context_directory(
+        policy_root / relative.with_suffix(""),
+        policy_root,
+    )
+    if child_root is not None:
+        children = sorted(
+            (
+                path
+                for path in child_root.rglob("*.yaml")
+                if not path.name.endswith(".test.yaml")
+            ),
+            key=lambda path: (
+                len(path.relative_to(child_root).parts),
+                path.relative_to(child_root).as_posix(),
+            ),
+        )
+    modules: list[Path] = []
+    if provision_file is not None and _context_module_is_live(provision_file):
+        modules.append(provision_file)
+    for child in children:
+        child = validate_rulespec_context_file(child, policy_root)
+        if _context_module_is_live(child):
+            modules.append(child)
+    return modules, provision_file
+
+
+def _cfr_section_group_context_modules(
+    policy_root: Path,
+    group: _CitedCfrSectionGroup,
+) -> list[Path]:
+    """Return at most 4 modules for one cited section, cited paragraphs first.
+
+    For each cited paragraph (source order) the most specific existing path
+    with live modules comes first; then the section's own live modules. A
+    `status: deferred` or empty section file is kept only when no live module
+    exists for the section.
+    """
+    modules: list[Path] = []
+
+    def add(paths: list[Path]) -> None:
+        for path in paths:
+            if path not in modules:
+                modules.append(path)
+
+    def relative_path(fragments: tuple[str, ...]) -> Path | None:
+        try:
+            return _source_identifier_to_relative_rulespec_path(
+                "/".join(
+                    ("us", "regulation", group.title, group.part, group.section)
+                    + fragments
+                )
+            )
+        except ValueError:
+            return None
+
+    for fragments in group.fragment_paths:
+        for length in range(len(fragments), 0, -1):
+            relative = relative_path(fragments[:length])
+            if relative is None:
+                continue
+            live, _provision = _cfr_provision_context_modules(policy_root, relative)
+            if live:
+                add(live)
+                break
+    section_relative = relative_path(())
+    section_file = None
+    if section_relative is not None:
+        live, section_file = _cfr_provision_context_modules(
+            policy_root, section_relative
+        )
+        add(live)
+    if not modules and section_file is not None:
+        modules.append(section_file)
+    return modules[:_MAX_CITED_CFR_CONTEXT_MODULES_PER_SECTION]
+
+
+def _cited_cfr_context_candidates(
+    citation: str,
+    source_text: str,
+    policy_root: Path,
+) -> list[Path]:
+    """Return candidate modules for CFR sections cited by a CFR unit's source."""
+    selected: list[Path] = []
+    seen: set[Path] = set()
+    for group in _cited_cfr_sections_for_unit(citation, source_text):
+        for module in _cfr_section_group_context_modules(policy_root, group):
+            resolved = module.resolve()
+            if resolved in seen:
+                continue
+            if len(selected) >= _MAX_CITED_CFR_CONTEXT_MODULES:
+                return selected
+            selected.append(module)
+            seen.add(resolved)
+    return selected
+
+
+def _select_cited_cfr_section_context_files(
+    citation: str,
+    source_text: str,
+    policy_root: Path,
+    *,
+    base_selected: list[Path],
+    target_rel: Path | None,
+    explicit_context_paths: set[Path] | None = None,
+) -> list[Path]:
+    """Select cited-CFR modules whose expanded context fits the added bound.
+
+    Candidates are tried in order. A candidate is kept when the modules it
+    adds after `_expand_context_files` (the module and its transitive
+    imports, minus files already in context) keep the total added by this
+    feature within 16 files and 32,000 characters; otherwise it is skipped
+    and the next one is tried. Companion tests of the added modules are not
+    copied (`_cited_cfr_context_added_tests`), so they do not count.
+    """
+    candidates = _cited_cfr_context_candidates(citation, source_text, policy_root)
+    if not candidates:
+        return []
+
+    def expanded(paths: list[Path]) -> set[Path]:
+        return {
+            path.resolve()
+            for path, _kind in _expand_context_files(
+                paths,
+                policy_root,
+                target_rel,
+                explicit_context_paths=explicit_context_paths,
+            )
+        }
+
+    base = expanded(base_selected)
+    accepted: list[Path] = []
+    for candidate in candidates:
+        added = {
+            path
+            for path in expanded([*base_selected, *accepted, candidate]) - base
+            if not path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+        }
+        added_chars = sum(len(path.read_text()) for path in added)
+        if (
+            len(added) <= _MAX_CITED_CFR_CONTEXT_ADDED_FILES
+            and added_chars <= _MAX_CITED_CFR_CONTEXT_ADDED_CHARS
+        ):
+            accepted.append(candidate)
+    return accepted
+
+
+def _cited_cfr_context_added_tests(
+    policy_root: Path,
+    *,
+    base_selected: list[Path],
+    cited_modules: list[Path],
+    target_rel: Path | None,
+    explicit_context_paths: set[Path] | None = None,
+) -> set[Path]:
+    """Return companion tests that only the cited-CFR modules bring in.
+
+    These are left out of the copied context: the cited module and its
+    imports are importable without their tests, and tests were 40-60% of the
+    bytes the feature added.
+    """
+    if not cited_modules:
+        return set()
+
+    def expanded(paths: list[Path]) -> set[Path]:
+        return {
+            path.resolve()
+            for path, _kind in _expand_context_files(
+                paths,
+                policy_root,
+                target_rel,
+                explicit_context_paths=explicit_context_paths,
+            )
+        }
+
+    return {
+        path
+        for path in expanded([*base_selected, *cited_modules]) - expanded(base_selected)
+        if path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+    }
+
+
 def _section_for_eval_identifier(citation: str) -> str | None:
     """Return the current legal section for USC or corpus-backed identifiers."""
     if _looks_like_corpus_citation_path(citation):
@@ -9183,24 +9645,36 @@ def _evaluate_artifact_in_scope(
         ),
     )
     if require_complete_source_unit:
-        counted_numeric_source_text = numeric_recall_source_text or ""
-        if half_up_helper_count:
-            counted_numeric_source_text = (
-                normalize_source_backed_half_up_rounding_occurrence_text(
-                    counted_numeric_source_text
-                )
+        # Count the source numbers positionally (#1801): the source inventory
+        # minus the occurrences that the numeric-recall reading removes in
+        # place (page numbers, table labels, locators), plus every number
+        # numeric recall demands. The masked text is never re-tokenized.
+        typed_source_numeric_occurrences = list(
+            complete_source_numeric_recall_occurrences(
+                evaluation_source_text or "",
+                corpus_citation_path=numeric_source_citation_path or "",
+                extract_numeric_occurrences=functools.partial(
+                    extract_typed_numeric_inventory_occurrences_from_text,
+                    profile=numeric_profile,
+                ),
+                exempt_source_spans=(
+                    source_backed_half_up_increment_spans(evaluation_source_text or "")
+                    if half_up_helper_count
+                    else ()
+                ),
             )
+        )
     else:
         counted_numeric_source_text = _numeric_occurrence_source_text(
             numeric_recall_source_text or "",
             suppress_source_backed_half_up_increment=bool(half_up_helper_count),
         )
-    typed_source_numeric_occurrences = (
-        extract_typed_numeric_inventory_occurrences_from_text(
-            counted_numeric_source_text,
-            profile=numeric_profile,
+        typed_source_numeric_occurrences = (
+            extract_typed_numeric_inventory_occurrences_from_text(
+                counted_numeric_source_text,
+                profile=numeric_profile,
+            )
         )
-    )
     source_numeric_occurrences = Counter(
         occurrence.value for occurrence in typed_source_numeric_occurrences
     )
@@ -12483,6 +12957,11 @@ import or re-export that exact canonical concept instead of duplicating it local
             source_text,
             rulespec_context_files,
         )
+        cited_regulation_context_section = _format_cited_regulation_context_guidance(
+            corpus_citation_path or citation,
+            source_text,
+            rulespec_context_files,
+        )
         excluded_child_context_section = _format_excluded_child_context_guidance(
             source_text,
             rulespec_context_files,
@@ -12535,7 +13014,7 @@ Context files are precedent and dependency context, not independent legal author
 {existing_target_validation_section}
 {existing_target_valid_input_section}
 {branch_child_naming_section}
-{cited_context_imports_section}
+{cited_context_imports_section}{cited_regulation_context_section}
 {excluded_child_context_section}
 {unavailable_cited_context_section}
 {partial_extent_child_schema_section}
@@ -15387,6 +15866,76 @@ If a cited target appears in a displacement phrase such as `in lieu of`,
 `instead of`, or `in place of`, do not import the cited target's final amount
 solely because it is cited; encode the current source's replacement amount or
 rate from the current source text.
+"""
+
+
+# Input slot names of a cited module, listed by name (the generic context
+# listing shows 8 slots with their import paths).
+_MAX_CITED_CFR_CONTEXT_INPUT_SLOTS = 32
+_CFR_CONTEXT_IMPORT_PATH_RE = re.compile(
+    r"^us:regulations/(?P<title>\d+)-cfr/(?P<part>\d+)/(?P<section>\d+)(?:/|$)"
+)
+
+
+def _format_cited_regulation_context_guidance(
+    citation: str,
+    source_text: str,
+    context_files: list[EvalContextFile],
+) -> str:
+    """List exports and input slots of copied modules for cited CFR sections."""
+    cited_labels = {
+        group.section_key: group.label
+        for group in _cited_cfr_sections_for_unit(citation, source_text)
+    }
+    if not cited_labels:
+        return ""
+    lines: list[str] = []
+    for item in context_files:
+        if item.kind.endswith("_test_context"):
+            continue
+        match = _CFR_CONTEXT_IMPORT_PATH_RE.match(item.import_path or "")
+        if match is None:
+            continue
+        label = cited_labels.get(
+            (match.group("title"), match.group("part"), match.group("section"))
+        )
+        if label is None:
+            continue
+        exports = _context_file_exports(item.source_path)
+        unavailable = _context_file_unavailable_reason(item.source_path, exports)
+        details: list[str] = []
+        if unavailable is not None:
+            details.append(f"has {unavailable}")
+        elif exports:
+            references = ", ".join(
+                f"`{item.import_path}#{name}`" for name in exports[:8]
+            )
+            if len(exports) > 8:
+                references += ", ..."
+            details.append(f"exports {references}")
+        local_inputs = sorted(_context_file_local_inputs(item.source_path))
+        if local_inputs:
+            slots = ", ".join(
+                f"`{name}`"
+                for name in local_inputs[:_MAX_CITED_CFR_CONTEXT_INPUT_SLOTS]
+            )
+            if len(local_inputs) > _MAX_CITED_CFR_CONTEXT_INPUT_SLOTS:
+                slots += ", ..."
+            details.append(f"local input slot names {slots}")
+        if not details:
+            continue
+        lines.append(
+            f"- Source cites `{label}`; copied context `{item.import_path}` "
+            + "; ".join(details)
+            + "."
+        )
+    if not lines:
+        return ""
+    return f"""
+Cited regulation RuleSpec context detected from source text:
+{chr(10).join(lines)}
+When this source computes with a value that one of these modules exports,
+import that export and use its bare name in the formula.
 """
 
 

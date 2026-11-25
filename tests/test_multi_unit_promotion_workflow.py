@@ -23,12 +23,14 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/targeted-signed-reencode.yml"
 TOOL = "axiom-encode promote-reviewed-candidate"
 NAMES = ("a", "b", "c")
-# Turns the multi-unit switch on inside a child interpreter. The switch has no
-# environment variable; a test can only replace the constant.
+# Sets the multi-unit switch inside a child interpreter, on or off, so that no
+# test here depends on the shipped value. The switch has no environment
+# variable; a test can only replace the constant.
 SWITCH_ON = (
     "from axiom_encode import reviewed_pr_admission\n"
     "reviewed_pr_admission.MULTI_UNIT_PROMOTION_ENABLED = True\n"
 )
+SWITCH_OFF = SWITCH_ON.replace("= True", "= False")
 
 
 def citation(name: str) -> str:
@@ -111,8 +113,7 @@ def child_env(tmp_path: Path, *, switch_on: bool, **extra: str) -> dict:
     """The environment of a child interpreter that runs workflow code."""
     site = tmp_path / ("site-on" if switch_on else "site-off")
     site.mkdir(exist_ok=True)
-    if switch_on:
-        (site / "sitecustomize.py").write_text(SWITCH_ON)
+    (site / "sitecustomize.py").write_text(SWITCH_ON if switch_on else SWITCH_OFF)
     return {
         **os.environ,
         "PYTHONPATH": os.pathsep.join([str(site), str(ROOT / "src")]),
@@ -527,11 +528,32 @@ def test_metadata_names_every_unit(tmp_path):
     assert payload["citation"] == citation("a")
 
 
+def test_metadata_records_what_each_unit_was_validated_against(tmp_path):
+    """The signed manifests do not carry this; the run's artifact does."""
+    from axiom_encode.prepare_signed_backfill import promotion_validation_record
+
+    completed, target = run_metadata(tmp_path, list(reversed(ALL)))
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(target.read_text())
+    assert payload["promotion_validation"] == promotion_validation_record(ALL)
+    assert payload["promotion_validation"]["passes"] == ["isolated", "batch"]
+    units = payload["promotion_validation"]["units"]
+    assert [unit["citation"] for unit in units] == ALL
+    assert units[0]["hidden_paths"] == sorted(
+        path
+        for name in ("b", "c")
+        for path in (primary(name), primary(name).removesuffix(".yaml") + ".test.yaml")
+    )
+    # With the candidate head, the tree of the isolated pass can be rebuilt.
+    assert payload["rulespec_base"]
+
+
 def test_metadata_of_a_single_unit_run_has_no_new_key(tmp_path):
     completed, target = run_metadata(tmp_path, None, switch_on=False)
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(target.read_text())
     assert "promotion_units" not in payload
+    assert "promotion_validation" not in payload
     assert list(payload)[0] == "atomic_source_input"
 
 

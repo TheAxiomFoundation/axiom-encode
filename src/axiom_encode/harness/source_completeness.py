@@ -261,6 +261,9 @@ class CompleteSourceUnitAnalysis:
     covered_source_numeric_occurrence_count: int
     missing_source_numeric_occurrence_count: int
     companion_test_obligations: tuple[CompanionTestObligation, ...] = ()
+    # Values of the source occurrences numeric recall demanded, in source
+    # order (the source view, before represented spans are credited).
+    source_numeric_occurrence_values: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1437,8 +1440,21 @@ _FORMULA_APPLICABILITY_YEAR_SERIES = (
     rf"(?:from\s+)?{_FORMULA_APPLICABILITY_YEAR_SPAN}"
     rf"(?:\s*,?\s*(?:inclusive|and\s+(?:thereafter|later|onward)))?"
 )
+# A parenthetical that states an amount is never a label leading a preface:
+# a currency sign (`($79)`), a thousands separator (`(9,500)`), a decimal
+# (`(1.5)`) or four or more digits (`(1234)`). A page break can put such an
+# amount at a line start, as in `($9,500) for calendar year 2016`. Any other
+# parenthetical keeps leading a preface as before: an outline enumerator
+# (`(a)`, `(12)`, `(iv)`) or a history note before `Effective ...`.
+_FORMULA_APPLICABILITY_AMOUNT_PARENTHETICAL = (
+    r"\(\s*(?:[$£€]\s*\d[\d,]*(?:\.\d+)?|\d{1,3}(?:,\d{3})+(?:\.\d+)?|"
+    r"\d+\.\d+|\d{4,})\s*\)"
+)
+_FORMULA_APPLICABILITY_OUTLINE_LABEL = (
+    rf"(?!{_FORMULA_APPLICABILITY_AMOUNT_PARENTHETICAL})\([^)]+\)"
+)
 _FORMULA_APPLICABILITY_PREFACE = re.compile(
-    rf"^\s*(?:(?:\([^)]+\)|[A-Z]\.)\s*)*(?:"
+    rf"^\s*(?:(?:{_FORMULA_APPLICABILITY_OUTLINE_LABEL}|[A-Z]\.)\s*)*(?:"
     rf"(?:effective\s+)?(?:for|during)\s+(?:the\s+)?"
     rf"(?:tax(?:able)?|calendar|fiscal|assessment)\s+years?\s+"
     rf"{_FORMULA_APPLICABILITY_START}\s+"
@@ -2410,9 +2426,25 @@ _EXPLICIT_LEGAL_SECTION_REFERENCE = re.compile(
     r"(?P<section>\d+[a-z]?)",
     flags=re.IGNORECASE,
 )
+# A number that a percent sign, `per cent` or a recall unit word directly
+# follows (`25 percent`, `3%`, `30 days`) states a quantity, not a locator.
+# Only an adjacent unit counts: `section 39-2-125 within thirty days` is a
+# locator followed by prose.
+_ENGLISH_LEGAL_CITATION_QUANTITY_FOLLOWS = (
+    rf"[ \t]*(?:%|-?{_RECALL_UNIT_WORD}\b|(?i:per[ \t\u00a0\u202f]+cent)\b)"
+)
+# The number is read whole (atomic), so a refused `25 percent` cannot be
+# shortened to a locator `2` that leaves `5 percent` behind.
+_ENGLISH_LEGAL_CITATION_NUMBER = (
+    rf"(?>\d+(?:\.\d+)*)(?!{_ENGLISH_LEGAL_CITATION_QUANTITY_FOLLOWS})"
+)
+# `section 290.9725 , 25 percent of`, `this article 3% of the amount` and
+# `under section 8 and 50 percent of` keep their rate: neither the number
+# after the keyword nor a list continuation is taken when it states a quantity.
 _ENGLISH_LEGAL_CITATION = re.compile(
     r"\b(?:articles?|sections?|secs?\.?|regulations?|paragraphs?)\s+"
-    r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
+    rf"{_ENGLISH_LEGAL_CITATION_NUMBER}"
+    rf"(?:\s*(?:through|to|[-–—]|and|,)\s*{_ENGLISH_LEGAL_CITATION_NUMBER})*",
     flags=re.IGNORECASE,
 )
 # A coordinated list of titled references, as UK instruments print them:
@@ -2985,6 +3017,117 @@ def numeric_occurrences_without_us_bibliographic_locators(
     return inventory.kept if inventory.consistent else inventory.occurrences
 
 
+def complete_source_numeric_recall_occurrences(
+    authoritative_source_text: str,
+    *,
+    corpus_citation_path: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+    exempt_source_spans: Iterable[tuple[int, int]] = (),
+) -> tuple[NumericOccurrenceLike, ...]:
+    """Return the source numbers a complete-source occurrence count demands.
+
+    The view is positional. It is the inventory of the source text itself,
+    minus each occurrence whose characters the numeric-recall reading removes
+    in place: a mask or deletion of `authoritative_numeric_recall_text`, or
+    the US locator or temporal-preface filter of `analyze_complete_source_unit`
+    applied to the occurrence at that place. The masked text is never read
+    again for this view, so a number whose characters survive the masks stays
+    demanded even when the masked text happens to tokenize differently.
+
+    Every occurrence numeric recall demands (its source view) is in this view
+    too: one that does not coincide with a kept source occurrence of the same
+    value is added. So this view contains everything numeric recall demands,
+    except the characters in `exempt_source_spans` (positions in
+    `authoritative_source_text`; the encode eval passes source-backed half-up
+    increments).
+
+    The returned occurrences carry source positions, except an added recall
+    occurrence, which carries its recall-text position.
+    """
+
+    source_text = authoritative_source_text.strip()
+    lead = len(authoritative_source_text) - len(authoritative_source_text.lstrip())
+    exempt = {
+        position - lead
+        for start, end in exempt_source_spans
+        for position in range(start, end)
+    }
+    source_map = _NumericRecallSourceMap(list(range(len(source_text))))
+    with (
+        _us_manual_prose_scope(corpus_citation_path),
+        _condition_cue_scope(corpus_citation_path),
+    ):
+        recall_text = authoritative_numeric_recall_text(
+            source_text,
+            corpus_citation_path=corpus_citation_path,
+            _source_map=source_map,
+        )
+        inventory = _us_locator_filtered_inventory(
+            recall_text,
+            corpus_citation_path=corpus_citation_path,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+        candidates = inventory.kept if inventory.consistent else inventory.occurrences
+        demanded = tuple(
+            occurrence
+            for occurrence in candidates
+            if not _temporal_occurrence_is_recall_exempt_preface(
+                occurrence, recall_text
+            )
+        )
+    source_occurrences = tuple(extract_numeric_occurrences(source_text))
+    if len(source_map.offsets) != len(recall_text):
+        # Positions cannot be followed: remove nothing, demand everything.
+        return source_occurrences + demanded
+
+    surviving = {
+        origin
+        for index, origin in enumerate(source_map.offsets)
+        if origin is not None and recall_text[index] == source_text[origin]
+    }
+    # Characters of recall occurrences that a filter, not a mask, dropped.
+    demanded_ids = {id(occurrence) for occurrence in demanded}
+    filtered: set[int] = set()
+    for occurrence in inventory.occurrences:
+        if id(occurrence) in demanded_ids:
+            continue
+        span = source_map.source_span(occurrence.start, occurrence.end)
+        if span is not None:
+            filtered.update(range(*span))
+
+    def removed(start: int, end: int) -> bool:
+        characters = [
+            position
+            for position in range(start, end)
+            if source_text[position].isalnum()
+        ]
+        return bool(characters) and all(
+            position not in surviving or position in filtered or position in exempt
+            for position in characters
+        )
+
+    kept = tuple(
+        occurrence
+        for occurrence in source_occurrences
+        if not removed(occurrence.start, occurrence.end)
+    )
+    added = []
+    for occurrence in demanded:
+        span = source_map.source_span(occurrence.start, occurrence.end)
+        if span is not None and (
+            all(position in exempt for position in range(*span))
+            or any(
+                source.value == occurrence.value
+                and source.start < span[1]
+                and span[0] < source.end
+                for source in kept
+            )
+        ):
+            continue
+        added.append(occurrence)
+    return kept + tuple(added)
+
+
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
 # Some US statutes abbreviate a list of U.S. Code references after the first
 # title number: `[42 U.S.C. 301 et seq., 401 et seq., ...]`. The continuation
@@ -3114,6 +3257,31 @@ _JURISDICTION_SET_LABEL_CAPTION_QUALIFIER = re.compile(
 _JURISDICTION_SET_LABEL_FIRST_ROW = re.compile(
     r"(?:(?!household)[^\d$]){0,200}?(?<!\S)1[ \t]+\$[ \t]*\d", re.IGNORECASE
 )
+# The whole jurisdiction-set label that `_JURISDICTION_SET_LABEL_NUMERIC_RECALL_
+# IDENTIFIER` recognizes, read from its `48`.
+_JURISDICTION_SET_LABEL = re.compile(
+    r"48 States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
+    r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
+    r"Virgin[ \t]+Islands\b)"
+    r"(?:[ \t]*(?:,|&|and\b)[ \t]*(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|"
+    r"DC\b|Guam\b|Virgin[ \t]+Islands\b))*"
+)
+# A row label of a jurisdiction table under an `Area` column caption: the
+# label's first cell is an amount directly after it, only column-header words
+# and range labels (no currency sign, at most 200 characters) separate it from
+# the caption, and at least two sibling rows of the same closed jurisdiction
+# set, each with an amount, follow within 400 characters (`Area Maximum Amount
+# 48 States and D.C. $769 Alaska $1,229 Hawaii $1,036 ...`).
+_JURISDICTION_SET_ROW_AREA_CAPTION = re.compile(r"(?<![\w$])Area\b[^$]*\Z")
+_JURISDICTION_SET_ROW_FIRST_CELL = re.compile(r"[ \t]*\$[ \t]*\d")
+_JURISDICTION_SET_SIBLING_ROW = re.compile(
+    r"(?<![\w$])(?P<name>Alaska|Hawaii|Guam|Virgin[ \t]+Islands)[ \t]+\$[ \t]*\d"
+)
+# A table title that ends with the label and is directly followed by the
+# `Household Size` caption and the column label that the #2012 rule masks
+# (`Maximum SNAP Allotments for 48 States and D.C. Household Size 48 States
+# and D.C. 1 $306 ...`).
+_JURISDICTION_SET_TITLE_CAPTION = re.compile(r"\s+Household[ \t]+Size\s+")
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
     r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+-\d+[A-Za-z]?)*"
@@ -6475,6 +6643,25 @@ def _without_manual_typography_operators(source_text: str) -> str:
     return "".join(masked)
 
 
+# The header row of a USDA household-size table whose column labels are
+# ranges and whose next cell is a jurisdiction column: `Household Size ...
+# Area 1-2 3 4 5 6+ 48 States and D.C.`. The table captions are capitalized
+# cells (`Household Size`, `Area`, in either order, repeated as a flattened
+# header prints them), only range labels (`3`, `1-2`, `1 -2`) follow them up
+# to the `N+` label, and the cell after `N+` is the closed jurisdiction set of
+# `_JURISDICTION_SET_LABEL` or a sibling area. Then `6+` is the last column,
+# not addition; lower-case prose (`service area 2 3+ 4`) is not a caption.
+_HOUSEHOLD_SIZE_RANGE_HEADER_ROW = re.compile(
+    r"(?<![\w$])(?:Household[ \t]+Size|Area)(?:\s+(?:Household[ \t]+Size|Area))*"
+    r"(?:\s+\d+(?:\s*-\s*\d+)?)+\s+$"
+)
+_HOUSEHOLD_SIZE_RANGE_HEADER_NEXT_CELL = re.compile(
+    r"\d+\+\s+(?=48 States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
+    r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
+    r"Virgin[ \t]+Islands\b)|(?:Alaska|Hawaii|Guam|Virgin[ \t]+Islands)\b)"
+)
+
+
 def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     """Ignore prose conjunctions and year spans, retaining actual arithmetic."""
 
@@ -6523,6 +6710,12 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
                 r"\bhousehold\s+size(?:\s+\d+)+\s+$",
                 title_prefix,
                 flags=re.IGNORECASE,
+            )
+            or (
+                _HOUSEHOLD_SIZE_RANGE_HEADER_ROW.search(title_prefix)
+                and _HOUSEHOLD_SIZE_RANGE_HEADER_NEXT_CELL.match(
+                    masked_source_text, match.start()
+                )
             )
         ):
             # An age threshold ("age 60+ or disabled") or the last column
@@ -7719,7 +7912,7 @@ def _analyze_rulespec_payload(
         for occurrence in (
             source_inventory.kept if drop_us_locators else source_inventory.occurrences
         )
-        if not _temporal_occurrence_is_formula_applicability_preface(
+        if not _temporal_occurrence_is_recall_exempt_preface(
             occurrence,
             numeric_recall_text,
         )
@@ -7737,7 +7930,7 @@ def _analyze_rulespec_payload(
                 if drop_us_locators
                 else unrepresented_inventory.occurrences
             )
-            if not _temporal_occurrence_is_formula_applicability_preface(
+            if not _temporal_occurrence_is_recall_exempt_preface(
                 occurrence,
                 unrepresented_recall_text,
             )
@@ -7841,6 +8034,7 @@ def _analyze_rulespec_payload(
         covered_source_values,
         len(missing_source_values),
         tuple(dict.fromkeys(companion_obligations)),
+        tuple(float(occurrence.value) for occurrence in source_occurrences),
     )
 
 
@@ -18076,6 +18270,271 @@ def _without_us_manual_locators(text: str, *, corpus_citation_path: str) -> str:
     return masked
 
 
+# ---------------------------------------------------------------------------
+# US manual pages: numbers that are page furniture, not rule values.
+#
+# Every rule below is a positive shape, applies only on a US manual page path
+# (`.../<prefix>-<NNN>-<slug>/page-<P>`), and blanks only the digits it names.
+# Anything that is not positively recognized keeps its obligation.
+_US_MANUAL_SECTION_PAGE_PATH = re.compile(
+    r"/(?:[a-z]{2,12}-)?(?P<section>\d{3,4})(?:-[a-z0-9-]+)?/page-(?P<page>\d{1,4})\Z"
+)
+_US_MANUAL_MONTH = (
+    r"(?:January|February|March|April|May|June|July|August|September|October|"
+    r"November|December)"
+)
+# The running header of a paginated section: `16 Section 315 Change #01-2022
+# January 11, 2022`. The section part is optional and may read `FNS 315` or
+# `Appendix 3100`; the change notice is `#01-2022`, `#3 -2017`, `#3 2017`,
+# `03-2021` or `#6-20XX`, always followed by a full `Month D, YYYY` date. Some
+# PDFs extract the `ti` ligature of `Section` as the single glyph U+019F. The
+# page number must equal the page of the citation path, and a section part
+# must equal the path's section; only the first header of the unit, within
+# its first 400 characters, is read.
+_US_MANUAL_CHANGE_NOTICE_HEADER = re.compile(
+    r"(?<![\w$.,-])(?P<page>\d{1,4})\s+"
+    r"(?:(?:Sec(?:ti|Ɵ)on|FNS|Appendix)[ \t]+(?P<section>\d{3,4})[ \t]+)?"
+    r"Change[ \t]+#?(?P<change>\d{1,2}[ \t]*(?:-|[ \t])[ \t]*(?:19|20)(?:\d{2}|XX))"
+    rf"[ \t]+{_US_MANUAL_MONTH}[ \t]+\d{{1,2}},[ \t]+(?:19|20)\d{{2}}(?![\w-])"
+)
+_US_MANUAL_HEADER_WINDOW = 400
+_US_MANUAL_QUANTITY_WORD = (
+    r"(?i:Percent|Percentage|Times|Dollars?|Cents?|Days?|Weeks?|Months?|Years?|"
+    r"Hours?|Persons?|People|Members?|Million|Billion|Thousand|Business|Calendar|"
+    r"Working)\b"
+)
+# What may not stand directly before a section label: a word character, a
+# currency sign, part of a number, or an arithmetic operator.
+_US_MANUAL_LABEL_START = r"(?<![\w$¢£¥€.,/+=×÷*#-])(?<![$¢£¥€+=×÷*/-][ \t])"
+_US_MANUAL_LABEL_END = r"(?![\w%]|[.,]\d)"
+_US_MANUAL_GLYPH_SECTION = re.compile(r"(?<![A-Za-z])SecƟon(?=[ \t]+\d)")
+# A flattened list marker that opens a sentence: `... verification. 2. If the
+# FNS unit ...`. The marker is at most two digits, the text before it ends a
+# sentence (or the marker opens a line or the page body), a word that starts
+# with a capital letter follows the period, and that word is not a quantity
+# word (`30. Days`). A marker whose item is a number or an amount is demanded. The marker must also belong to a run (see
+# `_us_manual_sentence_opening_enumerators`).
+_US_MANUAL_INLINE_ENUMERATOR = re.compile(
+    r"(?<![\w$¢£¥€.,/+=×÷*#-])(?P<number>[1-9]\d?)\."
+    rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD})[A-Z])"
+)
+# The all-capital words of a heading title: two or more capital letters
+# each, or `&`. A single capital letter is not a title word: it is an outline
+# marker (`STRIKERS A. Households`) or opens the body (`PAYMENTS A payee`).
+_US_MANUAL_TITLE_RUN = re.compile(
+    r"(?:[ \t]+(?:&|\(?[A-Z][A-Z&/'’-]+\)?[,:]?)(?![A-Za-z]))+"
+)
+_US_MANUAL_AFTER_TITLE = re.compile(r"[ \t]*(?:\Z|\n|[A-Z]|[1-9]\d?\.(?:\s|\Z)|[•(])")
+_US_MANUAL_LINE_START_ENUMERATOR = re.compile(r"(?m)^[ \t]*\d+[a-z]?\.[ \t]+")
+_US_MANUAL_SENTENCE_END_BEFORE = re.compile(r"[.;?!][)\"”’]?\Z")
+# A period that closes an abbreviation does not end a sentence, so the number
+# after it is not a list marker (`approx. 30.`, `(max.) 60.`, `e.g. 10.`).
+_US_MANUAL_ABBREVIATION_BEFORE = re.compile(
+    r"(?i:(?<![A-Za-z])(?:approx|max|min|nos?|est|ca|vs|etc|incl|excl|avg|"
+    r"p|pp|pg|ch|par|sec|amt|hrs?|"
+    r"e\.[ \t]?g|i\.[ \t]?e)\.[)\"”’]?)\Z"
+)
+
+
+def _us_manual_section_page(corpus_citation_path: str) -> tuple[str, int] | None:
+    """The section number and page of a US manual page path, else None."""
+
+    if not _is_us_manual_citation_path(corpus_citation_path):
+        return None
+    match = _US_MANUAL_SECTION_PAGE_PATH.search(corpus_citation_path)
+    if match is None:
+        return None
+    return match["section"], int(match["page"])
+
+
+def _us_manual_change_notice_header(
+    text: str, *, corpus_citation_path: str
+) -> re.Match[str] | None:
+    """The unit's running page header, with the path's page and section."""
+
+    section_page = _us_manual_section_page(corpus_citation_path)
+    if section_page is None:
+        return None
+    header = _US_MANUAL_CHANGE_NOTICE_HEADER.search(
+        text, 0, min(len(text), _US_MANUAL_HEADER_WINDOW)
+    )
+    if (
+        header is None
+        or int(header["page"]) != section_page[1]
+        or header["section"] not in (None, section_page[0])
+    ):
+        return None
+    return header
+
+
+def _us_manual_opens_sentence(text: str, start: int, *, body_start: int | None) -> bool:
+    """Whether `start` opens the text, a line, the page body or a sentence."""
+
+    before = text[:start].rstrip(" \t")
+    if not before or before.endswith("\n"):
+        return True
+    if len(before) == start:
+        return False
+    if body_start is not None and len(before) == body_start:
+        return True
+    return bool(
+        _US_MANUAL_SENTENCE_END_BEFORE.search(before[-3:])
+        and not _US_MANUAL_ABBREVIATION_BEFORE.search(before[-12:])
+    )
+
+
+def _us_manual_title_follows(text: str, start: int) -> bool:
+    """Whether a heading title follows: capital words, then no lower-case word.
+
+    The title is the run of all-capital words on the line. It holds at least
+    two words of four or more letters. After it comes the end of the line or
+    text, a list or outline marker, or a word that starts with a capital
+    letter. A lower-case word after the capitals means running text (`GROSS
+    INCOME is the limit`), so the label keeps its demand.
+    """
+
+    title = _US_MANUAL_TITLE_RUN.match(text, start)
+    if title is None:
+        return False
+    long_words = re.findall(r"(?<![A-Za-z])[A-Z]{4,}(?![A-Za-z])", title[0])
+    return len(long_words) >= 2 and bool(
+        _US_MANUAL_AFTER_TITLE.match(text, title.end())
+    )
+
+
+def _us_manual_own_section_label_matches(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[re.Match[str], bool], ...]:
+    """Labels `<own section>.<nn>`; the flag is True for a heading.
+
+    The section is the document's own number from the citation path, and the
+    label has exactly two decimals. A heading is the label (never `.00`) that
+    opens a sentence, a line or the page body, directly before an all-capital
+    title that holds at least two words of four or more letters, does not
+    open with a quantity word and is not followed by a lower-case word
+    (`315.27 REPRESENTATIVE PAYMENTS Representative ...`), outside a row of a
+    quantity table. A reference is the label after `See`/`see`,
+    closed by a subdivision letter or the end of the sentence (`see 315.28
+    F.`), or after `in` in the comma form only (`in 360.04, D.`). Only the
+    label is released, never a number after it.
+    """
+
+    section_page = _us_manual_section_page(corpus_citation_path)
+    if section_page is None:
+        return ()
+    own = re.escape(section_page[0])
+    heading = re.compile(
+        rf"{_US_MANUAL_LABEL_START}(?P<label>{own}\.(?!00)\d{{2}})"
+        rf"{_US_MANUAL_LABEL_END}"
+        rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD})[A-Z]{{4,}}(?![A-Za-z]))"
+    )
+    reference = re.compile(
+        rf"(?<![A-Za-z])(?:[Ss]ee[ \t]+(?P<label>{own}\.\d{{2}})"
+        rf"{_US_MANUAL_LABEL_END}"
+        r"(?=\)[.;,]?(?:\s|\Z)|[.;](?:\s|\Z)|,?[ \t]+[A-Z][.,])"
+        rf"|in[ \t]+(?P<in_label>{own}\.\d{{2}})(?=,[ \t]+[A-Z][.,]))"
+    )
+    header = _us_manual_change_notice_header(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    body_start = header.end() if header is not None else None
+    # A quantity table has priority over a heading reading, as it has for the
+    # line-start heading labels: a row under a quantity caption stays a value.
+    quantity_lines = _manual_quantity_line_starts(text)
+    return (
+        *(
+            (match, True)
+            for match in heading.finditer(text)
+            if text.rfind("\n", 0, match.start()) + 1 not in quantity_lines
+            and _us_manual_opens_sentence(text, match.start(), body_start=body_start)
+            and _us_manual_title_follows(text, match.end())
+        ),
+        *((match, False) for match in reference.finditer(text)),
+    )
+
+
+def _us_manual_sentence_opening_enumerators(
+    text: str, *, body_start: int | None
+) -> tuple[re.Match[str], ...]:
+    """Inline list markers that open a sentence and belong to a run.
+
+    A candidate opens a sentence, a line or the page body, and a word follows
+    it. Candidates whose numbers ascend by one form a run. A run of two or
+    more is a list only when at least one of its members stands where the
+    line-start rule reads a list marker; then every member is a marker. A
+    lone candidate, and a run with no member at a line start, stay demanded.
+    """
+
+    candidates = [
+        marker
+        for marker in _US_MANUAL_INLINE_ENUMERATOR.finditer(text)
+        if _us_manual_opens_sentence(text, marker.start(), body_start=body_start)
+    ]
+    line_starts = {
+        match.end() - len(match[0].lstrip(" \t"))
+        for match in _US_MANUAL_LINE_START_ENUMERATOR.finditer(text)
+    }
+    markers: list[re.Match[str]] = []
+    run: list[re.Match[str]] = []
+    for marker in (*candidates, None):
+        if (
+            marker is not None
+            and run
+            and int(marker["number"]) == int(run[-1]["number"]) + 1
+        ):
+            run.append(marker)
+            continue
+        if len(run) >= 2 and any(member.start() in line_starts for member in run):
+            markers.extend(run)
+        run = [marker] if marker is not None else []
+    return tuple(markers)
+
+
+def _us_manual_page_role_spans(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[int, int], ...]:
+    """Digits of page furniture on a US manual page (see the rules above)."""
+
+    if _us_manual_section_page(corpus_citation_path) is None:
+        return ()
+    spans: list[tuple[int, int]] = []
+    header = _us_manual_change_notice_header(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    if header is not None:
+        spans.extend(
+            header.span(name)
+            for name in ("page", "section", "change")
+            if header[name] is not None
+        )
+    for label, _is_heading in _us_manual_own_section_label_matches(
+        text, corpus_citation_path=corpus_citation_path
+    ):
+        spans.extend(
+            label.span(name)
+            for name in ("label", "in_label")
+            if label.groupdict().get(name) is not None
+        )
+    for glyph in _US_MANUAL_GLYPH_SECTION.finditer(text):
+        # Read the glyph spelling exactly as `Section`: the same citation
+        # grammar decides which numbers follow it.
+        tail_start = glyph.end()
+        probe = "Section" + text[tail_start : tail_start + 120]
+        citation = _ENGLISH_LEGAL_CITATION.match(probe)
+        if citation is not None:
+            spans.append((tail_start, tail_start + citation.end() - len("Section")))
+    for marker in _us_manual_sentence_opening_enumerators(
+        text, body_start=header.end() if header is not None else None
+    ):
+        spans.append(marker.span("number"))
+    return tuple(
+        (index, index + 1)
+        for start, end in spans
+        for index in range(start, end)
+        if text[index].isdigit()
+    )
+
+
 def _corroborated_form_output_label_spans(
     source_text: str,
 ) -> tuple[tuple[int, int], ...]:
@@ -18471,6 +18930,7 @@ def _contiguous_states_numeric_recall_spans(
             r"(?<!\w)the$", source_text[max(0, before - 4) : before], re.IGNORECASE
         ):
             yield identifier.span()
+    column_labels: set[int] = set()
     # The same geography as a table column label. Only the `Household Size`
     # column caption may precede it (text start, `the`, a currency, sign,
     # number or any other word keeps the 48 demanded), and the table's first
@@ -18491,6 +18951,37 @@ def _contiguous_states_numeric_recall_spans(
             )
             and _JURISDICTION_SET_LABEL_FIRST_ROW.match(source_text, identifier.end())
         ):
+            column_labels.add(identifier.start())
+            yield identifier.span()
+    for identifier in _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER.finditer(
+        source_text
+    ):
+        if identifier.start() in column_labels:
+            continue
+        label = _JURISDICTION_SET_LABEL.match(source_text, identifier.start())
+        if label is None:
+            continue
+        # A row of an `Area` table, with its amount and two sibling rows.
+        if (
+            _JURISDICTION_SET_ROW_FIRST_CELL.match(source_text, label.end())
+            and _JURISDICTION_SET_ROW_AREA_CAPTION.search(
+                source_text, max(0, identifier.start() - 200), identifier.start()
+            )
+            and len(
+                {
+                    re.sub(r"\s+", " ", sibling.group("name")).lower()
+                    for sibling in _JURISDICTION_SET_SIBLING_ROW.finditer(
+                        source_text, label.end(), label.end() + 400
+                    )
+                }
+            )
+            >= 2
+        ):
+            yield identifier.span()
+            continue
+        # A table title directly before a masked column label.
+        caption = _JURISDICTION_SET_TITLE_CAPTION.match(source_text, label.end())
+        if caption is not None and caption.end() in column_labels:
             yield identifier.span()
 
 
@@ -18591,6 +19082,12 @@ def authoritative_numeric_recall_text(
     mask = _mask_numeric_spans if _source_map is None else _source_map.mask
     source_text = _without_us_manual_locators(
         source_text, corpus_citation_path=corpus_citation_path
+    )
+    source_text = mask(
+        source_text,
+        _us_manual_page_role_spans(
+            source_text, corpus_citation_path=corpus_citation_path
+        ),
     )
     source_text = mask(source_text, form_numeric_locator_spans(source_text))
     # This mask runs before the context-sensitive recognizers below, so they
@@ -31137,6 +31634,38 @@ def _temporal_occurrence_is_formula_applicability_preface(
             source_text
         )
     )
+
+
+# The end of an applicability range (`... and before 2030`, `through 2030`,
+# `2026-2030`). A version's `effective_from` states where the preface starts;
+# no check binds a version's end to the source, so numeric recall keeps the
+# end year demanded.
+_FORMULA_APPLICABILITY_RANGE_END_PATTERN = re.compile(
+    # Only directly after the start date or year: `prior to 2027` alone, or
+    # `subsequent to 2025`, is a single boundary, not a range end.
+    rf"(?<=\d)(?:{_FORMULA_APPLICABILITY_RANGE_END}|"
+    rf"(?:\s+(?:through|to)\s+|\s*[-–]\s*){_FORMULA_APPLICABILITY_YEAR})",
+    flags=re.IGNORECASE,
+)
+
+
+def _temporal_occurrence_is_recall_exempt_preface(
+    occurrence: NumericOccurrenceLike,
+    source_text: str,
+) -> bool:
+    """Exempt a preface's start from numeric recall, never its range end."""
+
+    for preface_start, preface_end in _formula_applicability_preface_spans(source_text):
+        if not (occurrence.start >= preface_start and occurrence.end <= preface_end):
+            continue
+        return not any(
+            occurrence.start >= preface_start + end.start()
+            and occurrence.end <= preface_start + end.end()
+            for end in _FORMULA_APPLICABILITY_RANGE_END_PATTERN.finditer(
+                source_text[preface_start:preface_end]
+            )
+        )
+    return False
 
 
 def _formula_operation_kinds(text: str) -> set[str]:

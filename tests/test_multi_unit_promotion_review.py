@@ -61,6 +61,12 @@ def on(monkeypatch):
     monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", True)
 
 
+@pytest.fixture
+def off(monkeypatch):
+    """The switch as it was before the hosted canary; the shipped value is on."""
+    monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", False)
+
+
 def _unit_of(text: str) -> str:
     """The unit whose source text a prompt or a review source carries."""
     found = [name for name in NAMES if f"source text of {citation(name)}" in text]
@@ -241,6 +247,64 @@ def test_the_second_unit_without_a_passed_review_stops_the_batch(
     assert reviewed.installs == []
     assert reviewed.revalidations == 1
     reviewed.assert_nothing_written()
+
+
+@pytest.mark.parametrize("which", ["isolated", "full"])
+def test_a_failed_validation_pass_stops_the_batch_before_any_review(
+    reviewed, monkeypatch, which
+):
+    """Each review runs only after both validation passes of every unit."""
+    reviewed.args.require_review = True
+    reviewed.fail_validation = "b"
+    reviewed.fail_validation_pass = which
+
+    with pytest.raises(RuntimeError) as refused:
+        reviewed(monkeypatch)
+
+    message = str(refused.value)
+    assert message.startswith(f"unit {citation('b')} ({primary('b')}): ")
+    if which == "full":
+        assert "with the other units of the batch present" in message
+        assert reviewed.passes == [
+            ("a", "isolated"),
+            ("a", "full"),
+            ("b", "isolated"),
+            ("b", "full"),
+        ]
+    else:
+        assert reviewed.passes == [("a", "isolated"), ("a", "full"), ("b", "isolated")]
+    assert reviewed.reviews() == []
+    assert reviewed.signed == []
+    assert reviewed.installs == []
+    reviewed.assert_nothing_written()
+
+
+def test_every_review_follows_both_passes_of_every_unit(reviewed, monkeypatch):
+    reviewed.args.require_review = True
+    log: list[tuple[str, str]] = []
+    real_validate = reviewed._validate
+
+    def validate(result, **kwargs):
+        outcome = real_validate(result, **kwargs)
+        log.append(("validate", reviewed.passes[-1][0] + ":" + reviewed.passes[-1][1]))
+        return outcome
+
+    reviewed._validate = validate
+    real_events = reviewed.events
+
+    class Log(list):
+        def append(self, item):
+            log.append(item)
+            super().append(item)
+
+    reviewed.events = Log(real_events)
+    reviewed(monkeypatch)
+
+    assert log == [
+        ("validate", f"{name}:{which}")
+        for name in NAMES
+        for which in ("isolated", "full")
+    ] + [("review", name) for name in NAMES] + [("sign", name) for name in NAMES]
 
 
 # --- (c) the switch off: no reviewer ------------------------------------------
@@ -482,7 +546,7 @@ def test_the_script_refuses_the_batch_whose_unit_lacks_the_pin(on, index):
     assert [call[2] for call in calls] == [unit[1] for unit in UNITS3[: index + 1]]
 
 
-def test_the_script_refuses_a_batch_while_the_switch_is_off():
+def test_the_script_refuses_a_batch_while_the_switch_is_off(off):
     assert admission.MULTI_UNIT_PROMOTION_ENABLED is False
     status, message = pin_mod.evaluate(
         _batch_environment(), fetch=pin_mod_forbidden, admission=admission
@@ -491,10 +555,10 @@ def test_the_script_refuses_a_batch_while_the_switch_is_off():
     assert "multi-unit promotion is switched off" in message
 
 
-def test_the_switched_off_refusal_has_its_own_title(monkeypatch, capsys):
-    """Switch off: the one accepted difference from ``main``.
+def test_the_switched_off_refusal_has_its_own_title(off, monkeypatch, capsys):
+    """Switch off: the one accepted difference from the script before #2321.
 
-    ``main``'s script ignores a ``units`` key and checks the lead primary only
+    That script ignores a ``units`` key and checks the lead primary only
     (exit 0 when it carries its pin). Here a wrapper with ``units`` is refused
     before any read, under its own title. The protected wrapper parser refuses
     the key later anyway, so this is stricter and fail-closed.

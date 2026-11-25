@@ -169,7 +169,12 @@ class Run:
         self.tmp_path = tmp_path
         self.live = live
         self.fixed_time = fixed_time
+        # ``validated`` names each unit once, in order; ``passes`` is every
+        # validation call: a unit of a batch is validated isolated, then with
+        # the other units present.
         self.validated: list[str] = []
+        self.passes: list[tuple[str, str]] = []
+        self.fail_validation_pass = "isolated"
         self.signed: list[str] = []
         self.revalidations = 0
         self.fail_validation: str | None = None
@@ -199,8 +204,15 @@ class Run:
 
     def _validate(self, result, **_kwargs):
         name = result.citation.rsplit("/", 1)[1]
-        self.validated.append(name)
-        if name == self.fail_validation:
+        hidden = vars(result).get(cli._PROMOTION_BATCH_ISOLATION_ATTR, ())
+        which = "isolated" if hidden else "full"
+        self.passes.append((name, which))
+        if name not in self.validated:
+            self.validated.append(name)
+        if name == self.fail_validation and which in {
+            self.fail_validation_pass,
+            "full" if len(self.live.get("records", [0])) == 1 else None,
+        }:
             return False, [f"companion test of {name} failed"], {}
         setattr(
             result,
@@ -324,6 +336,12 @@ class Run:
 @pytest.fixture
 def on(monkeypatch):
     monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", True)
+
+
+@pytest.fixture
+def off(monkeypatch):
+    """The switch as it was before the hosted canary; the shipped value is on."""
+    monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", False)
 
 
 @pytest.fixture
@@ -715,7 +733,9 @@ def test_a_batch_admission_naming_the_encoder_instead_of_the_head_is_refused(
     assert run.revalidations == 0 and run.signed == []
 
 
-def test_switch_off_refuses_a_batch_admission_before_any_work(tmp_path, monkeypatch):
+def test_switch_off_refuses_a_batch_admission_before_any_work(
+    tmp_path, monkeypatch, off
+):
     """With the switch off the command does not know the batch form."""
     repo, head = candidate(tmp_path)
     run = Run(tmp_path, repo, head, batch_admission(repo, head))
@@ -1040,8 +1060,8 @@ def test_the_wrapper_without_units_is_unchanged():
     assert normalized["rulespec_pr"] == 42
 
 
-def test_switch_off_refuses_the_units_key_as_before():
-    """With the switch off the wrapper is read exactly as on main."""
+def test_switch_off_refuses_the_units_key_as_before(off):
+    """With the switch off the wrapper is read as before the switch existed."""
     assert admission.MULTI_UNIT_PROMOTION_ENABLED is False
     with pytest.raises(
         ValueError,
@@ -1203,7 +1223,7 @@ def test_the_preflight_builds_the_batch_selector_from_the_list(
 
 
 def test_the_preflight_refuses_a_unit_list_while_the_switch_is_off(
-    script, monkeypatch, tmp_path
+    script, off, monkeypatch, tmp_path
 ):
     monkeypatch.setenv("DISPATCH_JSON", dispatch([citation(name) for name in NAMES]))
     with pytest.raises(

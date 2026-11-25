@@ -174,6 +174,13 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from axiom_encode.scan_memo import (
+    ParseOutcome,
+    TextFactsUnavailable,
+    register_text_facts,
+    scan_cache_enabled,
+    text_facts,
+)
 from axiom_encode.signing_broker import supervisor_codex_home
 from axiom_encode.statute import (
     citation_to_citation_path,
@@ -12112,10 +12119,18 @@ def _half_up_rounding_supported_line_flags(
     return tuple(flags)
 
 
-def normalize_source_backed_half_up_rounding_occurrence_text(
+# A source-backed half-up increment `by 1`; a `1` that starts a longer number
+# (`1,000`, `1.5`) is not one.
+_HALF_UP_WHOLE_ONE_INCREMENT = re.compile(r"(\bby\s+)(1)\b(?![.,]?\d)", re.IGNORECASE)
+
+
+def source_backed_half_up_increment_spans(
     source_text: str,
-) -> str:
-    """Spell out increments only inside recognized affirmative instructions."""
+) -> tuple[tuple[int, int], ...]:
+    """Return the `1` of each `by 1` increment inside a recognized instruction.
+
+    Only a whole `1` counts: `by 1,000` and `by 1.5 percent` keep their number.
+    """
     instruction_patterns, invalidation, negated_or_excepted = (
         _half_up_rounding_source_matchers()
     )
@@ -12123,26 +12138,29 @@ def normalize_source_backed_half_up_rounding_occurrence_text(
         re.compile(pattern.pattern, re.IGNORECASE) for pattern in instruction_patterns
     )
 
-    def normalize_instruction_units(text: str) -> str:
+    def increment_spans(text: str, following: str) -> list[tuple[int, int]]:
         spans = _half_up_rounding_clause_instruction_spans(
             text, case_insensitive_patterns, negated_or_excepted
         )
-        if not spans:
-            return text
-        for start, end in sorted(spans, reverse=True):
-            instruction = re.sub(
-                r"(\bby\s+)1\b",
-                r"\g<1>one",
-                text[start:end],
-                flags=re.IGNORECASE,
-            )
-            text = text[:start] + instruction + text[end:]
-        return text
+        # Read each increment against the source that follows, so the whole
+        # number is seen across the clause split at `.`.
+        return [
+            match.span(2)
+            for start, end in spans
+            for match in _HALF_UP_WHOLE_ONE_INCREMENT.finditer(text + following)
+            if match.start() >= start and match.end() <= end
+        ]
 
     parts = re.split(r"([.!?;]+)", source_text)
+    part_offsets = []
+    offset = 0
+    for part in parts:
+        part_offsets.append(offset)
+        offset += len(part)
     clause_indexes = [
         index for index in range(0, len(parts), 2) if parts[index].strip()
     ]
+    found: set[tuple[int, int]] = set()
     for position, part_index in enumerate(clause_indexes):
         clause = parts[part_index]
         context_indexes = clause_indexes[max(0, position - 1) : position + 2]
@@ -12155,16 +12173,32 @@ def normalize_source_backed_half_up_rounding_occurrence_text(
         supported_line_flags = _half_up_rounding_supported_line_flags(
             lines, instruction_patterns, negated_or_excepted
         )
+        following = "".join(parts[part_index + 1 : part_index + 3])
+        base = part_offsets[part_index]
         if any(supported_line_flags):
-            parts[part_index] = "".join(
-                normalize_instruction_units(line)
-                if supported_line_flags[index]
-                else line
-                for index, line in enumerate(lines)
-            )
+            line_offset = 0
+            for index, line in enumerate(lines):
+                if supported_line_flags[index]:
+                    for start, end in increment_spans(
+                        line, "".join(lines[index + 1 :]) + following
+                    ):
+                        found.add(
+                            (base + line_offset + start, base + line_offset + end)
+                        )
+                line_offset += len(line)
         else:
-            parts[part_index] = normalize_instruction_units(clause)
-    return "".join(parts)
+            for start, end in increment_spans(clause, following):
+                found.add((base + start, base + end))
+    return tuple(sorted(found))
+
+
+def normalize_source_backed_half_up_rounding_occurrence_text(
+    source_text: str,
+) -> str:
+    """Spell out increments only inside recognized affirmative instructions."""
+    for start, end in reversed(source_backed_half_up_increment_spans(source_text)):
+        source_text = source_text[:start] + "one" + source_text[end:]
+    return source_text
 
 
 def _is_source_backed_half_up_rounding_helper(
@@ -17846,6 +17880,128 @@ def _occurrence_value_matches(left: float, right: float) -> bool:
     )
 
 
+# Chinese (zh-Hant / zh-Hans) statutes print amounts, rates and years as
+# numerals written in characters: Taiwan's Statute for Industrial Innovation
+# Article 10-1 states its band as 新臺幣一百萬元以上、二十億元以下, its rates as
+# 百分之五 / 百分之三十 and its window as 中華民國一百十四年一月一日. None of these
+# contain an ASCII digit, so every rate and threshold of such a provision was
+# ungrounded.
+_CJK_NUMERAL_DIGITS = {
+    "零": 0,
+    "〇": 0,
+    "一": 1,
+    "二": 2,
+    "兩": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+_CJK_NUMERAL_SMALL_UNITS = {"十": 10, "百": 100, "千": 1000}
+_CJK_NUMERAL_TEN_THOUSAND = frozenset("萬万")
+_CJK_NUMERAL_HUNDRED_MILLION = frozenset("億亿")
+_CJK_NUMERAL_CLASS = "[零〇一二兩两三四五六七八九十百千萬万億亿]"
+_CJK_NUMERAL_RUN_PATTERN = re.compile(f"{_CJK_NUMERAL_CLASS}+")
+_CJK_PERCENT_PATTERN = re.compile(f"百分之({_CJK_NUMERAL_CLASS}+)")
+_CJK_MONEY_PATTERN = re.compile(f"({_CJK_NUMERAL_CLASS}+)(?=元)")
+# A Republic of China (民國, Minguo) era year: year N is Gregorian N + 1911.
+_ROC_ERA_YEAR_OFFSET = 1911
+_ROC_ERA_YEAR_PATTERN = re.compile(
+    f"(?:中華民國|民國)\\s*({_CJK_NUMERAL_CLASS}+|\\d{{1,3}})\\s*年"
+)
+_CJK_ERA_YEAR_CONTINUATION_PATTERN = re.compile(f"({_CJK_NUMERAL_CLASS}+)年")
+
+
+def _cjk_numeral_value(raw: str) -> int | None:
+    """Read a Chinese numeral written in characters.
+
+    一百十四 is 114, 二十億 is 2,000,000,000, 一億二千萬 is 120,000,000. A ten
+    with no digit before it counts one ten (十八 is 18). Returns None for a run
+    that holds anything else.
+    """
+    total = 0
+    section = 0
+    digit: int | None = None
+    for char in raw:
+        if char in _CJK_NUMERAL_DIGITS:
+            digit = _CJK_NUMERAL_DIGITS[char]
+        elif char in _CJK_NUMERAL_SMALL_UNITS:
+            section += (1 if digit is None else digit) * _CJK_NUMERAL_SMALL_UNITS[char]
+            digit = None
+        elif char in _CJK_NUMERAL_TEN_THOUSAND:
+            section += digit or 0
+            total += (section or 1) * 10**4
+            section = 0
+            digit = None
+        elif char in _CJK_NUMERAL_HUNDRED_MILLION:
+            total = ((total + section + (digit or 0)) or 1) * 10**8
+            section = 0
+            digit = None
+        else:
+            return None
+    return total + section + (digit or 0)
+
+
+def _iter_cjk_percent_phrase_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Return (span, rate) for each 百分之N phrase: 百分之五 is the rate 0.05."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _CJK_PERCENT_PATTERN.finditer(text):
+        value = _cjk_numeral_value(match.group(1))
+        if value is not None:
+            matches.append((match.span(), value / 100))
+    return matches
+
+
+def _iter_cjk_money_matches(text: str) -> list[tuple[tuple[int, int], float]]:
+    """Return (span, amount) for a character numeral followed by 元 (dollars)."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _CJK_MONEY_PATTERN.finditer(text):
+        value = _cjk_numeral_value(match.group(1))
+        if value is not None:
+            matches.append((match.span(1), float(value)))
+    return matches
+
+
+def _iter_cjk_numeral_run_matches(text: str) -> list[tuple[tuple[int, int], float]]:
+    """Return (span, value) for every run of character numerals."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _CJK_NUMERAL_RUN_PATTERN.finditer(text):
+        value = _cjk_numeral_value(match.group(0))
+        if value is not None:
+            matches.append((match.span(), float(value)))
+    return matches
+
+
+def _iter_roc_era_year_matches(text: str) -> list[tuple[tuple[int, int], float]]:
+    """Return (span, Gregorian year) for each 民國 year: 民國一百十四年 is 2025."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    seen: list[tuple[int, int]] = []
+    for match in _ROC_ERA_YEAR_PATTERN.finditer(text):
+        raw = match.group(1)
+        value = int(raw) if raw.isdigit() else _cjk_numeral_value(raw)
+        if value is not None:
+            matches.append((match.span(1), float(value + _ROC_ERA_YEAR_OFFSET)))
+            seen.append(match.span(1))
+    # The far end of a window names the era once ("自中華民國一百十四年...至
+    # 一百十八年...止"). In a text that names the era, a year of 100 to 199
+    # written in characters before 年 is an era year too; a duration such as
+    # 三年 (three years) is never in that range.
+    if seen:
+        for match in _CJK_ERA_YEAR_CONTINUATION_PATTERN.finditer(text):
+            if match.span(1) in seen:
+                continue
+            value = _cjk_numeral_value(match.group(1))
+            if value is not None and 100 <= value <= 199:
+                matches.append((match.span(1), float(value + _ROC_ERA_YEAR_OFFSET)))
+    return matches
+
+
 # Complete-source-unit analysis re-tokenizes the same branch texts once per
 # formula rule they are matched against; on one module ~95% of calls repeat
 # an already-seen text. The result is a tuple of frozen occurrences, so it
@@ -18101,6 +18257,41 @@ def _tokenize_numeric_occurrences_from_text(
         )
         grounding_spans.append(span)
         inventory_spans.append(span)
+
+    # Chinese character numerals: rates (百分之五) and amounts (二十億元) are
+    # stated values and enter both streams; every other run (三年, 第一項,
+    # 一經) and a 民國 year's Gregorian reading only ground, so a numeral used
+    # as a word or a label never becomes a value the encoding must recall.
+    for span, rate in _iter_cjk_percent_phrase_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        add_both(
+            cleaned_view,
+            span,
+            rate,
+            source_value=rate * 100,
+            force_rate_context=True,
+            requires_rate_context=True,
+        )
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    for span, value in _iter_cjk_money_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+    for span, value in (
+        *_iter_cjk_numeral_run_matches(cleaned),
+        *_iter_roc_era_year_matches(cleaned),
+    ):
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
 
     for span, rate in _iter_hebrew_percent_range_lower_matches(
         cleaned, _structural_numeric_component_spans(cleaned)
@@ -23315,9 +23506,21 @@ def _rulespec_executable_index_for_roots(
             )
             if source_root is None:
                 continue
+            memoized = scan_cache_enabled()
             for rules_file in sorted(source_root.rglob("*.yaml")):
                 if rules_file.name.endswith(".test.yaml"):
                     continue
+                if memoized and _index_executable_rules_in_file_memoized(
+                    records,
+                    rules_file=rules_file,
+                    prefix=prefix,
+                    root=root,
+                ):
+                    continue
+                # The unmemoized scan stays in this function, exactly as it
+                # was before the memo, so the parse runs at the same stack
+                # depth and a deeply nested module raises ``RecursionError``
+                # in the same cases with the memo on, off or absent.
                 try:
                     payload = yaml.safe_load(rules_file.read_text())
                 except (OSError, yaml.YAMLError, ValueError):
@@ -23351,6 +23554,85 @@ def _rulespec_executable_index_for_roots(
                         )
                     )
     return tuple(records)
+
+
+_EXECUTABLE_RULE_FACTS = "rulespec-executable-rule-facts"
+
+
+def _executable_rule_facts(
+    content: str,
+    outcome: ParseOutcome,
+) -> tuple[tuple[str, str], ...]:
+    """``(symbol, signature)`` of each rule the index records, in file order.
+
+    The unmemoized scan skips a module whose parse raises ``yaml.YAMLError``
+    or ``ValueError``; any other parse error is re-raised so that no value is
+    memoized and the unmemoized scan raises it.
+    """
+
+    if outcome.error is not None:
+        if isinstance(outcome.error, (yaml.YAMLError, ValueError)):
+            return ()
+        raise outcome.error
+    payload = outcome.payload
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return ()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return ()
+    facts: list[tuple[str, str]] = []
+    for rule in rules:
+        if not _is_executable_rulespec_rule(rule):
+            continue
+        signature = _rulespec_executable_signature(rule)
+        if signature is None:
+            continue
+        facts.append((_rulespec_rule_name(rule), signature))
+    return tuple(facts)
+
+
+register_text_facts(_EXECUTABLE_RULE_FACTS, _executable_rule_facts)
+
+
+def _index_executable_rules_in_file_memoized(
+    records: list[_IndexedExecutableRule],
+    *,
+    rules_file: Path,
+    prefix: str,
+    root: Path,
+) -> bool:
+    """Index one module from memoized text facts; ``False`` means not handled.
+
+    The text facts are a pure function of the module's exact text. The target
+    and the resolved source path depend on the path and are computed on every
+    call, as the unmemoized scan does. When any step raises an exception that
+    the unmemoized scan does not catch, nothing is appended and the caller
+    runs the unmemoized scan for this module, which raises it again.
+    """
+
+    try:
+        content = rules_file.read_text()
+    except (OSError, ValueError):
+        return True
+    try:
+        facts = text_facts(content, _EXECUTABLE_RULE_FACTS)
+    except TextFactsUnavailable:
+        return False
+    for symbol, signature in facts:
+        records.append(
+            _IndexedExecutableRule(
+                target=_canonical_rulespec_target(
+                    prefix=prefix,
+                    repo_root=root,
+                    rules_file=rules_file,
+                    symbol=symbol,
+                ),
+                symbol=symbol,
+                signature=signature,
+                source_file=str(rules_file.resolve()),
+            )
+        )
+    return True
 
 
 def _is_executable_rulespec_rule(rule: Any) -> bool:
@@ -36768,10 +37050,42 @@ def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
     return checkout
 
 
+_SYMLINK_AUDIT_MEMO: ContextVar[dict[Path, _CachedSymlinkAudit] | None] = ContextVar(
+    "axiom_rulespec_symlink_audit_memo",
+    default=None,
+)
+
+
+@contextlib.contextmanager
+def _symlink_audit_memo_scope() -> Iterator[None]:
+    """Reuse passed checkout symlink audits for one companion-test run.
+
+    Only the symlink audit is kept, not the other resolution-cache entries,
+    so no admission, message or identity crosses from one check to another.
+    A passed audit is served again only while every directory it walked has
+    the same lstat stamp (device, inode, mode, size, mtime, ctime): adding,
+    removing or renaming any entry changes its directory's stamp. A failed
+    audit is never kept, and an audit is kept only when no directory changed
+    while it ran and the walk could list every directory. Off when ``AXIOM_ENCODE_SCAN_CACHE`` is off.
+    """
+
+    if _SYMLINK_AUDIT_MEMO.get() is not None or not scan_cache_enabled():
+        yield
+        return
+    token = _SYMLINK_AUDIT_MEMO.set({})
+    try:
+        yield
+    finally:
+        _SYMLINK_AUDIT_MEMO.reset(token)
+
+
 def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
     """Reject every symlink beneath a checkout exposed to the RuleSpec engine."""
 
     cache = _RULESPEC_RESOLUTION_CACHE.get()
+    if cache is None and _SYMLINK_AUDIT_MEMO.get() is not None:
+        _reject_rulespec_checkout_symlinks_memoized(checkout, label=label)
+        return
     cache_key = Path(checkout).resolve()
     cached = cache.symlink_audits.get(cache_key) if cache is not None else None
     if cached is not None:
@@ -36810,6 +37124,62 @@ def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
         cache.symlink_audits[cache_key] = _CachedSymlinkAudit(
             directory_stamps=stable_stamps,
         )
+
+
+def _reject_rulespec_checkout_symlinks_memoized(checkout: Path, *, label: str) -> None:
+    """``_reject_rulespec_checkout_symlinks`` with no resolution cache open.
+
+    Raises exactly what the uncached audit raises. Unlike the resolution
+    cache, a tree that changed during the walk is not an error here (the
+    uncached audit does not check it); the audit is then simply not kept.
+    """
+
+    memo = _SYMLINK_AUDIT_MEMO.get()
+    assert memo is not None
+    memo_key = Path(checkout).resolve()
+    memoized = memo.get(memo_key)
+    if memoized is not None:
+        current_stamps = tuple(
+            (directory, _path_mutation_stamp(directory))
+            for directory, _stamp in memoized.directory_stamps
+        )
+        if current_stamps == memoized.directory_stamps:
+            return
+        memo.pop(memo_key, None)
+
+    directory_stamps: list[tuple[Path, _PathMutationStamp]] = []
+    # ``os.walk`` skips a directory it cannot list and reports it only to
+    # ``onerror``. Such a directory was not audited and has no stamp here, so
+    # a symlink added to it later would not change any recorded stamp.
+    walk_errors: list[OSError] = []
+    for current, directory_names, file_names in os.walk(
+        checkout,
+        followlinks=False,
+        onerror=walk_errors.append,
+    ):
+        current_path = Path(current)
+        current_stamp = _path_mutation_stamp(current_path)
+        if current_stamp is None:
+            raise UnsafeRulespecContextPath(
+                f"{label} changed during symlink audit: {current_path}"
+            )
+        directory_stamps.append((current_path, current_stamp))
+        for name in (*directory_names, *file_names):
+            candidate = current_path / name
+            if candidate.is_symlink():
+                raise UnsafeRulespecContextPath(
+                    f"{label} contains a symlink: {candidate}"
+                )
+    stable_stamps = tuple(
+        (directory, _path_mutation_stamp(directory))
+        for directory, _stamp in directory_stamps
+    )
+    if (
+        not walk_errors
+        and stable_stamps == tuple(directory_stamps)
+        and Path(checkout).resolve() == memo_key
+    ):
+        memo[memo_key] = _CachedSymlinkAudit(directory_stamps=stable_stamps)
 
 
 def _normalize_rulespec_dependency_roots(
@@ -40507,6 +40877,24 @@ class ValidatorPipeline:
         execution_capture: ExecutionCapture | None = None,
     ) -> list[str]:
         """Run compact RuleSpec `.test.yaml` cases against the compiled artifact."""
+        with _symlink_audit_memo_scope():
+            return self._run_rulespec_test_cases_impl(
+                rules_file=rules_file,
+                compiled_path=compiled_path,
+                compiled_payload=compiled_payload,
+                cases=cases,
+                execution_capture=execution_capture,
+            )
+
+    def _run_rulespec_test_cases_impl(
+        self,
+        *,
+        rules_file: Path,
+        compiled_path: Path,
+        compiled_payload: dict[str, Any],
+        cases: list[Any],
+        execution_capture: ExecutionCapture | None = None,
+    ) -> list[str]:
         issues: list[str] = []
         binary: Path | None = None
         derived_by_key, parameter_by_key = self._rulespec_program_maps(compiled_payload)

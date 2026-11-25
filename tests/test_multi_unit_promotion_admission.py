@@ -1,6 +1,7 @@
 """Several new units in one candidate: the admission half (#2301).
 
-``MULTI_UNIT_PROMOTION_ENABLED`` is off on main. These tests turn it on with
+``MULTI_UNIT_PROMOTION_ENABLED`` is on on main since the hosted canary. The
+tests of the switched-off behavior turn it off; the others turn it on with
 ``monkeypatch`` and prove each rule of the batch form, and prove that the
 single-unit form does not change with either value.
 """
@@ -223,16 +224,23 @@ def on(monkeypatch):
     monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", True)
 
 
+@pytest.fixture
+def off(monkeypatch):
+    """The switch as it was before the hosted canary; the shipped value is on."""
+    monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", False)
+
+
 UNITS3 = [unit(1), unit(2), unit(3)]
 
 
 # --- The shipped constants ----------------------------------------------------
 
 
-def test_the_switch_is_off_and_the_limit_is_six():
+def test_the_switch_is_on_and_the_limit_is_six():
+    """The one pin of the shipped switch value. A rollback changes it here."""
     source = Path(admission.__file__).read_text()
-    assert admission.MULTI_UNIT_PROMOTION_ENABLED is False
-    assert "\nMULTI_UNIT_PROMOTION_ENABLED: Final[bool] = False\n" in source
+    assert admission.MULTI_UNIT_PROMOTION_ENABLED is True
+    assert "\nMULTI_UNIT_PROMOTION_ENABLED: Final[bool] = True\n" in source
     assert admission.MAX_PROMOTION_UNITS == 6
     assert "\nMAX_PROMOTION_UNITS: Final[int] = 6\n" in source
     # No environment variable, flag or setting reads the switch.
@@ -242,13 +250,13 @@ def test_the_switch_is_off_and_the_limit_is_six():
 # --- Switch off: the batch forms do not exist ---------------------------------
 
 
-def test_switch_off_refuses_a_batch_selector_payload_as_before():
+def test_switch_off_refuses_a_batch_selector_payload_as_before(off):
     payload = batch(UNITS3).payload()
     with pytest.raises(AdmissionError, match="promotion selector has unexpected"):
         selector_from_payload(payload)
 
 
-def test_switch_off_refuses_a_batch_selector_without_any_read():
+def test_switch_off_refuses_a_batch_selector_without_any_read(off):
     reads = Reads(make_api(UNITS3))
     with pytest.raises(AdmissionError, match="multi-unit promotion is switched off"):
         verify_reviewed_pr(batch(UNITS3), fetch=reads)

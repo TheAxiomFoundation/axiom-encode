@@ -50,7 +50,7 @@ MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_PAGES = 10
 INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 
-# --- Several units in one candidate ("batch"). SWITCHED OFF. ------------------
+# --- Several units in one candidate ("batch"). ON FOR THE HOSTED CANARY. ------
 #
 # Issue #2301; ``docs/reviewed-pr-promotion.md``, "Several units in one
 # candidate". With the switch on, one candidate pull request may carry up to
@@ -64,7 +64,12 @@ INDEX_PATH = ".axiom/index/provisions_to_rules.json"
 # with ``units`` and an admission with ``records`` are refused with the errors
 # they had before the switch existed, and every single-unit read, result and
 # error is unchanged.
-MULTI_UNIT_PROMOTION_ENABLED: Final[bool] = False
+#
+# ``True`` since the hosted canary (docs, "The hosted canary"). Nothing
+# dispatches a batch by itself: a run is a batch only when its dispatch names
+# ``units``. To roll back, set this to ``False`` again; the tests pin the
+# shipped value and the document in one place each.
+MULTI_UNIT_PROMOTION_ENABLED: Final[bool] = True
 # The most units of one batch. The bound is the anonymous GitHub API budget of
 # one signing run (60 requests an hour for one address; the signing runtime
 # holds no token). One admission of ``k`` units reads ``11 + 2k`` times with

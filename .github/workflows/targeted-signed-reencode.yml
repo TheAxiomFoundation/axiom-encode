@@ -5315,6 +5315,7 @@ jobs:
           import sys
           from pathlib import Path
           from axiom_encode.prepare_signed_backfill import (
+              promotion_validation_record,
               repair_execution_metadata,
               split_atomic_source_input,
           )
@@ -5480,6 +5481,14 @@ jobs:
               payload["promotion_units"] = split_atomic_source_input(
                   os.environ["ATOMIC_SOURCE_JSON"]
               )["promotion_units"]
+              # The validation plan, computed from the unit citations only
+              # (not evidence that a pass ran): each unit's isolated pass
+              # reads the candidate head (rulespec_base) without its hidden
+              # paths, then the whole head. The signed manifests do not
+              # carry this.
+              payload["promotion_validation"] = promotion_validation_record(
+                  payload["promotion_units"]
+              )
           with open(sys.argv[1], "w", encoding="utf-8") as stream:
               json.dump(payload, stream, indent=2, sort_keys=True)
               stream.write("\n")
