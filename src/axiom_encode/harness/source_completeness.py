@@ -18310,8 +18310,9 @@ _US_MANUAL_MONTH = (
 # `Appendix 3100`; the change notice is `#01-2022`, `#3 -2017`, `#3 2017`,
 # `03-2021` or `#6-20XX`, always followed by a full `Month D, YYYY` date. Some
 # PDFs extract the `ti` ligature of `Section` as the single glyph U+019F. The
-# page number must equal the page of the citation path; only the first header
-# of the unit, within its first 400 characters, is read.
+# page number must equal the page of the citation path, and a section part
+# must equal the path's section; only the first header of the unit, within
+# its first 400 characters, is read.
 _US_MANUAL_CHANGE_NOTICE_HEADER = re.compile(
     r"(?<![\w$.,-])(?P<page>\d{1,4})\s+"
     r"(?:(?:Sec(?:ti|Ɵ)on|FNS|Appendix)[ \t]+(?P<section>\d{3,4})[ \t]+)?"
@@ -18331,26 +18332,32 @@ _US_MANUAL_LABEL_END = r"(?![\w%]|[.,]\d)"
 _US_MANUAL_GLYPH_SECTION = re.compile(r"(?<![A-Za-z])SecƟon(?=[ \t]+\d)")
 # A flattened list marker that opens a sentence: `... verification. 2. If the
 # FNS unit ...`. The marker is at most two digits, the text before it ends a
-# sentence (or the marker opens a line or the page body), and a capital letter
-# or a dollar amount follows the period.
+# sentence (or the marker opens a line or the page body), a capital letter or
+# a dollar amount follows the period, and the word after it is not a quantity
+# word (`30. Days`). The marker must also belong to a run (see
+# `_us_manual_sentence_opening_enumerators`).
 _US_MANUAL_INLINE_ENUMERATOR = re.compile(
-    r"(?<![\w$¢£¥€.,/+=×÷*#-])(?P<number>[1-9]\d?)\.(?=[ \t]+(?:[A-Z]|\$[ \t]*\d))"
+    r"(?<![\w$¢£¥€.,/+=×÷*#-])(?P<number>[1-9]\d?)\."
+    rf"(?=[ \t]+(?:(?!{_US_MANUAL_QUANTITY_WORD})[A-Z]|\$[ \t]*\d))"
 )
 _US_MANUAL_SENTENCE_END_BEFORE = re.compile(r"[.;?!][)\"”’]?\Z")
-_US_MANUAL_NUMBER_ABBREVIATION_BEFORE = re.compile(r"(?i:(?<![A-Za-z])nos?\.)\Z")
-# `FNS unit 1 ... FNS unit 2`: labels of the units in a narrated case.
-_US_MANUAL_UNIT_LABEL = re.compile(
-    r"(?<![\w$])FNS[ \t]+unit[ \t]+(?P<number>[1-9])"
-    r"(?=[ \t]+[a-z]|[ \t]*[,;:)]|\.(?:\s|\Z))"
-    rf"(?!{_RECALL_UNIT_FOLLOWS})"
-    r"(?![ \t]+(?:or|and|to|through)[ \t]+\d)"
+# A period that closes an abbreviation does not end a sentence, so the number
+# after it is not a list marker (`approx. 30.`, `(max.) 60.`, `e.g. 10.`).
+_US_MANUAL_ABBREVIATION_BEFORE = re.compile(
+    r"(?i:(?<![A-Za-z])(?:approx|max|min|nos?|est|ca|vs|etc|incl|excl|avg|"
+    r"e\.[ \t]?g|i\.[ \t]?e)\.[)\"”’]?)\Z"
 )
 _US_MANUAL_EXAMPLE_MARKER = re.compile(r"(?<![A-Za-z])(?:Example|EXAMPLE)[ \t]*:")
-_US_MANUAL_EXAMPLE_NOTE = re.compile(r"(?<![A-Za-z])(?:Note|NOTE)[ \t]*:")
-_US_MANUAL_OUTLINE_MARKER = re.compile(
-    r"(?<=[.;?!)][ \t])(?:[A-Za-z]|[ivx]{2,4})\.(?=[ \t]+[A-Z])"
+# Where an example passage ends, besides a line break: the end of its first
+# sentence, a bullet, an outline marker (`ii.`, `b.`, `E.`), or the words
+# `Exception` and `Note`.
+_US_MANUAL_EXAMPLE_SENTENCE_END = re.compile(r"[.?!][)\"”’]?(?=\s)")
+_US_MANUAL_EXAMPLE_STOP = re.compile(
+    r"[•▪◦‣■●]"
+    r"|(?<![A-Za-z.])(?:[ivx]{1,4}|[A-Za-z])\.(?=\s)"
+    r"|(?<![A-Za-z])(?i:exceptions?|notes?)(?![A-Za-z])"
 )
-_US_MANUAL_SENTENCE_BREAK = re.compile(r"(?<=[.?!])[ \t]+|\n")
+_US_MANUAL_EXAMPLE_UNIT_FOLLOWS = re.compile(_RECALL_UNIT_FOLLOWS)
 
 
 def _us_manual_section_page(corpus_citation_path: str) -> tuple[str, int] | None:
@@ -18367,7 +18374,7 @@ def _us_manual_section_page(corpus_citation_path: str) -> tuple[str, int] | None
 def _us_manual_change_notice_header(
     text: str, *, corpus_citation_path: str
 ) -> re.Match[str] | None:
-    """The unit's running page header, when its page number is the path's."""
+    """The unit's running page header, with the path's page and section."""
 
     section_page = _us_manual_section_page(corpus_citation_path)
     if section_page is None:
@@ -18375,9 +18382,29 @@ def _us_manual_change_notice_header(
     header = _US_MANUAL_CHANGE_NOTICE_HEADER.search(
         text, 0, min(len(text), _US_MANUAL_HEADER_WINDOW)
     )
-    if header is None or int(header["page"]) != section_page[1]:
+    if (
+        header is None
+        or int(header["page"]) != section_page[1]
+        or header["section"] not in (None, section_page[0])
+    ):
         return None
     return header
+
+
+def _us_manual_opens_sentence(text: str, start: int, *, body_start: int | None) -> bool:
+    """Whether `start` opens the text, a line, the page body or a sentence."""
+
+    before = text[:start].rstrip(" \t")
+    if not before or before.endswith("\n"):
+        return True
+    if len(before) == start:
+        return False
+    if body_start is not None and len(before) == body_start:
+        return True
+    return bool(
+        _US_MANUAL_SENTENCE_END_BEFORE.search(before[-3:])
+        and not _US_MANUAL_ABBREVIATION_BEFORE.search(before[-12:])
+    )
 
 
 def _us_manual_own_section_label_matches(
@@ -18386,12 +18413,13 @@ def _us_manual_own_section_label_matches(
     """Labels `<own section>.<nn>`; the flag is True for a heading.
 
     The section is the document's own number from the citation path. A heading
-    is the label directly before an all-capital title word that is not a
+    is the label (never `.00`) that opens a sentence, a line or the page body,
+    directly before a title word of four or more capital letters that is not a
     quantity word (`315.27 REPRESENTATIVE PAYMENTS`), outside a row of a
-    quantity table. A reference is the label
-    after `See`/`see`/`in`, closed by a subdivision letter or the end of the
-    sentence (`see 315.28 F.`, `in 360.04, D.`, `See 810.6, A, 4.`); the item
-    number of the comma form is part of the reference.
+    quantity table. A reference is the label after `See`/`see`, closed by a
+    subdivision letter or the end of the sentence (`see 315.28 F.`, `See
+    810.6, A, 4.`), or after `in` in the comma form only (`in 360.04, D.`);
+    the item number of the comma form is part of the reference.
     """
 
     section_page = _us_manual_section_page(corpus_citation_path)
@@ -18399,15 +18427,23 @@ def _us_manual_own_section_label_matches(
         return ()
     own = re.escape(section_page[0])
     heading = re.compile(
-        rf"{_US_MANUAL_LABEL_START}(?P<label>{own}\.\d{{2}}){_US_MANUAL_LABEL_END}"
-        rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD})[A-Z]{{2,}}(?![a-z]))"
-    )
-    reference = re.compile(
-        rf"(?<![A-Za-z])(?:[Ss]ee|in)[ \t]+(?P<label>{own}\.\d{{1,2}})"
+        rf"{_US_MANUAL_LABEL_START}(?P<label>{own}\.(?!00)\d{{2}})"
         rf"{_US_MANUAL_LABEL_END}"
-        r"(?:(?=\)[.;,]?(?:\s|\Z)|[.;](?:\s|\Z))|,?[ \t]+[A-Z](?=[.,])"
-        r"(?:,[ \t]+(?P<item>[1-9]\d?)(?=[.;)](?:\s|\Z)))?)"
+        rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD})[A-Z]{{4,}}(?![a-z]))"
     )
+    subdivision = r"[ \t]+[A-Z](?=[.,])(?:,[ \t]+(?P<item>[1-9]\d?)(?=[.;)](?:\s|\Z)))?"
+    reference = re.compile(
+        rf"(?<![A-Za-z])(?:[Ss]ee[ \t]+(?P<label>{own}\.\d{{1,2}})"
+        rf"{_US_MANUAL_LABEL_END}"
+        rf"(?:(?=\)[.;,]?(?:\s|\Z)|[.;](?:\s|\Z))|,?{subdivision})"
+        rf"|in[ \t]+(?P<in_label>{own}\.\d{{1,2}}),"
+        + subdivision.replace("<item>", "<in_item>")
+        + ")"
+    )
+    header = _us_manual_change_notice_header(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    body_start = header.end() if header is not None else None
     # A quantity table has priority over a heading reading, as it has for the
     # line-start heading labels: a row under a quantity caption stays a value.
     quantity_lines = _manual_quantity_line_starts(text)
@@ -18416,6 +18452,7 @@ def _us_manual_own_section_label_matches(
             (match, True)
             for match in heading.finditer(text)
             if text.rfind("\n", 0, match.start()) + 1 not in quantity_lines
+            and _us_manual_opens_sentence(text, match.start(), body_start=body_start)
         ),
         *((match, False) for match in reference.finditer(text)),
     )
@@ -18424,33 +18461,33 @@ def _us_manual_own_section_label_matches(
 def _us_manual_sentence_opening_enumerators(
     text: str, *, body_start: int | None
 ) -> tuple[re.Match[str], ...]:
-    """Inline list markers that open a sentence, a line or the page body."""
+    """Inline list markers that open a sentence and belong to a run.
 
+    A candidate opens a sentence, a line or the page body. It is a marker
+    only when the candidate before it carries the previous number or the
+    candidate after it carries the next number. The first candidate of the
+    page body needs no neighbor: its run began on the page before.
+    """
+
+    candidates = [
+        marker
+        for marker in _US_MANUAL_INLINE_ENUMERATOR.finditer(text)
+        if _us_manual_opens_sentence(text, marker.start(), body_start=body_start)
+    ]
+    numbers = [int(marker["number"]) for marker in candidates]
     markers = []
-    for marker in _US_MANUAL_INLINE_ENUMERATOR.finditer(text):
-        before = text[: marker.start()].rstrip(" \t")
+    for index, marker in enumerate(candidates):
+        opens_body = (
+            body_start is not None
+            and len(text[: marker.start()].rstrip(" \t")) == body_start
+        )
         if (
-            not before
-            or before.endswith("\n")
-            or (body_start is not None and len(before) == body_start)
-            or (
-                len(before) < marker.start()
-                and _US_MANUAL_SENTENCE_END_BEFORE.search(before[-3:])
-                and not _US_MANUAL_NUMBER_ABBREVIATION_BEFORE.search(before[-5:])
-            )
+            opens_body
+            or (index > 0 and numbers[index - 1] == numbers[index] - 1)
+            or (index + 1 < len(numbers) and numbers[index + 1] == numbers[index] + 1)
         ):
             markers.append(marker)
     return tuple(markers)
-
-
-def _us_manual_unit_label_matches(text: str) -> tuple[re.Match[str], ...]:
-    """`FNS unit N` labels, only when the unit labels are exactly 1..k, k >= 2."""
-
-    labels = tuple(_US_MANUAL_UNIT_LABEL.finditer(text))
-    numbers = {int(label["number"]) for label in labels}
-    if len(numbers) < 2 or numbers != set(range(1, len(numbers) + 1)):
-        return ()
-    return labels
 
 
 def _us_manual_page_role_spans(
@@ -18473,9 +18510,11 @@ def _us_manual_page_role_spans(
     for label, _is_heading in _us_manual_own_section_label_matches(
         text, corpus_citation_path=corpus_citation_path
     ):
-        spans.append(label.span("label"))
-        if label.groupdict().get("item") is not None:
-            spans.append(label.span("item"))
+        spans.extend(
+            label.span(name)
+            for name in ("label", "item", "in_label", "in_item")
+            if label.groupdict().get(name) is not None
+        )
     for glyph in _US_MANUAL_GLYPH_SECTION.finditer(text):
         # Read the glyph spelling exactly as `Section`: the same citation
         # grammar decides which numbers follow it.
@@ -18488,7 +18527,6 @@ def _us_manual_page_role_spans(
         text, body_start=header.end() if header is not None else None
     ):
         spans.append(marker.span("number"))
-    spans.extend(label.span("number") for label in _us_manual_unit_label_matches(text))
     return tuple(
         (index, index + 1)
         for start, end in spans
@@ -18500,14 +18538,13 @@ def _us_manual_page_role_spans(
 def _us_manual_example_passage_spans(
     text: str, *, corpus_citation_path: str
 ) -> tuple[tuple[int, int], ...]:
-    """Worked-example passages of a US manual page.
+    """The opening sentence of each worked example on a US manual page.
 
-    A passage opens at `Example:` or `EXAMPLE:` and ends at the first of: a
-    line break, the next example or note marker, a sentence-opening list
-    marker, an outline marker (`. E. Instructions`), a heading of the
-    document's own section, or the end of the text. A sentence elsewhere that
-    names an `FNS unit N` label first introduced inside a passage is part of
-    the example too.
+    The page text is flattened, so rule text can follow an example on the
+    same line. A passage therefore opens at `Example:` or `EXAMPLE:` and ends
+    at the first of: the end of that sentence, a line break, a bullet, an
+    outline marker, `Exception` or `Note`, the next example marker, or the
+    end of the text.
     """
 
     if _us_manual_section_page(corpus_citation_path) is None:
@@ -18515,47 +18552,19 @@ def _us_manual_example_passage_spans(
     markers = tuple(_US_MANUAL_EXAMPLE_MARKER.finditer(text))
     if not markers:
         return ()
-    header = _us_manual_change_notice_header(
-        text, corpus_citation_path=corpus_citation_path
-    )
     stops = sorted(
         {
             *(match.start() for match in re.finditer(r"\n", text)),
             *(match.start() for match in markers),
-            *(match.start() for match in _US_MANUAL_EXAMPLE_NOTE.finditer(text)),
-            *(match.start() for match in _US_MANUAL_OUTLINE_MARKER.finditer(text)),
-            *(
-                match.start()
-                for match in _us_manual_sentence_opening_enumerators(
-                    text, body_start=header.end() if header is not None else None
-                )
-            ),
-            *(
-                match.start("label")
-                for match, is_heading in _us_manual_own_section_label_matches(
-                    text, corpus_citation_path=corpus_citation_path
-                )
-                if is_heading
-            ),
+            *(match.end() for match in _US_MANUAL_EXAMPLE_SENTENCE_END.finditer(text)),
+            *(match.start() for match in _US_MANUAL_EXAMPLE_STOP.finditer(text)),
             len(text),
         }
     )
-    passages = []
-    for marker in markers:
-        end = stops[bisect.bisect_right(stops, marker.start())]
-        passages.append((marker.start(), end))
-    labels = _us_manual_unit_label_matches(text)
-    if labels and any(
-        start <= labels[0].start() and labels[0].end() <= end for start, end in passages
-    ):
-        breaks = [0]
-        for boundary in _US_MANUAL_SENTENCE_BREAK.finditer(text):
-            breaks.append(boundary.end())
-        breaks.append(len(text))
-        for label in labels:
-            index = bisect.bisect_right(breaks, label.start()) - 1
-            passages.append((breaks[index], breaks[index + 1]))
-    return tuple(sorted(set(passages)))
+    return tuple(
+        (marker.start(), stops[bisect.bisect_right(stops, marker.end())])
+        for marker in markers
+    )
 
 
 def _us_manual_example_only_source_spans(
@@ -18565,12 +18574,13 @@ def _us_manual_example_only_source_spans(
     source_map: _NumericRecallSourceMap,
     corpus_citation_path: str,
 ) -> frozenset[tuple[int, int]]:
-    """Source spans of example numbers that the unit states nowhere else.
+    """Source spans of example dollar amounts that the unit states nowhere else.
 
     An example often restates a rule value, so being inside an example is not
-    enough. A number is released only when it lies wholly inside an example
-    passage and no occurrence outside the passages (or without a certified
-    source position) has its value.
+    enough. A number is released only when all of these hold: it lies wholly
+    inside an example passage; it is a dollar amount (`$` directly before
+    it); no unit word or percent sign follows it; and no other demanded
+    occurrence of the unit has its value.
     """
 
     passages = _us_manual_example_passage_spans(
@@ -18578,30 +18588,37 @@ def _us_manual_example_only_source_spans(
     )
     if not passages:
         return frozenset()
-    inside: list[tuple[tuple[int, int], NumericOccurrenceLike]] = []
-    outside_values: set[float] = set()
+    releasable: list[tuple[tuple[int, int], NumericOccurrenceLike]] = []
+    other_values: set[float] = set()
     for occurrence in occurrences:
         span = source_map.source_span(occurrence.start, occurrence.end)
-        if span is not None and any(
-            start <= span[0] and span[1] <= end for start, end in passages
+        if (
+            span is not None
+            and any(start <= span[0] and span[1] <= end for start, end in passages)
+            and (
+                source_text[span[0]] == "$"
+                or source_text[: span[0]].rstrip(" \t").endswith("$")
+            )
+            and source_text[span[1] - 1].isdigit()
+            and not _US_MANUAL_EXAMPLE_UNIT_FOLLOWS.match(source_text, span[1])
         ):
-            inside.append((span, occurrence))
+            releasable.append((span, occurrence))
             continue
-        outside_values.add(float(occurrence.value))
-        outside_values.update(
+        other_values.add(float(occurrence.value))
+        other_values.update(
             float(value)
             for value in getattr(occurrence, "alternative_values", ()) or ()
         )
     return frozenset(
         span
-        for span, occurrence in inside
+        for span, occurrence in releasable
         if not any(
             math.isclose(float(value), other)
             for value in (
                 occurrence.value,
                 *(getattr(occurrence, "alternative_values", ()) or ()),
             )
-            for other in outside_values
+            for other in other_values
         )
     )
 

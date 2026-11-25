@@ -3,8 +3,8 @@
 State SNAP manual pages were refused on numeric recall, and on the encode
 eval's occurrence count, for numbers that only organize the page: the running
 header (page, section, change notice), the document's own section labels,
-list markers flattened into a line, the labels of the units in a narrated
-case, and the numbers of a worked example that the page states nowhere else.
+list markers flattened into a line, and the dollar amounts of a worked
+example that the page states nowhere else.
 
 Each rule is a positive shape on a `.../<prefix>-<NNN>-<slug>/page-<P>` manual
 path. A number next to a similar shape keeps its demand. Both gates read the
@@ -27,12 +27,15 @@ from axiom_encode.harness.validator_pipeline import (
     extract_typed_numeric_occurrences_from_text,
     numeric_value_is_grounded,
 )
+from tests.test_numeric_recall_see_example_reference import KEPT as SEE_EXAMPLE_KEPT
 
 PAGE = "us-zz/manual/agency/fns/fns-315-special-budgeting/page-16"
 OTHER_SECTION_PAGE = "us-zz/manual/agency/fns/fns-340-deductions/page-16"
+SECTION_130_PAGE = "us-zz/manual/agency/fns/fns-130-income-limits/page-16"
 UNSECTIONED_MANUAL = "us-zz/manual/agency/handbook/shelter-costs/block-3"
 REGULATION = "us-zz/regulation/fns-315-special-budgeting/page-16"
 PROFILES = ("legacy", "en-US")
+GLYPH_SECTION = "SecƟon"
 TITLE = "AGENCY SERVICES CERTIFICATION INCOME FNS 315 SPECIAL BUDGETING\n\n"
 HEADER = TITLE + "16 Section 315 Change #01-2022 January 11, 2022 "
 PREFIX = "[complete-source-unit:numeric-recall] Authoritative corpus numeric value "
@@ -57,10 +60,21 @@ def _occurrence_view(source: str, citation: str, profile: str) -> list[float]:
     )
 
 
-def _typed_recall(source: str, citation: str, profile: str) -> list[float]:
-    """The values typed numeric recall demands of a module with no scalars."""
+def _typed_recall(
+    source: str, citation: str, profile: str, scalars: tuple[float, ...] = ()
+) -> list[float]:
+    """The values typed numeric recall demands of a module with `scalars`."""
 
-    candidate = yaml.safe_dump({"format": "rulespec/v1", "module": {}, "rules": []})
+    candidate = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "module": {},
+            "rules": [
+                {"name": f"supplied_{index}", "versions": [{"formula": value}]}
+                for index, value in enumerate(scalars)
+            ],
+        }
+    )
     issues = sc.analyze_complete_source_unit(
         candidate,
         source,
@@ -111,12 +125,12 @@ ACCEPTED = (
         [40.0],
     ),
     (
-        TITLE + "16 SecƟon 315 Change #3 2017 September 20, 2017 "
+        TITLE + f"16 {GLYPH_SECTION} 315 Change #3 2017 September 20, 2017 "
         "Count the payment of $40 in full.",
         [40.0],
     ),
     (
-        TITLE + "16 Section 310 Change #6-20XX July 12, 2021 "
+        TITLE + "16 Section 315 Change #6-20XX July 12, 2021 "
         "Count the payment of $40 in full.",
         [40.0],
     ),
@@ -138,7 +152,8 @@ ACCEPTED = (
         "Count the payment of $40 in full.",
         [40.0],
     ),
-    # A heading of the document's own section.
+    # A heading of the document's own section: after a sentence end, at a
+    # line start, or directly after the page header.
     (
         "Count the payment of $40 in full. 315.27 REPRESENTATIVE PAYMENTS "
         "A payee receives the money.",
@@ -148,6 +163,7 @@ ACCEPTED = (
         "The payment of $40 is counted in full.\n\n315.30 STRIKERS A. Count it.",
         [40.0],
     ),
+    (HEADER + "315.03 INCOME STANDARDS The limit is $40.", [40.0]),
     # A reference to the document's own section.
     ("Count $40 in full. If there was a loss, see 315.28 F. Enter it.", [40.0]),
     ("Count $40 in full. See 315.28 C. for the list.", [40.0]),
@@ -155,30 +171,33 @@ ACCEPTED = (
     ("Count $40 in full. See 315.6, A, 4.\n\nEnter the claim.", [40.0]),
     ("Count $40 in full (see 315.28).", [40.0]),
     # The glyph spelling of `Section` reads as `Section`.
-    ("Refer to SecƟon 210, Household Concept, for the $40 limit.", [40.0]),
-    ("A person defined in SecƟon 212.02, Person, has a $40 limit.", [40.0]),
-    # List markers that open a sentence, a line or the page body.
+    (f"Refer to {GLYPH_SECTION} 210, Household Concept, for the $40 limit.", [40.0]),
+    (f"A person defined in {GLYPH_SECTION} 212.02, Person, has $40.", [40.0]),
+    # List markers that open a sentence and belong to a run.
     (
         "Give the unit time to verify. 2. If the unit paid $40, allow it. "
         "3. Do not ask for more.",
         [40.0],
     ),
-    (HEADER + "4. A date must be set. The claim is $40.", [40.0]),
-    ("The cost is $50 monthly ($50 for each month). 6. Budget it.", [50.0]),
-    ("The shelter is: (a) temporary. 2. A halfway house costs $40.", [40.0]),
-    # Unit labels of a narrated case.
     (
-        "FNS unit 1 has the child. FNS unit 2 has the parent. Count $40.",
+        "Verify the cost; 1. Ask the unit; 2. Ask the provider; 3. Allow $40.",
         [40.0],
     ),
+    ("1. Give the unit time.\n2. Allow $40. 3. Do not ask for more.", [40.0]),
+    # The first marker of the page body: its run began on the page before.
+    (HEADER + "4. A date must be set. The claim is $40.", [40.0]),
 )
 
 # A number next to a similar shape keeps its demand.
 STILL_DEMANDED = (
-    # A header whose page is not the path's page is not this page's header.
+    # A header whose page or section is not the path's is not this header.
     (
         TITLE + "17 Section 315 Change #01-2022 January 11, 2022 Count $40.",
         [17.0, 2022.0, 40.0],
+    ),
+    (
+        TITLE + "16 Section 999 Change #01-2022 January 11, 2022 Count $40.",
+        [16.0, 2022.0, 40.0],
     ),
     # A change notice without its full date is not the header grammar.
     (TITLE + "16 Change #1-2021 applies to $40.", [16.0, 2021.0, 40.0]),
@@ -194,30 +213,49 @@ STILL_DEMANDED = (
     ("The total is $40 + 315.27 TOTAL DUE.", [40.0, 315.27]),
     ("The result is 315.275 TOTAL DUE.", [315.275]),
     ("Count 315.27 Representative payments.", [315.27]),
+    # A label needs a sentence end, a line start or the header before it, and
+    # a title word of four or more capital letters after it.
+    ("The limit is 315.00 TANF and 200.00 SSI.", [315.0, 200.0]),
+    ("The unit keeps 315.50 OF the grant.", [315.5]),
+    ("The grant is 315.00 USD each month.", [315.0]),
+    ("Multiply by 315.25 AND add the rest.", [315.25]),
+    ("The household keeps 315.27 TOTAL each month.", [315.27]),
+    ("Count it. 315.27 FPL applies.", [315.27]),
+    ("Count it. 315.00 TANF applies.", [315.0]),
     # A row under a quantity caption stays a value.
     ("Benefit amounts, in dollars:\n315.27 REPRESENTATIVE PAYMENTS", [315.27]),
     # Another document's section number is not this document's label.
     ("Count $40. 340.15 SPECIAL PROCEDURES apply.", [40.0, 340.15]),
     ("Count $40. See 340.15 C. for the list.", [40.0, 340.15]),
-    # A reference needs `see` or `in` and a closed label.
+    # A reference needs `see`, or `in` with the comma and subdivision letter.
     ("The unit pays 315.28 F. Enter it.", [315.28]),
     ("See 315.28 dollars of income.", [315.28]),
     ("Count the $40 in 315.28 cases.", [40.0, 315.28]),
+    ("The sum results in 315.50.", [315.5]),
+    ("Count the rest in 315.00; then stop.", [315.0]),
+    ("Count the rest (in 315.5) and stop.", [315.5]),
+    ("The sum results in 315.50 F. Enter it.", [315.5]),
     # The glyph rule reads only what `Section` would.
-    ("The SecƟon pays $210, and $40 more.", [210.0, 40.0]),
+    (f"The {GLYPH_SECTION} pays $210, and $40 more.", [210.0, 40.0]),
     # A number that ends a sentence is not a list marker.
     ("The limit is a household of 2. If more, deny.", [2.0]),
     ("Count income for children under 6. Advertising costs count.", [6.0]),
     ("Use Form No. 5. Complete it.", [5.0]),
     ("The limit is $2. If more, deny.", [2.0]),
     ("Multiply by 2.15 and then stop. The result is 3.5. Enter it.", [2.15, 3.5]),
-    ("Wait. 30 Days must pass.", [30.0]),
     ("Wait. 2. 3 months must pass.", [2.0, 3.0]),
-    # One unit label, or a count of units, is not a label set.
-    ("FNS unit 2 persons or more get $40.", [2.0, 40.0]),
-    ("An FNS unit 1 or 2 persons in size gets $40.", [1.0, 2.0, 40.0]),
-    ("FNS unit 2 has the parent. FNS unit 3 has the child.", [2.0, 3.0]),
-    ("FNS unit 1 has a child. A unit of 2 gets $40.", [1.0, 2.0, 40.0]),
+    # A lone number that opens a sentence belongs to no run.
+    ("The period is approx. 30. Days are counted.", [30.0]),
+    ("The age limit is (max.) 60. Elderly members qualify.", [60.0]),
+    ("Use a short period, e.g. 10. The unit reports.", [10.0]),
+    ("The unit states the age. 18. Students are exempt.", [18.0]),
+    ("Count the share. 99. Percent applies.", []),
+    ("Wait. 30. Days must pass. 31. Days is too long.", [30.0, 31.0]),
+    ("Give the unit time. 2. If the unit paid $40, allow it.", [2.0, 40.0]),
+    ("Use e.g. 1. Ask the unit. 2. Ask the provider.", [1.0]),
+    # Unit labels are not a recognized shape.
+    ("FNS unit 1 has the child. FNS unit 2 has the parent.", [1.0, 2.0]),
+    ("FNS unit 1: $291 FNS unit 2: $535", [1.0, 291.0, 2.0, 535.0]),
 )
 
 
@@ -231,6 +269,16 @@ def test_page_furniture_is_not_demanded_by_either_gate(source, demanded, profile
 @pytest.mark.parametrize(("source", "demanded"), STILL_DEMANDED)
 def test_similar_shape_keeps_its_demand_in_both_gates(source, demanded, profile):
     _assert_both_gates_keep(source, PAGE, profile, demanded)
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_amount_that_equals_the_own_section_keeps_its_demand(profile):
+    _assert_both_gates_keep(
+        "The limit is 130.00 FPL for the unit.", SECTION_130_PAGE, profile, [130.0]
+    )
+    _assert_both_gates_keep(
+        "Count it. 130.50 FPL applies.", SECTION_130_PAGE, profile, [130.5]
+    )
 
 
 @pytest.mark.parametrize(
@@ -252,7 +300,7 @@ def test_own_section_comes_from_the_citation_path():
 
 def test_only_the_named_digits_are_blanked_in_place():
     source = (
-        HEADER + "2. Count $2 for a unit of 2. See 315.28 F. "
+        HEADER + "2. Count $2 for a unit of 2. See 315.28 F. 3. Stop. "
         "315.27 PAYMENTS FNS unit 1 pays FNS unit 2 the $40."
     )
     recall = sc.authoritative_numeric_recall_text(source, corpus_citation_path=PAGE)
@@ -263,50 +311,46 @@ def test_only_the_named_digits_are_blanked_in_place():
         if character != masked
     )
     assert changed.isdigit()
-    assert _occurrence_view(source, PAGE, "legacy") == [2.0, 2.0, 40.0]
+    assert _occurrence_view(source, PAGE, "legacy") == [1.0, 2.0, 2.0, 2.0, 40.0]
 
 
 # Worked examples: (source, values still demanded)
 EXAMPLES = (
-    # Numbers only the example states.
+    # Dollar amounts that only the example's own sentence states.
+    ("Count the payment in full. Example: The child receives $600.", []),
     (
-        "Count the payment in full. Example: The child receives $600. The "
-        "parent keeps $300 each month.",
+        "Allow the cost when incurred. EXAMPLE: A seller buys $300 of goods in "
+        "October and sells them for $450. 7. Advertising costs. 8. Fees.",
         [],
     ),
+    # The passage is one sentence: the next sentence is rule text again.
     (
-        "Divide by the months covered. EXAMPLE: A cost of $50 every other "
-        "month is $25 monthly ($25 for each month). 6. Budget the cost.",
-        [],
-    ),
-    # The example ends at a line break.
-    (
-        "Count it. Example: The child receives $600.\n\nThe standard "
-        "deduction is $300.",
-        [300.0],
-    ),
-    # The example ends at the next list marker, outline marker, own-section
-    # heading or note.
-    (
-        "Count it. Example: The child receives $600. 2. The standard "
-        "deduction is $300.",
+        "Count it. Example: The child receives $600. The standard deduction "
+        "is $300 for each unit.",
         [300.0],
     ),
     (
-        "Count it. Example: The child receives $600. B. The standard "
-        "deduction is $300.",
-        [300.0],
+        "Count it. Example: The unit pays $40. If the unit reports within 10 "
+        "days, allow $45.",
+        [10.0, 45.0],
     ),
-    (
-        "Count it. Example: The child receives $600. 315.27 PAYMENTS The "
-        "standard deduction is $300.",
-        [300.0],
-    ),
-    (
-        "Count it. Example: The child receives $600. NOTE: The standard "
-        "deduction is $300.",
-        [300.0],
-    ),
+    # The passage ends at a line break, bullet, outline marker, `Exception`
+    # or `Note`, also inside its first sentence.
+    ("Count it. Example: The child receives $600\n\nand the limit is $300.", [300.0]),
+    ("Count it. Example: A fee of $600 • Use the $300 base amount", [300.0]),
+    ("Count it. Example: A fee of $600 monthly ii. Sporadic income of $300", [300.0]),
+    ("Count it. Example: A fee of $600 b. the limit of $300", [300.0]),
+    ("Count it. Example: A fee of $600 Exception: a limit of $300", [300.0]),
+    ("Count it. Example: A fee of $600 NOTE: the limit is $300", [300.0]),
+    ("Count it. Example: A fee of $600 EXAMPLE: A fee of $300", []),
+    # Only dollar amounts are released; a number with a unit never is.
+    ("Example: Use the 3-month base period for the unit.", [3.0]),
+    ("Example: 3 persons share the cost.", [3.0]),
+    ("Example: The member is age 60 and pays $40.", [60.0]),
+    ("Example: The unit pays $40 each month.", [40.0]),
+    ("Example: The unit pays $40 per day.", [40.0]),
+    ("Example: The unit has 2 members who pay $40 in rent.", [2.0]),
+    ("Example: Divide $50 by 2 to get $25 in costs.", [2.0]),
     # An example that restates a rule value: every occurrence stays demanded.
     (
         "The standard deduction is $300. Example: The unit has $900 and "
@@ -318,6 +362,7 @@ EXAMPLES = (
         "standard deduction applies to all units.",
         [300.0],
     ),
+    ("Example: The unit has $300 and 300 members.", [300.0]),
     # A number before the example is outside it.
     ("The $300 standard deduction applies. Example: The unit has $900.", [300.0]),
     # Not an example marker: every number stays.
@@ -326,29 +371,33 @@ EXAMPLES = (
     ("Example 2: the household pays $40.", [2.0, 40.0]),
     ("See, for example, the $40 fee.", [40.0]),
     ("Counterexample: the household pays $40.", [40.0]),
-    # A sentence that names a unit label first introduced in the example is
-    # part of the example.
+    # Unit labels release nothing, in the example or after it.
     (
-        "Count it. Example: FNS unit 1 has a child who receives $600. FNS "
-        "unit 2 has the parent, who keeps $300.\n\nIncome counted in each "
-        "case:\n\nFNS unit 1 will have $600 counted. The limit is $40.",
-        [40.0],
+        "Example: FNS unit 1 has a child who receives $600.\n\nThe maximum "
+        "allotment for FNS unit 2 is $535.",
+        [1.0, 2.0, 535.0],
     ),
-    # Unit labels introduced outside an example extend nothing.
     (
-        "FNS unit 1 has a child. FNS unit 2 has the parent. Example: The "
-        "child receives $600.\n\nFNS unit 1 has $600 counted.",
-        [600.0],
+        "Example: FNS unit 1 has a child. FNS unit 2 has the parent.\n\nThe "
+        "maximum allotment for FNS unit 2 is $535.",
+        [1.0, 2.0, 535.0],
     ),
 )
 
 
 @pytest.mark.parametrize("profile", PROFILES)
 @pytest.mark.parametrize(("source", "demanded"), EXAMPLES)
-def test_example_only_numbers_are_not_demanded_by_either_gate(
+def test_example_only_amounts_are_not_demanded_by_either_gate(
     source, demanded, profile
 ):
     _assert_both_gates(source, PAGE, profile, demanded)
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_example_percentage_keeps_its_demand(profile):
+    # The two profiles read the percentage as 20 or as 0.2.
+    source = "Example: The 20 percent deduction applies to the unit."
+    _assert_both_gates_keep(source, PAGE, profile, [])
 
 
 @pytest.mark.parametrize("profile", PROFILES)
@@ -367,15 +416,15 @@ def test_example_filter_is_off_outside_a_sectioned_manual_page(profile):
     assert _typed_recall(source, UNSECTIONED_MANUAL, profile) == [600.0]
 
 
-def test_example_passage_bounds():
+def test_example_passage_is_its_first_sentence():
     source = (
         "Count it. Example: The child receives $600. The parent keeps $300. "
-        "2. Budget the rest. EXAMPLE: A fee of $40.\nThe limit is $50."
+        "EXAMPLE: A fee of $40 ii. Sporadic.\nThe limit is $50."
     )
     passages = sc._us_manual_example_passage_spans(source, corpus_citation_path=PAGE)
     assert [source[start:end] for start, end in passages] == [
-        "Example: The child receives $600. The parent keeps $300. ",
-        "EXAMPLE: A fee of $40.",
+        "Example: The child receives $600.",
+        "EXAMPLE: A fee of $40 ",
     ]
 
 
@@ -383,23 +432,32 @@ def test_named_scalar_for_an_example_value_is_still_credited():
     """Naming an example value is allowed; it is only not required."""
 
     source = "Count it. Example: The child receives $600."
-    candidate = yaml.safe_dump(
-        {
-            "format": "rulespec/v1",
-            "module": {},
-            "rules": [{"name": "example_amount", "versions": [{"formula": 600}]}],
-        }
-    )
-    issues = sc.analyze_complete_source_unit(
-        candidate,
-        source,
-        corpus_citation_path=PAGE,
-        test_cases=[],
-        extract_numeric_occurrences=_extractor("legacy"),
-        extract_numeric_grounding_occurrences=functools.partial(
-            extract_typed_numeric_occurrences_from_text, profile="legacy"
-        ),
-        extract_named_scalars=extract_named_scalar_occurrences,
-        numeric_value_is_grounded=numeric_value_is_grounded,
-    ).issues
-    assert not [issue for issue in issues if issue.startswith(PREFIX)]
+    assert _typed_recall(source, PAGE, "legacy", scalars=(600,)) == []
+
+
+# The decisions of the `See Example N` tests hold on a sectioned page too:
+# their fixtures use an unsectioned path, where the rules above are off.
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize(("source", "kept"), SEE_EXAMPLE_KEPT)
+def test_see_example_decisions_hold_on_a_sectioned_page(source, kept, profile):
+    assert _occurrence_view(source, PAGE, profile) == sorted(kept)
+    assert _typed_recall(source, PAGE, profile) == sorted(set(kept))
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize(
+    ("source", "demanded"),
+    (
+        ("The unit pays $50 and then $1. (See Example 1 )", [1.0]),
+        ("The unit pays $50 for 1 month. (See Example 1 )", [1.0]),
+        ("Example 1: the household pays $50 and then $1.", [1.0]),
+        ("Example 3\nThe household pays $50.", [3.0]),
+        ("Example: 3 persons pay $50.", [3.0]),
+        ("The unit pays $50. See Example 1 and pay 2.", [1.0, 2.0]),
+        ("The unit pays $50. (See Example 1 ) Then pay 2.", [2.0]),
+    ),
+)
+def test_see_example_recall_decisions_hold_on_a_sectioned_page(
+    source, demanded, profile
+):
+    assert _typed_recall(source, PAGE, profile, scalars=(50,)) == demanded
