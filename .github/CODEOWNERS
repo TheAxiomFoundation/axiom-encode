@@ -47,6 +47,8 @@
 /tests/test_applied_manifest_v6.py @PavelMakarchuk @MaxGhenis
 /tests/test_prepare_reviewed_pr_promotion.py @PavelMakarchuk @MaxGhenis
 /tests/test_multi_unit_promotion_admission.py @PavelMakarchuk @MaxGhenis
+/tests/test_admission_base_advance.py @PavelMakarchuk @MaxGhenis
+/tests/fixtures/admission_base_advance_main.json @PavelMakarchuk @MaxGhenis
 /tests/test_multi_unit_promotion_cli.py @PavelMakarchuk @MaxGhenis
 /tests/test_multi_unit_promotion_isolation.py @PavelMakarchuk @MaxGhenis
 /tests/test_multi_unit_promotion_review.py @PavelMakarchuk @MaxGhenis

@@ -1,0 +1,607 @@
+{
+  "comment": "Outcomes of reviewed_pr_admission.py as it was on encoder main before the base-advance switch existed. See tests/test_admission_base_advance.py.",
+  "outcomes": {
+    "approval/advance/batch": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "approval/advance/dependency": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "approval/advance/landing": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "approval/advance/plumbing": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "approval/batch/good": {
+      "admission": [
+        [
+          "ok",
+          "a1e3b6a8365d2aaf789bbc08df725af579efb292bcf614f54aa327c164282157"
+        ],
+        17,
+        "1ba1f29563be1d8315fcaceeab77711ad28805402e99736e6b1d80302130e336"
+      ],
+      "revalidation/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unchanged": [
+        [
+          "ok",
+          "a1e3b6a8365d2aaf789bbc08df725af579efb292bcf614f54aa327c164282157"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ]
+    },
+    "approval/single/extra": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate PR changes files outside its new module scope"
+        ],
+        7,
+        "44bc57c242e9a4981c05217ccb7bc5943eeded4cdd1afc2445ff654c5bda0331"
+      ]
+    },
+    "approval/single/good": {
+      "admission": [
+        [
+          "ok",
+          "266da988e22058577ca2d98f53868ce485a254ed9a9ee5269ac8651f09f658e7"
+        ],
+        13,
+        "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
+      ],
+      "revalidation/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unchanged": [
+        [
+          "ok",
+          "266da988e22058577ca2d98f53868ce485a254ed9a9ee5269ac8651f09f658e7"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ]
+    },
+    "approval/single/index": {
+      "admission": [
+        [
+          "ok",
+          "266da988e22058577ca2d98f53868ce485a254ed9a9ee5269ac8651f09f658e7"
+        ],
+        13,
+        "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
+      ],
+      "revalidation/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unchanged": [
+        [
+          "ok",
+          "266da988e22058577ca2d98f53868ce485a254ed9a9ee5269ac8651f09f658e7"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ]
+    },
+    "approval/single/main-moved": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "approval/single/modified": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate PR changes files outside its new module scope"
+        ],
+        7,
+        "44bc57c242e9a4981c05217ccb7bc5943eeded4cdd1afc2445ff654c5bda0331"
+      ]
+    },
+    "approval/single/no-companion": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate PR changes files outside its new module scope"
+        ],
+        7,
+        "44bc57c242e9a4981c05217ccb7bc5943eeded4cdd1afc2445ff654c5bda0331"
+      ]
+    },
+    "approval/single/removed": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate PR changes files outside its new module scope"
+        ],
+        7,
+        "44bc57c242e9a4981c05217ccb7bc5943eeded4cdd1afc2445ff654c5bda0331"
+      ]
+    },
+    "approval/single/two-units": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate PR changes files outside its new module scope"
+        ],
+        7,
+        "44bc57c242e9a4981c05217ccb7bc5943eeded4cdd1afc2445ff654c5bda0331"
+      ]
+    },
+    "approval/single/veto": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate has unresolved changes requested"
+        ],
+        8,
+        "1478b5c3f694f43c60ba8cc0ca9ce1ccf790ca6e13dfce018a4b60249968aac5"
+      ]
+    },
+    "approval/with-main-files": {
+      "admission": [
+        [
+          "ok",
+          "266da988e22058577ca2d98f53868ce485a254ed9a9ee5269ac8651f09f658e7"
+        ],
+        13,
+        "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
+      ],
+      "revalidation/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unchanged": [
+        [
+          "ok",
+          "266da988e22058577ca2d98f53868ce485a254ed9a9ee5269ac8651f09f658e7"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ]
+    },
+    "dispatch/advance/batch": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "dispatch/advance/dependency": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "dispatch/advance/landing": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "dispatch/advance/plumbing": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "dispatch/batch/good": {
+      "admission": [
+        [
+          "ok",
+          "707e71944931a41eff9968b77e57a0355e0a876a137a850ee9b474c7578580f1"
+        ],
+        17,
+        "1ba1f29563be1d8315fcaceeab77711ad28805402e99736e6b1d80302130e336"
+      ],
+      "revalidation/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unchanged": [
+        [
+          "ok",
+          "707e71944931a41eff9968b77e57a0355e0a876a137a850ee9b474c7578580f1"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ]
+    },
+    "dispatch/single/extra": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate PR changes files outside its new module scope"
+        ],
+        7,
+        "44bc57c242e9a4981c05217ccb7bc5943eeded4cdd1afc2445ff654c5bda0331"
+      ]
+    },
+    "dispatch/single/good": {
+      "admission": [
+        [
+          "ok",
+          "6de06d44096723056e5c8d6f0945887b42f7bedc74eec9ee0eaf35bdbec897ba"
+        ],
+        13,
+        "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
+      ],
+      "revalidation/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unchanged": [
+        [
+          "ok",
+          "6de06d44096723056e5c8d6f0945887b42f7bedc74eec9ee0eaf35bdbec897ba"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ]
+    },
+    "dispatch/single/index": {
+      "admission": [
+        [
+          "ok",
+          "6de06d44096723056e5c8d6f0945887b42f7bedc74eec9ee0eaf35bdbec897ba"
+        ],
+        13,
+        "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
+      ],
+      "revalidation/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unchanged": [
+        [
+          "ok",
+          "6de06d44096723056e5c8d6f0945887b42f7bedc74eec9ee0eaf35bdbec897ba"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ]
+    },
+    "dispatch/single/main-moved": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "dispatch/single/modified": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate PR changes files outside its new module scope"
+        ],
+        7,
+        "44bc57c242e9a4981c05217ccb7bc5943eeded4cdd1afc2445ff654c5bda0331"
+      ]
+    },
+    "dispatch/single/no-companion": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate PR changes files outside its new module scope"
+        ],
+        7,
+        "44bc57c242e9a4981c05217ccb7bc5943eeded4cdd1afc2445ff654c5bda0331"
+      ]
+    },
+    "dispatch/single/removed": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate PR changes files outside its new module scope"
+        ],
+        7,
+        "44bc57c242e9a4981c05217ccb7bc5943eeded4cdd1afc2445ff654c5bda0331"
+      ]
+    },
+    "dispatch/single/two-units": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate PR changes files outside its new module scope"
+        ],
+        7,
+        "44bc57c242e9a4981c05217ccb7bc5943eeded4cdd1afc2445ff654c5bda0331"
+      ]
+    },
+    "dispatch/single/veto": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "candidate has unresolved changes requested"
+        ],
+        8,
+        "1478b5c3f694f43c60ba8cc0ca9ce1ccf790ca6e13dfce018a4b60249968aac5"
+      ]
+    },
+    "dispatch/with-main-files": {
+      "admission": [
+        [
+          "ok",
+          "6de06d44096723056e5c8d6f0945887b42f7bedc74eec9ee0eaf35bdbec897ba"
+        ],
+        13,
+        "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
+      ],
+      "revalidation/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unchanged": [
+        [
+          "ok",
+          "6de06d44096723056e5c8d6f0945887b42f7bedc74eec9ee0eaf35bdbec897ba"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ]
+    }
+  }
+}
