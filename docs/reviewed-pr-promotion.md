@@ -385,7 +385,8 @@ admission, not from its arguments, and processes them in path order:
    `HEAD` against the admission record.
 2. No unit may import another unit of the same batch (below).
 3. Every unit: complete-source validation of its exact bytes, the same call as
-   for a single unit, without the files of the other units (below).
+   for a single unit, twice: without the files of the other units, then with
+   every unit present (below).
 4. The admission is read live again, once.
 5. Every unit: the signature.
 6. One transaction installs every manifest, then verifies every installed
@@ -426,29 +427,69 @@ record per unit; each record equals the record of a single-unit admission.
 A failed batch is repaired in the candidate (fix or remove the unit) and
 dispatched again on the new head. There is no partial result to keep.
 
-### Each unit is validated alone
+### Each unit is validated twice
 
-A unit of a batch must not pass because another unit of the batch is in the
-checkout. This holds by construction, not by a list of reference kinds.
 Validation of a unit runs in a temporary copy of the checkout (the apply
-overlay). For a batch, the primary and the companion of every other unit are
-removed from that copy before anything is validated, and so is a directory
-that held nothing else. The tree that validation reads for unit `i` is
-therefore the tree of a candidate that holds unit `i` alone. Any reference to
-another unit of the batch (an import, a companion input or output key, a proof
-import target, an absolute reference in a formula, a relation target, or any
-other route) finds no file, and the unit is refused exactly as its single-unit
-promotion is refused.
+overlay). A unit of a batch is validated in two passes, and both must pass.
+
+**Pass 1, isolated.** The primary and the companion of every other unit are
+removed from the copy before anything is validated, and so is a directory that
+held nothing else. The tree is the tree of a candidate that holds this unit
+alone. So nothing the unit needs can come from another, still unsigned, unit:
+an import, a companion input or output key, a proof import target, an absolute
+reference in a formula, a relation target, or any other route finds no file,
+and the unit is refused exactly as its single-unit promotion is refused. This
+holds by construction, not by a list of reference kinds.
+
+**Pass 2, batch.** The copy is the whole candidate head: the tree that exists
+after the batch lands. Some checks are stricter when a related module exists
+(a parent that opens an exception list must import an existing child
+exception; same-section term and subsection imports). A unit that is valid
+alone but is refused beside another unit of the batch stops the batch here.
+The error says `with the other units of the batch present`.
+
+The signed manifest records the isolated pass. The second pass is a check
+only.
+
+What the rule guarantees, exactly:
+
+- A batch is signed if and only if every unit passes alone (`main` plus the
+  unit) and every unit passes in the final tree (`main` plus all units).
+- For two units these four verdicts are the four turns of the two possible
+  single-unit landing orders. So a batch of two is signed exactly when the two
+  units could land one at a time in either order.
+- For more units the trees in between (`main` plus some of the units) are not
+  validated. If every check is of one of two kinds, "needs a module to exist"
+  or "is stricter when a module exists", a verdict that passes in the smallest
+  and in the largest tree passes in every tree in between, and the batch is
+  signed exactly when the units could land one at a time in every order. The
+  checks found in review are of these two kinds. This is not proven for every
+  check of the validator.
+- It is stricter than "some landing order exists". A unit that needs another
+  unit of the batch can land after it, one at a time; the batch is refused
+  (pass 1). Promote such units in separate candidates, in order.
+
+Other properties:
 
 - Only the temporary copy is changed. The checkout is never written by this
   step; the final check that only the manifests changed still holds.
-- It fails closed: if a file of another unit is not a regular file of the
-  copy, the validation of the unit stops.
+- It fails closed: a file of another unit that is not a regular file of the
+  copy, or whose path leaves the copy through a link, stops the validation of
+  the unit before any file is removed.
 - A unit that an existing module depends on cannot be part of a batch. The
   dependent comparison reads a baseline from the checkout, outside the
   isolation, so such a unit is refused in a batch and must be promoted alone.
   (A new module with a dependent on `main` is not expected: the dependent
   would import a module that does not exist.)
+- The cost: a batch of `k` units runs `2k` validations (a batch of one runs
+  one).
+- The record: `metadata.json` of the run carries `promotion_validation`
+  (`axiom-encode/promotion-batch-validation/v1`): the planned passes, and for
+  each unit its `hidden_paths`. It is a plan computed from the unit citations
+  (citation, primary, companion, hidden paths, planned passes), not evidence
+  that the passes ran; the evidence is the run's success and the signed
+  manifests. With `rulespec_base` (the candidate head) the tree
+  of each isolated pass can be rebuilt. The signed manifests are unchanged.
 
 ### Imports between units of one batch
 
@@ -501,11 +542,11 @@ an import that the resolver refuses as unsafe each stop the batch.
 From the independent review of this lane. Each item is necessary; the state is
 of this document's commit.
 
-1. **No unit passes because of another unit.** Done by construction: each
-   unit is validated without the files of the other units ("Each unit is
-   validated alone"). The import refusal through the real resolver is the
-   early message. Proven on the staging code with the real overlay and a
-   probe validator; the engine itself was not run (items 3 and 4).
+1. **No unit passes because of another unit, and no unit is refused beside
+   another.** Done: each unit is validated twice ("Each unit is validated
+   twice"). The import refusal through the real resolver is the early
+   message. Proven on the staging code with the real overlay and a probe
+   validator; the engine itself was not run (items 3 and 4).
 2. **Workflow packaging.** Done in `targeted-signed-reencode.yml`. For a run
    that names its units, the packaging step expects one changed manifest per
    unit at the unit's canonical position and nothing else: a manifest of an
@@ -519,13 +560,14 @@ of this document's commit.
    name every unit. A run without a unit list packages as before; it still
    ignores a manifest of another citation. Tested by running the workflow's
    embedded code; not yet run on a hosted runner (item 3).
-3. **A hosted canary batch** on a real candidate. No hosted run of a batch has
-   been made.
-4. **An engine-level run.** The isolation removes the other units from the
-   tree that the engine is given. It is not yet shown with the real engine
-   that the engine reads no path outside that tree; the canary of item 3
-   should include one batch whose unit names another unit and must be
-   refused.
+3. **A hosted canary** on real candidates: the first run with the real
+   engine. It needs a batch that must be signed, and one batch that must be
+   refused because a unit names another unit of the batch. No hosted run of a
+   batch has been made.
+4. **The engine reads only the overlay.** Confirm with the real engine that it
+   reads no path outside the validation overlay and the closure snapshot. The
+   two passes control the tree that the engine is given, not what the engine
+   opens.
 5. **The derived index.** Decide whether its content must reflect exactly the
    `k` units. Today nothing in this lane checks the content of the index, for
    a batch as for a single unit.
