@@ -1,3 +1,7 @@
+## 0.2.2399
+
+- Mask USDA jurisdiction row labels and table titles; read range-header N+ as a label (stacked on #2336) (#2343)
+
 ## 0.2.2398
 
 - Count the complete-mode numeric-occurrence check positionally on the numeric-recall view (#1801) (#2336)
