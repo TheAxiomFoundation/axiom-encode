@@ -13,13 +13,16 @@ the files alone, without a model and without the rules engine:
 1. Interface. Every rule of ``old`` that a consumer reads is still defined by
    the new files with the same kind, entity, dtype, period, unit and
    ``indexed_by``. Consumers are modules that import ``old`` (whole module or
-   ``#name``), program specs that scope ``old`` (outputs and transformations),
-   and the other modules in those program scopes, which the composer binds by
-   name. A rule nobody reads may be removed only when the record declares it.
+   ``#name``), program specs that scope ``old`` (every place a spec names a
+   rule: ``outputs``, ``auto_gate_outputs``, ``acknowledged_incomplete`` and
+   transformation bodies), and the other modules in those program scopes,
+   which the composer binds by name. Rule ``metadata`` other than the proof
+   block is interface (``metadata.private`` is a visibility change). A rule nobody reads may be removed only when the record declares it.
    A rule that the new files add must not take a name that a scoping program
    or a co-scoped module already defines. The module-level ``imports``,
    ``inputs`` and every other module-level field except provenance metadata
-   are compared too; a difference must be declared in the record.
+   are compared too; a difference must be declared in the record, and an
+   ``imports`` or ``inputs`` declaration must list the exact entries.
 2. Program bindings. A name that a scoping program spec defines and ``old``
    reads (for example ``gross_income`` bound by a transformation) is still read
    by the new files, so the binding does not silently become dead.
@@ -35,7 +38,15 @@ the files alone, without a model and without the rules engine:
 The check fails closed. It refuses (exit status 2) whatever it cannot parse
 or resolve: a YAML mapping with a repeated key, a path that is not the exact
 canonical spelling of a file in the repo tree, a program scope entry or an
-import entry that it cannot resolve, and a rule with a non-string key.
+import entry that it cannot resolve, a program spec with a key or a value
+shape it does not know, and a rule with a non-string key. A numeric literal
+is folded (``1.50`` equals ``1.5``) only when it is a plain decimal; any
+other spelling (``03``, ``1_000``, ``1e3``) is compared as text.
+
+For a split or a move, every file that still names the old path is a
+required mechanical update and an issue: importers, program scopes, the
+companion ``.test.yaml`` and the top-level registry files (for example
+``known-validation-gaps.yaml`` and ``oracle-coverage-pending.yaml``).
 
 The check does not run companion tests, the oracle comparison or the
 reviewer; those stay with the existing gates. It reads one repository, so
@@ -65,7 +76,14 @@ RECORD_SCHEMA = "axiom-encode/replacement-behavior-change/v1"
 # Rule keys that are not part of a rule's interface or definition. Every
 # other key (kind, entity, dtype, period, unit, indexed_by, visibility, a
 # relation's ``data_relation`` block and anything new) is interface.
-NON_INTERFACE_KEYS = frozenset({"name", "source", "metadata", "summary", "versions"})
+# ``metadata`` is interface too, except the keys below.
+NON_INTERFACE_KEYS = frozenset({"name", "source", "summary", "versions"})
+# Rule ``metadata`` keys that are pure provenance. On rulespec-us main the
+# metadata keys are ``proof`` (proof atoms, read by proof validation only),
+# ``private`` (visibility) and a few scope notes; only ``proof`` is excluded.
+_RULE_METADATA_PROVENANCE_KEYS = frozenset({"proof"})
+# A plain decimal literal. Only this spelling is folded to a number.
+_STRICT_NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?")
 _DATE_KEYS = frozenset({"effective_from", "effective_to", "from", "to"})
 _STRING_LITERAL = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -78,7 +96,51 @@ _MAX_BYTES = 10 * 1024 * 1024
 _MODULE_METADATA_KEYS = frozenset(
     {"summary", "source_verification", "proof_validation"}
 )
-_INPUT_METADATA_KEYS = frozenset({"description", "source", "metadata", "summary"})
+# Input keys on rulespec-us main: name, description, dtype, entity, period,
+# unit. Only ``description`` is prose; every other key is compared.
+_INPUT_METADATA_KEYS = frozenset({"description"})
+# Program spec keys on rulespec-us main. A spec with any other key, or with
+# another value shape, is refused: the check cannot tell whether it names a
+# rule there.
+_PROGRAM_KEYS = frozenset(
+    {
+        "program",
+        "period",
+        "scope",
+        "outputs",
+        "auto_gate_outputs",
+        "acknowledged_incomplete",
+        "transformations",
+    }
+)
+_PROGRAM_NAME_LISTS = ("outputs", "auto_gate_outputs", "acknowledged_incomplete")
+_PROGRAM_SCOPE_KEYS = frozenset({"federal", "state"})
+# Transformation keys that label or type the transformed name.
+_TRANSFORMATION_LABEL_KEYS = frozenset(
+    {
+        "name",
+        "source",
+        "pattern",
+        "entity",
+        "dtype",
+        "period",
+        "unit",
+        "effective_from",
+        "arity",
+    }
+)
+# Transformation keys whose text names the rules that the transformation reads.
+_TRANSFORMATION_READ_KEYS = frozenset(
+    {
+        "condition",
+        "conditions",
+        "formula",
+        "relation",
+        "terms",
+        "when_true",
+        "when_false",
+    }
+)
 NOT_CHECKED = (
     "companion and dependent test results (rules engine)",
     "oracle or PolicyEngine comparison",
@@ -86,7 +148,8 @@ NOT_CHECKED = (
     "signature, manifest and replacement receipt",
     "readers in other jurisdiction repositories (for example rulespec-us-tn, "
     "rulespec-us-nc): only the given checkout is scanned",
-    "YAML outside jurisdiction directories and program specs",
+    "YAML outside jurisdiction directories, program specs and top-level registry files",
+    "companion tests of other modules and Python tests that name the old module",
 )
 
 
@@ -128,6 +191,23 @@ class _UniqueKeyLoader(getattr(yaml, "CSafeLoader", yaml.SafeLoader)):
                 raise _DuplicateKeyError(f"key {key!r} is repeated")
             seen.add(key)
         return super().construct_mapping(node, deep)
+
+    def _construct_number(self, node: Any) -> Any:
+        """Keep the spelling of a number that is not a plain decimal.
+
+        YAML 1.1 reads ``03`` as 3, ``010`` as 8 and ``1_000`` as 1000. A
+        reader with other rules can see another value, so only a plain
+        decimal becomes a number here; any other spelling stays text.
+        """
+
+        text = self.construct_scalar(node)
+        if not isinstance(text, str) or not _STRICT_NUMBER.fullmatch(text):
+            return text
+        return Decimal(text) if "." in text else int(text)
+
+
+for _tag in ("tag:yaml.org,2002:int", "tag:yaml.org,2002:float"):
+    _UniqueKeyLoader.add_constructor(_tag, _UniqueKeyLoader._construct_number)
 
 
 def _load_yaml(path: Path, label: str) -> Any:
@@ -200,12 +280,30 @@ def _formula_identifiers(rules: dict[str, dict[str, Any]]) -> set[str]:
     return names
 
 
-def _interface(rule: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: _normal_scalar(value)
-        for key, value in sorted(rule.items())
-        if key not in NON_INTERFACE_KEYS
+def _interface_metadata(metadata: Any) -> Any:
+    """Rule metadata without the pure-provenance keys; None when none is left."""
+
+    if not isinstance(metadata, dict):
+        return metadata
+    kept = {
+        key: value
+        for key, value in metadata.items()
+        if key not in _RULE_METADATA_PROVENANCE_KEYS
     }
+    return kept or None
+
+
+def _interface(rule: dict[str, Any]) -> dict[str, Any]:
+    interface = {}
+    for key, value in sorted(rule.items()):
+        if key in NON_INTERFACE_KEYS:
+            continue
+        if key == "metadata":
+            value = _interface_metadata(value)
+            if value is None:
+                continue
+        interface[key] = _normal_scalar(value)
+    return interface
 
 
 def _normal_text(text: str) -> str:
@@ -229,17 +327,25 @@ def _iso(value: Any, label: str) -> str:
     raise ReplacementCheckError(f"{label} is not an ISO date: {value!r}")
 
 
+def _normal_number(text: str) -> str:
+    try:
+        number = Decimal(text)
+    except InvalidOperation:
+        return text
+    return format(number.normalize(), "f") if number.is_finite() else text
+
+
 def _normal_scalar(value: Any) -> Any:
     if isinstance(value, bool) or value is None:
         return value
-    if isinstance(value, (int, float)):
-        return str(Decimal(str(value)).normalize())
+    if isinstance(value, (int, float, Decimal)):
+        return _normal_number(str(value))
     if isinstance(value, str):
-        try:
-            number = Decimal(value.strip())
-        except InvalidOperation:
-            return _normal_text(value)
-        return str(number.normalize()) if number.is_finite() else value.strip()
+        # ``Decimal()`` also accepts ``1.8_5``, ``03``, ``1e3`` and ``+1``.
+        # Only a plain decimal is folded; any other spelling is text.
+        if _STRICT_NUMBER.fullmatch(value.strip()):
+            return _normal_number(value.strip())
+        return _normal_text(value)
     if isinstance(value, dict):
         return {
             str(k): _normal_scalar(v)
@@ -255,7 +361,12 @@ def _timeline(rule: dict[str, Any], label: str) -> list[tuple[str, str | None, s
 
     if "versions" not in rule:
         # A relation or other versionless rule: one definition for all dates.
-        body = {k: v for k, v in rule.items() if k not in NON_INTERFACE_KEYS}
+        # Metadata is compared as interface, not as a dated definition.
+        body = {
+            k: v
+            for k, v in rule.items()
+            if k not in NON_INTERFACE_KEYS and k != "metadata"
+        }
         return [("0001-01-01", None, json.dumps(_normal_scalar(body), sort_keys=True))]
     entries = []
     for index, version in enumerate(rule.get("versions") or []):
@@ -483,6 +594,44 @@ def _rulespec_files(repo: Path) -> Iterable[Path]:
         yield path
 
 
+def _check_program_shape(program: dict[str, Any], label: str) -> None:
+    """Refuse a program spec with a key or a value shape the check does not know."""
+
+    unknown = sorted(repr(key) for key in program if key not in _PROGRAM_KEYS)
+    if unknown:
+        raise ReplacementCheckError(
+            f"{label} has program keys the check does not know: {', '.join(unknown)}"
+        )
+    for key in _PROGRAM_NAME_LISTS:
+        entries = program.get(key)
+        if entries is None:
+            continue
+        if not isinstance(entries, list) or not all(
+            isinstance(entry, str) and _IDENTIFIER.fullmatch(entry) for entry in entries
+        ):
+            raise ReplacementCheckError(
+                f"{label} has {key} that is not a list of rule names"
+            )
+    transformations = program.get("transformations")
+    if transformations is None:
+        return
+    if not isinstance(transformations, list):
+        raise ReplacementCheckError(f"{label} has transformations that are not a list")
+    for item in transformations:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            raise ReplacementCheckError(f"{label} has a transformation without a name")
+        unknown = sorted(
+            repr(key)
+            for key in item
+            if key not in _TRANSFORMATION_LABEL_KEYS | _TRANSFORMATION_READ_KEYS
+        )
+        if unknown:
+            raise ReplacementCheckError(
+                f"{label} transformation {item['name']} has keys the check does "
+                f"not know: {', '.join(unknown)}"
+            )
+
+
 def _program_scope_paths(program: dict[str, Any], spec: Path, repo: Path) -> list[str]:
     name = program.get("program")
     jurisdiction = (
@@ -499,6 +648,10 @@ def _program_scope_paths(program: dict[str, Any], spec: Path, repo: Path) -> lis
     if not isinstance(scope, dict):
         raise ReplacementCheckError(f"{label} has a scope that is not a mapping")
     for key, entries in scope.items():
+        if key not in _PROGRAM_SCOPE_KEYS:
+            raise ReplacementCheckError(
+                f"{label} has a scope key the check does not know: {key!r}"
+            )
         root = country if key == "federal" else jurisdiction
         if entries is None:
             continue
@@ -529,40 +682,75 @@ def _program_defined_names(program: dict[str, Any]) -> set[str]:
 
 
 def _program_read_names(program: dict[str, Any]) -> set[str]:
+    """Every rule name a program spec names. ``_check_program_shape`` ran first."""
+
     names = set()
-    for output in program.get("outputs") or []:
-        if isinstance(output, str):
-            names.add(output.strip())
+    for key in _PROGRAM_NAME_LISTS:
+        names.update(program.get(key) or [])
     for item in program.get("transformations") or []:
-        if isinstance(item, dict):
-            body = {
-                k: v
-                for k, v in item.items()
-                if k
-                not in {
-                    "name",
-                    "source",
-                    "pattern",
-                    "entity",
-                    "dtype",
-                    "period",
-                    "unit",
-                    "effective_from",
-                }
-            }
-            for text in _strings(body):
-                names.update(_IDENTIFIER.findall(text))
+        body = {k: v for k, v in item.items() if k in _TRANSFORMATION_READ_KEYS}
+        for text in _strings(body):
+            names.update(_IDENTIFIER.findall(text))
     return names
+
+
+def _all_strings(value: Any) -> Iterable[str]:
+    """Every string in a YAML value, mapping keys included."""
+
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _all_strings(key)
+            yield from _all_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _all_strings(item)
+
+
+def _registry_mentions(repo: Path, old_path: str, legal_id: str) -> dict[str, int]:
+    """{top-level YAML file: number of strings that name the old module}.
+
+    The top-level files are the registries (``known-validation-gaps.yaml``
+    keys a module by repo path, ``oracle-coverage-pending.yaml`` by
+    ``jurisdiction:module#name``). Each one is parsed; one the check cannot
+    parse is refused.
+    """
+
+    spellings = {old_path, old_path.removesuffix(".yaml"), legal_id}
+    mentions: dict[str, int] = {}
+    for name in sorted(os.listdir(repo)):
+        if not name.endswith((".yaml", ".yml")):
+            continue
+        path = repo / name
+        if path.is_symlink() or not path.is_file():
+            raise ReplacementCheckError(
+                f"top-level {name} is not a regular file; the check cannot read it"
+            )
+        count = sum(
+            1
+            for text in _all_strings(_load_yaml(path, "registry file"))
+            if text.strip() in spellings or text.strip().startswith(legal_id + "#")
+        )
+        if count:
+            mentions[name] = count
+    return mentions
 
 
 def _load_record(
     path: Path | None, old_path: str
-) -> tuple[dict[str, str], dict[str, str], set[str], set[str], list[Issue]]:
+) -> tuple[
+    dict[str, str],
+    dict[str, str],
+    set[str],
+    dict[str, dict[str, list[str]]],
+    list[Issue],
+]:
     """Declared changes {rule: effective_from}, removals, interface changes
     and module-level field changes."""
 
     if path is None:
-        return {}, {}, set(), set(), []
+        return {}, {}, set(), {}, []
     record = _load_yaml(path, "behavior-change record")
     findings: list[Issue] = []
     if not isinstance(record, dict) or record.get("schema") != RECORD_SCHEMA:
@@ -623,7 +811,7 @@ def _load_record(
                 )
             )
         removed[item["name"]] = item.get("reason") or ""
-    module_changes: set[str] = set()
+    module_changes: dict[str, dict[str, list[str]]] = {}
     for item in record.get("module_changes") or []:
         if not isinstance(item, dict) or not isinstance(item.get("field"), str):
             raise ReplacementCheckError("each module change needs a field")
@@ -634,7 +822,38 @@ def _load_record(
                     f"module change {item['field']} has no reason",
                 )
             )
-        module_changes.add(item["field"])
+        field = item["field"]
+        # An ``imports`` or ``inputs`` declaration lists the exact entries.
+        entry_keys = {
+            "imports": ("added", "removed"),
+            "inputs": ("added", "removed", "changed"),
+        }.get(field, ())
+        unread = sorted(
+            repr(key) for key in item if key not in {"field", "reason", *entry_keys}
+        )
+        if unread:
+            raise ReplacementCheckError(
+                f"module change {field} has keys the check does not read: "
+                f"{', '.join(unread)}"
+            )
+        detail: dict[str, list[str]] = {}
+        for key in entry_keys:
+            entries = item.get(key)
+            entries = [] if entries is None else entries
+            if (
+                not isinstance(entries, list)
+                or not all(isinstance(entry, str) for entry in entries)
+                or len(set(entries)) != len(entries)
+            ):
+                raise ReplacementCheckError(
+                    f"module change {field} needs {key} as a list of distinct strings"
+                )
+            detail[key] = sorted(entries)
+        if field in module_changes:
+            findings.append(
+                Issue("record_duplicate", f"{field} is declared more than once")
+            )
+        module_changes[field] = detail
     return changes, removed, interface_changes, module_changes, findings
 
 
@@ -759,6 +978,7 @@ def check_replacement(
         relative = spec.relative_to(repo).as_posix()
         if not isinstance(program, dict):
             raise ReplacementCheckError(f"program spec is not a mapping: {relative}")
+        _check_program_shape(program, relative)
         scope = _program_scope_paths(program, spec, repo)
         for member in scope:
             if tree.file(member) is None:
@@ -811,19 +1031,29 @@ def check_replacement(
                 )
             )
 
+    # The exact entries that changed, for the fields declared per entry.
+    observed: dict[str, dict[str, list[str]]] = {}
     if new_imports != old_imports:
         gone = sorted(_import_text(t) for t in old_imports - new_imports)
         come = sorted(_import_text(t) for t in new_imports - old_imports)
+        observed["imports"] = {"added": come, "removed": gone}
         field_changes["imports"] = (
             f"imports removed [{', '.join(gone)}], added [{', '.join(come)}]"
         )
-    changed_inputs = sorted(
-        name
-        for name in set(old_inputs) | set(new_inputs)
-        if new_inputs.get(name, set()) != {old_inputs.get(name)}
-    )
-    if changed_inputs:
-        field_changes["inputs"] = f"inputs changed: {', '.join(changed_inputs)}"
+    input_changes = {
+        "added": sorted(set(new_inputs) - set(old_inputs)),
+        "removed": sorted(set(old_inputs) - set(new_inputs)),
+        "changed": sorted(
+            name
+            for name in set(old_inputs) & set(new_inputs)
+            if new_inputs[name] != {old_inputs[name]}
+        ),
+    }
+    if any(input_changes.values()):
+        observed["inputs"] = input_changes
+        field_changes["inputs"] = "inputs " + ", ".join(
+            f"{key} [{', '.join(names)}]" for key, names in input_changes.items()
+        )
     for key, detail in sorted(field_changes.items()):
         if key not in declared_module:
             findings.append(
@@ -832,7 +1062,19 @@ def check_replacement(
                     f"{detail} and the record does not declare it",
                 )
             )
-    for key in sorted(declared_module - set(field_changes)):
+        elif declared_module[key] != observed.get(key, {}):
+            declared = ", ".join(
+                f"{name} [{', '.join(entries)}]"
+                for name, entries in declared_module[key].items()
+            )
+            findings.append(
+                Issue(
+                    "module_change_declaration_inexact",
+                    f"{detail}, but the record declares {declared}; the declared "
+                    "entries must equal the observed entries",
+                )
+            )
+    for key in sorted(set(declared_module) - set(field_changes)):
         findings.append(
             Issue(
                 "declared_module_change_absent",
@@ -984,6 +1226,24 @@ def check_replacement(
                 Issue(
                     "program_scope_not_updated",
                     f"{len(programs)} program spec(s) still scope {old_path}: {', '.join(programs)}",
+                )
+            )
+        companion = old_path.removesuffix(".yaml") + ".test.yaml"
+        if os.path.lexists(repo / companion):
+            mechanical.append({"kind": "companion_test", "path": companion})
+            findings.append(
+                Issue(
+                    "companion_test_not_moved",
+                    f"{companion} still tests {old_path}",
+                )
+            )
+        legal_id = f"{old_jurisdiction}:{old_module}"
+        for name, count in _registry_mentions(repo, old_path, legal_id).items():
+            mechanical.append({"kind": "registry_entry", "path": name, "count": count})
+            findings.append(
+                Issue(
+                    "registry_not_updated",
+                    f"{name} still names {old_path} in {count} place(s)",
                 )
             )
 

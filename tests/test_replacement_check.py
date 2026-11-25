@@ -570,8 +570,12 @@ def test_symlinked_old_path_is_refused(repo, tmp_path):
         check_replacement(repo, path, {path: candidate(tmp_path, old_rules())})
 
 
-def module_change_record(tmp_path, *fields):
-    changes = [{"field": field, "reason": "source moved"} for field in fields]
+def module_change_record(tmp_path, *fields, **entries):
+    """Declare ``fields``; ``entries`` gives the exact entries of one field."""
+
+    changes = [
+        {"field": field, "reason": "source moved", **entries} for field in fields
+    ]
     return record(tmp_path, module_changes=changes)
 
 
@@ -585,7 +589,9 @@ def test_module_imports_are_compared(repo, tmp_path):
     assert "us:statutes/a#x" in report["issues"][0]["message"]
     assert "us:statutes/b#x" in report["issues"][0]["message"]
     assert [item["field"] for item in report["module_changes"]] == ["imports"]
-    declared = module_change_record(tmp_path, "imports")
+    declared = module_change_record(
+        tmp_path, "imports", added=["us:statutes/b#x"], removed=["us:statutes/a#x"]
+    )
     assert check_replacement(repo, OLD, {OLD: moved}, declared)["passed"] is True
     absent = check_replacement(repo, OLD, {OLD: same}, declared)
     assert codes(absent) == ["declared_module_change_absent"]
@@ -619,7 +625,7 @@ def test_module_inputs_are_compared(repo, tmp_path, field, value):
     report = check_replacement(repo, OLD, {OLD: changed})
     assert codes(report) == ["undeclared_module_change"]
     assert "gross_income" in report["issues"][0]["message"]
-    declared = module_change_record(tmp_path, "inputs")
+    declared = module_change_record(tmp_path, "inputs", changed=["gross_income"])
     assert check_replacement(repo, OLD, {OLD: changed}, declared)["passed"] is True
     dropped = candidate(tmp_path, old_rules(), "d.yaml")
     assert codes(check_replacement(repo, OLD, {OLD: dropped})) == [
@@ -827,3 +833,313 @@ def test_repo_tree_is_byte_unchanged_after_a_run(repo, tmp_path, capsys):
     assert main(["--repo", str(repo), "--old", "./" + OLD, "--new", str(same)]) == 2
     capsys.readouterr()
     assert tree_state(repo) == before
+
+
+# Review round 3.
+
+
+@pytest.mark.parametrize("key", ["auto_gate_outputs", "acknowledged_incomplete"])
+def test_rule_named_only_in_a_program_name_list_has_a_reader(repo, tmp_path, key):
+    """A program spec reads every rule it names, not only its outputs."""
+
+    spec = repo / "programs/us-az/snap/fy-2026.yaml"
+    program = yaml.safe_load(spec.read_text())
+    program[key] = ["unread_flag"]
+    write(spec, program)
+    removed = candidate(
+        tmp_path, [item for item in old_rules() if item["name"] != "unread_flag"]
+    )
+    declared = record(tmp_path, removed=["unread_flag"])
+    report = check_replacement(repo, OLD, {OLD: removed}, declared)
+    assert "export_removed" in codes(report)
+    assert report["readers"]["unread_flag"] == ["programs/us-az/snap/fy-2026.yaml"]
+    retyped = candidate(
+        tmp_path,
+        [
+            rule("unread_flag", "within_limit", entity="Person")
+            if item["name"] == "unread_flag"
+            else item
+            for item in old_rules()
+        ],
+        "retyped.yaml",
+    )
+    declared = record(
+        tmp_path, interface_changes=[{"name": "unread_flag", "reason": "x"}]
+    )
+    report = check_replacement(repo, OLD, {OLD: retyped}, declared)
+    assert "export_type_changed" in codes(report)
+
+
+@pytest.mark.parametrize(
+    "change, match",
+    [
+        ({"gated_outputs": ["unread_flag"]}, "program keys"),
+        ({"outputs": [{"name": "snap_eligible"}]}, "outputs"),
+        ({"auto_gate_outputs": "snap_eligible"}, "auto_gate_outputs"),
+        (
+            {"acknowledged_incomplete": {"snap_eligible": "x"}},
+            "acknowledged_incomplete",
+        ),
+        ({"transformations": {"name": "x"}}, "transformations"),
+        (
+            {"transformations": [{"name": "x", "pattern": "all_of", "inputs": ["y"]}]},
+            "transformation x has keys",
+        ),
+        ({"scope": {"local": ["policies/des/ece/expanded"]}}, "scope key"),
+    ],
+)
+def test_unknown_program_shape_is_refused(repo, tmp_path, change, match):
+    # An unrelated spec: the refusal does not depend on the scope.
+    spec = repo / "programs/us-az/tanf/fy-2026.yaml"
+    write(spec, {**yaml.safe_load(spec.read_text()), **change})
+    with pytest.raises(ReplacementCheckError, match=match):
+        check_replacement(repo, OLD, {OLD: candidate(tmp_path, old_rules())})
+
+
+def with_metadata(metadata):
+    return [
+        dict(item, metadata=metadata) if item["name"] == "unread_flag" else item
+        for item in old_rules()
+    ]
+
+
+def test_rule_metadata_private_is_an_interface_change(repo, tmp_path):
+    """``metadata.private`` changes visibility; the proof block is provenance."""
+
+    proof = {"atoms": [{"path": "versions[0].formula", "kind": "source"}]}
+    write(repo / OLD, module(*with_metadata({"proof": proof})))
+    reproved = candidate(tmp_path, with_metadata({"proof": {"atoms": []}}))
+    assert check_replacement(repo, OLD, {OLD: reproved})["passed"] is True
+    no_proof = candidate(tmp_path, old_rules(), "n.yaml")
+    assert check_replacement(repo, OLD, {OLD: no_proof})["passed"] is True
+    private = candidate(
+        tmp_path, with_metadata({"proof": proof, "private": True}), "p.yaml"
+    )
+    report = check_replacement(repo, OLD, {OLD: private})
+    assert codes(report) == ["undeclared_interface_change"]
+    assert report["exports"]["type_changed"][0]["fields"] == ["metadata"]
+    noted = candidate(
+        tmp_path, with_metadata({"proof": proof, "caller_obligations": "x"}), "c.yaml"
+    )
+    assert codes(check_replacement(repo, OLD, {OLD: noted})) == [
+        "undeclared_interface_change"
+    ]
+
+
+def test_rule_metadata_private_on_a_read_rule_is_a_type_change(repo, tmp_path):
+    rules = [
+        dict(item, metadata={"private": True}) if item["name"] == "ece" else item
+        for item in old_rules()
+    ]
+    report = check_replacement(repo, OLD, {OLD: candidate(tmp_path, rules)})
+    assert codes(report) == ["export_type_changed"]
+
+
+def test_import_declaration_must_list_the_exact_entries(repo, tmp_path):
+    write(repo / OLD, module(*old_rules(), imports=["us:statutes/a#x"]))
+    moved = candidate(
+        tmp_path, old_rules(), imports=["us:statutes/b#x", "us:statutes/c#y"]
+    )
+    bare = module_change_record(tmp_path, "imports")
+    assert codes(check_replacement(repo, OLD, {OLD: moved}, bare)) == [
+        "module_change_declaration_inexact"
+    ]
+    partial = module_change_record(
+        tmp_path, "imports", added=["us:statutes/b#x"], removed=["us:statutes/a#x"]
+    )
+    report = check_replacement(repo, OLD, {OLD: moved}, partial)
+    assert codes(report) == ["module_change_declaration_inexact"]
+    assert "us:statutes/c#y" in report["issues"][0]["message"]
+    exact = module_change_record(
+        tmp_path,
+        "imports",
+        added=["us:statutes/c#y", "us:statutes/b#x"],
+        removed=["us:statutes/a#x"],
+    )
+    assert check_replacement(repo, OLD, {OLD: moved}, exact)["passed"] is True
+
+
+def test_input_declaration_must_list_the_exact_entries(repo, tmp_path):
+    def declared_input(name, **extra):
+        return {
+            "name": name,
+            "entity": "Household",
+            "dtype": "Money",
+            "period": "Month",
+            **extra,
+        }
+
+    write(
+        repo / OLD,
+        module(*old_rules(), inputs=[declared_input("a"), declared_input("b")]),
+    )
+    new = candidate(
+        tmp_path,
+        old_rules(),
+        inputs=[declared_input("a", dtype="Count"), declared_input("c")],
+    )
+    for entries in (
+        {},
+        {"changed": ["a"]},
+        {"changed": ["a"], "added": ["c"]},
+        {"changed": ["a", "b"], "added": ["c"]},
+        {"changed": ["a"], "added": ["c"], "removed": ["b", "z"]},
+    ):
+        inexact = module_change_record(tmp_path, "inputs", **entries)
+        assert codes(check_replacement(repo, OLD, {OLD: new}, inexact)) == [
+            "module_change_declaration_inexact"
+        ]
+    exact = module_change_record(
+        tmp_path, "inputs", changed=["a"], added=["c"], removed=["b"]
+    )
+    assert check_replacement(repo, OLD, {OLD: new}, exact)["passed"] is True
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"field": "imports", "reason": "x", "changed": ["us:statutes/a#x"]},
+        {"field": "imports", "reason": "x", "added": "us:statutes/a#x"},
+        {"field": "inputs", "reason": "x", "added": ["a", "a"]},
+        {"field": "format", "reason": "x", "added": ["a"]},
+    ],
+)
+def test_module_change_declaration_it_cannot_read_is_refused(repo, tmp_path, item):
+    declared = record(tmp_path, module_changes=[item])
+    with pytest.raises(ReplacementCheckError, match="module change"):
+        check_replacement(repo, OLD, {OLD: candidate(tmp_path, old_rules())}, declared)
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("1.85", "1.8_5"),
+        ("3", "03"),
+        ("1000", "1_000"),
+        ("1000", "1e3"),
+        ("1", "+1"),
+        ("0.5", ".5"),
+        ("8", "010"),
+    ],
+)
+@pytest.mark.parametrize("quoted", [True, False])
+def test_number_outside_the_strict_grammar_is_compared_as_text(
+    repo, tmp_path, old, new, quoted
+):
+    """``Decimal()`` and YAML 1.1 accept spellings another reader can read otherwise."""
+
+    def text(value):
+        value = f"'{value}'" if quoted else value
+        return (
+            "format: rulespec/v1\nmodule:\n  summary: x\nrules:\n"
+            "- name: limit_rate\n  kind: parameter\n  dtype: Rate\n"
+            f"  versions:\n  - effective_from: 0001-01-01\n    formula: {value}\n"
+        )
+
+    (repo / OLD).write_text(text(old))
+    same = tmp_path / "same.yaml"
+    same.write_text(text(old))
+    assert check_replacement(repo, OLD, {OLD: same})["passed"] is True
+    other = tmp_path / "other.yaml"
+    other.write_text(text(new))
+    assert codes(check_replacement(repo, OLD, {OLD: other})) == ["undeclared_change"]
+
+
+@pytest.mark.parametrize("old, new", [("1.85", "1.850"), ("3", "3.0"), ("-2", "-2.00")])
+def test_plain_decimals_with_one_value_are_equal(repo, tmp_path, old, new):
+    for index, (a, b) in enumerate([(old, new), (f"'{old}'", new), (old, f"'{new}'")]):
+        write(repo / OLD, module(rule("limit_rate", "0", kind="parameter")))
+        text = (repo / OLD).read_text()
+        (repo / OLD).write_text(text.replace("formula: '0'", f"formula: {a}"))
+        same = tmp_path / f"same-{index}.yaml"
+        same.write_text(text.replace("formula: '0'", f"formula: {b}"))
+        assert f"formula: {b}" in same.read_text()
+        assert check_replacement(repo, OLD, {OLD: same})["passed"] is True
+
+
+def test_unknown_input_key_is_compared(repo, tmp_path):
+    """Only ``description`` is prose; ``source``, ``metadata``, ``summary`` are not."""
+
+    declared_input = {"name": "gross_income", "entity": "Household", "dtype": "Money"}
+    for key in ("source", "metadata", "summary", "default"):
+        write(
+            repo / OLD,
+            module(*old_rules(), inputs=[dict(declared_input, **{key: "a"})]),
+        )
+        changed = candidate(
+            tmp_path, old_rules(), inputs=[dict(declared_input, **{key: "b"})]
+        )
+        report = check_replacement(repo, OLD, {OLD: changed})
+        assert codes(report) == ["undeclared_module_change"], key
+
+
+def split_files(tmp_path):
+    return {
+        "us-az/manual/des/faa5/ece/block-4.yaml": candidate(
+            tmp_path, old_rules(), "block-4.yaml"
+        )
+    }
+
+
+@pytest.fixture
+def unread_repo(repo):
+    """The old module with no importer and no scoping program spec."""
+
+    (repo / "us-az/policies/des/ece/benefit.yaml").unlink()
+    (repo / "us-az/policies/des/other/user.yaml").unlink()
+    (repo / "programs/us-az/snap/fy-2026.yaml").unlink()
+    return repo
+
+
+def test_split_with_no_importers_and_no_registry_entry_passes(unread_repo, tmp_path):
+    write(
+        unread_repo / "known-validation-gaps.yaml",
+        {"validate_failures": {"us-az/policies/des/ece/member.yaml": {"active": {}}}},
+    )
+    report = check_replacement(unread_repo, OLD, split_files(tmp_path))
+    assert report["passed"] is True
+    assert report["mechanical_updates"] == []
+
+
+def test_split_reports_registries_and_companion_test(unread_repo, tmp_path):
+    """Files that still name the old path are issues, not only ``not_checked``."""
+
+    write(
+        unread_repo / "known-validation-gaps.yaml",
+        {"validate_failures": {OLD: {"active": {"fingerprint": "sha256:0"}}}},
+    )
+    write(
+        unread_repo / "oracle-coverage-pending.yaml",
+        {
+            "version": 1,
+            "entries": [
+                {"legal_id": "us-az:policies/des/ece/expanded#ece"},
+                {"legal_id": "us-az:policies/des/ece/expanded#within_limit"},
+                {"legal_id": "us-az:policies/des/ece/expanded-other#ece"},
+            ],
+        },
+    )
+    companion = OLD.removesuffix(".yaml") + ".test.yaml"
+    write(unread_repo / companion, [{"name": "case", "output": {}}])
+    report = check_replacement(unread_repo, OLD, split_files(tmp_path))
+    assert codes(report) == [
+        "companion_test_not_moved",
+        "registry_not_updated",
+        "registry_not_updated",
+    ]
+    assert report["mechanical_updates"] == [
+        {"kind": "companion_test", "path": companion},
+        {"kind": "registry_entry", "path": "known-validation-gaps.yaml", "count": 1},
+        {"kind": "registry_entry", "path": "oracle-coverage-pending.yaml", "count": 2},
+    ]
+    # A same-path replacement keeps the path, so nothing has to move.
+    same = check_replacement(
+        unread_repo, OLD, {OLD: candidate(tmp_path, old_rules(), "same.yaml")}
+    )
+    assert same["passed"] is True
+
+
+def test_registry_the_check_cannot_parse_is_refused(unread_repo, tmp_path):
+    (unread_repo / "known-validation-gaps.yaml").write_text("a: 1\na: 2\n")
+    with pytest.raises(ReplacementCheckError, match="registry file"):
+        check_replacement(unread_repo, OLD, split_files(tmp_path))
