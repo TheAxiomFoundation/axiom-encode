@@ -18270,6 +18270,271 @@ def _without_us_manual_locators(text: str, *, corpus_citation_path: str) -> str:
     return masked
 
 
+# ---------------------------------------------------------------------------
+# US manual pages: numbers that are page furniture, not rule values.
+#
+# Every rule below is a positive shape, applies only on a US manual page path
+# (`.../<prefix>-<NNN>-<slug>/page-<P>`), and blanks only the digits it names.
+# Anything that is not positively recognized keeps its obligation.
+_US_MANUAL_SECTION_PAGE_PATH = re.compile(
+    r"/(?:[a-z]{2,12}-)?(?P<section>\d{3,4})(?:-[a-z0-9-]+)?/page-(?P<page>\d{1,4})\Z"
+)
+_US_MANUAL_MONTH = (
+    r"(?:January|February|March|April|May|June|July|August|September|October|"
+    r"November|December)"
+)
+# The running header of a paginated section: `16 Section 315 Change #01-2022
+# January 11, 2022`. The section part is optional and may read `FNS 315` or
+# `Appendix 3100`; the change notice is `#01-2022`, `#3 -2017`, `#3 2017`,
+# `03-2021` or `#6-20XX`, always followed by a full `Month D, YYYY` date. Some
+# PDFs extract the `ti` ligature of `Section` as the single glyph U+019F. The
+# page number must equal the page of the citation path, and a section part
+# must equal the path's section; only the first header of the unit, within
+# its first 400 characters, is read.
+_US_MANUAL_CHANGE_NOTICE_HEADER = re.compile(
+    r"(?<![\w$.,-])(?P<page>\d{1,4})\s+"
+    r"(?:(?:Sec(?:ti|Ɵ)on|FNS|Appendix)[ \t]+(?P<section>\d{3,4})[ \t]+)?"
+    r"Change[ \t]+#?(?P<change>\d{1,2}[ \t]*(?:-|[ \t])[ \t]*(?:19|20)(?:\d{2}|XX))"
+    rf"[ \t]+{_US_MANUAL_MONTH}[ \t]+\d{{1,2}},[ \t]+(?:19|20)\d{{2}}(?![\w-])"
+)
+_US_MANUAL_HEADER_WINDOW = 400
+_US_MANUAL_QUANTITY_WORD = (
+    r"(?i:Percent|Percentage|Times|Dollars?|Cents?|Days?|Weeks?|Months?|Years?|"
+    r"Hours?|Persons?|People|Members?|Million|Billion|Thousand|Business|Calendar|"
+    r"Working)\b"
+)
+# What may not stand directly before a section label: a word character, a
+# currency sign, part of a number, or an arithmetic operator.
+_US_MANUAL_LABEL_START = r"(?<![\w$¢£¥€.,/+=×÷*#-])(?<![$¢£¥€+=×÷*/-][ \t])"
+_US_MANUAL_LABEL_END = r"(?![\w%]|[.,]\d)"
+_US_MANUAL_GLYPH_SECTION = re.compile(r"(?<![A-Za-z])SecƟon(?=[ \t]+\d)")
+# A flattened list marker that opens a sentence: `... verification. 2. If the
+# FNS unit ...`. The marker is at most two digits, the text before it ends a
+# sentence (or the marker opens a line or the page body), a word that starts
+# with a capital letter follows the period, and that word is not a quantity
+# word (`30. Days`). A marker whose item is a number or an amount is demanded. The marker must also belong to a run (see
+# `_us_manual_sentence_opening_enumerators`).
+_US_MANUAL_INLINE_ENUMERATOR = re.compile(
+    r"(?<![\w$¢£¥€.,/+=×÷*#-])(?P<number>[1-9]\d?)\."
+    rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD})[A-Z])"
+)
+# The all-capital words of a heading title: two or more capital letters
+# each, or `&`. A single capital letter is not a title word: it is an outline
+# marker (`STRIKERS A. Households`) or opens the body (`PAYMENTS A payee`).
+_US_MANUAL_TITLE_RUN = re.compile(
+    r"(?:[ \t]+(?:&|\(?[A-Z][A-Z&/'’-]+\)?[,:]?)(?![A-Za-z]))+"
+)
+_US_MANUAL_AFTER_TITLE = re.compile(r"[ \t]*(?:\Z|\n|[A-Z]|[1-9]\d?\.(?:\s|\Z)|[•(])")
+_US_MANUAL_LINE_START_ENUMERATOR = re.compile(r"(?m)^[ \t]*\d+[a-z]?\.[ \t]+")
+_US_MANUAL_SENTENCE_END_BEFORE = re.compile(r"[.;?!][)\"”’]?\Z")
+# A period that closes an abbreviation does not end a sentence, so the number
+# after it is not a list marker (`approx. 30.`, `(max.) 60.`, `e.g. 10.`).
+_US_MANUAL_ABBREVIATION_BEFORE = re.compile(
+    r"(?i:(?<![A-Za-z])(?:approx|max|min|nos?|est|ca|vs|etc|incl|excl|avg|"
+    r"p|pp|pg|ch|par|sec|amt|hrs?|"
+    r"e\.[ \t]?g|i\.[ \t]?e)\.[)\"”’]?)\Z"
+)
+
+
+def _us_manual_section_page(corpus_citation_path: str) -> tuple[str, int] | None:
+    """The section number and page of a US manual page path, else None."""
+
+    if not _is_us_manual_citation_path(corpus_citation_path):
+        return None
+    match = _US_MANUAL_SECTION_PAGE_PATH.search(corpus_citation_path)
+    if match is None:
+        return None
+    return match["section"], int(match["page"])
+
+
+def _us_manual_change_notice_header(
+    text: str, *, corpus_citation_path: str
+) -> re.Match[str] | None:
+    """The unit's running page header, with the path's page and section."""
+
+    section_page = _us_manual_section_page(corpus_citation_path)
+    if section_page is None:
+        return None
+    header = _US_MANUAL_CHANGE_NOTICE_HEADER.search(
+        text, 0, min(len(text), _US_MANUAL_HEADER_WINDOW)
+    )
+    if (
+        header is None
+        or int(header["page"]) != section_page[1]
+        or header["section"] not in (None, section_page[0])
+    ):
+        return None
+    return header
+
+
+def _us_manual_opens_sentence(text: str, start: int, *, body_start: int | None) -> bool:
+    """Whether `start` opens the text, a line, the page body or a sentence."""
+
+    before = text[:start].rstrip(" \t")
+    if not before or before.endswith("\n"):
+        return True
+    if len(before) == start:
+        return False
+    if body_start is not None and len(before) == body_start:
+        return True
+    return bool(
+        _US_MANUAL_SENTENCE_END_BEFORE.search(before[-3:])
+        and not _US_MANUAL_ABBREVIATION_BEFORE.search(before[-12:])
+    )
+
+
+def _us_manual_title_follows(text: str, start: int) -> bool:
+    """Whether a heading title follows: capital words, then no lower-case word.
+
+    The title is the run of all-capital words on the line. It holds at least
+    two words of four or more letters. After it comes the end of the line or
+    text, a list or outline marker, or a word that starts with a capital
+    letter. A lower-case word after the capitals means running text (`GROSS
+    INCOME is the limit`), so the label keeps its demand.
+    """
+
+    title = _US_MANUAL_TITLE_RUN.match(text, start)
+    if title is None:
+        return False
+    long_words = re.findall(r"(?<![A-Za-z])[A-Z]{4,}(?![A-Za-z])", title[0])
+    return len(long_words) >= 2 and bool(
+        _US_MANUAL_AFTER_TITLE.match(text, title.end())
+    )
+
+
+def _us_manual_own_section_label_matches(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[re.Match[str], bool], ...]:
+    """Labels `<own section>.<nn>`; the flag is True for a heading.
+
+    The section is the document's own number from the citation path, and the
+    label has exactly two decimals. A heading is the label (never `.00`) that
+    opens a sentence, a line or the page body, directly before an all-capital
+    title that holds at least two words of four or more letters, does not
+    open with a quantity word and is not followed by a lower-case word
+    (`315.27 REPRESENTATIVE PAYMENTS Representative ...`), outside a row of a
+    quantity table. A reference is the label after `See`/`see`,
+    closed by a subdivision letter or the end of the sentence (`see 315.28
+    F.`), or after `in` in the comma form only (`in 360.04, D.`). Only the
+    label is released, never a number after it.
+    """
+
+    section_page = _us_manual_section_page(corpus_citation_path)
+    if section_page is None:
+        return ()
+    own = re.escape(section_page[0])
+    heading = re.compile(
+        rf"{_US_MANUAL_LABEL_START}(?P<label>{own}\.(?!00)\d{{2}})"
+        rf"{_US_MANUAL_LABEL_END}"
+        rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD})[A-Z]{{4,}}(?![A-Za-z]))"
+    )
+    reference = re.compile(
+        rf"(?<![A-Za-z])(?:[Ss]ee[ \t]+(?P<label>{own}\.\d{{2}})"
+        rf"{_US_MANUAL_LABEL_END}"
+        r"(?=\)[.;,]?(?:\s|\Z)|[.;](?:\s|\Z)|,?[ \t]+[A-Z][.,])"
+        rf"|in[ \t]+(?P<in_label>{own}\.\d{{2}})(?=,[ \t]+[A-Z][.,]))"
+    )
+    header = _us_manual_change_notice_header(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    body_start = header.end() if header is not None else None
+    # A quantity table has priority over a heading reading, as it has for the
+    # line-start heading labels: a row under a quantity caption stays a value.
+    quantity_lines = _manual_quantity_line_starts(text)
+    return (
+        *(
+            (match, True)
+            for match in heading.finditer(text)
+            if text.rfind("\n", 0, match.start()) + 1 not in quantity_lines
+            and _us_manual_opens_sentence(text, match.start(), body_start=body_start)
+            and _us_manual_title_follows(text, match.end())
+        ),
+        *((match, False) for match in reference.finditer(text)),
+    )
+
+
+def _us_manual_sentence_opening_enumerators(
+    text: str, *, body_start: int | None
+) -> tuple[re.Match[str], ...]:
+    """Inline list markers that open a sentence and belong to a run.
+
+    A candidate opens a sentence, a line or the page body, and a word follows
+    it. Candidates whose numbers ascend by one form a run. A run of two or
+    more is a list only when at least one of its members stands where the
+    line-start rule reads a list marker; then every member is a marker. A
+    lone candidate, and a run with no member at a line start, stay demanded.
+    """
+
+    candidates = [
+        marker
+        for marker in _US_MANUAL_INLINE_ENUMERATOR.finditer(text)
+        if _us_manual_opens_sentence(text, marker.start(), body_start=body_start)
+    ]
+    line_starts = {
+        match.end() - len(match[0].lstrip(" \t"))
+        for match in _US_MANUAL_LINE_START_ENUMERATOR.finditer(text)
+    }
+    markers: list[re.Match[str]] = []
+    run: list[re.Match[str]] = []
+    for marker in (*candidates, None):
+        if (
+            marker is not None
+            and run
+            and int(marker["number"]) == int(run[-1]["number"]) + 1
+        ):
+            run.append(marker)
+            continue
+        if len(run) >= 2 and any(member.start() in line_starts for member in run):
+            markers.extend(run)
+        run = [marker] if marker is not None else []
+    return tuple(markers)
+
+
+def _us_manual_page_role_spans(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[int, int], ...]:
+    """Digits of page furniture on a US manual page (see the rules above)."""
+
+    if _us_manual_section_page(corpus_citation_path) is None:
+        return ()
+    spans: list[tuple[int, int]] = []
+    header = _us_manual_change_notice_header(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    if header is not None:
+        spans.extend(
+            header.span(name)
+            for name in ("page", "section", "change")
+            if header[name] is not None
+        )
+    for label, _is_heading in _us_manual_own_section_label_matches(
+        text, corpus_citation_path=corpus_citation_path
+    ):
+        spans.extend(
+            label.span(name)
+            for name in ("label", "in_label")
+            if label.groupdict().get(name) is not None
+        )
+    for glyph in _US_MANUAL_GLYPH_SECTION.finditer(text):
+        # Read the glyph spelling exactly as `Section`: the same citation
+        # grammar decides which numbers follow it.
+        tail_start = glyph.end()
+        probe = "Section" + text[tail_start : tail_start + 120]
+        citation = _ENGLISH_LEGAL_CITATION.match(probe)
+        if citation is not None:
+            spans.append((tail_start, tail_start + citation.end() - len("Section")))
+    for marker in _us_manual_sentence_opening_enumerators(
+        text, body_start=header.end() if header is not None else None
+    ):
+        spans.append(marker.span("number"))
+    return tuple(
+        (index, index + 1)
+        for start, end in spans
+        for index in range(start, end)
+        if text[index].isdigit()
+    )
+
+
 def _corroborated_form_output_label_spans(
     source_text: str,
 ) -> tuple[tuple[int, int], ...]:
@@ -18817,6 +19082,12 @@ def authoritative_numeric_recall_text(
     mask = _mask_numeric_spans if _source_map is None else _source_map.mask
     source_text = _without_us_manual_locators(
         source_text, corpus_citation_path=corpus_citation_path
+    )
+    source_text = mask(
+        source_text,
+        _us_manual_page_role_spans(
+            source_text, corpus_citation_path=corpus_citation_path
+        ),
     )
     source_text = mask(source_text, form_numeric_locator_spans(source_text))
     # This mask runs before the context-sensitive recognizers below, so they
