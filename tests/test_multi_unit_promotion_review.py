@@ -243,6 +243,64 @@ def test_the_second_unit_without_a_passed_review_stops_the_batch(
     reviewed.assert_nothing_written()
 
 
+@pytest.mark.parametrize("which", ["isolated", "full"])
+def test_a_failed_validation_pass_stops_the_batch_before_any_review(
+    reviewed, monkeypatch, which
+):
+    """Each review runs only after both validation passes of every unit."""
+    reviewed.args.require_review = True
+    reviewed.fail_validation = "b"
+    reviewed.fail_validation_pass = which
+
+    with pytest.raises(RuntimeError) as refused:
+        reviewed(monkeypatch)
+
+    message = str(refused.value)
+    assert message.startswith(f"unit {citation('b')} ({primary('b')}): ")
+    if which == "full":
+        assert "with the other units of the batch present" in message
+        assert reviewed.passes == [
+            ("a", "isolated"),
+            ("a", "full"),
+            ("b", "isolated"),
+            ("b", "full"),
+        ]
+    else:
+        assert reviewed.passes == [("a", "isolated"), ("a", "full"), ("b", "isolated")]
+    assert reviewed.reviews() == []
+    assert reviewed.signed == []
+    assert reviewed.installs == []
+    reviewed.assert_nothing_written()
+
+
+def test_every_review_follows_both_passes_of_every_unit(reviewed, monkeypatch):
+    reviewed.args.require_review = True
+    log: list[tuple[str, str]] = []
+    real_validate = reviewed._validate
+
+    def validate(result, **kwargs):
+        outcome = real_validate(result, **kwargs)
+        log.append(("validate", reviewed.passes[-1][0] + ":" + reviewed.passes[-1][1]))
+        return outcome
+
+    reviewed._validate = validate
+    real_events = reviewed.events
+
+    class Log(list):
+        def append(self, item):
+            log.append(item)
+            super().append(item)
+
+    reviewed.events = Log(real_events)
+    reviewed(monkeypatch)
+
+    assert log == [
+        ("validate", f"{name}:{which}")
+        for name in NAMES
+        for which in ("isolated", "full")
+    ] + [("review", name) for name in NAMES] + [("sign", name) for name in NAMES]
+
+
 # --- (c) the switch off: no reviewer ------------------------------------------
 
 
