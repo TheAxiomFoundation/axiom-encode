@@ -26,11 +26,24 @@ def main():
     parser.add_argument("--selector", type=Path)
     parser.add_argument("--repo", type=Path)
     parser.add_argument("--attestation", type=Path)
+    parser.add_argument("--main-proof", type=Path)
     args = parser.parse_args()
     admission = load("reviewed_pr_admission")
     if args.command == "verify-publication":
         payload = json.loads(args.attestation.read_text())
-        admission.revalidate_admission(payload["reviewed_pr_admission"])
+        if args.main_proof is None:
+            admission.revalidate_admission(payload["reviewed_pr_admission"])
+            return
+        # The head of RuleSpec main that this last check proved, for the lane
+        # pull request. Nothing is written while the base-advance switch is
+        # off: main is then the candidate's base.
+        _admitted, proof = admission.revalidate_admission_with_main(
+            payload["reviewed_pr_admission"]
+        )
+        if proof is not None:
+            with args.main_proof.open("x") as stream:
+                json.dump(proof, stream, sort_keys=True)
+                stream.write("\n")
         return
     helper = load("prepare_signed_backfill")
     dispatch = json.loads(os.environ["DISPATCH_JSON"])

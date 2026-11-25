@@ -54,7 +54,7 @@
         17,
         "1ba1f29563be1d8315fcaceeab77711ad28805402e99736e6b1d80302130e336"
       ],
-      "revalidation/dependency": [
+      "revalidation/as-admitted/dependency": [
         [
           "error",
           "AdmissionError",
@@ -63,7 +63,43 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/plumbing": [
+      "revalidation/as-admitted/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-sha-missing": [
         [
           "error",
           "AdmissionError",
@@ -72,7 +108,34 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unchanged": [
+      "revalidation/as-admitted/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/unchanged": [
         [
           "ok",
           "a1e3b6a8365d2aaf789bbc08df725af579efb292bcf614f54aa327c164282157"
@@ -80,7 +143,7 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unknown": [
+      "revalidation/as-admitted/unknown": [
         [
           "error",
           "AdmissionError",
@@ -88,6 +151,270 @@
         ],
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/with-advance/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ]
+    },
+    "approval/main/no-object": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "approval/main/not-a-mapping": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "approval/main/null": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "approval/main/object-not-a-mapping": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "approval/main/sha-missing": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "approval/main/sha-not-text": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
       ]
     },
     "approval/single/extra": {
@@ -110,7 +437,7 @@
         13,
         "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
       ],
-      "revalidation/dependency": [
+      "revalidation/as-admitted/dependency": [
         [
           "error",
           "AdmissionError",
@@ -119,7 +446,43 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/plumbing": [
+      "revalidation/as-admitted/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-sha-missing": [
         [
           "error",
           "AdmissionError",
@@ -128,7 +491,34 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unchanged": [
+      "revalidation/as-admitted/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/unchanged": [
         [
           "ok",
           "266da988e22058577ca2d98f53868ce485a254ed9a9ee5269ac8651f09f658e7"
@@ -136,7 +526,7 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unknown": [
+      "revalidation/as-admitted/unknown": [
         [
           "error",
           "AdmissionError",
@@ -144,6 +534,204 @@
         ],
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/with-advance/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
       ]
     },
     "approval/single/index": {
@@ -155,7 +743,7 @@
         13,
         "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
       ],
-      "revalidation/dependency": [
+      "revalidation/as-admitted/dependency": [
         [
           "error",
           "AdmissionError",
@@ -164,7 +752,43 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/plumbing": [
+      "revalidation/as-admitted/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-sha-missing": [
         [
           "error",
           "AdmissionError",
@@ -173,7 +797,34 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unchanged": [
+      "revalidation/as-admitted/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/unchanged": [
         [
           "ok",
           "266da988e22058577ca2d98f53868ce485a254ed9a9ee5269ac8651f09f658e7"
@@ -181,7 +832,7 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unknown": [
+      "revalidation/as-admitted/unknown": [
         [
           "error",
           "AdmissionError",
@@ -189,6 +840,204 @@
         ],
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/with-advance/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
       ]
     },
     "approval/single/main-moved": {
@@ -266,7 +1115,7 @@
         13,
         "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
       ],
-      "revalidation/dependency": [
+      "revalidation/as-admitted/dependency": [
         [
           "error",
           "AdmissionError",
@@ -275,7 +1124,43 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/plumbing": [
+      "revalidation/as-admitted/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-sha-missing": [
         [
           "error",
           "AdmissionError",
@@ -284,7 +1169,34 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unchanged": [
+      "revalidation/as-admitted/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/unchanged": [
         [
           "ok",
           "266da988e22058577ca2d98f53868ce485a254ed9a9ee5269ac8651f09f658e7"
@@ -292,7 +1204,7 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unknown": [
+      "revalidation/as-admitted/unknown": [
         [
           "error",
           "AdmissionError",
@@ -300,6 +1212,204 @@
         ],
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/with-advance/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
       ]
     },
     "dispatch/advance/batch": {
@@ -355,7 +1465,7 @@
         17,
         "1ba1f29563be1d8315fcaceeab77711ad28805402e99736e6b1d80302130e336"
       ],
-      "revalidation/dependency": [
+      "revalidation/as-admitted/dependency": [
         [
           "error",
           "AdmissionError",
@@ -364,7 +1474,43 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/plumbing": [
+      "revalidation/as-admitted/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-sha-missing": [
         [
           "error",
           "AdmissionError",
@@ -373,7 +1519,34 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unchanged": [
+      "revalidation/as-admitted/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/unchanged": [
         [
           "ok",
           "707e71944931a41eff9968b77e57a0355e0a876a137a850ee9b474c7578580f1"
@@ -381,7 +1554,7 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unknown": [
+      "revalidation/as-admitted/unknown": [
         [
           "error",
           "AdmissionError",
@@ -389,6 +1562,270 @@
         ],
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/with-advance/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ]
+    },
+    "dispatch/main/no-object": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "dispatch/main/not-a-mapping": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "dispatch/main/null": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "dispatch/main/object-not-a-mapping": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "dispatch/main/sha-missing": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ]
+    },
+    "dispatch/main/sha-not-text": {
+      "admission": [
+        [
+          "error",
+          "AdmissionError",
+          "PR base is not the current main head"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
       ]
     },
     "dispatch/single/extra": {
@@ -411,7 +1848,7 @@
         13,
         "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
       ],
-      "revalidation/dependency": [
+      "revalidation/as-admitted/dependency": [
         [
           "error",
           "AdmissionError",
@@ -420,7 +1857,43 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/plumbing": [
+      "revalidation/as-admitted/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-sha-missing": [
         [
           "error",
           "AdmissionError",
@@ -429,7 +1902,34 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unchanged": [
+      "revalidation/as-admitted/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/unchanged": [
         [
           "ok",
           "6de06d44096723056e5c8d6f0945887b42f7bedc74eec9ee0eaf35bdbec897ba"
@@ -437,7 +1937,7 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unknown": [
+      "revalidation/as-admitted/unknown": [
         [
           "error",
           "AdmissionError",
@@ -445,6 +1945,204 @@
         ],
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/with-advance/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
       ]
     },
     "dispatch/single/index": {
@@ -456,7 +2154,7 @@
         13,
         "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
       ],
-      "revalidation/dependency": [
+      "revalidation/as-admitted/dependency": [
         [
           "error",
           "AdmissionError",
@@ -465,7 +2163,43 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/plumbing": [
+      "revalidation/as-admitted/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-sha-missing": [
         [
           "error",
           "AdmissionError",
@@ -474,7 +2208,34 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unchanged": [
+      "revalidation/as-admitted/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/unchanged": [
         [
           "ok",
           "6de06d44096723056e5c8d6f0945887b42f7bedc74eec9ee0eaf35bdbec897ba"
@@ -482,7 +2243,7 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unknown": [
+      "revalidation/as-admitted/unknown": [
         [
           "error",
           "AdmissionError",
@@ -490,6 +2251,204 @@
         ],
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/with-advance/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
       ]
     },
     "dispatch/single/main-moved": {
@@ -567,7 +2526,7 @@
         13,
         "b3264170ebcc9b69d268010e53a885c4777d5422900bea09fa0454614078f851"
       ],
-      "revalidation/dependency": [
+      "revalidation/as-admitted/dependency": [
         [
           "error",
           "AdmissionError",
@@ -576,7 +2535,43 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/plumbing": [
+      "revalidation/as-admitted/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/as-admitted/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/main-sha-missing": [
         [
           "error",
           "AdmissionError",
@@ -585,7 +2580,34 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unchanged": [
+      "revalidation/as-admitted/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main object is not an object"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/as-admitted/unchanged": [
         [
           "ok",
           "6de06d44096723056e5c8d6f0945887b42f7bedc74eec9ee0eaf35bdbec897ba"
@@ -593,7 +2615,7 @@
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
       ],
-      "revalidation/unknown": [
+      "revalidation/as-admitted/unknown": [
         [
           "error",
           "AdmissionError",
@@ -601,6 +2623,204 @@
         ],
         4,
         "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "GitHub main ref is not an object"
+        ],
+        3,
+        "1b57854450e67bdaaea272d8a13cc181aa5a9414107b4b5df8e6127355724ad4"
+      ],
+      "revalidation/other-base/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/other-base/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "live approval or candidate differs from provisioned admission"
+        ],
+        4,
+        "5f119a8ab53f96cd60663d8ec72a493729db51470e7d7d4a1054ad8613e66f99"
+      ],
+      "revalidation/with-advance/dependency": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-no-object": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-null": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-missing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/main-sha-not-text": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/other-approval-and-main-object-not-a-mapping": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/plumbing": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unchanged": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      ],
+      "revalidation/with-advance/unknown": [
+        [
+          "error",
+          "AdmissionError",
+          "invalid provisioned admission"
+        ],
+        0,
+        "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
       ]
     }
   }

@@ -11,11 +11,9 @@ import base64
 import hashlib
 import json
 import re
-import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Callable, Final
 
 # The same human owners who authorize encoder signing-critical changes. Numeric
@@ -100,28 +98,32 @@ MAX_SELECTOR_BYTES: Final = 4096
 # proven from live GitHub state:
 #   - the base is on the first-parent history of ``main`` (it was a head of
 #     ``main``), at most ``MAX_BASE_ADVANCE_COMMITS`` first-parent commits
-#     back, and ``main`` first moved past it at most
-#     ``MAX_BASE_ADVANCE_SECONDS`` ago;
+#     back;
 #   - every file that existed at the base and is not repository plumbing is
 #     the same object at the head of ``main`` (path, type, mode, object ID):
 #     nothing the candidate was validated against was changed, deleted,
 #     renamed or retyped;
-#   - every other difference is a new regular file that is a RuleSpec module
-#     or companion of this country, or a signed manifest of one;
+#   - every other difference is a new regular file at the canonical path of a
+#     RuleSpec module, companion or signed manifest, in a jurisdiction that is
+#     unrelated to every unit: not the unit's own jurisdiction root, not one
+#     above it (``us`` for ``us-az``) and not one below it. A new module in a
+#     related root can change the unit's verdict (a duplicate of an upstream
+#     rule, a sibling rule name, a child fragment, an import that it shadows),
+#     and the signing run validates the candidate head, which does not hold
+#     it. Such a move of ``main`` refuses;
 #   - no new path on ``main`` is, or collides with, a path of the candidate's
 #     units or of their manifests.
 # The rule needs no list of what a validation reads: it holds for every file
-# of the base. It does not make the signing run validate the tree that lands;
-# RuleSpec CI does that on the final tree, as it does today for every move of
-# ``main`` after a signature.
+# of the base.
+#
+# There is no bound in time. A commit date is set by whoever makes the
+# commit, and the anonymous API gives no time of the push; the binding bound
+# is the number of first-parent commits.
 #
 # The switch is a constant on encoder main, read at call time: no environment
 # variable, CLI flag, dispatch input or repository setting turns it.
 BASE_ADVANCE_ADMISSION_ENABLED: Final[bool] = False
 MAX_BASE_ADVANCE_COMMITS: Final = 20
-MAX_BASE_ADVANCE_SECONDS: Final = 24 * 60 * 60
-# A commit of ``main`` may be dated this far after the local clock.
-BASE_ADVANCE_CLOCK_SKEW_SECONDS: Final = 300
 # The most units of a candidate on an older base: again the anonymous budget.
 # The proof costs 2 more reads at an admission (the comparison of the base
 # with the head of ``main``, and the tree of that head) and 3 more at a
@@ -145,6 +147,10 @@ BASE_ADVANCE_PLUMBING_FILES: Final = frozenset(
     {"CLAUDE.md", "LICENSE", "LICENSE-CODE", "NOTICE", "README.md"}
 )
 MANIFEST_ROOT: Final = ".axiom/encoding-manifests/"
+# ``constants.RULESPEC_ATOMIC_MODULE_ROOTS``, repeated for the same reason.
+BASE_ADVANCE_MODULE_ROOTS: Final = frozenset(
+    {"legislation", "policies", "regulations", "statutes"}
+)
 STALE_BASE_ERROR: Final = "PR base is not the current main head"
 
 
@@ -811,11 +817,29 @@ def _enrolled_dispatcher(run: dict, selector: PromotionSelector) -> dict:
 
 
 def revalidate_admission(
-    expected: object,
-    *,
-    fetch: Callable[[str], object] = github_json,
-    now: Callable[[], float] = time.time,
+    expected: object, *, fetch: Callable[[str], object] = github_json
 ) -> dict:
+    return _revalidate(expected, fetch)[0]
+
+
+def revalidate_admission_with_main(
+    expected: object, *, fetch: Callable[[str], object] = github_json
+) -> tuple[dict, dict | None]:
+    """Revalidate, and also return the head of ``main`` that was proven.
+
+    The second value is ``None`` while the base-advance switch is off: the
+    head of ``main`` is then the base. With the switch on it is the record of
+    this revalidation's own proof (``BASE_ADVANCE_SCHEMA``): the live head of
+    ``main``, also when that is the base. The publication step writes it to
+    the lane pull request, so the last proven head is on record outside the
+    run.
+    """
+    return _revalidate(expected, fetch)
+
+
+def _revalidate(
+    expected: object, fetch: Callable[[str], object]
+) -> tuple[dict, dict | None]:
     payload = _object(expected, "provisioned admission")
     basis = payload.get("admission_basis")
     if not isinstance(basis, str) or basis not in _BASIS_EVIDENCE_FIELD:
@@ -871,7 +895,21 @@ def revalidate_admission(
         evidence_unchanged = (
             _approved_reviews(reviews, selector, author_id) == payload["approvals"]
         )
-    main_sha = _object(main.get("object"), "main object").get("sha")
+    if BASE_ADVANCE_ADMISSION_ENABLED is not True:
+        if (
+            base
+            != (
+                _batch_records_base(payload["records"], selector)
+                if batch
+                else payload["record"]["base_sha"]
+            )
+            or _object(main.get("object"), "main object").get("sha") != base
+            or not evidence_unchanged
+        ):
+            raise AdmissionError(
+                "live approval or candidate differs from provisioned admission"
+            )
+        return payload, None
     if (
         base
         != (
@@ -879,25 +917,22 @@ def revalidate_admission(
             if batch
             else payload["record"]["base_sha"]
         )
-        or (BASE_ADVANCE_ADMISSION_ENABLED is not True and main_sha != base)
         or not evidence_unchanged
     ):
         raise AdmissionError(
             "live approval or candidate differs from provisioned admission"
         )
-    if BASE_ADVANCE_ADMISSION_ENABLED is True:
-        _revalidate_base_advance(
-            payload.get("base_advance"),
-            selector,
-            base=base,
-            main_sha=main_sha,
-            fetch=fetch,
-            now=now,
-        )
+    proof = _revalidate_base_advance(
+        payload.get("base_advance"),
+        selector,
+        base=base,
+        main_sha=_object(main.get("object"), "main object").get("sha"),
+        fetch=fetch,
+    )
     # The head and base are immutable Git objects already fully inspected by
     # the root provisioner. The signer separately rehashes the local primary
     # and companion; re-fetch only mutable authorization, not all source bytes.
-    return payload
+    return payload, proof
 
 
 def _batch_records_base(records: object, selector: BatchPromotionSelector) -> str:
@@ -988,9 +1023,24 @@ def base_advance_issue(
     def identity(entry):
         return None if entry is None else (entry["type"], entry["mode"], entry["sha"])
 
-    def in_country(path: str) -> bool:
-        root = path.split("/", 1)[0]
-        return "/" in path and (root == country or root.startswith(country + "-"))
+    unit_roots = {unit.rulespec_path.split("/", 1)[0] for unit in units}
+    jurisdiction = re.compile(re.escape(country) + r"(?:-[a-z0-9]+)*")
+
+    def unrelated_landing(path: str, suffix: str) -> bool:
+        """A canonical module path in a jurisdiction no unit reads."""
+        parts = path.split("/")
+        root = parts[0]
+        return (
+            len(parts) >= 3
+            and path.endswith(suffix)
+            and jurisdiction.fullmatch(root) is not None
+            and parts[1] in BASE_ADVANCE_MODULE_ROOTS
+            and not any(part.startswith(".") for part in parts)
+            and not any(
+                root == own or root.startswith(own + "-") or own.startswith(root + "-")
+                for own in unit_roots
+            )
+        )
 
     classes: dict[str, str] = {}
     binding = []
@@ -1004,11 +1054,10 @@ def base_advance_issue(
             old is None
             and (new["type"], new["mode"]) == ("blob", "100644")
             and (
-                (in_country(path) and path.endswith(".yaml"))
+                unrelated_landing(path, ".yaml")
                 or (
                     path.startswith(MANIFEST_ROOT)
-                    and in_country(path.removeprefix(MANIFEST_ROOT))
-                    and path.endswith(".json")
+                    and unrelated_landing(path.removeprefix(MANIFEST_ROOT), ".json")
                 )
             )
         ):
@@ -1026,25 +1075,6 @@ def base_advance_issue(
     return None, classes
 
 
-def _commit_time(commit: dict) -> float:
-    """The committer time of one commit of a comparison, or refuse."""
-    stamp = _object(
-        _object(commit.get("commit"), "commit detail").get("committer"),
-        "committer",
-    ).get("date")
-    try:
-        if not isinstance(stamp, str):
-            raise ValueError
-        moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-        if moment.tzinfo is None:
-            raise ValueError
-    except ValueError:
-        raise AdmissionError(
-            "main advance has a commit without a readable date"
-        ) from None
-    return moment.timestamp()
-
-
 def _prove_base_advance(
     fetch: Callable[[str], object],
     selector: PromotionSelector | BatchPromotionSelector,
@@ -1052,7 +1082,6 @@ def _prove_base_advance(
     base: str,
     main_sha: object,
     base_tree: dict,
-    now: Callable[[], float],
 ) -> dict:
     """Prove ``main`` may be ahead of the candidate's base, or refuse.
 
@@ -1123,8 +1152,6 @@ def _prove_base_advance(
             )
         chain.append(cursor)
         cursor = commit["parents"][0]["sha"]
-    moved_at = _commit_time(by_sha[chain[-1]])
-    _require_base_advance_age(moved_at, now)
     tip_tree = _object(fetch(f"{root}/git/trees/{main_sha}?recursive=1"), "main tree")
     issue, classes = base_advance_issue(
         _leaf_entries(base_tree), _leaf_entries(tip_tree), units
@@ -1137,26 +1164,10 @@ def _prove_base_advance(
         "base_sha": base,
         "main_sha": main_sha,
         "first_parent_commits": len(chain),
-        "main_moved_at": int(moved_at),
         "plumbing_paths": sum(kind == "plumbing" for kind in classes.values()),
         "added_paths": sum(kind == "added" for kind in classes.values()),
         "delta_sha256": hashlib.sha256(delta.encode()).hexdigest(),
     }
-
-
-def _require_base_advance_age(moved_at: float, now: Callable[[], float]) -> None:
-    """Refuse a base that ``main`` passed too long ago, or in the future."""
-    age = now() - moved_at
-    if age < -BASE_ADVANCE_CLOCK_SKEW_SECONDS:
-        raise AdmissionError(
-            f"{STALE_BASE_ERROR}, and main moved past it in the future"
-        )
-    if age > MAX_BASE_ADVANCE_SECONDS:
-        raise AdmissionError(
-            f"{STALE_BASE_ERROR}, and main moved past it more than "
-            f"{MAX_BASE_ADVANCE_SECONDS // 3600} hours ago. Merge main into "
-            "the candidate and dispatch the new head"
-        )
 
 
 _BASE_ADVANCE_FIELDS: Final = frozenset(
@@ -1165,12 +1176,24 @@ _BASE_ADVANCE_FIELDS: Final = frozenset(
         "base_sha",
         "main_sha",
         "first_parent_commits",
-        "main_moved_at",
         "plumbing_paths",
         "added_paths",
         "delta_sha256",
     }
 )
+
+
+def _base_advance_at_base(base: str) -> dict:
+    """The record of a head of ``main`` that is the base itself."""
+    return {
+        "schema": BASE_ADVANCE_SCHEMA,
+        "base_sha": base,
+        "main_sha": base,
+        "first_parent_commits": 0,
+        "plumbing_paths": 0,
+        "added_paths": 0,
+        "delta_sha256": hashlib.sha256(b"[]").hexdigest(),
+    }
 
 
 def _revalidate_base_advance(
@@ -1180,15 +1203,15 @@ def _revalidate_base_advance(
     base: str,
     main_sha: object,
     fetch: Callable[[str], object],
-    now: Callable[[], float],
-) -> None:
+) -> dict:
     """The live head of ``main`` against the provisioned admission, or refuse.
 
-    No read when ``main`` is where the admission proved it: the base itself,
-    or the head that the recorded advance names (its age is checked again).
-    After a further move the whole proof is made again from the base, with
-    three reads. ``main`` never goes back: an admission that recorded an
-    advance refuses a ``main`` that is at the base again.
+    Returns the record of the head that is proven now. No read when ``main``
+    is where the admission proved it: the base itself, or the head that the
+    recorded advance names. After a further move the whole proof is made
+    again from the base, with three reads, and the new record is returned.
+    ``main`` never goes back: an admission that recorded an advance refuses a
+    ``main`` that is at the base again.
     """
     if recorded is not None:
         record = _object(recorded, "base advance")
@@ -1199,7 +1222,6 @@ def _revalidate_base_advance(
             or not isinstance(record["main_sha"], str)
             or not re.fullmatch(r"[0-9a-f]{40}", record["main_sha"])
             or record["main_sha"] == base
-            or type(record["main_moved_at"]) is not int
         ):
             raise AdmissionError("invalid provisioned base advance")
         if main_sha == base:
@@ -1207,14 +1229,13 @@ def _revalidate_base_advance(
                 "live approval or candidate differs from provisioned admission"
             )
         if main_sha == record["main_sha"]:
-            _require_base_advance_age(record["main_moved_at"], now)
-            return
+            return record
     elif main_sha == base:
-        return
+        return _base_advance_at_base(base)
     root = "/repos/" + selector.repository
     base_tree = _object(fetch(f"{root}/git/trees/{base}?recursive=1"), "base tree")
-    _prove_base_advance(
-        fetch, selector, base=base, main_sha=main_sha, base_tree=base_tree, now=now
+    return _prove_base_advance(
+        fetch, selector, base=base, main_sha=main_sha, base_tree=base_tree
     )
 
 
@@ -1346,7 +1367,6 @@ def verify_reviewed_pr(
     selector: PromotionSelector | BatchPromotionSelector,
     *,
     fetch: Callable[[str], object] = github_json,
-    now: Callable[[], float] = time.time,
 ) -> dict:
     """Derive a module-bound admission from live GitHub state.
 
@@ -1447,7 +1467,6 @@ def verify_reviewed_pr(
             base=base,
             main_sha=main_sha,
             base_tree=base_tree,
-            now=now,
         )
         if advanced
         else None
