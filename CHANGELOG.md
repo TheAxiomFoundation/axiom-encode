@@ -1,3 +1,8 @@
+## 0.2.2400
+
+- Turn the multi-unit promotion switch on for the hosted canary (#2301) (#2350)
+- Memoize repository-scan text facts and checkout identity within one encode process (#2349)
+
 ## 0.2.2399
 
 - Add an inactive dry-run check for replacing a module already on main (#1881) (#2341)
