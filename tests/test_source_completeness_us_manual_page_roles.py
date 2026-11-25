@@ -170,24 +170,18 @@ ACCEPTED = (
     ("Count $40 in full. If there was a loss, see 315.28 F. Enter it.", [40.0]),
     ("Count $40 in full. See 315.28 C. for the list.", [40.0]),
     ("Count $40 in full, as shown in 315.02, A. Enter it.", [40.0]),
-    ("Count $40 in full. See 315.06, A, 4.\n\nEnter the claim.", [40.0]),
     ("Count $40 in full (see 315.28).", [40.0]),
     # The glyph spelling of `Section` reads as `Section`.
     (f"Refer to {GLYPH_SECTION} 210, Household Concept, for the $40 limit.", [40.0]),
     (f"A person defined in {GLYPH_SECTION} 212.02, Person, has $40.", [40.0]),
-    # List markers that open a sentence and belong to a run.
-    (
-        "Give the unit time to verify. 2. If the unit paid $40, allow it. "
-        "3. Do not ask for more.",
-        [40.0],
-    ),
-    (
-        "Verify the cost; 1. Ask the unit; 2. Ask the provider; 3. Allow $40.",
-        [40.0],
-    ),
+    # List markers that open a sentence and belong to a run that has a
+    # member at a line start.
     ("1. Give the unit time.\n2. Allow $40. 3. Do not ask for more.", [40.0]),
-    # The first marker of the page body, with its successor on the page.
-    (HEADER + "4. A date must be set. 5. The claim is $40.", [40.0]),
+    ("1. Ask the unit. 2. Ask the provider. 3. Allow $40.", [40.0]),
+    (
+        "Verify the cost.\n\n4. Ask the unit; 5. Ask the provider; 6. Allow $40.",
+        [40.0],
+    ),
 )
 
 # A number next to a similar shape keeps its demand.
@@ -234,6 +228,13 @@ STILL_DEMANDED = (
     ("Count $40 in full. See 315.6, A, 4.\n\nEnter it.", [40.0, 315.6, 4.0]),
     ("Count $40 in full, as shown in 315.2, A. Enter it.", [40.0, 315.2]),
     ("Count $40. 315.275 REPRESENTATIVE PAYMENTS apply.", [40.0, 315.275]),
+    # A lower-case word after the capital words means running text.
+    ("Count it. 315.50 SNAP TANF limit applies.", [315.5]),
+    ("315.50 GROSS INCOME is the limit.", [315.5]),
+    ("Count it. 315.50 GROSS INCOME TAX is the limit.", [315.5]),
+    # A reference releases only its label, never a number after it.
+    ("Count $40; see 315.50, A, 60. Elderly members qualify.", [40.0, 60.0]),
+    ("Count $40 in full. See 315.06, A, 4.\n\nEnter the claim.", [40.0, 4.0]),
     # A row under a quantity caption stays a value.
     ("Benefit amounts, in dollars:\n315.27 REPRESENTATIVE PAYMENTS", [315.27]),
     # Another document's section number is not this document's label.
@@ -265,10 +266,26 @@ STILL_DEMANDED = (
     ("Wait. 30. Days must pass. 31. Days is too long.", [30.0, 31.0]),
     ("Give the unit time. 2. If the unit paid $40, allow it.", [2.0, 40.0]),
     ("Use e.g. 1. Ask the unit. 2. Ask the provider.", [1.0]),
-    ("See p. 4. Ask the unit. 5. Ask the provider.", [4.0]),
-    ("See pg. 4. Ask the unit. 5. Ask the provider.", [4.0]),
-    ("See Ch. 4. Ask the unit. 5. Ask the provider.", [4.0]),
-    ("See par. 4. Ask the unit. 5. Ask the provider.", [4.0]),
+    ("See p. 4. Ask the unit.\n5. Ask the provider.", [4.0]),
+    ("See pp. 4. Ask the unit.\n5. Ask the provider.", [4.0]),
+    ("See pg. 4. Ask the unit.\n5. Ask the provider.", [4.0]),
+    ("See Ch. 4. Ask the unit.\n5. Ask the provider.", [4.0]),
+    ("See par. 4. Ask the unit.\n5. Ask the provider.", [4.0]),
+    ("Enter the amt. 4. Ask the unit.\n5. Ask the provider.", [4.0]),
+    ("Enter the hrs. 4. Ask the unit.\n5. Ask the provider.", [4.0]),
+    # A run needs a member at a line start.
+    ("How many members? 2. How many adults? 3. Enter both.", [2.0, 3.0]),
+    (
+        "Give the unit time to verify. 2. If the unit paid $40, allow it. "
+        "3. Do not ask for more.",
+        [2.0, 3.0, 40.0],
+    ),
+    ("Verify the cost; 1. Ask the unit; 2. Ask the provider.", [1.0, 2.0]),
+    (HEADER + "4. A date must be set. 5. The claim is $40.", [4.0, 5.0, 40.0]),
+    # A marker whose item is a number or an amount is demanded.
+    # (The older line-start rule already drops a marker that opens a line.)
+    ("1. $291. 2. $535. 3. $766.", [291.0, 2.0, 535.0, 3.0, 766.0]),
+    ("1. 30 days. 2. 60 days.", [30.0, 2.0, 60.0]),
     # The first marker of the page body needs a run too.
     (HEADER + "6. Advertising costs count.", [6.0]),
     (HEADER + "18. Students are exempt. The claim is $40.", [18.0, 40.0]),
@@ -321,7 +338,7 @@ def test_own_section_comes_from_the_citation_path():
 
 def test_only_the_named_digits_are_blanked_in_place():
     source = (
-        HEADER + "2. Count $2 for a unit of 2. See 315.28 F. 3. Stop. "
+        "1. Count $2 for a unit of 2. See 315.28 F. 2. Stop. "
         "315.27 SPECIAL PAYMENTS FNS unit 1 pays FNS unit 2 the $40."
     )
     recall = sc.authoritative_numeric_recall_text(source, corpus_citation_path=PAGE)
@@ -331,8 +348,37 @@ def test_only_the_named_digits_are_blanked_in_place():
         for character, masked in zip(source, recall, strict=True)
         if character != masked
     )
-    assert changed.isdigit()
-    assert _occurrence_view(source, PAGE, "legacy") == [1.0, 2.0, 2.0, 2.0, 40.0]
+    assert changed == "131528" + "2"
+    assert _occurrence_view(source, PAGE, "legacy") == [
+        1.0,
+        2.0,
+        2.0,
+        2.0,
+        40.0,
+        315.27,
+    ]
+
+
+@pytest.mark.parametrize(
+    "before",
+    ("approx.", "(max.)", "e.g.", "No.", "p.", "pp.", "pg.", "Ch.", "par.", "Sec.")
+    + ("amt.", "hrs.", "hr.", "etc."),
+)
+def test_abbreviation_period_does_not_end_a_sentence(before):
+    source = f"See {before} 4. Ask the unit.\n5. Ask the provider."
+    assert not sc._us_manual_opens_sentence(source, source.index("4."), body_start=None)
+    assert sc._us_manual_opens_sentence(
+        "Ask the unit. 4. Ask the provider.", 14, body_start=None
+    )
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_accepted_residual_two_capital_words_at_a_line_end(profile):
+    """Documents current behaviour: two capital words that end a line read as
+    a heading title, so a value of this shape is released (PR body, accepted
+    residual)."""
+
+    _assert_both_gates("Count it.\n315.50 TANF GRANT", PAGE, profile, [])
 
 
 # Worked examples are not a recognized shape: every number stays demanded.

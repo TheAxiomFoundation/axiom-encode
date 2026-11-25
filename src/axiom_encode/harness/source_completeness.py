@@ -18310,20 +18310,28 @@ _US_MANUAL_LABEL_END = r"(?![\w%]|[.,]\d)"
 _US_MANUAL_GLYPH_SECTION = re.compile(r"(?<![A-Za-z])SecƟon(?=[ \t]+\d)")
 # A flattened list marker that opens a sentence: `... verification. 2. If the
 # FNS unit ...`. The marker is at most two digits, the text before it ends a
-# sentence (or the marker opens a line or the page body), a capital letter or
-# a dollar amount follows the period, and the word after it is not a quantity
-# word (`30. Days`). The marker must also belong to a run (see
+# sentence (or the marker opens a line or the page body), a word that starts
+# with a capital letter follows the period, and that word is not a quantity
+# word (`30. Days`). A marker whose item is a number or an amount is demanded. The marker must also belong to a run (see
 # `_us_manual_sentence_opening_enumerators`).
 _US_MANUAL_INLINE_ENUMERATOR = re.compile(
     r"(?<![\w$¢£¥€.,/+=×÷*#-])(?P<number>[1-9]\d?)\."
-    rf"(?=[ \t]+(?:(?!{_US_MANUAL_QUANTITY_WORD})[A-Z]|\$[ \t]*\d))"
+    rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD})[A-Z])"
 )
+# The all-capital words of a heading title: two or more capital letters
+# each, or `&`. A single capital letter is not a title word: it is an outline
+# marker (`STRIKERS A. Households`) or opens the body (`PAYMENTS A payee`).
+_US_MANUAL_TITLE_RUN = re.compile(
+    r"(?:[ \t]+(?:&|\(?[A-Z][A-Z&/'’-]+\)?[,:]?)(?![A-Za-z]))+"
+)
+_US_MANUAL_AFTER_TITLE = re.compile(r"[ \t]*(?:\Z|\n|[A-Z]|[1-9]\d?\.(?:\s|\Z)|[•(])")
+_US_MANUAL_LINE_START_ENUMERATOR = re.compile(r"(?m)^[ \t]*\d+[a-z]?\.[ \t]+")
 _US_MANUAL_SENTENCE_END_BEFORE = re.compile(r"[.;?!][)\"”’]?\Z")
 # A period that closes an abbreviation does not end a sentence, so the number
 # after it is not a list marker (`approx. 30.`, `(max.) 60.`, `e.g. 10.`).
 _US_MANUAL_ABBREVIATION_BEFORE = re.compile(
     r"(?i:(?<![A-Za-z])(?:approx|max|min|nos?|est|ca|vs|etc|incl|excl|avg|"
-    r"p|pg|ch|par|"
+    r"p|pp|pg|ch|par|sec|amt|hrs?|"
     r"e\.[ \t]?g|i\.[ \t]?e)\.[)\"”’]?)\Z"
 )
 
@@ -18375,6 +18383,25 @@ def _us_manual_opens_sentence(text: str, start: int, *, body_start: int | None) 
     )
 
 
+def _us_manual_title_follows(text: str, start: int) -> bool:
+    """Whether a heading title follows: capital words, then no lower-case word.
+
+    The title is the run of all-capital words on the line. It holds at least
+    two words of four or more letters. After it comes the end of the line or
+    text, a list or outline marker, or a word that starts with a capital
+    letter. A lower-case word after the capitals means running text (`GROSS
+    INCOME is the limit`), so the label keeps its demand.
+    """
+
+    title = _US_MANUAL_TITLE_RUN.match(text, start)
+    if title is None:
+        return False
+    long_words = re.findall(r"(?<![A-Za-z])[A-Z]{4,}(?![A-Za-z])", title[0])
+    return len(long_words) >= 2 and bool(
+        _US_MANUAL_AFTER_TITLE.match(text, title.end())
+    )
+
+
 def _us_manual_own_section_label_matches(
     text: str, *, corpus_citation_path: str
 ) -> tuple[tuple[re.Match[str], bool], ...]:
@@ -18383,34 +18410,29 @@ def _us_manual_own_section_label_matches(
     The section is the document's own number from the citation path, and the
     label has exactly two decimals. A heading is the label (never `.00`) that
     opens a sentence, a line or the page body, directly before an all-capital
-    title that holds at least two words of four or more letters and does not
-    open with a quantity word (`315.27 REPRESENTATIVE PAYMENTS`), outside a
-    row of a quantity table. A reference is the label after `See`/`see`,
+    title that holds at least two words of four or more letters, does not
+    open with a quantity word and is not followed by a lower-case word
+    (`315.27 REPRESENTATIVE PAYMENTS Representative ...`), outside a row of a
+    quantity table. A reference is the label after `See`/`see`,
     closed by a subdivision letter or the end of the sentence (`see 315.28
-    F.`, `See 315.06, A, 4.`), or after `in` in the comma form only (`in
-    360.04, D.`); the item number of the comma form is part of the reference.
+    F.`), or after `in` in the comma form only (`in 360.04, D.`). Only the
+    label is released, never a number after it.
     """
 
     section_page = _us_manual_section_page(corpus_citation_path)
     if section_page is None:
         return ()
     own = re.escape(section_page[0])
-    long_word = r"[A-Z]{4,}(?![A-Za-z])"
-    short_words = r"(?:[ \t,/&-]+[A-Z]{1,3}(?![A-Za-z]))*"
     heading = re.compile(
         rf"{_US_MANUAL_LABEL_START}(?P<label>{own}\.(?!00)\d{{2}})"
         rf"{_US_MANUAL_LABEL_END}"
-        rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD}){long_word}"
-        rf"{short_words}[ \t,/&-]+{long_word})"
+        rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD})[A-Z]{{4,}}(?![A-Za-z]))"
     )
-    subdivision = r"[ \t]+[A-Z](?=[.,])(?:,[ \t]+(?P<item>[1-9]\d?)(?=[.;)](?:\s|\Z)))?"
     reference = re.compile(
         rf"(?<![A-Za-z])(?:[Ss]ee[ \t]+(?P<label>{own}\.\d{{2}})"
         rf"{_US_MANUAL_LABEL_END}"
-        rf"(?:(?=\)[.;,]?(?:\s|\Z)|[.;](?:\s|\Z))|,?{subdivision})"
-        rf"|in[ \t]+(?P<in_label>{own}\.\d{{2}}),"
-        + subdivision.replace("<item>", "<in_item>")
-        + ")"
+        r"(?=\)[.;,]?(?:\s|\Z)|[.;](?:\s|\Z)|,?[ \t]+[A-Z][.,])"
+        rf"|in[ \t]+(?P<in_label>{own}\.\d{{2}})(?=,[ \t]+[A-Z][.,]))"
     )
     header = _us_manual_change_notice_header(
         text, corpus_citation_path=corpus_citation_path
@@ -18425,6 +18447,7 @@ def _us_manual_own_section_label_matches(
             for match in heading.finditer(text)
             if text.rfind("\n", 0, match.start()) + 1 not in quantity_lines
             and _us_manual_opens_sentence(text, match.start(), body_start=body_start)
+            and _us_manual_title_follows(text, match.end())
         ),
         *((match, False) for match in reference.finditer(text)),
     )
@@ -18435,10 +18458,11 @@ def _us_manual_sentence_opening_enumerators(
 ) -> tuple[re.Match[str], ...]:
     """Inline list markers that open a sentence and belong to a run.
 
-    A candidate opens a sentence, a line or the page body. It is a marker
-    only when the candidate before it carries the previous number or the
-    candidate after it carries the next number. A lone candidate, also the
-    first one of the page body, stays demanded.
+    A candidate opens a sentence, a line or the page body, and a word follows
+    it. Candidates whose numbers ascend by one form a run. A run of two or
+    more is a list only when at least one of its members stands where the
+    line-start rule reads a list marker; then every member is a marker. A
+    lone candidate, and a run with no member at a line start, stay demanded.
     """
 
     candidates = [
@@ -18446,13 +18470,24 @@ def _us_manual_sentence_opening_enumerators(
         for marker in _US_MANUAL_INLINE_ENUMERATOR.finditer(text)
         if _us_manual_opens_sentence(text, marker.start(), body_start=body_start)
     ]
-    numbers = [int(marker["number"]) for marker in candidates]
-    return tuple(
-        marker
-        for index, marker in enumerate(candidates)
-        if (index > 0 and numbers[index - 1] == numbers[index] - 1)
-        or (index + 1 < len(numbers) and numbers[index + 1] == numbers[index] + 1)
-    )
+    line_starts = {
+        match.end() - len(match[0].lstrip(" \t"))
+        for match in _US_MANUAL_LINE_START_ENUMERATOR.finditer(text)
+    }
+    markers: list[re.Match[str]] = []
+    run: list[re.Match[str]] = []
+    for marker in (*candidates, None):
+        if (
+            marker is not None
+            and run
+            and int(marker["number"]) == int(run[-1]["number"]) + 1
+        ):
+            run.append(marker)
+            continue
+        if len(run) >= 2 and any(member.start() in line_starts for member in run):
+            markers.extend(run)
+        run = [marker] if marker is not None else []
+    return tuple(markers)
 
 
 def _us_manual_page_role_spans(
@@ -18477,7 +18512,7 @@ def _us_manual_page_role_spans(
     ):
         spans.extend(
             label.span(name)
-            for name in ("label", "item", "in_label", "in_item")
+            for name in ("label", "in_label")
             if label.groupdict().get(name) is not None
         )
     for glyph in _US_MANUAL_GLYPH_SECTION.finditer(text):
