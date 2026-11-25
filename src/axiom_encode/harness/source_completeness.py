@@ -3068,12 +3068,20 @@ def complete_source_numeric_recall_occurrences(
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         candidates = inventory.kept if inventory.consistent else inventory.occurrences
+        example_only = _us_manual_example_only_source_spans(
+            candidates,
+            source_text=source_text,
+            source_map=source_map,
+            corpus_citation_path=corpus_citation_path,
+        )
         demanded = tuple(
             occurrence
             for occurrence in candidates
             if not _temporal_occurrence_is_recall_exempt_preface(
                 occurrence, recall_text
             )
+            and source_map.source_span(occurrence.start, occurrence.end)
+            not in example_only
         )
     source_occurrences = tuple(extract_numeric_occurrences(source_text))
     if len(source_map.offsets) != len(recall_text):
@@ -7871,6 +7879,7 @@ def _analyze_rulespec_payload(
         corpus_citation_path=corpus_citation_path,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
+    source_recall_map = recall_map
     unrepresented_recall_text = numeric_recall_text
     unrepresented_inventory = source_inventory
     if (
@@ -7907,15 +7916,26 @@ def _analyze_rulespec_payload(
         and unrepresented_inventory.consistent
         and source_inventory.dropped == unrepresented_inventory.dropped
     )
+    source_candidates = (
+        source_inventory.kept if drop_us_locators else source_inventory.occurrences
+    )
+    # One decision, taken on the source view, for both counts: a worked-example
+    # number that the unit states nowhere else is not demanded.
+    example_only_spans = _us_manual_example_only_source_spans(
+        source_candidates,
+        source_text=source_text,
+        source_map=source_recall_map,
+        corpus_citation_path=corpus_citation_path,
+    )
     source_occurrences = tuple(
         occurrence
-        for occurrence in (
-            source_inventory.kept if drop_us_locators else source_inventory.occurrences
-        )
+        for occurrence in source_candidates
         if not _temporal_occurrence_is_recall_exempt_preface(
             occurrence,
             numeric_recall_text,
         )
+        and source_recall_map.source_span(occurrence.start, occurrence.end)
+        not in example_only_spans
     )
     unrepresented_occurrences = source_occurrences
     if (
@@ -7934,6 +7954,8 @@ def _analyze_rulespec_payload(
                 occurrence,
                 unrepresented_recall_text,
             )
+            and recall_map.source_span(occurrence.start, occurrence.end)
+            not in example_only_spans
         )
     named_values = (
         tuple(float(value) for value in artifact_numeric_values)
@@ -18270,6 +18292,320 @@ def _without_us_manual_locators(text: str, *, corpus_citation_path: str) -> str:
     return masked
 
 
+# ---------------------------------------------------------------------------
+# US manual pages: numbers that are page furniture, not rule values.
+#
+# Every rule below is a positive shape, applies only on a US manual page path
+# (`.../<prefix>-<NNN>-<slug>/page-<P>`), and blanks only the digits it names.
+# Anything that is not positively recognized keeps its obligation.
+_US_MANUAL_SECTION_PAGE_PATH = re.compile(
+    r"/(?:[a-z]{2,12}-)?(?P<section>\d{3,4})(?:-[a-z0-9-]+)?/page-(?P<page>\d{1,4})\Z"
+)
+_US_MANUAL_MONTH = (
+    r"(?:January|February|March|April|May|June|July|August|September|October|"
+    r"November|December)"
+)
+# The running header of a paginated section: `16 Section 315 Change #01-2022
+# January 11, 2022`. The section part is optional and may read `FNS 315` or
+# `Appendix 3100`; the change notice is `#01-2022`, `#3 -2017`, `#3 2017`,
+# `03-2021` or `#6-20XX`, always followed by a full `Month D, YYYY` date. Some
+# PDFs extract the `ti` ligature of `Section` as the single glyph U+019F. The
+# page number must equal the page of the citation path; only the first header
+# of the unit, within its first 400 characters, is read.
+_US_MANUAL_CHANGE_NOTICE_HEADER = re.compile(
+    r"(?<![\w$.,-])(?P<page>\d{1,4})\s+"
+    r"(?:(?:Sec(?:ti|Ɵ)on|FNS|Appendix)[ \t]+(?P<section>\d{3,4})[ \t]+)?"
+    r"Change[ \t]+#?(?P<change>\d{1,2}[ \t]*(?:-|[ \t])[ \t]*(?:19|20)(?:\d{2}|XX))"
+    rf"[ \t]+{_US_MANUAL_MONTH}[ \t]+\d{{1,2}},[ \t]+(?:19|20)\d{{2}}(?![\w-])"
+)
+_US_MANUAL_HEADER_WINDOW = 400
+_US_MANUAL_QUANTITY_WORD = (
+    r"(?i:Percent|Percentage|Times|Dollars?|Cents?|Days?|Weeks?|Months?|Years?|"
+    r"Hours?|Persons?|People|Members?|Million|Billion|Thousand|Business|Calendar|"
+    r"Working)\b"
+)
+# What may not stand directly before a section label: a word character, a
+# currency sign, part of a number, or an arithmetic operator.
+_US_MANUAL_LABEL_START = r"(?<![\w$¢£¥€.,/+=×÷*#-])(?<![$¢£¥€+=×÷*/-][ \t])"
+_US_MANUAL_LABEL_END = r"(?![\w%]|[.,]\d)"
+_US_MANUAL_GLYPH_SECTION = re.compile(r"(?<![A-Za-z])SecƟon(?=[ \t]+\d)")
+# A flattened list marker that opens a sentence: `... verification. 2. If the
+# FNS unit ...`. The marker is at most two digits, the text before it ends a
+# sentence (or the marker opens a line or the page body), and a capital letter
+# or a dollar amount follows the period.
+_US_MANUAL_INLINE_ENUMERATOR = re.compile(
+    r"(?<![\w$¢£¥€.,/+=×÷*#-])(?P<number>[1-9]\d?)\.(?=[ \t]+(?:[A-Z]|\$[ \t]*\d))"
+)
+_US_MANUAL_SENTENCE_END_BEFORE = re.compile(r"[.;?!][)\"”’]?\Z")
+_US_MANUAL_NUMBER_ABBREVIATION_BEFORE = re.compile(r"(?i:(?<![A-Za-z])nos?\.)\Z")
+# `FNS unit 1 ... FNS unit 2`: labels of the units in a narrated case.
+_US_MANUAL_UNIT_LABEL = re.compile(
+    r"(?<![\w$])FNS[ \t]+unit[ \t]+(?P<number>[1-9])"
+    r"(?=[ \t]+[a-z]|[ \t]*[,;:)]|\.(?:\s|\Z))"
+    rf"(?!{_RECALL_UNIT_FOLLOWS})"
+    r"(?![ \t]+(?:or|and|to|through)[ \t]+\d)"
+)
+_US_MANUAL_EXAMPLE_MARKER = re.compile(r"(?<![A-Za-z])(?:Example|EXAMPLE)[ \t]*:")
+_US_MANUAL_EXAMPLE_NOTE = re.compile(r"(?<![A-Za-z])(?:Note|NOTE)[ \t]*:")
+_US_MANUAL_OUTLINE_MARKER = re.compile(
+    r"(?<=[.;?!)][ \t])(?:[A-Za-z]|[ivx]{2,4})\.(?=[ \t]+[A-Z])"
+)
+_US_MANUAL_SENTENCE_BREAK = re.compile(r"(?<=[.?!])[ \t]+|\n")
+
+
+def _us_manual_section_page(corpus_citation_path: str) -> tuple[str, int] | None:
+    """The section number and page of a US manual page path, else None."""
+
+    if not _is_us_manual_citation_path(corpus_citation_path):
+        return None
+    match = _US_MANUAL_SECTION_PAGE_PATH.search(corpus_citation_path)
+    if match is None:
+        return None
+    return match["section"], int(match["page"])
+
+
+def _us_manual_change_notice_header(
+    text: str, *, corpus_citation_path: str
+) -> re.Match[str] | None:
+    """The unit's running page header, when its page number is the path's."""
+
+    section_page = _us_manual_section_page(corpus_citation_path)
+    if section_page is None:
+        return None
+    header = _US_MANUAL_CHANGE_NOTICE_HEADER.search(
+        text, 0, min(len(text), _US_MANUAL_HEADER_WINDOW)
+    )
+    if header is None or int(header["page"]) != section_page[1]:
+        return None
+    return header
+
+
+def _us_manual_own_section_label_matches(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[re.Match[str], bool], ...]:
+    """Labels `<own section>.<nn>`; the flag is True for a heading.
+
+    The section is the document's own number from the citation path. A heading
+    is the label directly before an all-capital title word that is not a
+    quantity word (`315.27 REPRESENTATIVE PAYMENTS`), outside a row of a
+    quantity table. A reference is the label
+    after `See`/`see`/`in`, closed by a subdivision letter or the end of the
+    sentence (`see 315.28 F.`, `in 360.04, D.`, `See 810.6, A, 4.`); the item
+    number of the comma form is part of the reference.
+    """
+
+    section_page = _us_manual_section_page(corpus_citation_path)
+    if section_page is None:
+        return ()
+    own = re.escape(section_page[0])
+    heading = re.compile(
+        rf"{_US_MANUAL_LABEL_START}(?P<label>{own}\.\d{{2}}){_US_MANUAL_LABEL_END}"
+        rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD})[A-Z]{{2,}}(?![a-z]))"
+    )
+    reference = re.compile(
+        rf"(?<![A-Za-z])(?:[Ss]ee|in)[ \t]+(?P<label>{own}\.\d{{1,2}})"
+        rf"{_US_MANUAL_LABEL_END}"
+        r"(?:(?=\)[.;,]?(?:\s|\Z)|[.;](?:\s|\Z))|,?[ \t]+[A-Z](?=[.,])"
+        r"(?:,[ \t]+(?P<item>[1-9]\d?)(?=[.;)](?:\s|\Z)))?)"
+    )
+    # A quantity table has priority over a heading reading, as it has for the
+    # line-start heading labels: a row under a quantity caption stays a value.
+    quantity_lines = _manual_quantity_line_starts(text)
+    return (
+        *(
+            (match, True)
+            for match in heading.finditer(text)
+            if text.rfind("\n", 0, match.start()) + 1 not in quantity_lines
+        ),
+        *((match, False) for match in reference.finditer(text)),
+    )
+
+
+def _us_manual_sentence_opening_enumerators(
+    text: str, *, body_start: int | None
+) -> tuple[re.Match[str], ...]:
+    """Inline list markers that open a sentence, a line or the page body."""
+
+    markers = []
+    for marker in _US_MANUAL_INLINE_ENUMERATOR.finditer(text):
+        before = text[: marker.start()].rstrip(" \t")
+        if (
+            not before
+            or before.endswith("\n")
+            or (body_start is not None and len(before) == body_start)
+            or (
+                len(before) < marker.start()
+                and _US_MANUAL_SENTENCE_END_BEFORE.search(before[-3:])
+                and not _US_MANUAL_NUMBER_ABBREVIATION_BEFORE.search(before[-5:])
+            )
+        ):
+            markers.append(marker)
+    return tuple(markers)
+
+
+def _us_manual_unit_label_matches(text: str) -> tuple[re.Match[str], ...]:
+    """`FNS unit N` labels, only when the unit labels are exactly 1..k, k >= 2."""
+
+    labels = tuple(_US_MANUAL_UNIT_LABEL.finditer(text))
+    numbers = {int(label["number"]) for label in labels}
+    if len(numbers) < 2 or numbers != set(range(1, len(numbers) + 1)):
+        return ()
+    return labels
+
+
+def _us_manual_page_role_spans(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[int, int], ...]:
+    """Digits of page furniture on a US manual page (see the rules above)."""
+
+    if _us_manual_section_page(corpus_citation_path) is None:
+        return ()
+    spans: list[tuple[int, int]] = []
+    header = _us_manual_change_notice_header(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    if header is not None:
+        spans.extend(
+            header.span(name)
+            for name in ("page", "section", "change")
+            if header[name] is not None
+        )
+    for label, _is_heading in _us_manual_own_section_label_matches(
+        text, corpus_citation_path=corpus_citation_path
+    ):
+        spans.append(label.span("label"))
+        if label.groupdict().get("item") is not None:
+            spans.append(label.span("item"))
+    for glyph in _US_MANUAL_GLYPH_SECTION.finditer(text):
+        # Read the glyph spelling exactly as `Section`: the same citation
+        # grammar decides which numbers follow it.
+        tail_start = glyph.end()
+        probe = "Section" + text[tail_start : tail_start + 120]
+        citation = _ENGLISH_LEGAL_CITATION.match(probe)
+        if citation is not None:
+            spans.append((tail_start, tail_start + citation.end() - len("Section")))
+    for marker in _us_manual_sentence_opening_enumerators(
+        text, body_start=header.end() if header is not None else None
+    ):
+        spans.append(marker.span("number"))
+    spans.extend(label.span("number") for label in _us_manual_unit_label_matches(text))
+    return tuple(
+        (index, index + 1)
+        for start, end in spans
+        for index in range(start, end)
+        if text[index].isdigit()
+    )
+
+
+def _us_manual_example_passage_spans(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[int, int], ...]:
+    """Worked-example passages of a US manual page.
+
+    A passage opens at `Example:` or `EXAMPLE:` and ends at the first of: a
+    line break, the next example or note marker, a sentence-opening list
+    marker, an outline marker (`. E. Instructions`), a heading of the
+    document's own section, or the end of the text. A sentence elsewhere that
+    names an `FNS unit N` label first introduced inside a passage is part of
+    the example too.
+    """
+
+    if _us_manual_section_page(corpus_citation_path) is None:
+        return ()
+    markers = tuple(_US_MANUAL_EXAMPLE_MARKER.finditer(text))
+    if not markers:
+        return ()
+    header = _us_manual_change_notice_header(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    stops = sorted(
+        {
+            *(match.start() for match in re.finditer(r"\n", text)),
+            *(match.start() for match in markers),
+            *(match.start() for match in _US_MANUAL_EXAMPLE_NOTE.finditer(text)),
+            *(match.start() for match in _US_MANUAL_OUTLINE_MARKER.finditer(text)),
+            *(
+                match.start()
+                for match in _us_manual_sentence_opening_enumerators(
+                    text, body_start=header.end() if header is not None else None
+                )
+            ),
+            *(
+                match.start("label")
+                for match, is_heading in _us_manual_own_section_label_matches(
+                    text, corpus_citation_path=corpus_citation_path
+                )
+                if is_heading
+            ),
+            len(text),
+        }
+    )
+    passages = []
+    for marker in markers:
+        end = stops[bisect.bisect_right(stops, marker.start())]
+        passages.append((marker.start(), end))
+    labels = _us_manual_unit_label_matches(text)
+    if labels and any(
+        start <= labels[0].start() and labels[0].end() <= end for start, end in passages
+    ):
+        breaks = [0]
+        for boundary in _US_MANUAL_SENTENCE_BREAK.finditer(text):
+            breaks.append(boundary.end())
+        breaks.append(len(text))
+        for label in labels:
+            index = bisect.bisect_right(breaks, label.start()) - 1
+            passages.append((breaks[index], breaks[index + 1]))
+    return tuple(sorted(set(passages)))
+
+
+def _us_manual_example_only_source_spans(
+    occurrences: Sequence[NumericOccurrenceLike],
+    *,
+    source_text: str,
+    source_map: _NumericRecallSourceMap,
+    corpus_citation_path: str,
+) -> frozenset[tuple[int, int]]:
+    """Source spans of example numbers that the unit states nowhere else.
+
+    An example often restates a rule value, so being inside an example is not
+    enough. A number is released only when it lies wholly inside an example
+    passage and no occurrence outside the passages (or without a certified
+    source position) has its value.
+    """
+
+    passages = _us_manual_example_passage_spans(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
+    if not passages:
+        return frozenset()
+    inside: list[tuple[tuple[int, int], NumericOccurrenceLike]] = []
+    outside_values: set[float] = set()
+    for occurrence in occurrences:
+        span = source_map.source_span(occurrence.start, occurrence.end)
+        if span is not None and any(
+            start <= span[0] and span[1] <= end for start, end in passages
+        ):
+            inside.append((span, occurrence))
+            continue
+        outside_values.add(float(occurrence.value))
+        outside_values.update(
+            float(value)
+            for value in getattr(occurrence, "alternative_values", ()) or ()
+        )
+    return frozenset(
+        span
+        for span, occurrence in inside
+        if not any(
+            math.isclose(float(value), other)
+            for value in (
+                occurrence.value,
+                *(getattr(occurrence, "alternative_values", ()) or ()),
+            )
+            for other in outside_values
+        )
+    )
+
+
 def _corroborated_form_output_label_spans(
     source_text: str,
 ) -> tuple[tuple[int, int], ...]:
@@ -18817,6 +19153,12 @@ def authoritative_numeric_recall_text(
     mask = _mask_numeric_spans if _source_map is None else _source_map.mask
     source_text = _without_us_manual_locators(
         source_text, corpus_citation_path=corpus_citation_path
+    )
+    source_text = mask(
+        source_text,
+        _us_manual_page_role_spans(
+            source_text, corpus_citation_path=corpus_citation_path
+        ),
     )
     source_text = mask(source_text, form_numeric_locator_spans(source_text))
     # This mask runs before the context-sensitive recognizers below, so they
