@@ -1450,14 +1450,18 @@ _NUMERIC_GROUNDING = """- If the source states a substitution, higher amount, in
   band selector predicate. Consumers should reference the named concept or an
   indexed table/grid value; only structural keys, sentinels, and algebraic
   identities should remain as formula literals.
-- Name every number that the source states as a range or threshold bound: both
-  ends of a row label such as `9-17`, the age in "60 or older", the count in
-  "9 or more". Declare it as a `kind: parameter` with its own proof atom and
-  compare with the operator of the source wording (`>= 9`, not `> 8`).
-- An input named like `*_aged_60_or_older` does not name 60: compute the test
-  from the basic fact (age) and a named threshold, or keep the input and also
-  declare and cite the threshold that defines it. Never declare a parameter
-  for a non-rule number such as a "48 States" label or a page number.
+- If the source says someone is "aged 18 or over", "under 25", or similar,
+  model the legal age predicate as a Person rule that compares age with a named
+  threshold parameter (`person_age >= <threshold>`), not as a documentary age
+  input or an unnamed age constant.
+- Name every number that the source states as a rule's range or threshold
+  bound (both ends of a `9-17` row, the `18` of `18+`, the age in "60 or
+  older") as a scalar `kind: parameter` with a proof atom, or as an indexed
+  bound column for an interval table. Keep the source operator: `9-17` gives
+  `>= 9`; "more than 8" gives `> 8`. For "a member aged 60 or older" use
+  `count_where(member_of_household, <Person rule: age >= that parameter>) >= 1`,
+  not an input name, a household proxy age, or an unused parameter. Do not
+  name labels ("48 States"), dates, citations or page numbers as parameters.
 - If the same numeric value appears in separate numbered exceptions,
   subparagraphs, or otherwise materially different legal roles, give those roles
   distinct named scalars; reuse a named scalar only for the same legal role.
