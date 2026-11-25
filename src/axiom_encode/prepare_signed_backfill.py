@@ -16,7 +16,7 @@ import re
 import stat
 import subprocess
 import tokenize
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -1261,6 +1261,54 @@ def citation_rulespec_path(citation: str) -> PurePosixPath:
     return PurePosixPath(jurisdiction) / relative
 
 
+def promotion_validation_record(citations: Sequence[str]) -> dict[str, object]:
+    """The validation plan of a multi-unit promotion, from its citations.
+
+    This is a plan, not evidence: it is computed from the unit citations
+    alone (citation, primary, companion, hidden paths, planned passes),
+    before and independent of any validation. It does not show that a pass
+    ran or what it found; the signing run's success and the signed
+    manifests are the evidence.
+
+    ``passes`` names the validation passes of every unit: ``isolated`` (the
+    candidate head without the unit's ``hidden_paths``) and ``batch`` (the
+    whole candidate head); a batch of one unit has the second only.
+    ``units`` has one entry per unit in path order: its citation, primary and companion,
+    and ``hidden_paths``, the primaries and companions of every other unit.
+    The isolated validation pass of a unit reads the candidate head without
+    its ``hidden_paths`` (docs/reviewed-pr-promotion.md, "Each unit is
+    validated twice"); with the candidate head and this record that tree can
+    be rebuilt. The promotion command derives the same paths from the same
+    units; a test holds the two together.
+    """
+
+    pairs = {}
+    for citation in citations:
+        primary = citation_rulespec_path(citation).as_posix()
+        pairs[citation] = (primary, primary.removesuffix(".yaml") + ".test.yaml")
+    if len(set(pairs.values())) != len(list(citations)):
+        raise ValueError("promotion units must name distinct modules")
+    units = [
+        {
+            "citation": citation,
+            "rulespec_path": pairs[citation][0],
+            "companion_path": pairs[citation][1],
+            "hidden_paths": sorted(
+                path
+                for other, pair in pairs.items()
+                if other != citation
+                for path in pair
+            ),
+        }
+        for citation in sorted(pairs, key=lambda key: pairs[key][0])
+    ]
+    return {
+        "schema": "axiom-encode/promotion-batch-validation/v1",
+        "passes": ["isolated", "batch"] if len(units) > 1 else ["batch"],
+        "units": units,
+    }
+
+
 def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     """Split the bounded dispatch input into exactly one atomic source mode."""
 
@@ -1314,9 +1362,35 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/reviewed-pr-promotion/v1"
     ):
-        if set(payload) != {"schema", "transaction", "rulespec_pr"}:
+        # ``units`` is optional: the citations of every unit of a multi-unit
+        # candidate (docs/reviewed-pr-promotion.md, "Several units in one
+        # candidate"). This is the shape only; the admission decides whether
+        # a batch is in force and whether the list equals the candidate.
+        # The key exists only while the multi-unit switch is on: with it off
+        # the wrapper is read exactly as before the key existed.
+        try:
+            from axiom_encode import reviewed_pr_admission
+
+            batch_on = reviewed_pr_admission.MULTI_UNIT_PROMOTION_ENABLED is True
+        except ImportError:  # run outside the package: the key stays unknown
+            batch_on = False
+        batch_keys = {"units"} if batch_on else set()
+        if set(payload) - batch_keys != {"schema", "transaction", "rulespec_pr"}:
             raise ValueError(
                 "reviewed PR promotion requires exactly transaction and rulespec_pr"
+            )
+        units = payload.get("units")
+        if "units" in payload and (
+            not isinstance(units, list)
+            or not 1 <= len(units) <= 64
+            or any(
+                not isinstance(unit, str) or not unit or len(unit) > 512
+                for unit in units
+            )
+            or len(set(units)) != len(units)
+        ):
+            raise ValueError(
+                "reviewed PR promotion units must be a list of distinct citations"
             )
         number = payload["rulespec_pr"]
         inner = payload["transaction"]
@@ -1330,6 +1404,8 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
         if normalized.get("reviewed_candidate_promotion") is not True:
             raise ValueError("reviewed PR promotion requires promotion mode")
+        if units is not None:
+            return {**normalized, "rulespec_pr": number, "promotion_units": units}
         return {**normalized, "rulespec_pr": number}
     if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/corpus-artifact-transport/v1"

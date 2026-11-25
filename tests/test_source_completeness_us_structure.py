@@ -7,6 +7,7 @@ rule citing `7 CFR 273.4(a)(3)-(5)` covered only (a)(3).
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 
 import pytest
@@ -93,13 +94,11 @@ def test_cfr_omitted_branch_fails_with_english_paragraph_label():
     structure = _structure_issues(result)
 
     assert any(
-        "Source branch (B) at us/regulation/7/273/4(a)(6)(i)(B) "
-        "[paragraph (a)(6)(i)(B)] is neither encoded nor precisely deferred." in issue
+        "Source branch (B) at paragraph (a)(6)(i)(B) of us/regulation/7/273/4 "
+        "is neither encoded nor precisely deferred." in issue
         for issue in structure
     ), structure
-    assert any(
-        "us/regulation/7/273/4(b) [paragraph (b)]" in issue for issue in structure
-    )
+    assert any("paragraph (b) of us/regulation/7/273/4" in issue for issue in structure)
     assert not any("(a)(6)(i)(A) " in issue for issue in structure)
     assert not any(
         word in issue
@@ -128,11 +127,11 @@ def test_us_statute_omitted_branch_fails_with_english_provision_label():
     )
 
     assert any(
-        "Source branch (C) at us/statute/7/2015/f(2)(C) [provision (2)(C)] is "
+        "Source branch (C) at provision (2)(C) of us/statute/7/2015/f is "
         "neither encoded nor precisely deferred." in issue
         for issue in structure
     ), structure
-    assert not any("2015/f(2)(B) " in issue for issue in structure)
+    assert not any("provision (2)(B) of " in issue for issue in structure)
 
 
 def test_state_statute_labels_are_english_and_keep_printed_case():
@@ -149,7 +148,7 @@ def test_state_statute_labels_are_english_and_keep_printed_case():
 
     assert (
         completeness._branch_citation(citation, branch)
-        == "us-co/statute/39/39-22-2003(1)(a)(II) [provision (1)(a)(II)]"
+        == "provision (1)(a)(II) of us-co/statute/39/39-22-2003"
     )
 
 
@@ -168,6 +167,141 @@ def test_german_labels_are_unchanged():
 
     assert "de/statute/estg/32a(2) [Absatz 2, Nummer 1]" in rendered
     assert "de/statute/estg/32a(1) [Absatz 1]" in rendered
+
+
+def test_us_guidance_locator_names_the_branch_beside_the_unit_path():
+    citation = "us/guidance/irs/rev-proc-2025-32/page-18"
+    branches = recognize_source_structure(
+        "(14) Adoption credit.\n(1) The amount is limited.\n(2) The phaseout applies.\n"
+        "(3) The credit is refundable.\n",
+        corpus_citation_path=citation,
+    )
+    nested = completeness.SourceStructureBranch(
+        **{
+            **{
+                field: getattr(branches[0], field)
+                for field in completeness.SourceStructureBranch.__dataclass_fields__
+            },
+            "path": ("14", "3"),
+        }
+    )
+
+    assert completeness._branch_citation(citation, nested) == (
+        "subsection 14, paragraph 3 of us/guidance/irs/rev-proc-2025-32/page-18"
+    )
+    assert "page-18(14)" not in completeness._branch_citation(citation, nested)
+
+
+# A copied locator (`paragraph (a) of <unit path>`) is not a citation either
+# checker reads, so every U.S. structure or formula-output finding names the
+# accepted spelling next to it. That spelling must pass both checkers.
+@pytest.mark.parametrize(
+    ("citation", "source", "path", "form"),
+    [
+        (
+            CFR_273_4,
+            CFR_SOURCE,
+            ("a", "6", "i", "b"),
+            "us/regulation/7/273/4(a)(6)(i)(B)",
+        ),
+        (
+            "us/statute/7/2015/f",
+            "(1) a resident; and\n(2) either\u2014\n(A) a citizen;\n(B) an alien.\n",
+            ("2", "b"),
+            "7 U.S.C. 2015(f)(2)(B)",
+        ),
+        (
+            "us-co/statute/39/39-22-2003",
+            "(1) (a) A person qualifies.\n(b) The refund is paid.\n(2) The department pays.\n",
+            ("1", "b"),
+            "us-co/statute/39/39-22-2003(1)(b)",
+        ),
+        (
+            "us/guidance/irs/rev-proc-2025-32/page-18",
+            "(14) Adoption credit.\n(15) Other items.\n",
+            ("15",),
+            "us/guidance/irs/rev-proc-2025-32/page-18(15)",
+        ),
+    ],
+)
+def test_printed_accepted_form_passes_the_reason_and_source_checkers(
+    citation: str, source: str, path: tuple[str, ...], form: str
+):
+    branches = recognize_source_structure(source, corpus_citation_path=citation)
+    branch = next(branch for branch in branches if branch.path == path)
+    note = completeness._branch_reason_citation_note(citation, branch)
+
+    assert completeness._branch_reason_citation_form(citation, branch).lower() == (
+        form.lower()
+    )
+    assert (
+        f"write `{completeness._branch_reason_citation_form(citation, branch)}`" in note
+    )
+    assert f"`corpus_citation_path` stays `{citation}`" in note
+    printed = completeness._branch_reason_citation_form(citation, branch)
+    assert completeness._reason_cites_exact_current_statute_branch(
+        f"{printed} is repealed.",
+        corpus_citation_path=citation,
+        path=path,
+        strict_terminal=True,
+    )
+    # The displayed locator itself is not read as that branch.
+    assert not completeness._reason_cites_exact_current_statute_branch(
+        f"{completeness._branch_citation(citation, branch)} is repealed.",
+        corpus_citation_path=citation,
+        path=path,
+        strict_terminal=True,
+    )
+    assert path in completeness._paths_from_source_reference(
+        printed, corpus_citation_path=citation
+    )
+
+
+def test_structure_finding_names_the_accepted_form_next_to_the_locator():
+    structure = _structure_issues(
+        _analyze(_module(CFR_273_4, "7 CFR 273.4(a)(6)(i)(A)"), CFR_SOURCE, CFR_273_4)
+    )
+    finding = next(
+        issue
+        for issue in structure
+        if "at paragraph (a)(6)(i)(B) of us/regulation/7/273/4" in issue
+    )
+
+    assert (
+        "is neither encoded nor precisely deferred. To cite this branch in "
+        "`reason` or `source:`, write `us/regulation/7/273/4(a)(6)(i)(b)`; "
+        "`corpus_citation_path` stays `us/regulation/7/273/4`."
+    ) in finding
+    # The retry pairing still reads the locator, not the note.
+    assert _validation_retry_branch_locator(finding) == (
+        "paragraph (a)(6)(i)(b) of us/regulation/7/273/4"
+    )
+    # Encoding a rule with the printed `source:` spelling covers the branch.
+    covered = _structure_issues(
+        _analyze(
+            _module(
+                CFR_273_4,
+                "7 CFR 273.4(a)(6)(i)(A)",
+                "us/regulation/7/273/4(a)(6)(i)(b)",
+            ),
+            CFR_SOURCE,
+            CFR_273_4,
+        )
+    )
+    assert not any("(a)(6)(i)(B) of" in issue for issue in covered), covered
+
+
+def test_german_findings_get_no_accepted_form_note():
+    branches = recognize_source_structure(
+        "(1) Die Einkommensteuer bemisst sich nach dem Einkommen.\n"
+        "(2) Bei Ehegatten gilt der Splittingtarif.\n",
+        corpus_citation_path="de/statute/estg/32a",
+    )
+
+    assert all(
+        completeness._branch_reason_citation_note("de/statute/estg/32a", branch) == ""
+        for branch in branches
+    )
 
 
 @pytest.mark.parametrize(
@@ -240,17 +374,17 @@ def test_us_sources_do_not_recognize_german_sentence_markers():
 def test_english_structure_and_formula_locators_still_pair_for_retry():
     structure = (
         "[complete-source-unit:structure] Source branch (ii) at "
-        "us/regulation/7/273/4(a)(6)(ii) [paragraph (a)(6)(ii)] is neither "
+        "paragraph (a)(6)(ii) of us/regulation/7/273/4 is neither "
         "encoded nor precisely deferred."
     )
     formula = (
         "[complete-source-unit:formula-output] Source-stated control (ii) in "
-        "us/regulation/7/273/4(a)(6)(ii) [paragraph (a)(6)(ii)] has no "
+        "paragraph (a)(6)(ii) of us/regulation/7/273/4 has no "
         "principal derived/relation output (`derived` or `derived_relation`)."
     )
     other = (
         "[complete-source-unit:formula-output] Source-stated control (iii) in "
-        "us/regulation/7/273/4(a)(6)(iii) [paragraph (a)(6)(iii)] has no "
+        "paragraph (a)(6)(iii) of us/regulation/7/273/4 has no "
         "principal derived/relation output (`derived` or `derived_relation`)."
     )
 
@@ -334,14 +468,17 @@ def test_cited_range_covers_only_its_own_branches():
     structure = _structure_issues(result)
 
     for covered in ("(a)(1) ", "(a)(2) ", "(a)(3) "):
-        assert not any(f"273/4{covered}" in issue for issue in structure), covered
+        assert not any(
+            f"paragraph {covered}of us/regulation/7/273/4" in issue
+            for issue in structure
+        ), covered
     # Negative controls: omitted siblings outside the range still fail.
     assert any(
-        "Source branch (4) at us/regulation/7/273/4(a)(4) [paragraph (a)(4)]" in issue
+        "Source branch (4) at paragraph (a)(4) of us/regulation/7/273/4" in issue
         for issue in structure
     ), structure
-    assert any("273/4(a)(6) [paragraph (a)(6)]" in issue for issue in structure)
-    assert any("273/4(b) [paragraph (b)]" in issue for issue in structure)
+    assert any("paragraph (a)(6) of us/" in issue for issue in structure)
+    assert any("paragraph (b) of us/" in issue for issue in structure)
 
 
 def test_parameter_citation_list_does_not_encode_the_branches_it_lists():
@@ -376,7 +513,7 @@ rules:
         formula: '18'
 """
     structure = _structure_issues(_analyze(content, source, CFR_273_4))
-    for branch in ("(c)(3)(vi) [paragraph", "(c)(3)(vii) [paragraph"):
+    for branch in ("paragraph (c)(3)(vi) of", "paragraph (c)(3)(vii) of"):
         assert any(branch in issue for issue in structure), (branch, structure)
 
     # The same citation on a principal derived output does encode them.
@@ -384,7 +521,7 @@ rules:
         "dtype: Integer", "dtype: Judgment"
     )
     structure = _structure_issues(_analyze(derived, source, CFR_273_4))
-    for branch in ("(c)(3)(vi) [paragraph", "(c)(3)(vii) [paragraph"):
+    for branch in ("paragraph (c)(3)(vi) of", "paragraph (c)(3)(vii) of"):
         assert not any(branch in issue for issue in structure), (branch, structure)
 
 
@@ -502,8 +639,8 @@ def test_list_shapes_that_name_no_branch_here_leave_it_reported():
             _analyze(_module(CFR_273_4, rule_source), _LETTER_I_SOURCE, CFR_273_4)
         )
 
-    top_level_i = "Source branch (i) at us/regulation/7/273/4(i) [paragraph (i)]"
-    roman_ii = "273/4(a)(1)(ii) [paragraph (a)(1)(ii)]"
+    top_level_i = "Source branch (i) at paragraph (i) of us/regulation/7/273/4"
+    roman_ii = "paragraph (a)(1)(ii) of us/regulation/7/273/4"
     issues = structure("7 CFR 273.4(a)(1)(ii), (i)")
     assert any(top_level_i in issue for issue in issues), issues
     issues = structure("7 CFR 273.4(a)(1)(i), (ii) in 7 CFR 273.9")
@@ -511,7 +648,7 @@ def test_list_shapes_that_name_no_branch_here_leave_it_reported():
     # Positive control: the plain list covers both romans.
     issues = structure("7 CFR 273.4(a)(1)(i), (ii)")
     assert not any(roman_ii in issue for issue in issues), issues
-    assert not any("273/4(a)(1)(i) [" in issue for issue in issues), issues
+    assert not any("paragraph (a)(1)(i) of " in issue for issue in issues), issues
 
 
 def test_section_sign_list_after_another_title_names_only_its_first_branch():
@@ -590,3 +727,75 @@ def test_retained_punctuation_computation_keeps_the_owner_printed_case():
     (replacement,) = [branch for branch in retained if branch.text == source]
     assert replacement.path == owner.path
     assert replacement.display_path == owner.display_path
+
+
+def test_retry_hint_says_the_reason_locator_is_not_a_path():
+    hint = completeness._imprecise_deferral_retry_shape(
+        corpus_citation_path="us/regulation/42/435/2", path=("a",)
+    )
+
+    # cli.py parses this prefix to repair generated reasons; keep it intact.
+    assert (
+        "the literal canonical citation required in `reason` is "
+        "`us/regulation/42/435/2(a)`"
+    ) in " ".join(hint.split())
+    assert hint.endswith(
+        "a reason naming an exact external missing dependency need not cite it. "
+        "This parenthesized form is a text locator for `reason`, not a corpus "
+        "citation path: every `corpus_citation_path` field that cites this unit "
+        "stays `us/regulation/42/435/2`."
+    )
+
+
+def test_sentence_component_branches_get_no_citation_note():
+    # No checker reads `<unit path>(a)(satz-2)`, so a branch with a sentence
+    # component prints no accepted-form note rather than an unaccepted one.
+    branch = next(
+        branch
+        for branch in recognize_source_structure(
+            CFR_SOURCE, corpus_citation_path=CFR_273_4
+        )
+        if branch.path == ("a",)
+    )
+    sentence = dataclasses.replace(branch, path=("a", "satz-2"))
+
+    assert completeness._branch_reason_citation_form(CFR_273_4, sentence) is None
+    assert completeness._branch_reason_citation_note(CFR_273_4, sentence) == ""
+    assert completeness._branch_reason_citation_note(CFR_273_4, branch) == (
+        " To cite this branch in `reason` or `source:`, write "
+        "`us/regulation/7/273/4(a)`; `corpus_citation_path` stays "
+        "`us/regulation/7/273/4`."
+    )
+
+
+def test_explicit_computation_finding_names_the_accepted_form():
+    citation = "us/regulation/7/273/10"
+    source = (
+        "(a) Eligibility. The State agency must certify each household.\n"
+        "(b) Benefit amount. The allotment is equal to the maximum allotment "
+        "minus 30 percent of net income.\n"
+    )
+    content = f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation}
+rules: []
+"""
+    finding = next(
+        issue
+        for issue in _analyze(content, source, citation).issues
+        if issue.startswith(
+            "[complete-source-unit:formula-output] Explicit source computation (b)"
+        )
+    )
+
+    assert (
+        "in paragraph (b) of us/regulation/7/273/10 has no principal "
+        "derived/relation output"
+    ) in finding
+    assert (
+        "parameter-only representation is invalid. To cite this branch in "
+        "`reason` or `source:`, write `us/regulation/7/273/10(b)`; "
+        "`corpus_citation_path` stays `us/regulation/7/273/10`. "
+    ) in finding

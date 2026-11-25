@@ -1,3 +1,21 @@
+## 0.2.2397
+
+- Give CFR units their cited-section context; encode State-established amounts as inputs (#2335)
+
+## 0.2.2396
+
+- Keep branch locators out of corpus_citation_path fields (prompt and feedback wording) (#2331)
+
+## 0.2.2395
+
+- Refuse an unsliceable cited child path instead of crashing CI (#2330)
+- Add a switched-off batch form of the signed promotion lane: several new units in one candidate, one signing run (#2301) (#2321)
+- Add a report-only shadow of the incremental waiver audit (off by default) (#2329)
+
+## 0.2.2394
+
+- Bind every candidate to its source at generation and refuse an unbound candidate before approval (#2323)
+
 ## 0.2.2393
 
 - Review a large candidate in ordered chunks, and let the promotion lane require the generalist review (#2252) (#2318)

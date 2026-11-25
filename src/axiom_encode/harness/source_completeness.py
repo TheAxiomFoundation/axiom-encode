@@ -261,6 +261,9 @@ class CompleteSourceUnitAnalysis:
     covered_source_numeric_occurrence_count: int
     missing_source_numeric_occurrence_count: int
     companion_test_obligations: tuple[CompanionTestObligation, ...] = ()
+    # Values of the source occurrences numeric recall demanded, in source
+    # order (the source view, before represented spans are credited).
+    source_numeric_occurrence_values: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1437,8 +1440,21 @@ _FORMULA_APPLICABILITY_YEAR_SERIES = (
     rf"(?:from\s+)?{_FORMULA_APPLICABILITY_YEAR_SPAN}"
     rf"(?:\s*,?\s*(?:inclusive|and\s+(?:thereafter|later|onward)))?"
 )
+# A parenthetical that states an amount is never a label leading a preface:
+# a currency sign (`($79)`), a thousands separator (`(9,500)`), a decimal
+# (`(1.5)`) or four or more digits (`(1234)`). A page break can put such an
+# amount at a line start, as in `($9,500) for calendar year 2016`. Any other
+# parenthetical keeps leading a preface as before: an outline enumerator
+# (`(a)`, `(12)`, `(iv)`) or a history note before `Effective ...`.
+_FORMULA_APPLICABILITY_AMOUNT_PARENTHETICAL = (
+    r"\(\s*(?:[$£€]\s*\d[\d,]*(?:\.\d+)?|\d{1,3}(?:,\d{3})+(?:\.\d+)?|"
+    r"\d+\.\d+|\d{4,})\s*\)"
+)
+_FORMULA_APPLICABILITY_OUTLINE_LABEL = (
+    rf"(?!{_FORMULA_APPLICABILITY_AMOUNT_PARENTHETICAL})\([^)]+\)"
+)
 _FORMULA_APPLICABILITY_PREFACE = re.compile(
-    rf"^\s*(?:(?:\([^)]+\)|[A-Z]\.)\s*)*(?:"
+    rf"^\s*(?:(?:{_FORMULA_APPLICABILITY_OUTLINE_LABEL}|[A-Z]\.)\s*)*(?:"
     rf"(?:effective\s+)?(?:for|during)\s+(?:the\s+)?"
     rf"(?:tax(?:able)?|calendar|fiscal|assessment)\s+years?\s+"
     rf"{_FORMULA_APPLICABILITY_START}\s+"
@@ -2334,8 +2350,10 @@ def _imprecise_deferral_retry_shape(
             part for part in corpus_citation_path.strip("/").split("/") if part
         ]
         # `_reason_cites_exact_current_statute_branch` has no CFR-style reader;
-        # a regulation branch binds through its literal corpus path, e.g.
-        # `us/regulation/42/457/622(a)`, not `42 CFR 457.622(a)`.
+        # a regulation branch binds through its corpus path followed by its
+        # paragraph markers, e.g. `us/regulation/42/457/622(a)`, not
+        # `42 CFR 457.622(a)`. That string is a `reason` locator only: the
+        # resolver rejects it as a `corpus_citation_path`, so the hint says so.
         if len(citation_parts) >= 3 and citation_parts[1] in {"statute", "regulation"}:
             fragments = "".join(
                 f"({normalize_rulespec_path_segment(part)})" for part in path
@@ -2346,7 +2364,10 @@ def _imprecise_deferral_retry_shape(
                 f"`{corpus_citation_path.rstrip('/')}{fragments}` when the reason "
                 "cites this branch itself (a repeal, a runtime gap, or a "
                 "source-stated input); a reason naming an exact external missing "
-                "dependency need not cite it."
+                "dependency need not cite it. This parenthesized form is a text "
+                "locator for `reason`, not a corpus citation path: every "
+                "`corpus_citation_path` field that cites this unit stays "
+                f"`{corpus_citation_path.rstrip('/')}`."
             )
     example = (
         _US_IMPRECISE_DEFERRAL_RETRY_EXAMPLE
@@ -2405,9 +2426,25 @@ _EXPLICIT_LEGAL_SECTION_REFERENCE = re.compile(
     r"(?P<section>\d+[a-z]?)",
     flags=re.IGNORECASE,
 )
+# A number that a percent sign, `per cent` or a recall unit word directly
+# follows (`25 percent`, `3%`, `30 days`) states a quantity, not a locator.
+# Only an adjacent unit counts: `section 39-2-125 within thirty days` is a
+# locator followed by prose.
+_ENGLISH_LEGAL_CITATION_QUANTITY_FOLLOWS = (
+    rf"[ \t]*(?:%|-?{_RECALL_UNIT_WORD}\b|(?i:per[ \t\u00a0\u202f]+cent)\b)"
+)
+# The number is read whole (atomic), so a refused `25 percent` cannot be
+# shortened to a locator `2` that leaves `5 percent` behind.
+_ENGLISH_LEGAL_CITATION_NUMBER = (
+    rf"(?>\d+(?:\.\d+)*)(?!{_ENGLISH_LEGAL_CITATION_QUANTITY_FOLLOWS})"
+)
+# `section 290.9725 , 25 percent of`, `this article 3% of the amount` and
+# `under section 8 and 50 percent of` keep their rate: neither the number
+# after the keyword nor a list continuation is taken when it states a quantity.
 _ENGLISH_LEGAL_CITATION = re.compile(
     r"\b(?:articles?|sections?|secs?\.?|regulations?|paragraphs?)\s+"
-    r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
+    rf"{_ENGLISH_LEGAL_CITATION_NUMBER}"
+    rf"(?:\s*(?:through|to|[-–—]|and|,)\s*{_ENGLISH_LEGAL_CITATION_NUMBER})*",
     flags=re.IGNORECASE,
 )
 # A coordinated list of titled references, as UK instruments print them:
@@ -2978,6 +3015,117 @@ def numeric_occurrences_without_us_bibliographic_locators(
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     return inventory.kept if inventory.consistent else inventory.occurrences
+
+
+def complete_source_numeric_recall_occurrences(
+    authoritative_source_text: str,
+    *,
+    corpus_citation_path: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+    exempt_source_spans: Iterable[tuple[int, int]] = (),
+) -> tuple[NumericOccurrenceLike, ...]:
+    """Return the source numbers a complete-source occurrence count demands.
+
+    The view is positional. It is the inventory of the source text itself,
+    minus each occurrence whose characters the numeric-recall reading removes
+    in place: a mask or deletion of `authoritative_numeric_recall_text`, or
+    the US locator or temporal-preface filter of `analyze_complete_source_unit`
+    applied to the occurrence at that place. The masked text is never read
+    again for this view, so a number whose characters survive the masks stays
+    demanded even when the masked text happens to tokenize differently.
+
+    Every occurrence numeric recall demands (its source view) is in this view
+    too: one that does not coincide with a kept source occurrence of the same
+    value is added. So this view contains everything numeric recall demands,
+    except the characters in `exempt_source_spans` (positions in
+    `authoritative_source_text`; the encode eval passes source-backed half-up
+    increments).
+
+    The returned occurrences carry source positions, except an added recall
+    occurrence, which carries its recall-text position.
+    """
+
+    source_text = authoritative_source_text.strip()
+    lead = len(authoritative_source_text) - len(authoritative_source_text.lstrip())
+    exempt = {
+        position - lead
+        for start, end in exempt_source_spans
+        for position in range(start, end)
+    }
+    source_map = _NumericRecallSourceMap(list(range(len(source_text))))
+    with (
+        _us_manual_prose_scope(corpus_citation_path),
+        _condition_cue_scope(corpus_citation_path),
+    ):
+        recall_text = authoritative_numeric_recall_text(
+            source_text,
+            corpus_citation_path=corpus_citation_path,
+            _source_map=source_map,
+        )
+        inventory = _us_locator_filtered_inventory(
+            recall_text,
+            corpus_citation_path=corpus_citation_path,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+        candidates = inventory.kept if inventory.consistent else inventory.occurrences
+        demanded = tuple(
+            occurrence
+            for occurrence in candidates
+            if not _temporal_occurrence_is_recall_exempt_preface(
+                occurrence, recall_text
+            )
+        )
+    source_occurrences = tuple(extract_numeric_occurrences(source_text))
+    if len(source_map.offsets) != len(recall_text):
+        # Positions cannot be followed: remove nothing, demand everything.
+        return source_occurrences + demanded
+
+    surviving = {
+        origin
+        for index, origin in enumerate(source_map.offsets)
+        if origin is not None and recall_text[index] == source_text[origin]
+    }
+    # Characters of recall occurrences that a filter, not a mask, dropped.
+    demanded_ids = {id(occurrence) for occurrence in demanded}
+    filtered: set[int] = set()
+    for occurrence in inventory.occurrences:
+        if id(occurrence) in demanded_ids:
+            continue
+        span = source_map.source_span(occurrence.start, occurrence.end)
+        if span is not None:
+            filtered.update(range(*span))
+
+    def removed(start: int, end: int) -> bool:
+        characters = [
+            position
+            for position in range(start, end)
+            if source_text[position].isalnum()
+        ]
+        return bool(characters) and all(
+            position not in surviving or position in filtered or position in exempt
+            for position in characters
+        )
+
+    kept = tuple(
+        occurrence
+        for occurrence in source_occurrences
+        if not removed(occurrence.start, occurrence.end)
+    )
+    added = []
+    for occurrence in demanded:
+        span = source_map.source_span(occurrence.start, occurrence.end)
+        if span is not None and (
+            all(position in exempt for position in range(*span))
+            or any(
+                source.value == occurrence.value
+                and source.start < span[1]
+                and span[0] < source.end
+                for source in kept
+            )
+        ):
+            continue
+        added.append(occurrence)
+    return kept + tuple(added)
 
 
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
@@ -6604,8 +6752,9 @@ CHECK_STRUCTURE_BRANCH_UNENCODED = declare_check(
         "computes a result the source does not support."
     ),
     fix=(
-        "Encode the branch in a rule that cites it (source path or proof "
-        "excerpt from its own text), or add a precise "
+        "Encode the branch in a rule that cites it (its rule-level `source:` "
+        "locator or a proof excerpt from its own text; `corpus_citation_path` "
+        "stays the unit path), or add a precise "
         "`module.deferred_outputs` entry for that branch. Descendant citations "
         "do not cover a substantive parent chapeau."
     ),
@@ -7251,6 +7400,7 @@ def _analyze_rulespec_payload(
             f"Source branch {branch.label} at "
             f"{_branch_citation(corpus_citation_path, branch)} is neither "
             "encoded nor precisely deferred."
+            f"{_branch_reason_citation_note(corpus_citation_path, branch)}"
             f"{covered_descendant_detail}"
         )
         pending_deferral = max(
@@ -7412,6 +7562,7 @@ def _analyze_rulespec_payload(
                         "principal derived/relation output (`derived` or "
                         "`derived_relation`) and is not "
                         "precisely deferred; parameter-only representation is invalid."
+                        + _branch_reason_citation_note(corpus_citation_path, branch)
                         + _formula_output_binding_feedback(
                             branch,
                             corpus_citation_path=corpus_citation_path,
@@ -7457,7 +7608,8 @@ def _analyze_rulespec_payload(
                 f"{_branch_citation(corpus_citation_path, branch)} has no "
                 "principal derived/relation output (`derived` or "
                 "`derived_relation`) and is not precisely deferred; "
-                "parameter-only representation is invalid.",
+                "parameter-only representation is invalid."
+                + _branch_reason_citation_note(corpus_citation_path, branch),
                 check=CHECK_FORMULA_CONTROL_WITHOUT_OUTPUT,
                 subject=_branch_subject(corpus_citation_path, branch),
                 expected="principal derived/relation output covering the control",
@@ -7710,7 +7862,7 @@ def _analyze_rulespec_payload(
         for occurrence in (
             source_inventory.kept if drop_us_locators else source_inventory.occurrences
         )
-        if not _temporal_occurrence_is_formula_applicability_preface(
+        if not _temporal_occurrence_is_recall_exempt_preface(
             occurrence,
             numeric_recall_text,
         )
@@ -7728,7 +7880,7 @@ def _analyze_rulespec_payload(
                 if drop_us_locators
                 else unrepresented_inventory.occurrences
             )
-            if not _temporal_occurrence_is_formula_applicability_preface(
+            if not _temporal_occurrence_is_recall_exempt_preface(
                 occurrence,
                 unrepresented_recall_text,
             )
@@ -7832,6 +7984,7 @@ def _analyze_rulespec_payload(
         covered_source_values,
         len(missing_source_values),
         tuple(dict.fromkeys(companion_obligations)),
+        tuple(float(occurrence.value) for occurrence in source_occurrences),
     )
 
 
@@ -16409,8 +16562,9 @@ def _branch_citation(
             f"{'subsection' if len(branch.path) > 1 else 'paragraph'} {branch.path[0]}",
             *(f"paragraph {component}" for component in branch.path[1:]),
         ]
-        path = "".join(f"({component})" for component in branch.path)
-        return f"{corpus_citation_path}{path} [{', '.join(components)}]"
+        # Name the branch beside the unit path, never as `<path>(a)(1)`: that
+        # string looks like a path but is rejected as a `corpus_citation_path`.
+        return f"{', '.join(components)} of {corpus_citation_path}"
     if _uses_english_branch_labels(corpus_citation_path):
         return _english_branch_citation(corpus_citation_path, branch)
     citation = corpus_citation_path
@@ -16438,20 +16592,72 @@ def _uses_english_branch_labels(corpus_citation_path: str) -> bool:
     return _US_CORPUS_CITATION_PATH.match(corpus_citation_path.strip()) is not None
 
 
+def _branch_reason_citation_form(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str | None:
+    """The spelling of a U.S. branch that `reason` and rule `source:` accept.
+
+    The displayed locator (`paragraph (a) of us/regulation/...`) is neither:
+    `_reason_cites_exact_current_statute_branch` reads `<unit path>(a)` (and
+    `42 U.S.C. 415(i)` for the U.S. Code). ``None`` when there is no branch,
+    the branch has sentence components, or the source is not U.S.
+    """
+
+    unit = corpus_citation_path.strip().rstrip("/")
+    if (
+        not branch.path
+        or any(component.startswith("satz-") for component in branch.path)
+        or not _uses_english_branch_labels(unit)
+    ):
+        return None
+    if unit.startswith("us/statute/"):
+        try:
+            citation = parse_usc_citation(unit)
+        except ValueError:
+            return None
+        fragments = "".join(
+            f"({normalize_rulespec_path_segment(part)})"
+            for part in (*citation.fragments, *branch.path)
+        )
+        section = normalize_rulespec_path_segment(citation.section)
+        return f"{citation.title} U.S.C. {section}{fragments}"
+    return unit + "".join(
+        f"({normalize_rulespec_path_segment(part)})" for part in branch.path
+    )
+
+
+def _branch_reason_citation_note(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str:
+    """One bounded sentence naming the accepted citation beside a locator."""
+
+    form = _branch_reason_citation_form(corpus_citation_path, branch)
+    if form is None:
+        return ""
+    return (
+        f" To cite this branch in `reason` or `source:`, write `{form}`; "
+        f"`corpus_citation_path` stays `{corpus_citation_path.strip().rstrip('/')}`."
+    )
+
+
 def _english_branch_citation(
     corpus_citation_path: str,
     branch: SourceStructureBranch,
 ) -> str:
-    """Render `us/regulation/7/273/4(a)(6)(i)(A) [paragraph (a)(6)(i)(A)]`.
+    """Render `paragraph (a)(6)(i)(A) of us/regulation/7/273/4`.
 
     Repair feedback for a U.S. source names the branch with its full
     parenthesized designation instead of German Absatz/Nummer/Buchstabe
     labels. Only the wording differs; the branch is the same. This is a
     locator, not the citation form a deferral `reason` must use (a U.S. Code
     reason cites `42 U.S.C. 415(i)(5)(B)`, see
-    `_reason_cites_exact_current_statute_branch`). The CFR calls every level
-    a paragraph; elsewhere the level nouns vary, so the label says
-    `provision`.
+    `_reason_cites_exact_current_statute_branch`). The designation stays
+    apart from the unit path: the joined form `us/regulation/7/273/4(a)` is
+    not a valid `corpus_citation_path`, and a model copied it from this
+    feedback into that field. The CFR calls every level a paragraph;
+    elsewhere the level nouns vary, so the label says `provision`.
     """
 
     display = branch.display_path
@@ -16484,7 +16690,7 @@ def _english_branch_citation(
         *((f"{noun} {fragment}",) if fragment else ()),
         *(f"sentence {sentence}" for sentence in sentences),
     ]
-    return f"{corpus_citation_path}{fragment} [{', '.join(components)}]"
+    return f"{', '.join(components)} of {corpus_citation_path}"
 
 
 def _branch_subject(
@@ -31075,6 +31281,38 @@ def _temporal_occurrence_is_formula_applicability_preface(
             source_text
         )
     )
+
+
+# The end of an applicability range (`... and before 2030`, `through 2030`,
+# `2026-2030`). A version's `effective_from` states where the preface starts;
+# no check binds a version's end to the source, so numeric recall keeps the
+# end year demanded.
+_FORMULA_APPLICABILITY_RANGE_END_PATTERN = re.compile(
+    # Only directly after the start date or year: `prior to 2027` alone, or
+    # `subsequent to 2025`, is a single boundary, not a range end.
+    rf"(?<=\d)(?:{_FORMULA_APPLICABILITY_RANGE_END}|"
+    rf"(?:\s+(?:through|to)\s+|\s*[-–]\s*){_FORMULA_APPLICABILITY_YEAR})",
+    flags=re.IGNORECASE,
+)
+
+
+def _temporal_occurrence_is_recall_exempt_preface(
+    occurrence: NumericOccurrenceLike,
+    source_text: str,
+) -> bool:
+    """Exempt a preface's start from numeric recall, never its range end."""
+
+    for preface_start, preface_end in _formula_applicability_preface_spans(source_text):
+        if not (occurrence.start >= preface_start and occurrence.end <= preface_end):
+            continue
+        return not any(
+            occurrence.start >= preface_start + end.start()
+            and occurrence.end <= preface_start + end.end()
+            for end in _FORMULA_APPLICABILITY_RANGE_END_PATTERN.finditer(
+                source_text[preface_start:preface_end]
+            )
+        )
+    return False
 
 
 def _formula_operation_kinds(text: str) -> set[str]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import bisect
 import contextlib
+import functools
 import hashlib
 import json
 import math
@@ -204,6 +205,7 @@ from .source_completeness import (
     _deferral_anchor_bases,
     _rulespec_target_base,
     collect_artifact_numeric_values,
+    complete_source_numeric_recall_occurrences,
     mask_armenian_amendment_history,
     mask_example_cross_references,
 )
@@ -218,6 +220,8 @@ from .validator_pipeline import (
     ValidatorPipeline,
     _authoritative_corpus_scope,
     _authoritative_rulespec_dependency_scope,
+    _citation_slice_failure_issues,
+    _citation_slice_failure_scope,
     _module_numeric_citation_path,
     _normalize_rulespec_dependency_roots,
     _numeric_profile_for_citation_path,
@@ -246,6 +250,7 @@ from .validator_pipeline import (
     repair_source_table_interval_tests,
     repair_source_table_open_ended_bound_sentinels,
     repair_unsupported_chained_conditionals,
+    source_backed_half_up_increment_spans,
     source_backed_half_up_rounding_helper_count,
 )
 
@@ -9568,9 +9573,19 @@ def _evaluate_artifact_in_scope(
         if require_complete_source_unit
         else source_text
     )
-    numeric_proof_source_texts = pipeline._numeric_source_texts_for_rulespec_content(
-        content,
-        source_texts=None,
+    # A cited path that cannot be sliced refuses the candidate (as in CI)
+    # instead of stopping the evaluation; the unit's own path still raises.
+    with _citation_slice_failure_scope(
+        pipeline._citation_slice_refusal_own_path()
+    ) as slice_failures:
+        numeric_proof_source_texts = (
+            pipeline._numeric_source_texts_for_rulespec_content(
+                content,
+                source_texts=None,
+            )
+        )
+    citation_slice_issues = _citation_slice_failure_issues(
+        slice_failures, content=content
     )
     embedded_source = extract_embedded_source_text(content)
     numeric_source_text = extract_numeric_grounding_source_text(content)
@@ -9622,24 +9637,36 @@ def _evaluate_artifact_in_scope(
         ),
     )
     if require_complete_source_unit:
-        counted_numeric_source_text = numeric_recall_source_text or ""
-        if half_up_helper_count:
-            counted_numeric_source_text = (
-                normalize_source_backed_half_up_rounding_occurrence_text(
-                    counted_numeric_source_text
-                )
+        # Count the source numbers positionally (#1801): the source inventory
+        # minus the occurrences that the numeric-recall reading removes in
+        # place (page numbers, table labels, locators), plus every number
+        # numeric recall demands. The masked text is never re-tokenized.
+        typed_source_numeric_occurrences = list(
+            complete_source_numeric_recall_occurrences(
+                evaluation_source_text or "",
+                corpus_citation_path=numeric_source_citation_path or "",
+                extract_numeric_occurrences=functools.partial(
+                    extract_typed_numeric_inventory_occurrences_from_text,
+                    profile=numeric_profile,
+                ),
+                exempt_source_spans=(
+                    source_backed_half_up_increment_spans(evaluation_source_text or "")
+                    if half_up_helper_count
+                    else ()
+                ),
             )
+        )
     else:
         counted_numeric_source_text = _numeric_occurrence_source_text(
             numeric_recall_source_text or "",
             suppress_source_backed_half_up_increment=bool(half_up_helper_count),
         )
-    typed_source_numeric_occurrences = (
-        extract_typed_numeric_inventory_occurrences_from_text(
-            counted_numeric_source_text,
-            profile=numeric_profile,
+        typed_source_numeric_occurrences = (
+            extract_typed_numeric_inventory_occurrences_from_text(
+                counted_numeric_source_text,
+                profile=numeric_profile,
+            )
         )
-    )
     source_numeric_occurrences = Counter(
         occurrence.value for occurrence in typed_source_numeric_occurrences
     )
@@ -9761,6 +9788,7 @@ def _evaluate_artifact_in_scope(
     seen_ci_issues: set[str] = set()
     for issue in (
         list(ci_result.issues)
+        + citation_slice_issues
         + ungrounded_numeric_issues
         + numeric_occurrence_issues
         + admin_agency_aggregate_issues
@@ -9772,6 +9800,7 @@ def _evaluate_artifact_in_scope(
         seen_ci_issues.add(issue)
     ci_pass = (
         ci_result.passed
+        and not citation_slice_issues
         and not ungrounded_numeric_issues
         and not numeric_occurrence_issues
         and not admin_agency_aggregate_issues
@@ -12290,8 +12319,9 @@ def _unmarked_prose_deferral_note(corpus_citation_path: str | None) -> str:
 # Path-only and encode-only fixes keep their declared text.
 _COMPLETENESS_ENCODE_FIRST_FIXES = {
     "complete-source-unit:structure/branch-unencoded": (
-        "Encode the branch in a rule that cites it (source path or proof excerpt "
-        "from its own text), as the Completeness repair guidance above orders; "
+        "Encode the branch in a rule that cites it (its rule-level `source:` "
+        "locator or a proof excerpt from its own text; `corpus_citation_path` "
+        "stays the unit path), as the Completeness repair guidance above orders; "
         "defer it only on a deferral ground listed there. Descendant citations "
         "do not cover a substantive parent chapeau."
     ),
@@ -13513,11 +13543,17 @@ Complete-source-unit mode is enabled for this request:
   every subsection marker represented by the output branch, and name a
   concrete source-stated missing input or runtime capability. The output path
   is not a source citation.
-  For a U.S. regulation branch, use the resolver-attested canonical citation
-  in `reason`, such as `us/regulation/7/273/10(a)(1)` for that exact branch;
+  For a U.S. regulation branch, cite it in `reason` as the unit's corpus
+  citation path followed by its paragraph markers, such as
+  `us/regulation/7/273/10(a)(1)` for that exact branch;
   display-style `7 CFR 273.10(a)(1)` alone does not identify it to the
-  completeness validator. Follow the citation with the concrete missing input
-  or runtime capability; do not infer a citation beyond the supplied source.
+  completeness validator. That parenthesized form is a text locator (in
+  `reason` or a rule-level `source:`), not a corpus citation path. Never write
+  markers such as `(a)(1)` into any `corpus_citation_path` field:
+  `module.source_verification` and every proof atom that cites this unit keep
+  the unit's own path (here `us/regulation/7/273/10`). Follow the citation
+  with the concrete missing input or runtime capability; do not infer a
+  citation beyond the supplied source.
   Never guess a blocker target.
 """
             + _format_branch_coverage_plan(deferral_anchor)
