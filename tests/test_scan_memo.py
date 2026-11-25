@@ -223,12 +223,16 @@ def test_text_facts_use_the_pure_python_loader():
 
 
 def test_text_facts_evict_least_recently_used():
-    register_text_facts("test-small-facts", _probe_facts, max_chars=12)
+    # One entry costs its text (9) plus its value (20): two do not fit in 40.
+    register_text_facts("test-small-facts", _probe_facts, max_chars=40)
     text_facts("a: 11111\n", "test-small-facts")
+    assert scan_memo_stats()["test-small-facts"]["entries"] == 1
     text_facts("b: 22222\n", "test-small-facts")
     stats = scan_memo_stats()["test-small-facts"]
     assert stats["entries"] == 1
-    assert stats["chars"] <= 12
+    assert 0 < stats["chars"] <= 40
+    text_facts("b: 22222\n", "test-small-facts")
+    assert scan_memo_stats()["test-small-facts"]["hits"] == 1
 
 
 def test_text_facts_reject_a_second_function_under_one_name():
@@ -787,3 +791,343 @@ def test_identity_memo_never_keeps_a_transient_probe_failure(monkeypatch, tmp_pa
             "git-top-level-probe-timeout",
         )
         assert inspect_canonical_rulespec_checkout(checkout).name == "rulespec-us"
+
+
+# --- review round 2 ---------------------------------------------------------
+
+
+def _large_value_facts(content: str, outcome: scan_memo.ParseOutcome):
+    if outcome.error is not None:
+        raise outcome.error
+    return ("v" * 1000, str(outcome.payload))
+
+
+def test_memory_bound_counts_the_stored_value():
+    # The texts are about 10 characters; each value is about 1,000.
+    register_text_facts("test-large-value-facts", _large_value_facts, max_chars=2500)
+    for index in range(5):
+        text_facts(f"a: {index}\n", "test-large-value-facts")
+    stats = scan_memo_stats()["test-large-value-facts"]
+    assert stats["entries"] == 2
+    assert 2000 < stats["chars"] <= 2500
+    # The two most recent texts stay; the older ones were evicted.
+    text_facts("a: 4\n", "test-large-value-facts")
+    text_facts("a: 3\n", "test-large-value-facts")
+    assert scan_memo_stats()["test-large-value-facts"]["hits"] == 2
+    text_facts("a: 0\n", "test-large-value-facts")
+    assert scan_memo_stats()["test-large-value-facts"]["hits"] == 2
+
+
+def test_memory_bound_refuses_a_value_larger_than_the_bound():
+    register_text_facts("test-oversize-value-facts", _large_value_facts, max_chars=500)
+    for _ in range(2):
+        assert text_facts("a: 1\n", "test-oversize-value-facts")[1] == "{'a': 1}"
+    stats = scan_memo_stats()["test-oversize-value-facts"]
+    assert (stats["entries"], stats["chars"], stats["hits"]) == (0, 0, 0)
+
+
+def test_value_size_counts_nested_strings_and_dataclass_fields():
+    facts = dependency_stubs._ConceptFileFacts(
+        source_text="s" * 300,
+        principal=("n" * 50, "Person", "Year", "Boolean"),
+        terms=("t" * 70,),
+    )
+    assert scan_memo._value_chars(facts) > 300 + 50 + 70
+    assert scan_memo._value_chars(()) == 1
+    assert scan_memo._value_chars((("a", "bc"),)) == 2 + (1 + 1) + (1 + 2)
+
+
+def test_text_facts_keep_texts_with_a_long_common_prefix_apart():
+    # The two texts are equal for more than 4,096 characters.
+    prefix = "# " + "x" * 5000 + "\n"
+    first = prefix + "a: 1\n"
+    second = prefix + "a: 2\n"
+    assert first[:4096] == second[:4096]
+    assert len(first) == len(second)
+    for _ in range(2):
+        assert text_facts(first, "test-probe-facts") == ("probe", "{'a': 1}")
+        assert text_facts(second, "test-probe-facts") == ("probe", "{'a': 2}")
+    stats = scan_memo_stats()["test-probe-facts"]
+    assert (stats["entries"], stats["hits"]) == (2, 2)
+
+
+def _nested_text(depth: int) -> str:
+    # The payload is ``{"a": [[...]]}``: ``depth`` containers deep.
+    return "a: " + "[" * (depth - 1) + "1" + "]" * (depth - 1) + "\n"
+
+
+def test_nesting_measure_matches_the_parsed_depth():
+    limit = scan_memo._MAX_MEMOIZED_NESTING
+    assert limit == 100
+    for depth, exceeds in ((1, False), (limit, False), (limit + 1, True)):
+        payload = yaml.safe_load(_nested_text(depth))
+        assert scan_memo._nesting_exceeds(payload, limit) is exceeds
+    assert not scan_memo._nesting_exceeds("scalar", limit)
+    assert not scan_memo._nesting_exceeds(None, limit)
+    # A dict key and a shared (aliased) container count too.
+    assert scan_memo._nesting_exceeds({("k", ("deep",)): 1}, 2)
+    shared = yaml.safe_load("a: &x [[1]]\nb: [*x, *x]\n")
+    assert scan_memo._nesting_exceeds(shared, 3)
+    assert not scan_memo._nesting_exceeds(shared, 4)
+    cyclic: list = []
+    cyclic.append(cyclic)
+    assert scan_memo._nesting_exceeds(cyclic, limit)
+
+
+def test_text_facts_do_not_store_a_deeply_nested_text(monkeypatch):
+    limit = scan_memo._MAX_MEMOIZED_NESTING
+    shallow = _nested_text(limit)
+    deep = _nested_text(limit + 1)
+    for text in (shallow, deep):
+        for _ in range(2):
+            assert text_facts(text, "test-probe-facts") == (
+                "probe",
+                repr(yaml.safe_load(text)),
+            )
+    stats = scan_memo_stats()["test-probe-facts"]
+    assert (stats["entries"], stats["hits"], stats["misses"]) == (1, 1, 3)
+
+    # A later call at a deeper stack, where the parse raises
+    # ``RecursionError``, must raise as the unmemoized scan does: the value
+    # computed at the shallow stack must not be served.
+    def exhausted_load(content, *args, **kwargs):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(scan_memo.yaml, "safe_load", exhausted_load)
+    with pytest.raises(TextFactsUnavailable):
+        text_facts(deep, "test-probe-facts")
+    # The shallow text needs no parse and is still served.
+    assert text_facts(shallow, "test-probe-facts")[0] == "probe"
+
+
+def test_executable_index_raises_recursion_error_for_a_deep_module(
+    monkeypatch, tmp_path
+):
+    root = _checkout(tmp_path)
+    nested = "[" * 150 + "1" + "]" * 150
+    (root / "statutes" / "deep.yaml").write_text(
+        _module("canonical deep concept", "deep_concept")
+        + f"    metadata:\n      nested: {nested}\n",
+        encoding="utf-8",
+    )
+    first = _assert_index_matches(monkeypatch, (root,))
+    assert "deep_concept" in {record.symbol for record in first}
+    assert scan_memo_stats()["rulespec-executable-rule-facts"]["entries"] == 2
+
+    original = yaml.safe_load
+
+    def depth_limited_load(content, *args, **kwargs):
+        if "[" * 150 in content:
+            raise RecursionError("maximum recursion depth exceeded")
+        return original(content, *args, **kwargs)
+
+    monkeypatch.setattr(scan_memo.yaml, "safe_load", depth_limited_load)
+    monkeypatch.setattr(validator_pipeline.yaml, "safe_load", depth_limited_load)
+    for memo in (True, False):
+        with pytest.raises(RecursionError):
+            _executable_index(monkeypatch, (root,), memo=memo)
+
+
+def test_text_facts_do_not_store_a_failed_parse():
+    text = "a:\tb\n"
+    for _ in range(2):
+        assert text_facts(text, validator_pipeline._EXECUTABLE_RULE_FACTS) == ()
+    stats = scan_memo_stats()[validator_pipeline._EXECUTABLE_RULE_FACTS]
+    assert (stats["entries"], stats["hits"], stats["misses"]) == (0, 0, 2)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RecursionError("too deep"), MemoryError("no memory"), TypeError("bad node")],
+)
+def test_executable_facts_propagate_parse_exceptions(monkeypatch, tmp_path, error):
+    with pytest.raises(type(error)) as raised:
+        validator_pipeline._executable_rule_facts(
+            "a: 1\n", scan_memo.ParseOutcome(None, error)
+        )
+    assert raised.value is error
+    for skipped in (yaml.YAMLError("bad"), ValueError("bad")):
+        assert (
+            validator_pipeline._executable_rule_facts(
+                "a: 1\n", scan_memo.ParseOutcome(None, skipped)
+            )
+            == ()
+        )
+
+    # End to end: the memoized scan raises what the unmemoized scan raises.
+    root = _checkout(tmp_path)
+
+    def exploding_load(content, *args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(scan_memo.yaml, "safe_load", exploding_load)
+    monkeypatch.setattr(validator_pipeline.yaml, "safe_load", exploding_load)
+    for memo in (True, False):
+        with pytest.raises(type(error), match=str(error)):
+            _executable_index(monkeypatch, (root,), memo=memo)
+    assert scan_memo_stats()["rulespec-executable-rule-facts"]["entries"] == 0
+
+
+def test_concept_facts_keep_the_docstring_fallback():
+    content = '"""The "canonical docstring concept" means the condition."""\nx: 1\n'
+    with pytest.raises(yaml.YAMLError):
+        yaml.safe_load(content)
+    expected_source = dependency_stubs._extract_embedded_source_text(content)
+    expected_terms = dependency_stubs._embedded_source_concept_terms(content)
+    assert expected_source == 'The "canonical docstring concept" means the condition.'
+    assert expected_terms == ["canonical docstring concept"]
+    facts = dependency_stubs._concept_file_facts(content)
+    assert facts is not None
+    assert facts.source_text == expected_source
+    assert list(facts.terms) == expected_terms
+    assert facts.principal is None
+    assert (
+        list(dependency_stubs._embedded_source_concept_terms_memoized(content))
+        == expected_terms
+    )
+
+    # A module with neither a summary nor a docstring has no source text.
+    bare = "format: rulespec/v1\nrules: []\n"
+    assert dependency_stubs._concept_file_facts(bare).source_text == ""
+    assert dependency_stubs._extract_embedded_source_text(bare) == ""
+
+
+def test_concept_facts_last_complete_rule_is_the_principal(monkeypatch, tmp_path):
+    root = _checkout(tmp_path)
+    content = (
+        _module("canonical gamma concept", "first_symbol") + "  - name: second_symbol\n"
+        "    kind: derived\n"
+        "    entity: Household\n"
+        "    period: Month\n"
+        "    dtype: Money\n"
+        "  - name: incomplete_symbol\n"
+        "    kind: derived\n"
+    )
+    (root / "statutes" / "gamma.yaml").write_text(content, encoding="utf-8")
+    expected = ("second_symbol", "Household", "Month", "Money")
+    assert dependency_stubs._extract_principal_symbol_metadata(content) == expected
+    assert dependency_stubs._concept_file_facts(content).principal == expected
+
+    concepts = _assert_memo_matches_unmemoized(monkeypatch, root)
+    gamma = [c for c in concepts if c.term == "canonical gamma concept"]
+    assert len(gamma) == 1
+    assert gamma[0].import_target.endswith("#second_symbol")
+
+
+@pytest.mark.parametrize("name", ["config", "config.worktree"])
+def test_identity_memo_refuses_a_symlinked_config_under_the_supervisor(
+    monkeypatch, tmp_path, name
+):
+    checkout = _checkout(tmp_path, git=True).parent
+    config = checkout / ".git" / name
+    outside = tmp_path / f"outside-{name}"
+    if config.exists():
+        config.rename(outside)
+    else:
+        outside.write_text("")
+    config.symlink_to(outside)
+    _supervisor_git_environment(monkeypatch)
+    assert repo_routing._memo_git_config_inputs(checkout) is None
+    calls = _count_git(monkeypatch)
+    with _checkout_identity_memo_scope():
+        results = [inspect_canonical_rulespec_checkout(checkout) for _ in range(3)]
+        assert repo_routing._CHECKOUT_IDENTITY_MEMO.get() == {}
+    # Nothing is kept: every inspection runs its own probes.
+    assert len(calls) == 3 * (len(calls) // 3) > 0
+    assert results[0] == results[1] == results[2]
+    assert results[0] == repo_routing._inspect_canonical_rulespec_checkout_uncached(
+        checkout
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "template"),
+    [("remotes", "URL: {url}\n"), ("branches", "{url}\n")],
+)
+def test_identity_memo_sees_a_changed_legacy_remote_file(
+    monkeypatch, tmp_path, kind, template
+):
+    checkout = _checkout(tmp_path, git=True).parent
+    subprocess.run(["git", "remote", "remove", "origin"], cwd=checkout, check=True)
+    legacy = checkout / ".git" / kind / "origin"
+    legacy.parent.mkdir(exist_ok=True)
+    legacy.write_text(template.format(url=ORIGIN))
+    inputs = repo_routing._git_identity_input_paths(
+        checkout, git_boundary=checkout, git_config_inputs=()
+    )
+    assert legacy in inputs
+    assert legacy.parent in inputs
+    with _checkout_identity_memo_scope():
+        assert inspect_canonical_rulespec_checkout(checkout).name == "rulespec-us"
+        assert len(repo_routing._CHECKOUT_IDENTITY_MEMO.get()) == 1
+        # Same size, same directory entry: only the file's contents and
+        # times change.
+        other = ORIGIN.replace("rulespec-us", "rulespec-xx")
+        legacy.write_text(template.format(url=other))
+        second = inspect_canonical_rulespec_checkout(checkout)
+    assert second.name is None
+    assert second == repo_routing._inspect_canonical_rulespec_checkout_uncached(
+        checkout
+    )
+
+
+@pytest.mark.parametrize("kind", ["remotes", "branches"])
+def test_identity_memo_sees_a_new_legacy_remote_file(monkeypatch, tmp_path, kind):
+    checkout = _checkout(tmp_path, git=True).parent
+    with _checkout_identity_memo_scope():
+        first = inspect_canonical_rulespec_checkout(checkout)
+        assert first.name == "rulespec-us"
+        legacy = checkout / ".git" / kind / "origin"
+        legacy.parent.mkdir(exist_ok=True)
+        legacy.write_text("URL: https://example.com/other.git\n")
+        calls = _count_git(monkeypatch)
+        second = inspect_canonical_rulespec_checkout(checkout)
+        # The fingerprint changed, so the checkout was probed again.
+        assert calls
+    assert second == repo_routing._inspect_canonical_rulespec_checkout_uncached(
+        checkout
+    )
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0,
+    reason="needs a directory the process cannot list",
+)
+def test_symlink_audit_memo_never_keeps_a_walk_that_skipped_a_directory(tmp_path):
+    checkout = _checkout(tmp_path).parent
+    locked = checkout / "us" / "statutes"
+    locked.chmod(0)
+    try:
+        with validator_pipeline._symlink_audit_memo_scope():
+            # The walk cannot list the directory and skips it, as the
+            # uncached audit does. That pass must not be kept.
+            _audit(checkout)
+            assert validator_pipeline._SYMLINK_AUDIT_MEMO.get() == {}
+            locked.chmod(0o755)
+            (locked / "link.yaml").symlink_to(tmp_path / "anywhere")
+            with pytest.raises(UnsafeRulespecContextPath, match="contains a symlink"):
+                _audit(checkout)
+    finally:
+        locked.chmod(0o755)
+    with pytest.raises(UnsafeRulespecContextPath, match="contains a symlink"):
+        _audit(checkout)
+
+
+def test_symlink_audit_memo_does_not_keep_a_walk_that_reported_an_error(
+    monkeypatch, tmp_path
+):
+    checkout = _checkout(tmp_path).parent
+    original = validator_pipeline.os.walk
+
+    def walk_with_error(top, *args, onerror=None, **kwargs):
+        assert onerror is not None
+        yield from original(top, *args, onerror=onerror, **kwargs)
+        onerror(PermissionError(13, "Permission denied", str(top)))
+
+    with validator_pipeline._symlink_audit_memo_scope():
+        monkeypatch.setattr(validator_pipeline.os, "walk", walk_with_error)
+        _audit(checkout)
+        assert validator_pipeline._SYMLINK_AUDIT_MEMO.get() == {}
+        monkeypatch.setattr(validator_pipeline.os, "walk", original)
+        _audit(checkout)
+        assert len(validator_pipeline._SYMLINK_AUDIT_MEMO.get()) == 1
