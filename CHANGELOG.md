@@ -1,3 +1,7 @@
+## 0.2.2397
+
+- Give CFR units their cited-section context; encode State-established amounts as inputs (#2335)
+
 ## 0.2.2396
 
 - Keep branch locators out of corpus_citation_path fields (prompt and feedback wording) (#2331)

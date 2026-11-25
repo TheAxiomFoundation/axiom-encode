@@ -30703,9 +30703,7 @@ rules:
         "For taxable years beginning in 2026, the amount is calculated by multiplying income by the rate.",
         "For taxable years beginning subsequent to 2025, the amount is calculated by multiplying income by the rate.",
         "For taxable years beginning prior to 2027, the amount is calculated by multiplying income by the rate.",
-        "For taxable years after 2025 and before 2027, the amount is calculated by multiplying income by the rate.",
         "For taxable years beginning after 2025 through 2027, the amount is calculated by multiplying income by the rate.",
-        "For taxable years commencing after 2025 and ending prior to 2027, the amount is calculated by multiplying income by the rate.",
         "For taxable years beginning not earlier than 2026, the amount is calculated by multiplying income by the rate.",
         "For taxable years ending 2026, the amount is calculated by multiplying income by the rate.",
         "For taxable years ending in 2026, the amount is calculated by multiplying income by the rate.",
@@ -30714,7 +30712,6 @@ rules:
         "For taxable years 2025, 2026, and 2027, the amount is calculated by multiplying income by the rate.",
         "For taxable years 2025-2027, the amount is calculated by multiplying income by the rate.",
         "For taxable years 2025 or 2026, the amount is calculated by multiplying income by the rate.",
-        "For taxable years beginning after 2025 up to and including 2027, the amount is calculated by multiplying income by the rate.",
         "For tax years beginning after December 31, 2005 and ending on or before December 31, 2006, the amount is calculated by multiplying income by the rate.",
     ),
 )
@@ -30763,6 +30760,66 @@ rules:
     )
 
     assert not result.issues
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "For taxable years after 2025 and before 2027, the amount is calculated by multiplying income by the rate.",
+        "For taxable years commencing after 2025 and ending prior to 2027, the amount is calculated by multiplying income by the rate.",
+        "For taxable years beginning after 2025 up to and including 2027, the amount is calculated by multiplying income by the rate.",
+    ),
+)
+def test_applicability_range_end_year_stays_demanded(source):
+    # The preface is still not a coefficient, and its start year is exempt.
+    # Its end year stays demanded: a version's `effective_from` states the
+    # start, and no check binds a version's end to the source (#1801 review).
+    content = f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-la/statute/47:294
+rules:
+  - name: adjusted_amount
+    kind: derived
+    dtype: Money
+    source: us-la/statute/47:294
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-la/statute/47:294
+              excerpt: >-
+                {source}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income * rate
+"""
+    case = {
+        "name": "effective formula",
+        "period": "2026",
+        "input": {"income": 100, "rate": 0.05},
+        "output": {"adjusted_amount": 5},
+    }
+
+    result = analyze_complete_source_unit(
+        content,
+        source,
+        corpus_citation_path="us-la/statute/47:294",
+        test_cases=[case],
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+    assert [issue.split(" has ", 1)[0] for issue in map(str, result.issues)] == [
+        "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2027"
+    ]
 
 
 def test_tax_year_range_preface_does_not_hide_following_percentage():
