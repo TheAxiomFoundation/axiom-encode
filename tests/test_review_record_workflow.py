@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -131,13 +132,27 @@ BASE_COMMAND = [
 ]
 
 
-def promotion_command(payload: dict) -> list[str]:
+def run_promotion_fragment(payload: dict, switch: str | None):
     script = fragment(
         step("Encode, review, validate, and apply")["run"],
         "promotion_args=(",
         'queue_operation command "${promotion_args[@]}"',
     )
-    completed = subprocess.run(
+    environment = {
+        **os.environ,
+        "RULESPEC_CHECKOUT": "/work/rulespec-us",
+        "REPLACE_RULESPEC_PATH": "us/statutes/7/2015/a.yaml",
+        "CITATION": "us/statute/7/2015/a",
+        "RULESPEC_REF": "c" * 40,
+        "GITHUB_WORKSPACE": "/work",
+        "GITHUB_RUN_ID": "777",
+        "RUNNER_TEMP": "/runner/temp",
+        "atomic_source_payload": json.dumps(payload),
+    }
+    environment.pop("REVIEW_RECORD_REQUIRED", None)
+    if switch is not None:
+        environment["REVIEW_RECORD_REQUIRED"] = switch
+    return subprocess.run(
         [
             "bash",
             "-c",
@@ -145,19 +160,13 @@ def promotion_command(payload: dict) -> list[str]:
         ],
         capture_output=True,
         text=True,
-        check=True,
-        env={
-            **os.environ,
-            "RULESPEC_CHECKOUT": "/work/rulespec-us",
-            "REPLACE_RULESPEC_PATH": "us/statutes/7/2015/a.yaml",
-            "CITATION": "us/statute/7/2015/a",
-            "RULESPEC_REF": "c" * 40,
-            "GITHUB_WORKSPACE": "/work",
-            "GITHUB_RUN_ID": "777",
-            "RUNNER_TEMP": "/runner/temp",
-            "atomic_source_payload": json.dumps(payload),
-        },
+        env=environment,
     )
+
+
+def promotion_command(payload: dict, switch: str | None = "false") -> list[str]:
+    completed = run_promotion_fragment(payload, switch)
+    assert completed.returncode == 0, completed.stderr
     return completed.stdout.splitlines()
 
 
@@ -186,7 +195,7 @@ def test_switch_off_the_real_wrapper_gives_the_command_it_gave_before():
 @needs_shell
 def test_switch_on_the_command_requires_the_record_file():
     payload = helper.split_atomic_source_input(wrapper(require_review_record=True))
-    assert promotion_command(payload) == [
+    assert promotion_command(payload, "true") == [
         *BASE_COMMAND,
         "--require-review-record",
         "/runner/temp/promotion-review-records/candidate-review-records.json",
@@ -203,24 +212,41 @@ def test_the_workflow_passes_the_flag_in_one_place_only():
 # --- The reader step ----------------------------------------------------------------
 
 
-def test_the_reader_step_runs_only_for_a_promotion_that_names_the_key():
+SWITCH_STEP = "Decide the review record switch"
+
+
+def test_one_parsed_value_gates_the_reader_step_and_the_promotion():
     names = [item.get("name") for item in steps()]
+    switch = step(SWITCH_STEP)
     reader = step(READ_STEP)
     assert (
         names.index("Preflight live reviewed PR promotion")
+        < names.index(SWITCH_STEP)
         < names.index(READ_STEP)
         < names.index("Verify immutable checkout identities")
         < names.index("Provision protected signing supervisor")
     )
-    assert reader["if"] == (
-        "${{ steps.reviewed_pr_admission.outputs.enabled == 'true' && "
-        "contains(inputs.source_bundle_json, '\"require_review_record\"') }}"
+    # The switch step runs in every run and parses the wrapper once.
+    assert "if" not in switch and switch["id"] == "review_record_switch"
+    assert set(switch["env"]) == {"DISPATCH_JSON"}
+    assert "read_promotion_review_records.py switch" in switch["run"]
+    # The reader step is gated by that value alone, not by a text search.
+    assert (
+        reader["if"] == "${{ steps.review_record_switch.outputs.required == 'true' }}"
     )
+    assert "contains(" not in WORKFLOW.read_text().split(READ_STEP)[1].split("run:")[0]
     # No token, no key, no secret: the read is anonymous.
     assert set(reader["env"]) == {"DISPATCH_JSON", "RULESPEC_CHECKOUT"}
-    assert "secrets." not in json.dumps(reader)
-    assert "scripts/read_promotion_review_records.py" in reader["run"]
-    assert "continue-on-error" not in reader
+    assert "secrets." not in json.dumps(reader) + json.dumps(switch)
+    assert "read_promotion_review_records.py read" in reader["run"]
+    assert "continue-on-error" not in reader and "continue-on-error" not in switch
+    # The promotion and the publication read the same output.
+    output = "${{ steps.review_record_switch.outputs.required }}"
+    for name in (
+        "Encode, review, validate, and apply",
+        "Push lane branch and open draft pull request",
+    ):
+        assert step(name)["env"]["REVIEW_RECORD_REQUIRED"] == output
 
 
 def test_no_other_step_changed_its_condition_for_the_switch():
@@ -232,14 +258,100 @@ def test_no_other_step_changed_its_condition_for_the_switch():
     assert conditional == [READ_STEP]
 
 
+@needs_shell
+@pytest.mark.parametrize(
+    ("payload", "switch"),
+    [
+        # The wrapper parses ON and the switch step said no, or did not run.
+        ({"promotion_review_record_required": True}, "false"),
+        ({"promotion_review_record_required": True}, None),
+        ({"promotion_review_record_required": True}, ""),
+        # The switch step said yes and the wrapper parses OFF.
+        ({}, "true"),
+    ],
+)
+def test_a_switch_mismatch_refuses_and_queues_no_command(payload, switch):
+    completed = run_promotion_fragment(payload, switch)
+    assert completed.returncode == 1
+    assert completed.stdout == ""
+    assert "review record switch mismatch" in completed.stderr
+    assert "nothing is signed" in completed.stderr
+
+
+SPACED_WRAPPERS = [
+    wrapper(require_review_record=True),
+    wrapper(require_review_record=True).replace(
+        '"require_review_record": true', '"require_review_record"  :\n\ttrue'
+    ),
+    wrapper(require_review_record=True).replace(
+        '"require_review_record"', '"require_review\\u005frecord"'
+    ),
+]
+
+
+@needs_shell
+@pytest.mark.parametrize("source", SPACED_WRAPPERS)
+def test_the_switch_does_not_depend_on_the_spelling_of_the_key(source, tmp_path):
+    """Spacing or an escape in the key gives the same value in both places."""
+
+    assert json.loads(source)["require_review_record"] is True
+    output = tmp_path / "output"
+    summary = tmp_path / "summary"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/read_promotion_review_records.py"),
+            "switch",
+        ],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "DISPATCH_JSON": json.dumps({"source_bundle_json": source}),
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_STEP_SUMMARY": str(summary),
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert output.read_text() == "required=true\n"
+    assert summary.read_text() == "Review record required: yes\n"
+    payload = helper.split_atomic_source_input(source)
+    assert "--require-review-record" in promotion_command(payload, "true")
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["[]", "", "not json", wrapper(), json.dumps({"schema": "other"}), "{}"],
+)
+def test_every_other_run_states_that_the_switch_is_off(source, tmp_path):
+    output = tmp_path / "output"
+    summary = tmp_path / "summary"
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/read_promotion_review_records.py"),
+            "switch",
+        ],
+        check=True,
+        env={
+            **os.environ,
+            "DISPATCH_JSON": json.dumps({"source_bundle_json": source}),
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_STEP_SUMMARY": str(summary),
+        },
+    )
+    assert output.read_text() == "required=false\n"
+    assert summary.read_text() == "Review record required: no\n"
+
+
 # --- The lane pull request body -------------------------------------------------------
 
 
-def lane_body(tmp_path: Path, summary: str | None) -> str:
+def lane_body(tmp_path: Path, summary: str | None, switch: str | None = None):
     script = fragment(
         step("Push lane branch and open draft pull request")["run"],
         'review_records="$RUNNER_TEMP/promotion-review-records/',
-        'body="$(printf \'%s\\n\' "$body" \'\' "$(cat "$review_records")")"',
+        "body=\"$(printf '%s\\n' \"$body\" '' 'Review record required: no')\"",
     )
     if summary is not None:
         directory = tmp_path / "promotion-review-records"
@@ -255,21 +367,34 @@ def lane_body(tmp_path: Path, summary: str | None) -> str:
         ],
         capture_output=True,
         text=True,
-        check=True,
-        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        env={
+            **{k: v for k, v in os.environ.items() if k != "REVIEW_RECORD_REQUIRED"},
+            "RUNNER_TEMP": str(tmp_path),
+            **({} if switch is None else {"REVIEW_RECORD_REQUIRED": switch}),
+        },
     )
-    return completed.stdout
+    return completed.stdout if completed.returncode == 0 else None
 
 
 @needs_shell
-def test_switch_off_the_lane_pull_request_body_is_unchanged(tmp_path):
-    assert lane_body(tmp_path, None) == "existing body"
+@pytest.mark.parametrize("switch", [None, "", "false"])
+def test_switch_off_the_lane_pull_request_body_says_no(tmp_path, switch):
+    assert lane_body(tmp_path, None, switch) == (
+        "existing body\n\nReview record required: no"
+    )
 
 
 @needs_shell
 def test_switch_on_the_lane_pull_request_body_carries_the_record(tmp_path):
-    summary = "## Review record\n\nstatus `passed`, attempt 2, $(not run) `x`\n"
-    assert lane_body(tmp_path, summary) == "existing body\n\n" + summary.rstrip("\n")
+    summary = "## Review record\n\nReview record required: yes\n$(not run) `x`\n"
+    assert lane_body(tmp_path, summary, "true") == (
+        "existing body\n\n" + summary.rstrip("\n")
+    )
+
+
+@needs_shell
+def test_switch_on_without_the_section_stops_the_publication(tmp_path):
+    assert lane_body(tmp_path, None, "true") is None
 
 
 # --- The run artifact -----------------------------------------------------------------
