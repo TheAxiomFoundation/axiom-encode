@@ -3068,20 +3068,12 @@ def complete_source_numeric_recall_occurrences(
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         candidates = inventory.kept if inventory.consistent else inventory.occurrences
-        example_only = _us_manual_example_only_source_spans(
-            candidates,
-            source_text=source_text,
-            source_map=source_map,
-            corpus_citation_path=corpus_citation_path,
-        )
         demanded = tuple(
             occurrence
             for occurrence in candidates
             if not _temporal_occurrence_is_recall_exempt_preface(
                 occurrence, recall_text
             )
-            and source_map.source_span(occurrence.start, occurrence.end)
-            not in example_only
         )
     source_occurrences = tuple(extract_numeric_occurrences(source_text))
     if len(source_map.offsets) != len(recall_text):
@@ -7879,7 +7871,6 @@ def _analyze_rulespec_payload(
         corpus_citation_path=corpus_citation_path,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
-    source_recall_map = recall_map
     unrepresented_recall_text = numeric_recall_text
     unrepresented_inventory = source_inventory
     if (
@@ -7916,26 +7907,15 @@ def _analyze_rulespec_payload(
         and unrepresented_inventory.consistent
         and source_inventory.dropped == unrepresented_inventory.dropped
     )
-    source_candidates = (
-        source_inventory.kept if drop_us_locators else source_inventory.occurrences
-    )
-    # One decision, taken on the source view, for both counts: a worked-example
-    # number that the unit states nowhere else is not demanded.
-    example_only_spans = _us_manual_example_only_source_spans(
-        source_candidates,
-        source_text=source_text,
-        source_map=source_recall_map,
-        corpus_citation_path=corpus_citation_path,
-    )
     source_occurrences = tuple(
         occurrence
-        for occurrence in source_candidates
+        for occurrence in (
+            source_inventory.kept if drop_us_locators else source_inventory.occurrences
+        )
         if not _temporal_occurrence_is_recall_exempt_preface(
             occurrence,
             numeric_recall_text,
         )
-        and source_recall_map.source_span(occurrence.start, occurrence.end)
-        not in example_only_spans
     )
     unrepresented_occurrences = source_occurrences
     if (
@@ -7954,8 +7934,6 @@ def _analyze_rulespec_payload(
                 occurrence,
                 unrepresented_recall_text,
             )
-            and recall_map.source_span(occurrence.start, occurrence.end)
-            not in example_only_spans
         )
     named_values = (
         tuple(float(value) for value in artifact_numeric_values)
@@ -18345,19 +18323,9 @@ _US_MANUAL_SENTENCE_END_BEFORE = re.compile(r"[.;?!][)\"”’]?\Z")
 # after it is not a list marker (`approx. 30.`, `(max.) 60.`, `e.g. 10.`).
 _US_MANUAL_ABBREVIATION_BEFORE = re.compile(
     r"(?i:(?<![A-Za-z])(?:approx|max|min|nos?|est|ca|vs|etc|incl|excl|avg|"
+    r"p|pg|ch|par|"
     r"e\.[ \t]?g|i\.[ \t]?e)\.[)\"”’]?)\Z"
 )
-_US_MANUAL_EXAMPLE_MARKER = re.compile(r"(?<![A-Za-z])(?:Example|EXAMPLE)[ \t]*:")
-# Where an example passage ends, besides a line break: the end of its first
-# sentence, a bullet, an outline marker (`ii.`, `b.`, `E.`), or the words
-# `Exception` and `Note`.
-_US_MANUAL_EXAMPLE_SENTENCE_END = re.compile(r"[.?!][)\"”’]?(?=\s)")
-_US_MANUAL_EXAMPLE_STOP = re.compile(
-    r"[•▪◦‣■●]"
-    r"|(?<![A-Za-z.])(?:[ivx]{1,4}|[A-Za-z])\.(?=\s)"
-    r"|(?<![A-Za-z])(?i:exceptions?|notes?)(?![A-Za-z])"
-)
-_US_MANUAL_EXAMPLE_UNIT_FOLLOWS = re.compile(_RECALL_UNIT_FOLLOWS)
 
 
 def _us_manual_section_page(corpus_citation_path: str) -> tuple[str, int] | None:
@@ -18412,31 +18380,35 @@ def _us_manual_own_section_label_matches(
 ) -> tuple[tuple[re.Match[str], bool], ...]:
     """Labels `<own section>.<nn>`; the flag is True for a heading.
 
-    The section is the document's own number from the citation path. A heading
-    is the label (never `.00`) that opens a sentence, a line or the page body,
-    directly before a title word of four or more capital letters that is not a
-    quantity word (`315.27 REPRESENTATIVE PAYMENTS`), outside a row of a
-    quantity table. A reference is the label after `See`/`see`, closed by a
-    subdivision letter or the end of the sentence (`see 315.28 F.`, `See
-    810.6, A, 4.`), or after `in` in the comma form only (`in 360.04, D.`);
-    the item number of the comma form is part of the reference.
+    The section is the document's own number from the citation path, and the
+    label has exactly two decimals. A heading is the label (never `.00`) that
+    opens a sentence, a line or the page body, directly before an all-capital
+    title that holds at least two words of four or more letters and does not
+    open with a quantity word (`315.27 REPRESENTATIVE PAYMENTS`), outside a
+    row of a quantity table. A reference is the label after `See`/`see`,
+    closed by a subdivision letter or the end of the sentence (`see 315.28
+    F.`, `See 315.06, A, 4.`), or after `in` in the comma form only (`in
+    360.04, D.`); the item number of the comma form is part of the reference.
     """
 
     section_page = _us_manual_section_page(corpus_citation_path)
     if section_page is None:
         return ()
     own = re.escape(section_page[0])
+    long_word = r"[A-Z]{4,}(?![A-Za-z])"
+    short_words = r"(?:[ \t,/&-]+[A-Z]{1,3}(?![A-Za-z]))*"
     heading = re.compile(
         rf"{_US_MANUAL_LABEL_START}(?P<label>{own}\.(?!00)\d{{2}})"
         rf"{_US_MANUAL_LABEL_END}"
-        rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD})[A-Z]{{4,}}(?![a-z]))"
+        rf"(?=[ \t]+(?!{_US_MANUAL_QUANTITY_WORD}){long_word}"
+        rf"{short_words}[ \t,/&-]+{long_word})"
     )
     subdivision = r"[ \t]+[A-Z](?=[.,])(?:,[ \t]+(?P<item>[1-9]\d?)(?=[.;)](?:\s|\Z)))?"
     reference = re.compile(
-        rf"(?<![A-Za-z])(?:[Ss]ee[ \t]+(?P<label>{own}\.\d{{1,2}})"
+        rf"(?<![A-Za-z])(?:[Ss]ee[ \t]+(?P<label>{own}\.\d{{2}})"
         rf"{_US_MANUAL_LABEL_END}"
         rf"(?:(?=\)[.;,]?(?:\s|\Z)|[.;](?:\s|\Z))|,?{subdivision})"
-        rf"|in[ \t]+(?P<in_label>{own}\.\d{{1,2}}),"
+        rf"|in[ \t]+(?P<in_label>{own}\.\d{{2}}),"
         + subdivision.replace("<item>", "<in_item>")
         + ")"
     )
@@ -18465,8 +18437,8 @@ def _us_manual_sentence_opening_enumerators(
 
     A candidate opens a sentence, a line or the page body. It is a marker
     only when the candidate before it carries the previous number or the
-    candidate after it carries the next number. The first candidate of the
-    page body needs no neighbor: its run began on the page before.
+    candidate after it carries the next number. A lone candidate, also the
+    first one of the page body, stays demanded.
     """
 
     candidates = [
@@ -18475,19 +18447,12 @@ def _us_manual_sentence_opening_enumerators(
         if _us_manual_opens_sentence(text, marker.start(), body_start=body_start)
     ]
     numbers = [int(marker["number"]) for marker in candidates]
-    markers = []
-    for index, marker in enumerate(candidates):
-        opens_body = (
-            body_start is not None
-            and len(text[: marker.start()].rstrip(" \t")) == body_start
-        )
-        if (
-            opens_body
-            or (index > 0 and numbers[index - 1] == numbers[index] - 1)
-            or (index + 1 < len(numbers) and numbers[index + 1] == numbers[index] + 1)
-        ):
-            markers.append(marker)
-    return tuple(markers)
+    return tuple(
+        marker
+        for index, marker in enumerate(candidates)
+        if (index > 0 and numbers[index - 1] == numbers[index] - 1)
+        or (index + 1 < len(numbers) and numbers[index + 1] == numbers[index] + 1)
+    )
 
 
 def _us_manual_page_role_spans(
@@ -18532,94 +18497,6 @@ def _us_manual_page_role_spans(
         for start, end in spans
         for index in range(start, end)
         if text[index].isdigit()
-    )
-
-
-def _us_manual_example_passage_spans(
-    text: str, *, corpus_citation_path: str
-) -> tuple[tuple[int, int], ...]:
-    """The opening sentence of each worked example on a US manual page.
-
-    The page text is flattened, so rule text can follow an example on the
-    same line. A passage therefore opens at `Example:` or `EXAMPLE:` and ends
-    at the first of: the end of that sentence, a line break, a bullet, an
-    outline marker, `Exception` or `Note`, the next example marker, or the
-    end of the text.
-    """
-
-    if _us_manual_section_page(corpus_citation_path) is None:
-        return ()
-    markers = tuple(_US_MANUAL_EXAMPLE_MARKER.finditer(text))
-    if not markers:
-        return ()
-    stops = sorted(
-        {
-            *(match.start() for match in re.finditer(r"\n", text)),
-            *(match.start() for match in markers),
-            *(match.end() for match in _US_MANUAL_EXAMPLE_SENTENCE_END.finditer(text)),
-            *(match.start() for match in _US_MANUAL_EXAMPLE_STOP.finditer(text)),
-            len(text),
-        }
-    )
-    return tuple(
-        (marker.start(), stops[bisect.bisect_right(stops, marker.end())])
-        for marker in markers
-    )
-
-
-def _us_manual_example_only_source_spans(
-    occurrences: Sequence[NumericOccurrenceLike],
-    *,
-    source_text: str,
-    source_map: _NumericRecallSourceMap,
-    corpus_citation_path: str,
-) -> frozenset[tuple[int, int]]:
-    """Source spans of example dollar amounts that the unit states nowhere else.
-
-    An example often restates a rule value, so being inside an example is not
-    enough. A number is released only when all of these hold: it lies wholly
-    inside an example passage; it is a dollar amount (`$` directly before
-    it); no unit word or percent sign follows it; and no other demanded
-    occurrence of the unit has its value.
-    """
-
-    passages = _us_manual_example_passage_spans(
-        source_text, corpus_citation_path=corpus_citation_path
-    )
-    if not passages:
-        return frozenset()
-    releasable: list[tuple[tuple[int, int], NumericOccurrenceLike]] = []
-    other_values: set[float] = set()
-    for occurrence in occurrences:
-        span = source_map.source_span(occurrence.start, occurrence.end)
-        if (
-            span is not None
-            and any(start <= span[0] and span[1] <= end for start, end in passages)
-            and (
-                source_text[span[0]] == "$"
-                or source_text[: span[0]].rstrip(" \t").endswith("$")
-            )
-            and source_text[span[1] - 1].isdigit()
-            and not _US_MANUAL_EXAMPLE_UNIT_FOLLOWS.match(source_text, span[1])
-        ):
-            releasable.append((span, occurrence))
-            continue
-        other_values.add(float(occurrence.value))
-        other_values.update(
-            float(value)
-            for value in getattr(occurrence, "alternative_values", ()) or ()
-        )
-    return frozenset(
-        span
-        for span, occurrence in releasable
-        if not any(
-            math.isclose(float(value), other)
-            for value in (
-                occurrence.value,
-                *(getattr(occurrence, "alternative_values", ()) or ()),
-            )
-            for other in other_values
-        )
     )
 
 
