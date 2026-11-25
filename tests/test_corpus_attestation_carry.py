@@ -1829,3 +1829,10 @@ def test_import_lookups_equal_the_encoders_on_a_real_checkout():
             assert tool == _encoder_lookups(content_root, module), module
             checked += 1
     assert checked
+
+
+def test_an_import_the_encoder_refuses_as_unsafe_is_malformed(tmp_path):
+    module = b"format: rulespec/v1\nimports:\n- policies/../../x#a\nrules: []\n"
+    repo, _content_root = _import_repo(tmp_path, "rulespec-us/us", module, {})
+    (entry,) = iter_manifest_attestations(repo / ".axiom" / "encoding-manifests")
+    assert any("unsafe import" in item for item in entry.problems), entry.problems
