@@ -10,7 +10,8 @@ whether a weaker statement still holds after the move:
     corpus row that validation reads for the module, is byte-identical in the
     new release B and resolves there as it did in the attested release A.
 
-It checks, from signed data:
+It does NOT verify manifest signatures (the guard does). It checks the
+release objects' signatures, and from them:
 
 1. A is one of the supplied verified release objects, and the attestation's
    release identity and provisions digests match it.
@@ -18,8 +19,9 @@ It checks, from signed data:
 3. Closure: for every ``(jurisdiction, document_class)`` pair of the unit, of
    its component rows, of every corpus citation in the module files that the
    manifest binds by sha256 (proof atoms, interpretation sources,
-   ``source_verification``) and of every corpus candidate of the modules'
-   ``imports``, each provisions artifact that A held for the pair is in B at
+   ``source_verification``) and of every corpus path that validation looks up
+   for the modules' imports (only imports of stub modules, and stub modules
+   themselves, are corpus lookups), each provisions artifact that A held for the pair is in B at
    the same sha256.
 4. Resolution in materialized corpora of both A and B: the unit, every cited
    path and every import candidate resolve identically in A and B (same
@@ -259,8 +261,9 @@ def classify_attestation_carry(
 
     ``attested_releases`` are verified release objects the attestation may
     name. ``cited_paths`` are the corpus citations of the module files that
-    the manifest binds; ``dependency_paths`` the corpus candidates of their
-    imports (absent in both releases is allowed). ``view_a`` and ``view_b``
+    the manifest binds; ``dependency_paths`` the corpus paths validation looks
+    up for them (``encoder_import_corpus_lookups``); one that neither release
+    holds is ``not-verifiable``. ``view_a`` and ``view_b``
     resolve in materialized corpora of the attested release and of
     ``target``; rule 4 needs both.
     """
@@ -542,51 +545,97 @@ def _citations(value: object, problems: list[str]) -> Iterable[str]:
             yield from _citations(item, problems)
 
 
-_RULESPEC_ROOT_RE = re.compile(r"(rulespec-[a-z]{2})/[a-z]{2}(?:-[a-z0-9_]+)*")
+_RULESPEC_ROOT_RE = re.compile(r"(rulespec-[a-z]{2})/([a-z]{2}(?:-[a-z0-9_]+)*)")
 _WAIVER_LEDGER_PATH = "known-validation-gaps.yaml"
 
 
-def _attested_rulespec_repo(holder: Mapping[str, Any]) -> str | None:
-    """Return the canonical RuleSpec repository named by the attestation."""
+def _attested_content_root(
+    repo_root: Path, holder: Mapping[str, Any]
+) -> tuple[Path | None, str | None]:
+    """Return the content root the encoder validated, or why it is unknown.
+
+    The encoder validates a module with ``policy_repo_path`` set to the
+    jurisdiction content root of the canonical checkout (``cli.py``,
+    ``ValidatorPipeline(policy_repo_path=content_root)``). The attestation's
+    ``rulespec_root`` names that root; the checkout given here must match it,
+    and the root is passed as an absolute path, so no result depends on the
+    working directory.
+    """
 
     attestation = holder.get("source_attestation")
     root = (
         attestation.get("rulespec_root") if isinstance(attestation, Mapping) else None
     )
-    if not isinstance(root, str):
-        return None
-    match = _RULESPEC_ROOT_RE.fullmatch(root)
-    return match.group(1) if match else None
-
-
-def _import_candidates(
-    rulespec_repo: str | None, document: Mapping[str, Any], problems: list[str]
-) -> set[str]:
-    imports = document.get("imports")
-    if imports is None:
-        return set()
-    if not isinstance(imports, list) or not all(isinstance(x, str) for x in imports):
-        problems.append("imports is not a list of strings")
-        return set()
-    if not imports:
-        return set()
-    if rulespec_repo is None:
-        # The candidate of a bare import depends on the repository's
-        # jurisdiction; a checkout directory name is not evidence of it.
-        problems.append(
-            "has imports, but the attestation names no canonical rulespec_root"
+    match = _RULESPEC_ROOT_RE.fullmatch(root) if isinstance(root, str) else None
+    if match is None:
+        return None, "the attestation names no canonical rulespec_root"
+    checkout = repo_root.resolve()
+    if checkout.name != match.group(1):
+        return None, (
+            f"--rulespec-repo is the checkout {checkout.name!r}, but the "
+            f"attestation names {match.group(1)!r}"
         )
-        return set()
+    content_root = checkout / match.group(2)
+    if content_root.is_symlink() or not content_root.is_dir():
+        return None, f"the attested content root {root} is not a directory"
+    return content_root, None
+
+
+def encoder_import_corpus_lookups(
+    module_file: Path, content_root: Path, text: str
+) -> tuple[str, ...]:
+    """Return the corpus paths that validation looks up for one module's imports.
+
+    This calls the encoder's own functions with the arguments that
+    ``ValidatorPipeline`` passes: ``_extract_import_items`` reads the imports
+    (at any indent); ``_resolve_rulespec_import_file_static`` resolves each to
+    a RuleSpec file under the content root; only an import whose target is a
+    stub is looked up in the corpus (``_check_imported_stub_dependencies``),
+    through ``_candidate_corpus_paths_for_import_target`` with the content
+    root; a stub module itself is looked up by its own path
+    (``_check_promoted_stub_file``). An import of a non-stub RuleSpec module is
+    not a corpus lookup; that module's bytes are covered by the rule that a
+    carrying pull request changes nothing but the corpus pin. Raises
+    ``ValueError`` for an import the encoder would refuse as unsafe.
+    """
+
     from axiom_encode.harness.dependency_stubs import (
+        UnsafeRulespecContextPath,
         _candidate_corpus_paths_for_import_target,
+        rulespec_content_has_stub_status,
+        rulespec_file_has_stub_status,
+    )
+    from axiom_encode.harness.validator_pipeline import (
+        ValidatorPipeline,
+        _resolve_rulespec_import_file_static,
     )
 
-    candidates: set[str] = set()
-    for target in imports:
-        candidates.update(
-            _candidate_corpus_paths_for_import_target(target, Path(rulespec_repo))
+    content_root = content_root.resolve()
+    module_file = module_file.resolve()
+    lookups: list[str] = []
+    if rulespec_content_has_stub_status(text):
+        relative = module_file.relative_to(content_root).with_suffix("").as_posix()
+        lookups.extend(
+            _candidate_corpus_paths_for_import_target(relative, content_root)
         )
-    return candidates
+    for item in ValidatorPipeline._extract_import_items(None, text):  # type: ignore[arg-type]
+        try:
+            target = _resolve_rulespec_import_file_static(
+                item,
+                rules_file=module_file,
+                policy_repo_path=content_root,
+                rulespec_dependency_roots=(),
+            )
+        except UnsafeRulespecContextPath as exc:
+            raise ValueError(f"unsafe import {item!r}: {exc}") from exc
+        if target is None or not rulespec_file_has_stub_status(target):
+            continue
+        lookups.extend(
+            _candidate_corpus_paths_for_import_target(
+                item.split("#", 1)[0].strip(), content_root
+            )
+        )
+    return tuple(sorted(set(lookups)))
 
 
 def _bound_references(
@@ -601,7 +650,7 @@ def _bound_references(
     if not isinstance(applied, list):
         return (), (), ("manifest has no applied_files list",)
     resolved_root = repo_root.resolve()
-    rulespec_repo = _attested_rulespec_repo(holder)
+    content_root, root_problem = _attested_content_root(repo_root, holder)
     for item in applied:
         if not isinstance(item, Mapping):
             problems.append("an applied_files entry is not an object")
@@ -651,9 +700,20 @@ def _bound_references(
             local.append("is not a YAML mapping")
         elif document.get("format") != "rulespec/v1":
             local.append(f"has unsupported format {document.get('format')!r}")
+        elif content_root is None:
+            local.append(f"cannot be placed: {root_problem}")
+        elif not file_path.resolve().is_relative_to(content_root):
+            local.append(f"is outside the attested content root {content_root.name}")
         else:
             citations.update(_citations(document, local))
-            dependencies.update(_import_candidates(rulespec_repo, document, local))
+            try:
+                dependencies.update(
+                    encoder_import_corpus_lookups(
+                        file_path, content_root, raw.decode("utf-8")
+                    )
+                )
+            except ValueError as exc:
+                local.append(str(exc))
         problems.extend(f"applied file {path} {problem}" for problem in local)
     return tuple(sorted(citations)), tuple(sorted(dependencies)), tuple(problems)
 
@@ -802,8 +862,9 @@ def run_corpus_attestation_carry(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="axiom-encode corpus-attestation-carry",
         description=(
-            "Dry run: list, per signed manifest, whether its source attestation "
-            "carries to a new signed corpus release. Writes nothing in the "
+            "Dry run: list, per manifest, whether its source attestation "
+            "carries to a new signed corpus release. It verifies the release "
+            "objects' signatures but NOT the manifests' signatures. Writes nothing in the "
             "RuleSpec repository; a lock-file corpus checkout may receive the "
             "verified provisions files its locks pin, as corpus-fetch places them."
         ),

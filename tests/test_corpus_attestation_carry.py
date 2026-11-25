@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -115,6 +116,7 @@ def _attestation(root: Path, release, scope=UNIT, component_scope=None) -> dict:
         "component_rows": components,
         "source_sha256": "a" * 64,
         "generation_input_sha256": "b" * 64,
+        "rulespec_root": "rulespec-us/us",
     }
 
 
@@ -626,6 +628,7 @@ def _real_attestation(root: Path, scopes, citation: str) -> dict:
     attestation["generation_input_sha256"] = hashlib.sha256(
         unit.body.encode("utf-8")
     ).hexdigest()
+    attestation["rulespec_root"] = "rulespec-us/us"
     return attestation
 
 
@@ -957,7 +960,7 @@ def _rulespec(citations: list[str]) -> bytes:
 
 
 def _manifest_repo(tmp_path: Path, manifests: dict[str, object]) -> Path:
-    repo = tmp_path / "rulespec-xx"
+    repo = tmp_path / "rulespec-us"
     for relative, payload in manifests.items():
         path = repo / ".axiom" / "encoding-manifests" / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -981,7 +984,10 @@ def test_manifest_walk_reads_nested_attestations_and_citations(tmp_path):
         tmp_path,
         {
             "a.json": {
-                "source_attestation": {"corpus_release": "x"},
+                "source_attestation": {
+                    "corpus_release": "x",
+                    "rulespec_root": "rulespec-us/us",
+                },
                 "applied_files": [
                     module,
                     ledger,
@@ -1008,7 +1014,10 @@ def test_manifest_walk_reads_nested_attestations_and_citations(tmp_path):
     (manifests / "broken.json").write_text("{")
     (manifests / "linked.json").symlink_to(manifests / "a.json")
     found = {entry.label: entry for entry in iter_manifest_attestations(manifests)}
-    assert found["a.json"].attestation == {"corpus_release": "x"}
+    assert found["a.json"].attestation == {
+        "corpus_release": "x",
+        "rulespec_root": "rulespec-us/us",
+    }
     assert found["a.json"].cited_paths == (
         "us/guidance/g/1",
         "us/policy/x/1",
@@ -1303,7 +1312,6 @@ def test_non_canonical_citations_are_refused(base, tmp_path, citation):
             b"format: rulespec/v1\nmodule:\n  corpus_citation_paths: us/x/1\n",
             "not a list of strings",
         ),
-        (b"format: rulespec/v1\nimports: us-az:x\n", "imports is not a list"),
     ],
 )
 def test_bound_files_that_do_not_parse_strictly_are_malformed(tmp_path, raw, problem):
@@ -1324,7 +1332,8 @@ def test_yml_files_and_imports_are_read(tmp_path):
     entry = _single_entry(tmp_path, raw, name="us/a.yml")
     assert entry.problems == ()
     assert UNIT_CITATION in entry.cited_paths
-    assert entry.dependency_paths == ("us-az/policy/des/x/y",)
+    # The import names no existing module, so validation looks nothing up.
+    assert entry.dependency_paths == ()
 
 
 def test_bound_file_under_a_symlinked_directory_is_refused(tmp_path):
@@ -1526,24 +1535,6 @@ def test_attested_release_may_be_signed_with_the_retired_key(base, tmp_path, cap
     )
 
 
-@pytest.mark.parametrize("directory", ["rulespec-us-wt", "rulespec-us-ny", "checkout"])
-def test_import_jurisdiction_comes_from_the_attestation_not_the_directory(
-    tmp_path, directory
-):
-    raw = _rulespec([UNIT_CITATION]) + b"imports:\n- regulations/7/273/1#x\n"
-    entry = _single_entry(tmp_path / directory, raw)
-    assert entry.dependency_paths == ("us/regulation/7/273/1",)
-    for attestation in ({}, {"rulespec_root": "rulespec-us-wt/us"}, None):
-        entry = _single_entry(
-            tmp_path / f"{directory}-x{len(str(attestation))}",
-            raw,
-            attestation=attestation
-            if attestation is not None
-            else {"rulespec_root": 5},
-        )
-        assert any("canonical rulespec_root" in item for item in entry.problems)
-
-
 def test_changed_regulation_under_an_import_does_not_carry(base):
     root, old = base
     attestation = _attestation(root, old)
@@ -1656,3 +1647,185 @@ def test_only_the_root_waiver_ledger_may_lack_a_format(tmp_path):
         tmp_path, b"entries: []\n", name="us/known-validation-gaps.yaml"
     )
     assert any("unsupported format" in item for item in entry.problems)
+
+
+# Round 5: import lookups come from the encoder's own functions.
+
+STUB = b"format: rulespec/v1\nmodule:\n  status: stub\nrules: []\n"
+REAL = b"format: rulespec/v1\nmodule:\n  summary: real\nrules: []\n"
+
+
+def _import_repo(tmp_path: Path, root: str, module: bytes, extra: dict[str, bytes]):
+    content = root.split("/", 1)[1]
+    repo = tmp_path / "rulespec-us"
+    for relative, raw in extra.items():
+        _bind(repo, f"{content}/{relative}", raw)
+    bound = _bind(repo, f"{content}/policies/a/m.yaml", module)
+    repo = _manifest_repo(
+        tmp_path,
+        {
+            "m.json": {
+                "source_attestation": {"rulespec_root": root},
+                "applied_files": [bound],
+            }
+        },
+    )
+    return repo, repo / content
+
+
+def _encoder_lookups(content_root: Path, module: Path) -> set[str]:
+    """What ValidatorPipeline itself looks up in the corpus for one module."""
+
+    from axiom_encode.harness import validator_pipeline
+    from axiom_encode.harness.dependency_stubs import (
+        _candidate_corpus_paths_for_import_target,
+    )
+
+    calls: list[tuple[str, Path]] = []
+
+    def record(import_target, rules_repo_root, *, corpus_release):
+        calls.append((import_target, rules_repo_root))
+        return False
+
+    pipeline = object.__new__(validator_pipeline.ValidatorPipeline)
+    pipeline.policy_repo_path = content_root
+    pipeline.rulespec_dependency_roots = ()
+    pipeline.local_corpus_release = None
+    original = validator_pipeline.has_corpus_provision_for_import_target
+    validator_pipeline.has_corpus_provision_for_import_target = record
+    try:
+        pipeline._check_imported_stub_dependencies(module)
+        pipeline._check_promoted_stub_file(module)
+    finally:
+        validator_pipeline.has_corpus_provision_for_import_target = original
+    found: set[str] = set()
+    for target, root in calls:
+        found.update(_candidate_corpus_paths_for_import_target(target, root))
+    return found
+
+
+@pytest.mark.parametrize("root", ["rulespec-us/us", "rulespec-us/us-az"])
+@pytest.mark.parametrize(
+    "imports",
+    [
+        "imports:\n- policies/b/stub#x\n",
+        "module:\n  imports:\n  - policies/b/stub#x\n",
+        "imports:\n- policies/b/real#x\n",
+        "imports:\n- policies/b/missing#x\n",
+        "imports:\n- regulations/7/273/1#x\n",
+    ],
+)
+def test_import_lookups_equal_the_encoders(tmp_path, monkeypatch, root, imports):
+    module = b"format: rulespec/v1\n" + imports.encode() + b"rules: []\n"
+    repo, content_root = _import_repo(
+        tmp_path,
+        root,
+        module,
+        {"policies/b/stub.yaml": STUB, "policies/b/real.yaml": REAL},
+    )
+    expected = _encoder_lookups(content_root, content_root / "policies/a/m.yaml")
+    results = []
+    for cwd in (tmp_path, repo, content_root / "policies"):
+        monkeypatch.chdir(cwd)
+        (entry,) = iter_manifest_attestations(repo / ".axiom" / "encoding-manifests")
+        assert entry.problems == ()
+        results.append(set(entry.dependency_paths))
+    assert results == [expected] * 3
+    if "stub#" in imports:
+        assert expected, "a stub import is a corpus lookup"
+    else:
+        assert not expected, "a non-stub or missing module import is not"
+
+
+def test_a_stub_module_is_looked_up_by_its_own_path(tmp_path):
+    repo, content_root = _import_repo(tmp_path, "rulespec-us/us-az", STUB, {})
+    (entry,) = iter_manifest_attestations(repo / ".axiom" / "encoding-manifests")
+    expected = _encoder_lookups(content_root, content_root / "policies/a/m.yaml")
+    assert expected and set(entry.dependency_paths) == expected
+
+
+@pytest.mark.parametrize(
+    ("root", "problem"),
+    [
+        ("rulespec-us/us-wt", "is not a directory"),
+        ("rulespec-uk/uk", "attestation names 'rulespec-uk'"),
+        ("rulespec-us", "no canonical rulespec_root"),
+    ],
+)
+def test_attested_root_must_match_the_checkout(tmp_path, root, problem):
+    repo = tmp_path / "rulespec-us"
+    bound = _bind(repo, "us/policies/a/m.yaml", REAL)
+    repo = _manifest_repo(
+        tmp_path,
+        {
+            "m.json": {
+                "source_attestation": {"rulespec_root": root},
+                "applied_files": [bound],
+            }
+        },
+    )
+    (entry,) = iter_manifest_attestations(repo / ".axiom" / "encoding-manifests")
+    assert any(problem in item for item in entry.problems), entry.problems
+
+
+def test_module_outside_the_attested_content_root_is_malformed(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    (repo / "us-az").mkdir(parents=True)
+    bound = _bind(repo, "us/policies/a/m.yaml", REAL)
+    repo = _manifest_repo(
+        tmp_path,
+        {
+            "m.json": {
+                "source_attestation": {"rulespec_root": "rulespec-us/us-az"},
+                "applied_files": [bound],
+            }
+        },
+    )
+    (entry,) = iter_manifest_attestations(repo / ".axiom" / "encoding-manifests")
+    assert any("outside the attested content root" in p for p in entry.problems)
+
+
+def test_checkout_with_another_name_is_refused(tmp_path):
+    repo = tmp_path / "rulespec-us-wt"
+    bound = _bind(repo, "us/policies/a/m.yaml", REAL)
+    manifests = repo / ".axiom" / "encoding-manifests"
+    manifests.mkdir(parents=True)
+    (manifests / "m.json").write_text(
+        json.dumps(
+            {
+                "source_attestation": {"rulespec_root": "rulespec-us/us"},
+                "applied_files": [bound],
+            }
+        )
+    )
+    (entry,) = iter_manifest_attestations(manifests)
+    assert any("'rulespec-us-wt'" in item for item in entry.problems)
+
+
+@pytest.mark.skipif(
+    not os.environ.get("AXIOM_CARRY_DIFFERENTIAL_RULESPEC"),
+    reason="set AXIOM_CARRY_DIFFERENTIAL_RULESPEC to a rulespec-us checkout",
+)
+def test_import_lookups_equal_the_encoders_on_a_real_checkout():
+    repo = Path(os.environ["AXIOM_CARRY_DIFFERENTIAL_RULESPEC"]).resolve()
+    from axiom_encode.corpus_attestation_carry import encoder_import_corpus_lookups
+
+    checked = 0
+    for content_root in sorted(
+        p
+        for p in repo.iterdir()
+        if p.is_dir() and p.name[:2].isalpha() and not p.name.startswith(".")
+    ):
+        for module in sorted(content_root.rglob("*.yaml")):
+            if module.name.endswith(".test.yaml") or module.is_symlink():
+                continue
+            text = module.read_text(encoding="utf-8", errors="replace")
+            if "imports:" not in text:
+                continue
+            try:
+                tool = set(encoder_import_corpus_lookups(module, content_root, text))
+            except ValueError:
+                continue
+            assert tool == _encoder_lookups(content_root, module), module
+            checked += 1
+    assert checked
