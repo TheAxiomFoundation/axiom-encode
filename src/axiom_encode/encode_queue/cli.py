@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from axiom_encode.encode_queue.service import EncodeQueue
 from axiom_encode.encode_queue.store import (
     GitHubApiError,
     GitHubBranchStore,
+    GitHubUnknownResult,
     LocalFileStore,
     QueueStore,
 )
@@ -29,6 +31,7 @@ ENV_DIR = "AXIOM_ENCODE_QUEUE_DIR"
 ENV_REPO = "AXIOM_ENCODE_QUEUE_REPO"
 ENV_MACHINE = "AXIOM_ENCODE_QUEUE_MACHINE"
 ENV_PERSON = "AXIOM_ENCODE_QUEUE_PERSON"
+ENV_CACHE = "AXIOM_ENCODE_QUEUE_CACHE_DIR"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -48,6 +51,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--branch", default="encoding-queue-state")
     parser.add_argument("--prefix", default="central-queue")
+    parser.add_argument(
+        "--cache-dir",
+        default=os.environ.get(ENV_CACHE),
+        help=f"GitHub backend: directory for the blob cache (or ${ENV_CACHE}).",
+    )
     commands = parser.add_subparsers(dest="queue_command", required=True)
 
     def person(sub: argparse.ArgumentParser, required: bool = True) -> None:
@@ -96,15 +104,22 @@ def _parser() -> argparse.ArgumentParser:
     status.add_argument("--json", action="store_true")
     status.add_argument("--encoder-version")
 
+    def owner(sub: argparse.ArgumentParser, required: bool = True) -> None:
+        default = os.environ.get(ENV_MACHINE)
+        sub.add_argument(
+            "--machine",
+            default=default,
+            required=required and default is None,
+            help=f"A label for this machine, not its host name (or ${ENV_MACHINE}).",
+        )
+        person(sub, required=required)
+
     claim = commands.add_parser("claim", help="Reserve the next ready units.")
-    default_machine = os.environ.get(ENV_MACHINE)
+    owner(claim)
     claim.add_argument(
-        "--machine",
-        default=default_machine,
-        required=default_machine is None,
-        help=f"A label for this machine (or ${ENV_MACHINE}).",
+        "--request-id",
+        help="Send the same id again after no answer: the same units come back.",
     )
-    person(claim)
     claim.add_argument("--count", type=int, default=1)
     claim.add_argument("--package")
     claim.add_argument("--lease-seconds", type=int, default=model.DEFAULT_LEASE_SECONDS)
@@ -120,10 +135,19 @@ def _parser() -> argparse.ArgumentParser:
     heartbeat.add_argument(
         "--encoding", action="store_true", help="Mark the units as encoding."
     )
+    owner(heartbeat)
 
     release = commands.add_parser("release", help="Give a unit back.")
     release.add_argument("citation")
     release.add_argument("--lease-id", required=True)
+    owner(release)
+
+    batch = commands.add_parser(
+        "apply",
+        help="Run a JSON list of claim, heartbeat, report and release "
+        "operations in one commit.",
+    )
+    batch.add_argument("--ops", required=True, help="A JSON file, or - for stdin.")
 
     report = commands.add_parser("report", help="Record an outcome or a step.")
     report.add_argument("citation")
@@ -133,7 +157,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=[s for s in model.STATES if s not in (model.RESERVED, model.ENCODING)],
     )
     report.add_argument("--lease-id")
-    person(report, required=False)
+    owner(report, required=False)
     report.add_argument("--category")
     report.add_argument("--unblock")
     report.add_argument("--candidate-pr", type=int)
@@ -150,7 +174,9 @@ def _store(args: argparse.Namespace) -> QueueStore:
         )
     if args.store_dir:
         return LocalFileStore(Path(args.store_dir))
-    return GitHubBranchStore(args.repo, branch=args.branch, prefix=args.prefix)
+    return GitHubBranchStore(
+        args.repo, branch=args.branch, prefix=args.prefix, cache_dir=args.cache_dir
+    )
 
 
 def _git_head(checkout: Path) -> str:
@@ -190,7 +216,7 @@ def _build(queue: EncodeQueue, args: argparse.Namespace) -> dict[str, Any]:
         raise QueueError("the queue has no package; add one first")
     open_prs: dict[str, int] = {}
     if args.open_prs:
-        open_prs = queue_build.open_pr_paths(json.loads(args.open_prs.read_text()))
+        open_prs = queue_build.open_pr_paths(_read_json(args.open_prs))
     bundles = {
         program: queue_build.load_bundle(args.corpus, program)
         for program in sorted({p["program"] for p in packages})
@@ -210,7 +236,7 @@ def _build(queue: EncodeQueue, args: argparse.Namespace) -> dict[str, Any]:
         "rulespec_ref": args.rulespec_ref or _git_head(args.rulespec),
         "open_prs_listed": bool(args.open_prs),
     }
-    now = model.utc_now()
+    now = datetime.fromisoformat(status["at"].replace("Z", "+00:00"))
     built = {
         entry["id"]: queue_build.derive_package(
             entry["program"],
@@ -264,6 +290,14 @@ def _status_text(status: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _read_json(source: Path | str) -> Any:
+    try:
+        text = sys.stdin.read() if str(source) == "-" else Path(source).read_text()
+        return json.loads(text)
+    except (OSError, ValueError) as error:
+        raise QueueError(f"cannot read JSON from {source}: {error}") from None
+
+
 def _parse_leases(values: list[str]) -> dict[str, str]:
     leases = {}
     for value in values:
@@ -309,23 +343,31 @@ def _run(args: argparse.Namespace) -> Any:
                 count=args.count,
                 package=args.package,
                 lease_seconds=args.lease_seconds,
+                request_id=args.request_id,
             )
         }
     if command == "heartbeat":
         return {
-            "lease_expires_at": queue.heartbeat(
-                _parse_leases(args.lease), encoding=args.encoding
+            "leases": queue.heartbeat(
+                _parse_leases(args.lease),
+                machine=args.machine,
+                person=args.person,
+                encoding=args.encoding,
             )
         }
     if command == "release":
-        queue.release(args.citation, args.lease_id)
-        return {"released": args.citation}
+        return queue.release(
+            args.citation, args.lease_id, machine=args.machine, person=args.person
+        )
+    if command == "apply":
+        return {"results": queue.apply(_read_json(args.ops))}
     if command == "report":
         return queue.report(
             args.citation,
             args.state,
             lease_id=args.lease_id,
-            person=None if args.lease_id else args.person,
+            machine=args.machine if args.lease_id else None,
+            person=args.person,
             category=args.category,
             unblock=args.unblock,
             candidate_pr=args.candidate_pr,
@@ -340,8 +382,14 @@ def run_queue(argv: list[str]) -> int:
     args = _parser().parse_args(argv)
     try:
         result = _run(args)
-    except (QueueError, GitHubApiError) as error:
+    except (QueueError, GitHubApiError, GitHubUnknownResult) as error:
         print(f"queue: refused: {error}", file=sys.stderr)
+        return 1
+    except Exception as error:  # noqa: BLE001 - one line, never a traceback
+        print(
+            f"queue: refused: unexpected {type(error).__name__}: {error}",
+            file=sys.stderr,
+        )
         return 1
     if isinstance(result, str):
         print(result)

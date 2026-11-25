@@ -29,7 +29,6 @@ import yaml
 
 from axiom_encode.encode_queue import model
 from axiom_encode.encode_queue.model import QueueError
-from axiom_encode.rulespec_citation_paths import citation_rulespec_path
 
 MIN_SOURCE_CHARS = 150
 MAX_SOURCE_CHARS = 3000
@@ -47,11 +46,23 @@ _CITATION_BLOCK = re.compile(r"corpus_citation_paths:\s*\n((?:\s*-\s*\S+\n?)+)")
 _CITATION_ITEM = re.compile(r"-\s*[\"']?([^\s\"']+)")
 
 
+def _plain(text: Any) -> str:
+    """One line of printable text for a queue document."""
+
+    cleaned = "".join(ch if ch.isprintable() else " " for ch in str(text or ""))
+    return " ".join(cleaned.split())[: model.MAX_TEXT]
+
+
 def load_bundle(corpus_root: Path, program: str) -> dict[str, Any]:
     path = corpus_root / "manifests" / "program-bundles" / f"{program}.yaml"
     if not path.is_file():
         raise QueueError(f"the corpus checkout has no program bundle for {program!r}")
-    bundle = yaml.safe_load(path.read_text())
+    try:
+        bundle = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError) as error:
+        raise QueueError(
+            f"program bundle {program!r} cannot be read: {error}"
+        ) from None
     if not isinstance(bundle, dict) or not isinstance(bundle.get("layers"), list):
         raise QueueError(f"program bundle {program!r} has no layers")
     return bundle
@@ -188,7 +199,7 @@ def derive_package(
     sorted_cited = sorted(main_cited)
     held = 0
     missing: list[str] = []
-    on_main = 0
+    on_main: set[str] = set()
     candidates: dict[str, dict[str, Any]] = {}
     for document in documents:
         root = document.get("citation_path")
@@ -198,7 +209,7 @@ def derive_package(
             else []
         )
         if not rows:
-            missing.append(document["key"])
+            missing.append(_plain(document["key"]) or "unnamed")
             continue
         held += 1
         sized = {
@@ -207,7 +218,8 @@ def derive_package(
             if MIN_SOURCE_CHARS <= corpus_index[p]["chars"] <= MAX_SOURCE_CHARS
         }
         for citation in rows:
-            if citation not in sized or citation in candidates:
+            # Documents can overlap: count and list each unit once.
+            if citation not in sized or citation in candidates or citation in on_main:
                 continue
             parts = citation.split("/")
             # Keep the largest unit: skip a row whose parent is itself a unit.
@@ -217,21 +229,25 @@ def derive_package(
             if _SKIP_HEADING.search(row["heading"].strip()):
                 continue
             try:
-                target = citation_rulespec_path(citation).as_posix()
-            except ValueError:
+                # The target path is computed, used here and not stored: the
+                # queue computes it again from the citation at each claim.
+                target = model.target_path(citation)
+            except QueueError:
                 continue
             if target in main_modules or _on_main(citation, main_cited, sorted_cited):
-                on_main += 1
+                on_main.add(citation)
                 continue
             unit = {
                 "citation": citation,
-                "target_path": target,
-                "document": root,
-                "part": document.get("part") or "",
-                "heading": row["heading"],
+                "part": _plain(document.get("part")),
+                "heading": _plain(row["heading"]),
                 "source_chars": row["chars"],
                 "money_or_percent": row["money"],
             }
+            try:
+                unit["document"] = model.check_citation(root)
+            except QueueError:
+                pass
             if target in open_prs:
                 unit["open_pr"] = open_prs[target]
             candidates[citation] = unit
@@ -256,7 +272,7 @@ def derive_package(
             "held": held,
             "missing": sorted(missing),
         },
-        "on_main": on_main,
+        "on_main": len(on_main),
         "units": ordered,
     }
     if not documents:
