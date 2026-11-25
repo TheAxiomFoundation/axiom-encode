@@ -768,3 +768,22 @@ def test_symlink_audit_memo_defers_to_an_open_resolution_cache(monkeypatch, tmp_
     ):
         _audit(checkout)
     assert calls == []
+
+
+def test_identity_memo_never_keeps_a_transient_probe_failure(monkeypatch, tmp_path):
+    checkout = _checkout(tmp_path, git=True).parent
+    original = repo_routing._git_top_level
+    failures = [repo_routing._GitProbeError("slow host", category="timeout")]
+
+    def flaky_top_level(root):
+        if failures:
+            raise failures.pop()
+        return original(root)
+
+    monkeypatch.setattr(repo_routing, "_git_top_level", flaky_top_level)
+    with _checkout_identity_memo_scope():
+        assert inspect_canonical_rulespec_checkout(checkout) == (
+            None,
+            "git-top-level-probe-timeout",
+        )
+        assert inspect_canonical_rulespec_checkout(checkout).name == "rulespec-us"
