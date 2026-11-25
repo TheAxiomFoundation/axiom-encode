@@ -32735,7 +32735,7 @@ def find_missing_same_section_subsection_import_issues(
         flags=re.IGNORECASE,
     ):
         return []
-    import_items = _extract_import_items_from_content(content)
+    import_items = _engine_import_items(content)
     imports = {
         _normalize_rulespec_import_path_static(import_path)
         for import_path in import_items
@@ -33629,7 +33629,7 @@ def find_child_fragment_reencoding_issues(
     except ValueError:
         return []
 
-    import_items = _extract_import_items_from_content(content)
+    import_items = _engine_import_items(content)
     imports = {
         _normalize_rulespec_import_path_static(import_path)
         for import_path in import_items
@@ -34084,6 +34084,23 @@ def _strict_top_level_import_strings(content: str) -> list[str]:
     return items
 
 
+def _engine_import_items(content: str) -> list[str]:
+    """Return the import items the rules engine loads, for credit decisions.
+
+    A check that lets an import excuse a finding must read the same list the
+    engine reads: the whitespace-free string items written in place under the
+    one top-level ``imports`` key. The line readers below also match
+    ``imports:`` text in a block scalar or under ``module:``; they stay in use
+    only where an extra item can add a finding and never remove one.
+    """
+
+    return [
+        item
+        for item in _strict_top_level_import_strings(content)
+        if item and not any(char.isspace() for char in item)
+    ]
+
+
 def _extract_import_items_from_content(content: str) -> list[str]:
     """Extract raw import references from an imports block."""
     items: list[str] = []
@@ -34129,7 +34146,7 @@ def _extract_import_items_from_content(content: str) -> list[str]:
 def _extract_import_paths_from_content(content: str) -> list[str]:
     """Extract import file references from an imports block."""
     paths: list[str] = []
-    for item in _extract_import_items_from_content(content):
+    for item in _engine_import_items(content):
         import_target = item.split("#", 1)[0].strip()
         if import_target:
             paths.append(import_target)
@@ -41921,7 +41938,7 @@ class ValidatorPipeline:
         """Extract import file references from an imports block."""
         return [
             self._normalize_rulespec_import_path(item)
-            for item in self._extract_import_items(content)
+            for item in _engine_import_items(content)
             if item.split("#", 1)[0].strip()
         ]
 
@@ -42048,7 +42065,7 @@ class ValidatorPipeline:
             return []
         current_section = self._infer_section_from_rulespec_path(rulespec_file)
 
-        import_items = self._extract_import_items(content)
+        import_items = _engine_import_items(content)
         issues: list[str] = []
         seen: set[tuple[str, str]] = set()
         for block in self._extract_definition_blocks(content):
@@ -42206,7 +42223,7 @@ class ValidatorPipeline:
         if not title:
             return []
         current_section = self._infer_section_from_rulespec_path(rulespec_file)
-        import_items = self._extract_import_items(content)
+        import_items = _engine_import_items(content)
         local_blocks = {
             str(block["name"]): block
             for block in self._extract_definition_blocks(content)
@@ -42356,7 +42373,7 @@ class ValidatorPipeline:
         if not obligations:
             return []
 
-        import_items = self._extract_import_items(content)
+        import_items = _engine_import_items(content)
         import_paths = {
             self._normalize_rulespec_import_path(import_item)
             for import_item in import_items
@@ -42779,7 +42796,7 @@ class ValidatorPipeline:
         if not obligations:
             return []
 
-        import_items = self._extract_import_items(content)
+        import_items = _engine_import_items(content)
         imports_by_fragment = {
             self._import_item_fragment(import_item): import_item
             for import_item in import_items
@@ -43408,7 +43425,7 @@ class ValidatorPipeline:
         """Return scalar values for source-backed parameters imported by this file."""
         source_root = self._validation_source_root(rulespec_file)
         values: dict[str, set[str]] = {}
-        for item in self._extract_import_items(content):
+        for item in _engine_import_items(content):
             base, separator, symbol = item.partition("#")
             if not separator:
                 continue
