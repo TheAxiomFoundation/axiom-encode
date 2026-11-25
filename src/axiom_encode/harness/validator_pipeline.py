@@ -23360,51 +23360,43 @@ def _rulespec_executable_index_for_roots(
                     root=root,
                 ):
                     continue
-                _index_executable_rules_in_file(
-                    records,
-                    rules_file=rules_file,
-                    prefix=prefix,
-                    root=root,
-                )
+                # The unmemoized scan stays in this function, exactly as it
+                # was before the memo, so the parse runs at the same stack
+                # depth and a deeply nested module raises ``RecursionError``
+                # in the same cases with the memo on, off or absent.
+                try:
+                    payload = yaml.safe_load(rules_file.read_text())
+                except (OSError, yaml.YAMLError, ValueError):
+                    continue
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("format") != "rulespec/v1"
+                ):
+                    continue
+                rules = payload.get("rules")
+                if not isinstance(rules, list):
+                    continue
+                for rule in rules:
+                    if not _is_executable_rulespec_rule(rule):
+                        continue
+                    signature = _rulespec_executable_signature(rule)
+                    if signature is None:
+                        continue
+                    symbol = _rulespec_rule_name(rule)
+                    records.append(
+                        _IndexedExecutableRule(
+                            target=_canonical_rulespec_target(
+                                prefix=prefix,
+                                repo_root=root,
+                                rules_file=rules_file,
+                                symbol=symbol,
+                            ),
+                            symbol=symbol,
+                            signature=signature,
+                            source_file=str(rules_file.resolve()),
+                        )
+                    )
     return tuple(records)
-
-
-def _index_executable_rules_in_file(
-    records: list[_IndexedExecutableRule],
-    *,
-    rules_file: Path,
-    prefix: str,
-    root: Path,
-) -> None:
-    try:
-        payload = yaml.safe_load(rules_file.read_text())
-    except (OSError, yaml.YAMLError, ValueError):
-        return
-    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
-        return
-    rules = payload.get("rules")
-    if not isinstance(rules, list):
-        return
-    for rule in rules:
-        if not _is_executable_rulespec_rule(rule):
-            continue
-        signature = _rulespec_executable_signature(rule)
-        if signature is None:
-            continue
-        symbol = _rulespec_rule_name(rule)
-        records.append(
-            _IndexedExecutableRule(
-                target=_canonical_rulespec_target(
-                    prefix=prefix,
-                    repo_root=root,
-                    rules_file=rules_file,
-                    symbol=symbol,
-                ),
-                symbol=symbol,
-                signature=signature,
-                source_file=str(rules_file.resolve()),
-            )
-        )
 
 
 _EXECUTABLE_RULE_FACTS = "rulespec-executable-rule-facts"

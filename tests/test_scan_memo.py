@@ -372,7 +372,7 @@ def test_concept_memo_reraises_what_the_helpers_raise(monkeypatch, tmp_path):
         raise RecursionError("too deep")
 
     monkeypatch.setattr(dependency_stubs.yaml, "safe_load", exploding_load)
-    monkeypatch.setattr(scan_memo.yaml, "safe_load", exploding_load)
+    monkeypatch.setattr(scan_memo, "_safe_load_with_node", exploding_load)
     for memo in (True, False):
         with pytest.raises(RecursionError, match="too deep"):
             _resolve(monkeypatch, root, memo=memo)
@@ -382,13 +382,13 @@ def test_concept_memo_reraises_what_the_helpers_raise(monkeypatch, tmp_path):
 def test_concept_memo_parses_each_text_once_per_process(monkeypatch, tmp_path):
     root = _checkout(tmp_path)
     loads = []
-    original = scan_memo.yaml.safe_load
+    original = scan_memo._safe_load_with_node
 
     def counting_load(content, *args, **kwargs):
         loads.append(content)
         return original(content, *args, **kwargs)
 
-    monkeypatch.setattr(scan_memo.yaml, "safe_load", counting_load)
+    monkeypatch.setattr(scan_memo, "_safe_load_with_node", counting_load)
     _resolve(monkeypatch, root, memo=True)
     _resolve(monkeypatch, root, memo=True)
     assert len(loads) == 2
@@ -856,22 +856,122 @@ def _nested_text(depth: int) -> str:
     return "a: " + "[" * (depth - 1) + "1" + "]" * (depth - 1) + "\n"
 
 
-def test_nesting_measure_matches_the_parsed_depth():
+def _compose(text: str):
+    return yaml.compose(text, Loader=yaml.SafeLoader)
+
+
+def test_nesting_measure_matches_the_composed_depth():
     limit = scan_memo._MAX_MEMOIZED_NESTING
     assert limit == 100
     for depth, exceeds in ((1, False), (limit, False), (limit + 1, True)):
-        payload = yaml.safe_load(_nested_text(depth))
-        assert scan_memo._nesting_exceeds(payload, limit) is exceeds
-    assert not scan_memo._nesting_exceeds("scalar", limit)
-    assert not scan_memo._nesting_exceeds(None, limit)
-    # A dict key and a shared (aliased) container count too.
-    assert scan_memo._nesting_exceeds({("k", ("deep",)): 1}, 2)
-    shared = yaml.safe_load("a: &x [[1]]\nb: [*x, *x]\n")
+        node = _compose(_nested_text(depth))
+        assert scan_memo._nesting_exceeds(node, limit) is exceeds
+    assert not scan_memo._nesting_exceeds(_compose("scalar\n"), 0)
+    assert not scan_memo._nesting_exceeds(None, 0)
+    # A mapping key and a shared (aliased) node count too.
+    assert scan_memo._nesting_exceeds(_compose("? [[k]]\n: 1\n"), 2)
+    assert not scan_memo._nesting_exceeds(_compose("? [[k]]\n: 1\n"), 3)
+    shared = _compose("a: &x [[1]]\nb: [*x, *x]\n")
     assert scan_memo._nesting_exceeds(shared, 3)
     assert not scan_memo._nesting_exceeds(shared, 4)
-    cyclic: list = []
-    cyclic.append(cyclic)
-    assert scan_memo._nesting_exceeds(cyclic, limit)
+    # ``&a [*a]`` composes to a node that contains itself.
+    assert scan_memo._nesting_exceeds(_compose("&a [*a]\n"), limit)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "# only a comment\n",
+        "a: 1\n",
+        "a: &x [1, 2]\nb: *x\n",
+        "base: &b {k: 1}\nuse:\n  <<: *b\n  k: 2\n",
+        "a: 1\na: 2\n",
+        "when: 2026-01-01\nflag: yes\nnone: ~\nnumber: 0x10\n",
+        "? [1, 2]\n: value\n",
+        "a:\tb\n",
+        "a: [\n",
+        "a: 1\n---\nb: 2\n",
+        "a: !!python/object:os.system x\n",
+        "a: *missing\n",
+        "x: 1\n\ufeff",
+    ],
+)
+def test_the_memo_parse_is_yaml_safe_load(text):
+    try:
+        expected = yaml.safe_load(text)
+    except Exception as exc:  # noqa: BLE001 - compared below
+        with pytest.raises(type(exc)) as raised:
+            scan_memo._safe_load_with_node(text)
+        assert str(raised.value) == str(exc)
+        return
+    payload, node = scan_memo._safe_load_with_node(text)
+    assert payload == expected
+    assert type(payload) is type(expected)
+    assert (node is None) == (yaml.compose(text, Loader=yaml.SafeLoader) is None)
+
+
+@pytest.mark.parametrize(
+    "dropped",
+    [
+        # A duplicate key: the later scalar replaces the deep value.
+        "junk: {nested}\njunk: 1\n",
+        # A merge key: the explicit key hides the deep merged value.
+        "base: &b\n  junk: {nested}\nuse:\n  <<: *b\n  junk: 1\nbase: 1\n",
+    ],
+)
+def test_text_facts_measure_the_parse_and_not_the_payload(monkeypatch, dropped):
+    nested = "[" * 300 + "1" + "]" * 300
+    text = dropped.format(nested=nested) + "a: 1\n"
+    # The parser recursed 300 levels, but the payload is shallow.
+    assert "[" not in repr(yaml.safe_load(text))
+    for _ in range(2):
+        assert text_facts(text, "test-probe-facts")[0] == "probe"
+    stats = scan_memo_stats()["test-probe-facts"]
+    assert (stats["entries"], stats["hits"], stats["misses"]) == (0, 0, 2)
+
+    # At a deeper stack the parse raises; no stored value may hide that.
+    def exhausted_load(content):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(scan_memo, "_safe_load_with_node", exhausted_load)
+    with pytest.raises(TextFactsUnavailable):
+        text_facts(text, "test-probe-facts")
+
+
+def test_executable_index_does_not_serve_a_module_with_a_dropped_deep_value(
+    monkeypatch, tmp_path
+):
+    root = _checkout(tmp_path)
+    nested = "[" * 300 + "1" + "]" * 300
+    (root / "statutes" / "dropped.yaml").write_text(
+        f"junk: {nested}\njunk: 1\n" + _module("canonical dropped concept", "dropped"),
+        encoding="utf-8",
+    )
+    first = _assert_index_matches(monkeypatch, (root,))
+    assert "dropped" in {record.symbol for record in first}
+    # Only the two shallow modules are stored.
+    assert scan_memo_stats()["rulespec-executable-rule-facts"]["entries"] == 2
+
+    def depth_limited(original):
+        def load(content, *args, **kwargs):
+            if nested in content:
+                raise RecursionError("maximum recursion depth exceeded")
+            return original(content, *args, **kwargs)
+
+        return load
+
+    monkeypatch.setattr(
+        scan_memo,
+        "_safe_load_with_node",
+        depth_limited(scan_memo._safe_load_with_node),
+    )
+    monkeypatch.setattr(
+        validator_pipeline.yaml, "safe_load", depth_limited(yaml.safe_load)
+    )
+    for memo in (True, False):
+        with pytest.raises(RecursionError):
+            _executable_index(monkeypatch, (root,), memo=memo)
 
 
 def test_text_facts_do_not_store_a_deeply_nested_text(monkeypatch):
@@ -893,7 +993,7 @@ def test_text_facts_do_not_store_a_deeply_nested_text(monkeypatch):
     def exhausted_load(content, *args, **kwargs):
         raise RecursionError("maximum recursion depth exceeded")
 
-    monkeypatch.setattr(scan_memo.yaml, "safe_load", exhausted_load)
+    monkeypatch.setattr(scan_memo, "_safe_load_with_node", exhausted_load)
     with pytest.raises(TextFactsUnavailable):
         text_facts(deep, "test-probe-facts")
     # The shallow text needs no parse and is still served.
@@ -914,15 +1014,22 @@ def test_executable_index_raises_recursion_error_for_a_deep_module(
     assert "deep_concept" in {record.symbol for record in first}
     assert scan_memo_stats()["rulespec-executable-rule-facts"]["entries"] == 2
 
-    original = yaml.safe_load
+    def depth_limited(original):
+        def load(content, *args, **kwargs):
+            if "[" * 150 in content:
+                raise RecursionError("maximum recursion depth exceeded")
+            return original(content, *args, **kwargs)
 
-    def depth_limited_load(content, *args, **kwargs):
-        if "[" * 150 in content:
-            raise RecursionError("maximum recursion depth exceeded")
-        return original(content, *args, **kwargs)
+        return load
 
-    monkeypatch.setattr(scan_memo.yaml, "safe_load", depth_limited_load)
-    monkeypatch.setattr(validator_pipeline.yaml, "safe_load", depth_limited_load)
+    monkeypatch.setattr(
+        scan_memo,
+        "_safe_load_with_node",
+        depth_limited(scan_memo._safe_load_with_node),
+    )
+    monkeypatch.setattr(
+        validator_pipeline.yaml, "safe_load", depth_limited(yaml.safe_load)
+    )
     for memo in (True, False):
         with pytest.raises(RecursionError):
             _executable_index(monkeypatch, (root,), memo=memo)
@@ -960,7 +1067,7 @@ def test_executable_facts_propagate_parse_exceptions(monkeypatch, tmp_path, erro
     def exploding_load(content, *args, **kwargs):
         raise error
 
-    monkeypatch.setattr(scan_memo.yaml, "safe_load", exploding_load)
+    monkeypatch.setattr(scan_memo, "_safe_load_with_node", exploding_load)
     monkeypatch.setattr(validator_pipeline.yaml, "safe_load", exploding_load)
     for memo in (True, False):
         with pytest.raises(type(error), match=str(error)):
@@ -973,7 +1080,9 @@ def test_concept_facts_keep_the_docstring_fallback():
     with pytest.raises(yaml.YAMLError):
         yaml.safe_load(content)
     expected_source = dependency_stubs._extract_embedded_source_text(content)
-    expected_terms = dependency_stubs._embedded_source_concept_terms(content)
+    expected_terms = dependency_stubs._extract_defined_concept_terms_from_source(
+        expected_source
+    )
     assert expected_source == 'The "canonical docstring concept" means the condition.'
     assert expected_terms == ["canonical docstring concept"]
     facts = dependency_stubs._concept_file_facts(content)
@@ -1131,3 +1240,184 @@ def test_symlink_audit_memo_does_not_keep_a_walk_that_reported_an_error(
         monkeypatch.setattr(validator_pipeline.os, "walk", original)
         _audit(checkout)
         assert len(validator_pipeline._SYMLINK_AUDIT_MEMO.get()) == 1
+
+
+# --- review round 3 ---------------------------------------------------------
+
+
+def _callers(depth: int = 4) -> tuple[str, ...]:
+    import sys
+
+    frame = sys._getframe(2)
+    names = []
+    while frame is not None and len(names) < depth:
+        names.append(frame.f_code.co_name)
+        frame = frame.f_back
+    return tuple(names)
+
+
+@pytest.mark.parametrize("mode", ["off", "fallback"])
+def test_unmemoized_parses_run_at_the_stack_depth_they_had_before_the_memos(
+    monkeypatch, tmp_path, mode
+):
+    """A deep module must raise ``RecursionError`` in the same cases as before.
+
+    The unmemoized ``yaml.safe_load`` calls sit the same number of frames
+    below the public functions as they did before the memos existed, with the
+    memos off and when a memoized parse fails and the scan falls back.
+    """
+
+    root = _checkout(tmp_path)
+    chains: set[tuple[str, ...]] = set()
+    original = yaml.safe_load
+
+    def recording_load(content, *args, **kwargs):
+        chains.add(_callers())
+        return original(content, *args, **kwargs)
+
+    monkeypatch.setattr(yaml, "safe_load", recording_load)
+    if mode == "fallback":
+
+        def exhausted_load(content):
+            raise RecursionError("maximum recursion depth exceeded")
+
+        monkeypatch.setattr(scan_memo, "_safe_load_with_node", exhausted_load)
+    memo = mode == "fallback"
+
+    _executable_index(monkeypatch, (root,), memo=memo)
+    assert {chain[0] for chain in chains} == {"_rulespec_executable_index_for_roots"}
+
+    chains.clear()
+    _resolve(monkeypatch, root, memo=memo)
+    assert {chain[:3] for chain in chains} == {
+        (
+            "_extract_embedded_source_text",
+            "_build_canonical_concept_candidate",
+            "resolve_canonical_concepts_from_text",
+        ),
+        (
+            "_extract_principal_symbol_metadata",
+            "_build_canonical_concept_candidate",
+            "resolve_canonical_concepts_from_text",
+        ),
+        (
+            "_extract_embedded_source_text",
+            "resolve_canonical_concepts_from_text",
+            "_resolve",
+        ),
+    }
+
+
+def test_first_eviction_logs_one_warning(caplog):
+    register_text_facts("test-eviction-log-facts", _probe_facts, max_chars=40)
+    with caplog.at_level("WARNING", logger="axiom_encode.scan_memo"):
+        text_facts("a: 11111\n", "test-eviction-log-facts")
+        assert scan_memo_stats()["test-eviction-log-facts"]["evictions"] == 0
+        for index in range(5):
+            text_facts(f"b: 2222{index}\n", "test-eviction-log-facts")
+    # Every registered memo sees each text; look at this memo's lines only.
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if "test-eviction-log-facts" in record.getMessage()
+    ]
+    assert len(messages) == 1
+    assert "40 characters" in messages[0]
+    assert scan_memo_stats()["test-eviction-log-facts"]["evictions"] == 5
+    # A clear starts a new count, so the next eviction is logged again.
+    clear_scan_memos()
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="axiom_encode.scan_memo"):
+        text_facts("a: 11111\n", "test-eviction-log-facts")
+        text_facts("b: 22222\n", "test-eviction-log-facts")
+    assert sum("test-eviction-log-facts" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_identity_memo_does_not_keep_an_inspection_that_raced_a_change(
+    monkeypatch, tmp_path
+):
+    checkout = _checkout(tmp_path, git=True).parent
+    original = repo_routing._inspect_canonical_rulespec_checkout_routed
+    changes = iter(range(100))
+
+    def inspect_then_change(path, **kwargs):
+        inspection = original(path, **kwargs)
+        # The checkout changes after the probe and before the second
+        # fingerprint: a new root entry changes the directory stamp.
+        (checkout / f"added-{next(changes)}.txt").write_text("x")
+        return inspection
+
+    monkeypatch.setattr(
+        repo_routing,
+        "_inspect_canonical_rulespec_checkout_routed",
+        inspect_then_change,
+    )
+    with _checkout_identity_memo_scope():
+        for _ in range(2):
+            assert inspect_canonical_rulespec_checkout(checkout).name == "rulespec-us"
+            assert repo_routing._CHECKOUT_IDENTITY_MEMO.get() == {}
+        monkeypatch.setattr(
+            repo_routing, "_inspect_canonical_rulespec_checkout_routed", original
+        )
+        assert inspect_canonical_rulespec_checkout(checkout).name == "rulespec-us"
+        assert len(repo_routing._CHECKOUT_IDENTITY_MEMO.get()) == 1
+
+
+@pytest.mark.parametrize("category", ["timeout", "git-config-probe-failed"])
+def test_identity_memo_refuses_a_failed_config_probe_under_the_supervisor(
+    monkeypatch, tmp_path, category
+):
+    checkout = _checkout(tmp_path, git=True).parent
+    _supervisor_git_environment(monkeypatch)
+    # Only the custom-environment refusal leads to the repository-only path.
+    assert repo_routing._memo_git_config_inputs(checkout) == ()
+
+    def failing_config_inputs(root):
+        raise repo_routing._GitProbeError("probe failed", category=category)
+
+    monkeypatch.setattr(repo_routing, "_git_config_input_paths", failing_config_inputs)
+    assert repo_routing._memo_git_config_inputs(checkout) is None
+    with _checkout_identity_memo_scope():
+        inspect_canonical_rulespec_checkout(checkout)
+        assert repo_routing._CHECKOUT_IDENTITY_MEMO.get() == {}
+
+
+def test_symlink_audit_memo_does_not_keep_a_walk_that_raced_a_change(
+    monkeypatch, tmp_path
+):
+    checkout = _checkout(tmp_path).parent
+    original = validator_pipeline.os.walk
+
+    def walk_then_change(top, *args, **kwargs):
+        yield from original(top, *args, **kwargs)
+        # A regular file appears in a directory the walk already left.
+        (Path(top) / "us" / "statutes" / "late.yaml").write_text("a: 1\n")
+
+    with validator_pipeline._symlink_audit_memo_scope():
+        monkeypatch.setattr(validator_pipeline.os, "walk", walk_then_change)
+        _audit(checkout)
+        assert validator_pipeline._SYMLINK_AUDIT_MEMO.get() == {}
+        monkeypatch.setattr(validator_pipeline.os, "walk", original)
+        _audit(checkout)
+        assert len(validator_pipeline._SYMLINK_AUDIT_MEMO.get()) == 1
+
+
+def test_symlink_audit_memo_keys_on_the_resolved_checkout(monkeypatch, tmp_path):
+    checkout = _checkout(tmp_path).parent
+    alias_parent = tmp_path / "alias"
+    alias_parent.symlink_to(tmp_path, target_is_directory=True)
+    alias = alias_parent / checkout.name
+    assert alias != checkout
+    assert alias.resolve() == checkout.resolve()
+    walks = _audit_walks(monkeypatch)
+    with validator_pipeline._symlink_audit_memo_scope():
+        _audit(alias)
+        _audit(checkout)
+        _audit(alias)
+        memo = validator_pipeline._SYMLINK_AUDIT_MEMO.get()
+        assert list(memo) == [checkout.resolve()]
+        assert len(walks) == 1
+        # A symlink added through either spelling is seen through the other.
+        (checkout / "us" / "link.yaml").symlink_to(tmp_path / "anywhere")
+        with pytest.raises(UnsafeRulespecContextPath, match="contains a symlink"):
+            _audit(alias)

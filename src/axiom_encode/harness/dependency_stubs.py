@@ -7,7 +7,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Any, Sequence
 
 import yaml
 
@@ -289,75 +289,67 @@ def resolve_canonical_concepts_from_text(
     current_file: Path | None = None,
 ) -> list[ResolvedCanonicalConcept]:
     """Resolve high-confidence reusable legal concepts from nearby corpus files."""
-    if not scan_cache_enabled():
-        return _resolve_canonical_concepts_from_text(
-            text,
-            corpus_root,
-            current_file=current_file,
-            build_candidate=_build_canonical_concept_candidate,
-            embedded_source_terms=_embedded_source_concept_terms,
-        )
-    with _checkout_identity_memo_scope():
-        return _resolve_canonical_concepts_from_text(
-            text,
-            corpus_root,
-            current_file=current_file,
-            build_candidate=_build_canonical_concept_candidate_memoized,
-            embedded_source_terms=_embedded_source_concept_terms_memoized,
-        )
-
-
-def _embedded_source_concept_terms(content: str) -> list[str]:
-    return _extract_defined_concept_terms_from_source(
-        _extract_embedded_source_text(content)
-    )
-
-
-def _resolve_canonical_concepts_from_text(
-    text: str,
-    corpus_root: Path,
-    *,
-    current_file: Path | None,
-    build_candidate: Callable[[Path, Path], ResolvedCanonicalConcept | None],
-    embedded_source_terms: Callable[[str], Sequence[str]],
-) -> list[ResolvedCanonicalConcept]:
+    memoized = scan_cache_enabled()
     index: dict[str, list[ResolvedCanonicalConcept]] = {}
-    validated_corpus_root = validate_rulespec_context_directory(
-        corpus_root,
-        corpus_root,
-    )
-    if validated_corpus_root is None:
-        return []
-
-    for source_root_name in sorted(RULESPEC_ATOMIC_MODULE_ROOTS):
-        source_root = validate_rulespec_context_directory(
-            validated_corpus_root / source_root_name,
-            validated_corpus_root,
+    with _checkout_identity_memo_scope() if memoized else contextlib.nullcontext():
+        validated_corpus_root = validate_rulespec_context_directory(
+            corpus_root,
+            corpus_root,
         )
-        if source_root is None:
-            continue
-        for candidate_file in sorted(source_root.rglob("*.yaml")):
-            if candidate_file.name.endswith(".test.yaml"):
-                continue
-            candidate_file = validate_rulespec_context_file(
-                candidate_file,
+        if validated_corpus_root is None:
+            return []
+
+        for source_root_name in sorted(RULESPEC_ATOMIC_MODULE_ROOTS):
+            source_root = validate_rulespec_context_directory(
+                validated_corpus_root / source_root_name,
                 validated_corpus_root,
             )
-            if (
-                current_file is not None
-                and candidate_file.resolve() == current_file.resolve()
-            ):
+            if source_root is None:
                 continue
+            for candidate_file in sorted(source_root.rglob("*.yaml")):
+                if candidate_file.name.endswith(".test.yaml"):
+                    continue
+                candidate_file = validate_rulespec_context_file(
+                    candidate_file,
+                    validated_corpus_root,
+                )
+                if (
+                    current_file is not None
+                    and candidate_file.resolve() == current_file.resolve()
+                ):
+                    continue
 
-            candidate = build_candidate(
-                candidate_file,
-                validated_corpus_root,
-            )
-            if candidate is None:
-                continue
+                # The unmemoized calls stay in this function, exactly as they
+                # were before the memos, so the parse runs at the same stack
+                # depth and a deeply nested module raises ``RecursionError`` in
+                # the same cases with the memos on, off or absent.
+                candidate: Any = _UNMEMOIZED
+                if memoized:
+                    candidate = _build_canonical_concept_candidate_memoized(
+                        candidate_file,
+                        validated_corpus_root,
+                    )
+                if candidate is _UNMEMOIZED:
+                    candidate = _build_canonical_concept_candidate(
+                        candidate_file,
+                        validated_corpus_root,
+                    )
+                if candidate is None:
+                    continue
 
-            for term in embedded_source_terms(candidate_file.read_text()):
-                index.setdefault(term, []).append(_with_concept_term(candidate, term))
+                terms: Sequence[str] | None = None
+                if memoized:
+                    terms = _embedded_source_concept_terms_memoized(
+                        candidate_file.read_text()
+                    )
+                if terms is None:
+                    terms = _extract_defined_concept_terms_from_source(
+                        _extract_embedded_source_text(candidate_file.read_text())
+                    )
+                for term in terms:
+                    index.setdefault(term, []).append(
+                        _with_concept_term(candidate, term)
+                    )
 
     resolved: list[ResolvedCanonicalConcept] = []
     seen_targets: set[tuple[str, str]] = set()
@@ -693,18 +685,6 @@ def _build_canonical_concept_candidate(
     corpus_root: Path,
 ) -> ResolvedCanonicalConcept | None:
     content = candidate_file.read_text()
-    return _build_canonical_concept_candidate_from_content(
-        candidate_file,
-        corpus_root,
-        content,
-    )
-
-
-def _build_canonical_concept_candidate_from_content(
-    candidate_file: Path,
-    corpus_root: Path,
-    content: str,
-) -> ResolvedCanonicalConcept | None:
     source_text = _extract_embedded_source_text(content)
     if not source_text:
         return None
@@ -765,6 +745,9 @@ class _ConceptFileFacts:
 
 
 _CONCEPT_FILE_FACTS = "canonical-concept-file-facts"
+
+# Returned by a memoized helper that has no value for this text.
+_UNMEMOIZED = object()
 
 
 def _concept_file_facts(content: str) -> _ConceptFileFacts | None:
@@ -836,31 +819,31 @@ def _compute_concept_file_facts(
 register_text_facts(_CONCEPT_FILE_FACTS, _compute_concept_file_facts)
 
 
-def _embedded_source_concept_terms_memoized(content: str) -> Sequence[str]:
+def _embedded_source_concept_terms_memoized(content: str) -> Sequence[str] | None:
+    """Return the memoized terms; ``None`` means the caller runs the helpers."""
+
     facts = _concept_file_facts(content)
     if facts is None:
-        return _embedded_source_concept_terms(content)
+        return None
     return facts.terms
 
 
 def _build_canonical_concept_candidate_memoized(
     candidate_file: Path,
     corpus_root: Path,
-) -> ResolvedCanonicalConcept | None:
+) -> Any:
     """``_build_canonical_concept_candidate`` with the text facts memoized.
 
     Everything that depends on the path (containment, the import base, the
     repository name) is computed on every call, as the original does.
+    Returns ``_UNMEMOIZED`` when there are no text facts; the scan then calls
+    ``_build_canonical_concept_candidate`` itself.
     """
 
     content = candidate_file.read_text()
     facts = _concept_file_facts(content)
     if facts is None:
-        return _build_canonical_concept_candidate_from_content(
-            candidate_file,
-            corpus_root,
-            content,
-        )
+        return _UNMEMOIZED
     if not facts.source_text:
         return None
     if facts.principal is None:

@@ -26,13 +26,20 @@ Nothing is written to disk and nothing outlives the process. When a fact
 function raises, nothing is stored for it and the caller runs its unmemoized
 code, which raises the same exception from the same place.
 
-A value is stored only when the parse succeeded and the parsed payload nests
-at most ``_MAX_MEMOIZED_NESTING`` levels. The parse and the fact functions
-recurse once per level, so a deeper text can raise ``RecursionError`` when the
-caller's stack is deep and succeed when it is shallow; a stored value would
-hide that difference. A parse that failed is not stored either, because the
-depth it reached before the error is not known. Such texts are computed again
-on every call, at the caller's own stack depth.
+A value is stored only when the parse succeeded and the composed YAML node
+tree nests at most ``_MAX_MEMOIZED_NESTING`` levels. The parse and the fact
+functions recurse once per level, so a deeper text can raise
+``RecursionError`` when the caller's stack is deep and succeed when it is
+shallow; a stored value would hide that difference. The depth is measured on
+the node tree, which is what the parser recursed over, and not on the payload:
+a duplicate key or a merge key can drop a deep value from the payload. A parse
+that failed is not stored either, because the depth it reached before the
+error is not known. Such texts are computed again on every call.
+
+Each memo holds at most ``max_chars`` characters of texts and values and
+evicts the least recently used text beyond that. A repository scan reads its
+modules in one fixed order, so a budget below the size of one scan's working
+set gives no hits at all. The first eviction after a clear logs one warning.
 
 ``AXIOM_ENCODE_SCAN_CACHE=0`` (also ``off``, ``false`` or ``no``) turns every
 scan memo off, so the scans run the code they ran before the memos existed.
@@ -44,6 +51,7 @@ and drops the variable, so there the memos are always on.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import os
 import threading
 from collections import OrderedDict
@@ -51,6 +59,8 @@ from collections.abc import Callable
 from typing import Any, NamedTuple
 
 import yaml
+
+_LOGGER = logging.getLogger(__name__)
 
 SCAN_CACHE_ENVIRONMENT_VARIABLE = "AXIOM_ENCODE_SCAN_CACHE"
 
@@ -61,8 +71,6 @@ _DEFAULT_MAX_CHARS = 128 * 1024 * 1024
 
 # Deepest parsed nesting that is memoized (see the module docstring).
 _MAX_MEMOIZED_NESTING = 100
-
-_CONTAINER_TYPES = (dict, list, tuple, set, frozenset)
 
 _MISSING = object()
 
@@ -83,6 +91,24 @@ class ParseOutcome(NamedTuple):
     error: Exception | None
 
 
+def _safe_load_with_node(content: str) -> tuple[Any, yaml.Node | None]:
+    """Return ``yaml.safe_load(content)`` and the node tree it was built from.
+
+    These are the steps of ``yaml.load(content, yaml.SafeLoader)``
+    (``get_single_data`` is ``get_single_node`` then ``construct_document``),
+    so the value and every exception are the ones ``yaml.safe_load`` gives.
+    """
+
+    loader = yaml.SafeLoader(content)
+    try:
+        node = loader.get_single_node()
+        if node is None:
+            return None, None
+        return loader.construct_document(node), node
+    finally:
+        loader.dispose()
+
+
 class TextFactsUnavailable(Exception):
     """No memoized value: the caller must run its unmemoized code."""
 
@@ -90,29 +116,28 @@ class TextFactsUnavailable(Exception):
 FactFunction = Callable[[str, ParseOutcome], Any]
 
 
-def _nesting_exceeds(payload: Any, limit: int) -> bool:
-    """Return whether ``payload`` nests more than ``limit`` containers deep.
+def _nesting_exceeds(node: yaml.Node | None, limit: int) -> bool:
+    """Return whether a composed node tree nests more than ``limit`` levels.
 
-    Walks one level at a time without recursion. A container reached twice on
-    one level (a YAML alias) is visited once; a cyclic payload exceeds every
-    limit.
+    Counts collection nodes (mappings and sequences), keys included, on the
+    tree the parser built. Walks one level at a time without recursion. A node
+    reached twice on one level (an alias) is visited once; a cyclic tree
+    exceeds every limit.
     """
 
-    level: list[Any] = [payload] if isinstance(payload, _CONTAINER_TYPES) else []
+    level: list[yaml.Node] = [node] if isinstance(node, yaml.CollectionNode) else []
     depth = 0
     while level:
         depth += 1
         if depth > limit:
             return True
-        children: dict[int, Any] = {}
-        for container in level:
-            if isinstance(container, dict):
-                items: Any = (*container.keys(), *container.values())
-            else:
-                items = container
-            for item in items:
-                if isinstance(item, _CONTAINER_TYPES):
-                    children[id(item)] = item
+        children: dict[int, yaml.Node] = {}
+        for collection in level:
+            for item in collection.value:
+                # A mapping node holds ``(key node, value node)`` pairs.
+                for child in item if isinstance(item, tuple) else (item,):
+                    if isinstance(child, yaml.CollectionNode):
+                        children[id(child)] = child
         level = list(children.values())
     return False
 
@@ -156,6 +181,7 @@ class _FactMemo:
         self.entries: OrderedDict[str, tuple[Any, int]] = OrderedDict()
         self.hits = 0
         self.misses = 0
+        self.evictions = 0
 
     def get(self, content: str) -> Any:
         entry = self.entries.get(content)
@@ -164,17 +190,22 @@ class _FactMemo:
         self.entries.move_to_end(content)
         return entry[0]
 
-    def put(self, content: str, value: Any) -> None:
+    def put(self, content: str, value: Any) -> bool:
+        """Store one value; return whether this call made the first eviction."""
+
         if content in self.entries:
-            return
+            return False
         cost = len(content) + _value_chars(value)
         if cost > self.max_chars:
-            return
+            return False
         self.entries[content] = (value, cost)
         self.chars += cost
+        before = self.evictions
         while self.chars > self.max_chars and self.entries:
             _, (_, evicted_cost) = self.entries.popitem(last=False)
             self.chars -= evicted_cost
+            self.evictions += 1
+        return before == 0 and self.evictions > 0
 
 
 _LOCK = threading.Lock()
@@ -210,7 +241,7 @@ def text_facts(content: str, name: str) -> Any:
     Raises ``TextFactsUnavailable`` when the memos are off, when ``content``
     is not exactly a ``str``, or when the function raised; the caller then runs
     its unmemoized code. The value is computed but not stored when the parse
-    failed or the payload nests too deep (see the module docstring).
+    failed or the text nests too deep (see the module docstring).
     """
 
     if type(content) is not str or not scan_cache_enabled():
@@ -222,8 +253,10 @@ def text_facts(content: str, name: str) -> Any:
             memo.hits += 1
             return cached
         functions = dict(_FACT_FUNCTIONS)
+    node: yaml.Node | None = None
     try:
-        outcome = ParseOutcome(yaml.safe_load(content), None)
+        payload, node = _safe_load_with_node(content)
+        outcome = ParseOutcome(payload, None)
     except Exception as exc:  # noqa: BLE001 - a fact function decides
         outcome = ParseOutcome(None, exc)
     computed: dict[str, Any] = {}
@@ -233,13 +266,25 @@ def text_facts(content: str, name: str) -> Any:
         except Exception:  # noqa: BLE001 - the caller's own code decides
             continue
     storable = outcome.error is None and not _nesting_exceeds(
-        outcome.payload, _MAX_MEMOIZED_NESTING
+        node, _MAX_MEMOIZED_NESTING
     )
+    del node
+    first_evictions: list[tuple[str, int]] = []
     with _LOCK:
         _FACT_MEMOS[name].misses += 1
         if storable:
             for fact_name, value in computed.items():
-                _FACT_MEMOS[fact_name].put(content, value)
+                memo = _FACT_MEMOS[fact_name]
+                if memo.put(content, value):
+                    first_evictions.append((fact_name, memo.max_chars))
+    for fact_name, max_chars in first_evictions:
+        _LOGGER.warning(
+            "scan memo %s is full (%d characters) and evicts entries; a scan "
+            "larger than this budget gets no memo hits and parses every "
+            "module again",
+            fact_name,
+            max_chars,
+        )
     if name not in computed:
         raise TextFactsUnavailable(name)
     return computed[name]
@@ -253,6 +298,7 @@ def scan_memo_stats() -> dict[str, dict[str, int]]:
             name: {
                 "entries": len(memo.entries),
                 "chars": memo.chars,
+                "evictions": memo.evictions,
                 "hits": memo.hits,
                 "misses": memo.misses,
             }
@@ -269,3 +315,4 @@ def clear_scan_memos() -> None:
             memo.chars = 0
             memo.hits = 0
             memo.misses = 0
+            memo.evictions = 0
