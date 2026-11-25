@@ -1,0 +1,1 @@
+Tell the encoder to name range and threshold bounds (both ends of a `9-17` row, the age in "60 or older") as parameters compared with the source operator, not to treat a number inside an input name as naming the value, and not to declare parameters for label numbers. Encoder prompt version 7.

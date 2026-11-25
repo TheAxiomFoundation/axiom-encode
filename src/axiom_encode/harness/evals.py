@@ -14276,6 +14276,14 @@ RuleSpec requirements:
 - Do not invent `dtype: String` variables just to restate the effective date.
 - Do not decompose legal dates into numeric `year`, `month`, or `day` scalar variables.
 - Do not create public outputs for structural table row labels, household-size row indexes, or branch numbers. When those labels are source-stated numeric bounds or grid cells, keep them as private named numeric concepts or indexed table/grid values; consuming formulas should reference names rather than embedding the policy literal.
+- Name every number that the source states as a range or threshold bound: both
+  ends of a row label such as `9-17`, the age in "60 or older", the count in
+  "9 or more". Declare it as a `kind: parameter` with its own proof atom and
+  compare with the operator of the source wording (`>= 9`, not `> 8`).
+- An input named like `*_aged_60_or_older` does not name 60: compute the test
+  from the basic fact (age) and a named threshold, or keep the input and also
+  declare and cite the threshold that defines it. Never declare a parameter
+  for a non-rule number such as a "48 States" label or a page number.
 - If a source-stated scalar is needed to compute another local scalar, reference
   the named scalar concept instead of repeating its literal value in a formula.
   For example, if the source states a five-year period and a one-fifth fraction,

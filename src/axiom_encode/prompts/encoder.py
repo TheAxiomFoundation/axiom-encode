@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 6
+__version__ = 7
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -1450,6 +1450,14 @@ _NUMERIC_GROUNDING = """- If the source states a substitution, higher amount, in
   band selector predicate. Consumers should reference the named concept or an
   indexed table/grid value; only structural keys, sentinels, and algebraic
   identities should remain as formula literals.
+- Name every number that the source states as a range or threshold bound: both
+  ends of a row label such as `9-17`, the age in "60 or older", the count in
+  "9 or more". Declare it as a `kind: parameter` with its own proof atom and
+  compare with the operator of the source wording (`>= 9`, not `> 8`).
+- An input named like `*_aged_60_or_older` does not name 60: compute the test
+  from the basic fact (age) and a named threshold, or keep the input and also
+  declare and cite the threshold that defines it. Never declare a parameter
+  for a non-rule number such as a "48 States" label or a page number.
 - If the same numeric value appears in separate numbered exceptions,
   subparagraphs, or otherwise materially different legal roles, give those roles
   distinct named scalars; reuse a named scalar only for the same legal role.
