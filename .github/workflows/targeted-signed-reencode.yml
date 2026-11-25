@@ -139,9 +139,11 @@ jobs:
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # The encode job reads the head-only decision and the selected encoder
-    # commit from here, never from vars itself: an environment-level variable
-    # on production-signing must not change the decision after this job.
+    # The encode job takes the head-only decision from here; its own read of
+    # the variable can only add head-only, so an environment-level variable
+    # on production-signing cannot open what this job closed. The encoder
+    # commit below is only a candidate there: the encode job proves it with
+    # the candidate's own selector, and the provisioner proves it again.
     outputs:
       head_only: ${{ steps.encoder_head.outputs.head_only }}
       encoder_commit: ${{ steps.encoder_head.outputs.encoder_commit }}
@@ -336,6 +338,15 @@ jobs:
       # with it: "Re-run failed jobs" keeps the budget job's outputs from the
       # first attempt, so a switch set after that attempt must still apply.
       # A re-run (run_attempt > 1) always signs from the head only.
+      #
+      # The budget job computed its commit with the head's selector, which is
+      # unversioned code when the head waits for its bump. Here that commit is
+      # only a candidate: it must be one of the 6 newest first-parent commits
+      # of the head (version_provenance.SIGNING_MAX_BEHIND + 1; a test keeps
+      # the numbers equal), and the selector that decides is the candidate's
+      # own stored version_provenance.py, read with cat-file to a file outside
+      # the checkout. So when the run signs from an older commit, no encoder
+      # source of the unversioned head executes in this job.
       - name: Select the versioned encoder commit
         env:
           HEAD_ONLY: ${{ inputs.queue_id != '' || needs.attempt_budget.outputs.head_only != 'false' }}
@@ -359,23 +370,43 @@ jobs:
             head_only+=(--head-only)
             echo "Head-only: $reason"
           fi
-          if ! encoder_commit="$(python3 -I axiom-encode/src/axiom_encode/version_provenance.py \
+          refuse() {
+            echo "$1" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:select-the-versioned-encoder-commit "$1" || true
+            exit 1
+          }
+          candidate="$GITHUB_SHA"
+          if [ -z "$reason" ] && [ -n "$BUDGET_ENCODER_COMMIT" ]; then
+            candidate="$BUDGET_ENCODER_COMMIT"
+          fi
+          if [[ ! "$candidate" =~ ^[0-9a-f]{40}$ ]]; then
+            refuse "the candidate encoder commit is not a full lowercase commit SHA"
+          fi
+          newest="$(git -C axiom-encode rev-list --first-parent --max-count=6 "$GITHUB_SHA")"
+          if ! grep -Fxq "$candidate" <<< "$newest"; then
+            refuse "the candidate encoder commit is not one of the 6 newest first-parent commits of the dispatched head"
+          fi
+          selector="$RUNNER_TEMP/signing-selector-$candidate.py"
+          rm -f "$selector"
+          if ! git -C axiom-encode cat-file blob \
+            "$candidate:src/axiom_encode/version_provenance.py" > "$selector"; then
+            refuse "the candidate encoder commit carries no version_provenance.py"
+          fi
+          if ! encoder_commit="$(python3 -I "$selector" \
             signing-commit --repo axiom-encode --ref "$GITHUB_SHA" \
             ${head_only[@]+"${head_only[@]}"})"; then
-            echo "no versioned encoder commit can sign this run (${reason:-newest versioned commit refused})" >&2
-            python axiom-encode/scripts/infra_issue.py record infra:select-the-versioned-encoder-commit "no versioned encoder commit can sign this run (${reason:-newest versioned commit refused})" || true
-            exit 1
+            refuse "no versioned encoder commit can sign this run (${reason:-newest versioned commit refused})"
           fi
+          rm -f "$selector"
           if [[ ! "$encoder_commit" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "selected encoder commit is not a full lowercase commit SHA" >&2
-            python axiom-encode/scripts/infra_issue.py record infra:select-the-versioned-encoder-commit "selected encoder commit is not a full lowercase commit SHA" || true
-            exit 1
+            refuse "selected encoder commit is not a full lowercase commit SHA"
           fi
           if [ -n "$BUDGET_ENCODER_COMMIT" ] && [ "$BUDGET_ENCODER_COMMIT" != "$encoder_commit" ]; then
             echo "Budget job encoder commit: $BUDGET_ENCODER_COMMIT; this job: $encoder_commit"
-            echo "the attempt-budget job selected another encoder commit" >&2
-            python axiom-encode/scripts/infra_issue.py record infra:select-the-versioned-encoder-commit "the attempt-budget job selected another encoder commit" || true
-            exit 1
+            refuse "the attempt-budget job selected another encoder commit"
+          fi
+          if [ "$encoder_commit" != "$candidate" ]; then
+            refuse "the candidate encoder commit's own selector selects another commit"
           fi
           git -C axiom-encode merge-base --is-ancestor "$encoder_commit" "$GITHUB_SHA"
           git -C axiom-encode -c advice.detachedHead=false checkout --quiet --detach "$encoder_commit"

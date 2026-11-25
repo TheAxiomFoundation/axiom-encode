@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from axiom_encode import version_provenance
+
 WORKFLOWS = Path(__file__).parents[1] / ".github/workflows"
 CHECK = "version_provenance.py"
 REFUSE = "Refuse an encoder head that no version bump covers"
@@ -104,6 +106,23 @@ def test_the_encode_job_selects_its_encoder_before_any_encoder_code_runs():
     # Selected from the dispatched head, then checked out detached and clean.
     assert 'test "$(git -C axiom-encode rev-parse HEAD)" = "$GITHUB_SHA"' in run
     assert 'signing-commit --repo axiom-encode --ref "$GITHUB_SHA"' in run
+    # The selector that decides is the candidate commit's own stored copy,
+    # never a file of the checkout (the head's, possibly unversioned, code).
+    assert (
+        "git -C axiom-encode cat-file blob \\\n"
+        '  "$candidate:src/axiom_encode/version_provenance.py" > "$selector"' in run
+    )
+    assert 'python3 -I "$selector"' in run
+    assert "python3 -I axiom-encode/" not in run
+    assert 'selector="$RUNNER_TEMP/' in run
+    assert (
+        f"rev-list --first-parent --max-count={version_provenance.SIGNING_MAX_BEHIND + 1} "
+        '"$GITHUB_SHA"' in run
+    )
+    assert (
+        f"one of the {version_provenance.SIGNING_MAX_BEHIND + 1} newest first-parent"
+        in run
+    )
     assert (
         'git -C axiom-encode merge-base --is-ancestor "$encoder_commit" "$GITHUB_SHA"'
         in run
@@ -178,13 +197,15 @@ def _step_run(job: str, name: str) -> str:
 
 
 def _fake_tools(bin_dir: Path, encoder_commit: str) -> Path:
-    """python3 records its arguments and prints the selected commit, or, with
+    """python3 records its arguments and the content of the selector file it
+    is given (``-I <file> ...``), and prints the selected commit, or, with
     --head-only, refuses as the selector does at an unversioned head; python
     (the infra issue recorder) does nothing."""
     bin_dir.mkdir()
     log = bin_dir / "python3.log"
     (bin_dir / "python3").write_text(
         f'#!/bin/sh\necho "$@" >> "{log}"\n'
+        f'if [ -f "$2" ]; then cat "$2" >> "{log}"; fi\n'
         'case "$*" in *--head-only*) echo "signs only from the dispatched head" >&2; '
         "exit 1;; esac\n"
         f"echo {encoder_commit}\n"
@@ -248,8 +269,11 @@ def _encoder_checkout(root: Path) -> tuple[str, str]:
     ):
         subprocess.run(["git", "-C", str(repo), *args], check=True)
     commits = []
+    selector = repo / "src/axiom_encode/version_provenance.py"
+    selector.parent.mkdir(parents=True)
     for marker in ("versioned", "head"):
         (repo / "file.txt").write_text(marker + "\n")
+        selector.write_text(f"# selector of the {marker} commit\n")
         subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
         subprocess.run(["git", "-C", str(repo), "commit", "-qm", marker], check=True)
         commits.append(
@@ -271,8 +295,30 @@ def _run_select(
     ignored: bool = False,
     setting: str = "",
     attempt: str = "1",
+    selected: str = "OLDER",
+    extra_commits: int = 0,
 ):
     older, head = _encoder_checkout(tmp_path)
+    for number in range(extra_commits):
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(tmp_path / "axiom-encode"),
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                f"later {number}",
+            ],
+            check=True,
+        )
+        head = subprocess.run(
+            ["git", "-C", str(tmp_path / "axiom-encode"), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
     if ignored:
         (tmp_path / "axiom-encode/.gitignore").write_text("leftover\n")
         subprocess.run(
@@ -291,8 +337,11 @@ def _run_select(
         ).stdout.strip()
         (tmp_path / "axiom-encode/leftover").write_text("x\n")
         older = head
-    log = _fake_tools(tmp_path / "bin", older)
+    log = _fake_tools(
+        tmp_path / "bin", selected.replace("OLDER", older).replace("HEAD", head)
+    )
     env_file = tmp_path / "github-env"
+    (tmp_path / "runner-temp").mkdir()
     completed = subprocess.run(
         ["bash", "-c", _step_run("encode", SELECT)],
         cwd=tmp_path,
@@ -300,7 +349,10 @@ def _run_select(
             "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}",
             "HEAD_ONLY": head_only,
             "HEAD_ONLY_SETTING": setting,
-            "BUDGET_ENCODER_COMMIT": budget.replace("OLDER", older),
+            "BUDGET_ENCODER_COMMIT": budget.replace("OLDER", older).replace(
+                "HEAD", head
+            ),
+            "RUNNER_TEMP": str(tmp_path / "runner-temp"),
             "GITHUB_ENV": str(env_file),
             "GITHUB_RUN_ATTEMPT": attempt,
             "GITHUB_SHA": head,
@@ -326,6 +378,81 @@ def test_the_selection_step_checks_out_the_older_commit(tmp_path: Path):
     ).stdout.strip()
     assert checked_out == older != head
     assert "::notice::Signing from versioned encoder commit" in completed.stdout
+    # The selector that ran is the older commit's stored copy, and it is gone.
+    assert "# selector of the versioned commit" in log.read_text()
+    assert "# selector of the head commit" not in log.read_text()
+    assert list((tmp_path / "runner-temp").iterdir()) == []
+
+
+def test_a_head_only_run_uses_the_heads_own_selector(tmp_path: Path):
+    # Head-only ignores the budget job's candidate: only the head may sign,
+    # and the head's selector decides whether it is versioned.
+    completed, _, _, log, env_file = _run_select(
+        tmp_path, head_only="true", budget="OLDER"
+    )
+    assert completed.returncode != 0 and not env_file.exists()
+    assert "# selector of the head commit" in log.read_text()
+    assert "# selector of the versioned commit" not in log.read_text()
+
+
+def test_the_selection_step_refuses_a_candidate_whose_selector_disagrees(
+    tmp_path: Path,
+):
+    # The budget job (the head's code) names the older commit, but that
+    # commit's own selector selects the head: the run refuses.
+    completed, _, _, _, env_file = _run_select(
+        tmp_path, head_only="false", budget="OLDER", selected="HEAD"
+    )
+    assert completed.returncode != 0 and not env_file.exists()
+    assert "the attempt-budget job selected another encoder commit" in completed.stderr
+
+
+def test_the_selection_step_refuses_an_older_commit_without_a_budget_candidate(
+    tmp_path: Path,
+):
+    # No candidate from the budget job: the head's selector may select only
+    # the head itself.
+    completed, _, _, log, env_file = _run_select(
+        tmp_path, head_only="false", budget="", selected="OLDER"
+    )
+    assert completed.returncode != 0 and not env_file.exists()
+    assert "own selector selects another commit" in completed.stderr
+    assert "# selector of the head commit" in log.read_text()
+
+
+def test_the_selection_step_refuses_a_candidate_beyond_the_lag_bound(tmp_path: Path):
+    # The candidate is an ancestor on the first-parent chain, but 6 commits
+    # below the head: its code is never run.
+    completed, _, _, log, env_file = _run_select(
+        tmp_path,
+        head_only="false",
+        budget="OLDER",
+        extra_commits=version_provenance.SIGNING_MAX_BEHIND,
+    )
+    assert completed.returncode != 0 and not env_file.exists()
+    assert "newest first-parent commits" in completed.stderr
+    assert not log.exists()
+
+
+def test_the_selection_step_accepts_a_candidate_at_the_lag_bound(tmp_path: Path):
+    completed, older, _, _, env_file = _run_select(
+        tmp_path,
+        head_only="false",
+        budget="OLDER",
+        extra_commits=version_provenance.SIGNING_MAX_BEHIND - 1,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert env_file.read_text() == f"AXIOM_ENCODER_COMMIT={older}\n"
+
+
+@pytest.mark.parametrize("budget", ["HEAD~1", "main", "--help", "D" * 40])
+def test_the_selection_step_refuses_a_malformed_candidate(tmp_path: Path, budget):
+    completed, _, _, log, env_file = _run_select(
+        tmp_path, head_only="false", budget=budget.replace("HEAD~1", "@~1")
+    )
+    assert completed.returncode != 0 and not env_file.exists()
+    assert "not a full lowercase commit SHA" in completed.stderr
+    assert not log.exists()
 
 
 @pytest.mark.parametrize("head_only", ["true", "", "False", "anything"])
@@ -379,7 +506,7 @@ def test_the_selection_step_refuses_a_commit_the_budget_job_did_not_pick(
         tmp_path, head_only="false", budget="d" * 40
     )
     assert completed.returncode != 0
-    assert "the attempt-budget job selected" in completed.stderr
+    assert "newest first-parent commits" in completed.stderr
     assert not env_file.exists()
 
 

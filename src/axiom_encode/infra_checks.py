@@ -227,7 +227,8 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "The dispatched head has every encoder change at or before the latest "
         "automatic version bump, or the newest versioned main commit is at "
         "most 5 merges and 4 hours behind it, every commit between is a merge, "
-        "and only versioned source, tests, docs and changelog files differ. "
+        "and only versioned source outside the signing lane, tests, docs and "
+        "changelog files differ. "
         "`AXIOM_SIGNING_HEAD_ONLY` set to anything but `false` needs the head "
         "itself.",
         "The encoder version is assigned after merge. A run signs from the "
@@ -239,9 +240,10 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
     (
         "Select the versioned encoder commit",
         "No versioned encoder commit can sign this run",
-        "The attempt-budget job's rule holds here too and selects the same "
-        "commit. A queue run, a re-run, or `AXIOM_SIGNING_HEAD_ONLY` set to "
-        "anything but `false`, needs the dispatched head itself.",
+        "The attempt-budget job's commit is one of the 6 newest first-parent "
+        "commits of the head, and that commit's own selector selects it. A "
+        "queue run, a re-run, or `AXIOM_SIGNING_HEAD_ONLY` set to anything "
+        "but `false`, needs the dispatched head itself.",
         "The encoder version is assigned after merge. The run executes the "
         "newest versioned main commit, so every signed manifest names one "
         "versioned encoder state.",

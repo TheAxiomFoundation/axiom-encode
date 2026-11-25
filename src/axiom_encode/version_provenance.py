@@ -66,6 +66,24 @@ SIGNING_MAX_AGE_SECONDS = 4 * 3600
 # non-versioned code or data, so signing waits for the bump, as before.
 SIGNING_INERT_PREFIXES = ("tests/", "docs/", "changelog.d/")
 SIGNING_INERT_FILES = frozenset({"CHANGELOG.md", "README.md", "PROGRESS.md"})
+# Versioned paths that must nevertheless be equal at C and H: the code that
+# decides whether a run may sign, which commit it signs from, and that holds
+# or checks the signing trust. A run of C executes C's copy, so a pending
+# change here is never used before its bump; but a pending change here may be
+# a fix to the lane itself, and then C's copy must not keep signing either.
+# Signing waits for the bump, as before. Other encoder source (``cli.py``
+# included) is not listed: it changes in a third of all merges, and a fix
+# there is forced with ``AXIOM_SIGNING_HEAD_ONLY``.
+SIGNING_LANE_PREFIXES = ("src/axiom_encode/notary/",)
+SIGNING_LANE_FILES = frozenset(
+    {
+        "src/axiom_encode/version_provenance.py",
+        "src/axiom_encode/reviewed_pr_admission.py",
+        "src/axiom_encode/prepare_signed_backfill.py",
+        "src/axiom_encode/signing_broker.py",
+        "src/axiom_encode/_trusted_signing_bootstrap.py",
+    }
+)
 _PR_MERGE = re.compile(r"^Merge pull request #(\d+) from \S+?/(\S+)$")
 
 
@@ -328,7 +346,10 @@ def signing_commit(
     - H differs from C only in versioned paths and in
       ``SIGNING_INERT_PREFIXES`` / ``SIGNING_INERT_FILES``, so every
       non-versioned file the run reads (scripts, Go sources, data, workflows)
-      is H's own; in particular ``workflow`` is byte for byte H's.
+      is H's own; in particular ``workflow`` is byte for byte H's;
+    - no signing-lane path (``SIGNING_LANE_PREFIXES`` / ``SIGNING_LANE_FILES``)
+      differs between C and H: a pending change to the lane waits for its
+      bump, and until then nothing signs.
 
     Only the newest versioned commit is ever a candidate; when it fails one of
     the conditions the run refuses, as it did before. A commit whose version
@@ -393,6 +414,11 @@ def is_signing_inert_path(path: str) -> bool:
     return path in SIGNING_INERT_FILES or path.startswith(SIGNING_INERT_PREFIXES)
 
 
+def is_signing_lane_path(path: str) -> bool:
+    """A versioned path whose pending change closes signing until its bump."""
+    return path in SIGNING_LANE_FILES or path.startswith(SIGNING_LANE_PREFIXES)
+
+
 def _signing_lag_refusal(
     repo: Path,
     commit: str,
@@ -442,6 +468,11 @@ def _signing_lag_refusal(
         shown = ", ".join(outside[:8])
         more = f", and {len(outside) - 8} more" if len(outside) > 8 else ""
         return f"non-versioned files changed after it: {shown}{more}"
+    lane = sorted(path for path in changed if path and is_signing_lane_path(path))
+    if lane:
+        shown = ", ".join(lane[:8])
+        more = f", and {len(lane) - 8} more" if len(lane) > 8 else ""
+        return f"signing-lane files changed after it: {shown}{more}"
     if _blob(repo, commit, workflow) != _blob(repo, head, workflow):
         return f"{workflow} differs"
     return None

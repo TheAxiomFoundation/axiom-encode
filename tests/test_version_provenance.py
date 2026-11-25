@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -919,7 +920,88 @@ def test_signing_constants_match_the_provisioner():
         == version_provenance.SIGNING_INERT_FILES
         == {"CHANGELOG.md", "README.md", "PROGRESS.md"}
     )
+    assert (
+        provisioner._SIGNING_LANE_PREFIXES
+        == version_provenance.SIGNING_LANE_PREFIXES
+        == ("src/axiom_encode/notary/",)
+    )
+    assert (
+        provisioner._SIGNING_LANE_FILES
+        == version_provenance.SIGNING_LANE_FILES
+        == {
+            "src/axiom_encode/version_provenance.py",
+            "src/axiom_encode/reviewed_pr_admission.py",
+            "src/axiom_encode/prepare_signed_backfill.py",
+            "src/axiom_encode/signing_broker.py",
+            "src/axiom_encode/_trusted_signing_bootstrap.py",
+        }
+    )
+    # Every lane path is a versioned path that exists in this repository.
+    for path in version_provenance.SIGNING_LANE_FILES:
+        assert version_provenance.is_versioned_path(path)
+        assert (ROOT / path).is_file(), path
+    for prefix in version_provenance.SIGNING_LANE_PREFIXES:
+        assert version_provenance.is_versioned_path(prefix + "x.py")
+        assert (ROOT / prefix).is_dir(), prefix
     assert (ROOT / version_provenance.SIGNING_WORKFLOW).is_file()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/axiom_encode/version_provenance.py",
+        "src/axiom_encode/reviewed_pr_admission.py",
+        "src/axiom_encode/prepare_signed_backfill.py",
+        "src/axiom_encode/signing_broker.py",
+        "src/axiom_encode/_trusted_signing_bootstrap.py",
+        "src/axiom_encode/notary/signer.py",
+        "src/axiom_encode/notary/new_module.py",
+    ],
+)
+def test_a_pending_signing_lane_change_waits_for_the_bump(
+    repo: Path, tmp_path: Path, path: str
+):
+    # The run would execute the older commit's copy of the lane. A pending
+    # change there may be a fix to the lane, so nothing signs until its bump.
+    bump = _signing_repo(repo)
+    head = _merge(repo, "lane", _write(repo, path, "CHANGED = 1\n"))
+    assert version_provenance.unversioned_changes(repo, head) == [path]
+
+    with pytest.raises(ValueError, match="signing-lane files changed after it"):
+        version_provenance.signing_commit(repo, head)
+    assert not _provisioner_accepts(repo, tmp_path / "home", head, bump)
+    # A later merge of other encoder source does not reopen signing.
+    later = _encoder_merge(repo, "encoder")
+    with pytest.raises(ValueError, match=re.escape(path)):
+        version_provenance.signing_commit(repo, later)
+    assert not _provisioner_accepts(repo, tmp_path / "home2", later, bump)
+
+
+def test_a_deleted_signing_lane_file_waits_for_the_bump(repo: Path, tmp_path: Path):
+    lane = "src/axiom_encode/notary/signer.py"
+    _write(repo, lane, "SIGNER = 1\n")()
+    _commit(repo, "a lane module")
+    bump = _signing_repo(repo)
+    head = _merge(repo, "drop-lane", lambda: (repo / lane).unlink())
+
+    with pytest.raises(ValueError, match="signing-lane files changed after it"):
+        version_provenance.signing_commit(repo, head)
+    assert not _provisioner_accepts(repo, tmp_path / "home", head, bump)
+
+
+def test_the_bump_of_a_signing_lane_change_reopens_signing(repo: Path, tmp_path: Path):
+    _signing_repo(repo)
+    _merge(
+        repo,
+        "lane",
+        _write(repo, "src/axiom_encode/reviewed_pr_admission.py", "FIXED = 1\n"),
+    )
+    bump = _merge(repo, "bump-2", lambda: _write_version(repo, "0.2.12"))
+    assert version_provenance.signing_commit(repo, bump) == bump
+    head = _encoder_merge(repo, "encoder")
+
+    assert version_provenance.signing_commit(repo, head) == bump
+    assert _provisioner_accepts(repo, tmp_path / "home", head, bump)
 
 
 def test_a_versioned_head_signs_from_itself(repo: Path, tmp_path: Path):
@@ -1261,3 +1343,26 @@ def test_a_merge_dated_in_the_future_refuses(repo: Path, tmp_path: Path):
     with pytest.raises(ValueError, match="dated in the future"):
         version_provenance.signing_commit(repo, head, now=opened - 1)
     assert not _provisioner_accepts(repo, tmp_path / "home2", head, bump, opened - 1)
+
+
+def test_a_git_failure_never_makes_a_newer_commit_look_unversioned(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    # If the provisioner cannot read the head, it cannot know that the head is
+    # unversioned, so the older commit must not sign: the failure is a refusal.
+    bump = _signing_repo(repo)
+    head = _encoder_merge(repo, "encoder")
+    assert _provisioner_accepts(repo, tmp_path / "home", head, bump)
+    real = provisioner._require_snapshot_version_bump
+
+    def unreadable_head(trusted_git, git_dir, home, commit):
+        if commit == head:
+            raise provisioner._HardenedGitFailure("refusing to provision: hardened git")
+        return real(trusted_git, git_dir, home, commit)
+
+    monkeypatch.setattr(provisioner, "_require_snapshot_version_bump", unreadable_head)
+    (tmp_path / "home2").mkdir()
+    with pytest.raises(provisioner._HardenedGitFailure):
+        provisioner._require_newest_versioned_commit(
+            Path(shutil.which("git")), repo / ".git", tmp_path / "home2", head, bump
+        )

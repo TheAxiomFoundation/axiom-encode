@@ -1225,6 +1225,18 @@ _SIGNING_MAX_BEHIND = 5
 _SIGNING_MAX_AGE_SECONDS = 4 * 3600
 _SIGNING_INERT_PREFIXES = ("tests/", "docs/", "changelog.d/")
 _SIGNING_INERT_FILES = frozenset({"CHANGELOG.md", "README.md", "PROGRESS.md"})
+# Versioned paths that must be equal at the encoder and workflow commits: a
+# pending change to the signing lane itself closes signing until its bump.
+_SIGNING_LANE_PREFIXES = ("src/axiom_encode/notary/",)
+_SIGNING_LANE_FILES = frozenset(
+    {
+        "src/axiom_encode/version_provenance.py",
+        "src/axiom_encode/reviewed_pr_admission.py",
+        "src/axiom_encode/prepare_signed_backfill.py",
+        "src/axiom_encode/signing_broker.py",
+        "src/axiom_encode/_trusted_signing_bootstrap.py",
+    }
+)
 _GITHUB_REMOTE_PATTERNS = (
     r"https://github\.com/(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$",
     r"git@github\.com:(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?$",
@@ -1302,6 +1314,10 @@ def _hardened_git_environment(home: Path) -> dict[str, str]:
     }
 
 
+class _HardenedGitFailure(SystemExit):
+    """A hardened git query failed: a refusal, never an answer to a question."""
+
+
 def _hardened_git(
     trusted_git: Path,
     git_dir: Path,
@@ -1338,7 +1354,7 @@ def _hardened_git(
             if isinstance(stderr, bytes)
             else str(exc)
         )
-        raise SystemExit(
+        raise _HardenedGitFailure(
             f"refusing to provision: hardened git {' '.join(args)} failed: "
             f"{detail or exc}"
         ) from exc
@@ -1560,10 +1576,16 @@ def _snapshot_is_versioned(
     trusted_git: Path, git_dir: Path, home: Path, commit: str
 ) -> bool:
     """Whether ``commit`` declares one consistent version and passes the
-    version-bump rule (version_provenance.unversioned_changes is empty)."""
+    version-bump rule (version_provenance.unversioned_changes is empty).
+
+    A git query that fails is not an answer: it must not make a newer commit
+    look unversioned, which would let an older one sign. It propagates.
+    """
     try:
         _snapshot_declared_version(trusted_git, git_dir, home, commit)
         _require_snapshot_version_bump(trusted_git, git_dir, home, commit)
+    except _HardenedGitFailure:
+        raise
     except SystemExit:
         return False
     return True
@@ -1587,7 +1609,7 @@ def _require_newest_versioned_commit(
     it are two-parent merges; the oldest merge after C is at most
     ``_SIGNING_MAX_AGE_SECONDS`` old; and H differs from C only in versioned
     paths and inert paths, so every script, Go source, data file and workflow
-    that the run reads is H's own.
+    that the run reads is H's own; and no signing-lane path differs.
     """
 
     if re.fullmatch(r"[0-9a-f]{40}", workflow_commit) is None:
@@ -1683,6 +1705,19 @@ def _require_newest_versioned_commit(
             "refusing to provision: non-versioned files changed between the "
             f"encoder commit {encoder_commit[:12]} and the workflow commit "
             f"{workflow_commit[:12]}: {', '.join(outside[:8])}"
+        )
+
+    lane = sorted(
+        path
+        for path in changed.split("\0")
+        if path
+        and (path in _SIGNING_LANE_FILES or path.startswith(_SIGNING_LANE_PREFIXES))
+    )
+    if lane:
+        raise SystemExit(
+            "refusing to provision: signing-lane files changed between the "
+            f"encoder commit {encoder_commit[:12]} and the workflow commit "
+            f"{workflow_commit[:12]}: {', '.join(lane[:8])}"
         )
 
     def workflow_blob(commit: str) -> str:
