@@ -186,7 +186,9 @@ What this lane does not enforce, before or after the change: the model
 reviewer and the oracle comparison. Promotion validates with reviewers skipped
 and oracles off, and RuleSpec CI validates with `--skip-reviewers`. A reviewer
 verdict or an oracle result exists only if the local encode that produced the
-candidate ran them, and the lane does not check that it did.
+candidate ran them, and the lane does not check that it did. A dispatch can
+require a published, hash-bound review record for each unit; see "Review
+record" for that switch and its limits.
 
 ### What the remaining controls do not prove
 
@@ -526,7 +528,9 @@ an import that the resolver refuses as unsafe each stop the batch.
   provisioner) and revalidates three times:
   `2 x (11 + 2k) + 3 x 4 = 34 + 4k <= 60`, so `k <= 6` (58 reads). A
   single-unit run costs 38. Ten units need 74 reads: that needs fewer or
-  authenticated reads first, in a reviewed change.
+  authenticated reads first, in a reviewed change. A run that requires
+  review records ("Review record") reads once more: `35 + 4k`, 59 for 6
+  units.
 - The budget is per address and per hour. A second dispatch from the same
   address in the same hour can exhaust it; the run then fails closed.
 - The selector file is at most 4096 bytes (the root provisioner's bound). A
@@ -634,8 +638,207 @@ switch goes on; items 3 to 5 are open while the canary runs.
 ### What is not built
 
 - Nothing dispatches a batch automatically, nothing merges it, and there is no
-  evidence gate (reviewer verdict, oracle result) in this lane.
+  evidence gate for an oracle result in this lane. For the reviewer verdict a
+  dispatch can require a published record per unit ("Review record"); that is
+  a hash-bound record, not proof that a model reviewed.
 - A limit above 6 units (see "Limits").
+
+## Review record
+
+**Switched off unless a dispatch asks for it.** A promotion dispatch whose
+wrapper carries `"require_review_record": true` is signed only when the body of
+the candidate pull request holds, for every unit, one review record with the
+status `passed` that is bound to the exact bytes the run signs. Without the key
+nothing is read, the supervised command is the command it was, and the lane
+pull request and the run artifact are unchanged. The switch is in the dispatch
+input, which the dispatch record keeps. There is no repository variable,
+environment variable or setting for it.
+
+The key is in the wrapper and not a workflow input because the workflow has 25
+dispatch inputs and GitHub refuses a 26th.
+
+```json
+{
+  "schema": "axiom-encode/reviewed-pr-promotion/v1",
+  "rulespec_pr": 2044,
+  "require_review_record": true,
+  "transaction": { "...": "as before" }
+}
+```
+
+The value must be exactly `true`. `false`, a string or a number is refused: a
+dispatch that names the key and means "off" is a mistake, not a default.
+
+### What is reviewed, and where
+
+The generalist reviewer runs on the machine that encoded the candidate, on the
+local subscription. The hosted signing runner has no reviewer CLI and holds no
+model credential; this does not change. `promote-reviewed-candidate
+--require-review` (which runs a reviewer inside the promotion) stays off in the
+hosted workflow.
+
+The encoder runs one model reviewer on a candidate: the generalist reviewer.
+The four named reviewers (RuleSpec, formula, parameter, integration) belong to
+`axiom-encode validate`, not to an encode, so a record lists one reviewer. The
+`reviewers` field is a list, so a record with more reviewers is a later schema
+version, not a different shape.
+
+### The record
+
+`axiom-encode/candidate-review-record/v1`, one per unit:
+
+| Field | Content |
+|---|---|
+| `citation`, `rulespec_path` | The unit |
+| `reviewed.rulespec_sha256`, `reviewed.companion_sha256` | SHA-256 of the module and of the companion as reviewed |
+| `reviewed.commit` | The candidate commit that was reviewed (information; the hashes bind) |
+| `encoder.version`, `encoder.commit` | The encoder that ran the review |
+| `status` | `passed`, `partial`, `failed`, `unavailable` or `skipped` |
+| `reviewers[]` | `name`, `backend`, `model`, `prompt_sha256`, `status`, `score` |
+| `findings[]` | `reviewer`, `severity` (`blocking` or `non_blocking`), `text`, `truncated` |
+| `generalist_review` | The complete `axiom-encode/generalist-review/v2` record (#2229): verdict, digests, coverage of every reviewer call |
+| `run.id`, `run.attempt` | The local run, and which review of this unit this is |
+| `created_at` | UTC time of the review |
+
+The status, the reviewer, the prompt digest and the score are copies of the
+embedded v2 record, and a reader refuses a record in which they differ. The v2
+record already existed; it holds no reviewer prose by design, because it can
+enter a signed manifest. The findings text is new here. This record is never
+placed in a signed manifest.
+
+A finding text is cut at 1,000 characters (`--max-finding-chars`, at most
+4,000) and marked `truncated`. A review with more than 64 findings is refused,
+not shortened.
+
+### Commands
+
+```bash
+# 1. Review the committed candidate unit and write its record (one reviewer call).
+uv run axiom-encode review-record create \
+  --repo ../rulespec-us --citation <citation> --corpus-path ../axiom-corpus \
+  --out records/<unit>.json --run-id local:<encoding_runs id> --attempt 1 \
+  --corpus-release-public-key <key> --apply-public-key <key> --eval-public-key <key>
+
+# 2. Render the block for the candidate pull request body (repeat --record-file per unit).
+uv run axiom-encode review-record render --record-file records/<unit>.json
+
+# 3. Check a body or record files as the signing run does.
+uv run axiom-encode review-record verify \
+  --repo ../rulespec-us --citation <citation> --body-file body.md
+```
+
+`create` reviews the bytes committed at `HEAD` of the checkout and refuses a
+working file that differs from them. It gives the reviewer the source text
+that the promotion gives its reviewer (the body of the cited source unit),
+through the same reviewer code and prompt as `--require-review`. It writes the
+record also when the review does not pass, and exits 1 then. It signs nothing
+and changes no file of the checkout. The three public keys are those of a
+verification-only local encode; without them the reviewer gets the scrubbed
+environment of a protected run, which is not made for a subscription CLI.
+
+`render` writes one block per record. The block starts and ends with a marker
+line, holds a readable part (status, hashes, reviewer, every finding with its
+mark) and ends with one fenced `json` block that carries the record on one
+line. Only the JSON is read back. Finding text is escaped in both parts, so it
+cannot form a marker, a code fence or markup.
+
+The record travels in the pull request **body**. A comment is not read: every
+GitHub account can comment on a public repository, and a second read costs
+anonymous API budget. A body holds 65,536 characters; `render` refuses above
+60,000 and names `--max-finding-chars`.
+
+### What the signing run does
+
+1. **Before the supervisor is provisioned** (step `Read candidate review
+   records`, in the protected `encode` job, so after the environment
+   approval): one anonymous read of the candidate pull request. The response
+   carries the head commit and the body together; the body is used only when
+   the head is the dispatched `rulespec_ref`. The body is read once. Its
+   SHA-256 goes into the run summary. The step refuses the run unless every
+   unit has an admitting record for the files committed at the checked-out
+   head.
+2. **In the supervised command** (`promote-reviewed-candidate
+   --require-review-record <file>`): the command reads the document that step
+   1 wrote, never GitHub. It recomputes the SHA-256 of the module and of the
+   companion from the bytes it read at the reviewed `HEAD`, which are the
+   bytes its manifest signs, and checks the records before validation and
+   again immediately before the first signature.
+3. **After signing**: the lane pull request body gets a `Review record`
+   section (candidate pull request, head, body SHA-256, signing run and
+   attempt, each record in full; status and hashes only when the records do
+   not fit). The run artifact gets `candidate-review-records.json` (what was
+   read), `candidate-review-records.md` and `candidate-pull-request-body.md`.
+
+A unit is admitted when exactly one record names it and that record:
+
+- is well formed, with an embedded v2 record that is valid for the two files;
+- has the unit's citation and module path;
+- has the status `passed`;
+- has `reviewed.rulespec_sha256` and `reviewed.companion_sha256` equal to the
+  bytes to be signed;
+- names an encoder version that is not newer than the signing encoder. (No
+  rule for the encoder version of a candidate exists in this lane; this is the
+  one rule applied to the record.)
+
+Refused, each with its reason: no record, two records for one unit (also equal
+ones), a status that is not `passed`, a changed module, a changed companion,
+another citation, another path, JSON that cannot be read, a damaged or nested
+block, a marker of another version, a body read at another head. In a batch,
+one unit without an admitting record refuses every unit; nothing is signed.
+
+The read costs one anonymous API request. With the key, a run of `k` units
+reads `35 + 4k` times, so 59 for 6 units (see "Limits").
+
+### What the gate guarantees, and what it does not
+
+It guarantees:
+
+1. No unit is signed by such a run without a published review record, bound
+   by hash to the exact module and companion that are signed.
+2. The findings are public before and after the landing: in the candidate
+   pull request, in the lane pull request and in the run artifact.
+3. A file that changed after its review is refused.
+4. A second review is visible: the record carries its attempt number, and the
+   run records its own run attempt and the SHA-256 of the body it read.
+
+It does **not** guarantee:
+
+1. **That a model produced the record.** The record is not signed. The pull
+   request author and every account with write access can write or edit a
+   body, and an enrolled owner, who starts the signing run, can write a record
+   by hand. The same holds for an agent session that has an owner's token.
+2. **That the review is right.** A reviewer passes wrong rules and refuses
+   right ones. `passed` is one model's verdict on one reading.
+3. **That the first review passed.** A refused review can be run again until
+   one passes. The attempt number is written by the machine that reviews; it
+   makes an honest rerun visible and does not stop a dishonest one.
+4. **That later dispatches use the switch.** The key is per dispatch. A
+   dispatch without it signs as before.
+5. **Anything at landing.** The signed manifest does not carry the record.
+   RuleSpec CI does not check it.
+
+### Not built
+
+- **Phase 2, the record under the signature (#2319).** The promotion manifest
+  carries the embedded v2 record in the existing `generalist_review` field,
+  and a new `candidate_review_record_sha256` field that binds the published
+  findings, only for a target whose protected base sets `encoder_verifier =
+  "main"` with no hold: the rule that `encode --apply` uses today. The
+  manifest reader refuses a promotion manifest without a `passed` record
+  whose file digests equal `applied_files`, behind a `[workflow_toolchain]`
+  setting of the target. A pinned (older) verifier never sees the field,
+  because it is not written for a pinned target. The signature then states
+  that the signing run verified a passed review record for exactly these
+  bytes. It still does not state that a model produced the record.
+- **Phase 3, a record signed where the review ran.** The local trusted
+  supervisor signs the record with a key that the unprivileged user and the
+  encoder child cannot read, and the signing run verifies it against an
+  enrolled public key. That is evidence that a provisioned supervisor ran the
+  reviewer. A model credential in CI would give the same and was declined.
+- **The operations page.** `encodings.encoding_runs.outcome` (JSONB) is the
+  field for the record, under the key `candidate_review_record`; the page can
+  then show status, score and findings for each unit. Nothing writes it yet.
+- A counter of reviews per unit that the reviewing machine cannot reset.
 
 ## Rollout
 
