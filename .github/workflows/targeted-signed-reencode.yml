@@ -5447,8 +5447,21 @@ jobs:
         if: ${{ inputs.open_pr && steps.retired_source_metadata_request.outputs.enabled != 'true' && steps.reviewed_pr_admission.outputs.enabled == 'true' }}
         run: |
           set -euo pipefail
+          # The file exists only while the encoder's base-advance switch is
+          # on: it is the head of RuleSpec main that this last check proved.
+          main_proof="$RUNNER_TEMP/reviewed-pr-main-proof.json"
+          rm -f "$main_proof"
           python axiom-encode/scripts/prepare_reviewed_pr_promotion.py verify-publication \
-            --attestation /opt/axiom-verification/python/runtime-attestation.json
+            --attestation /opt/axiom-verification/python/runtime-attestation.json \
+            --main-proof "$main_proof"
+          if test -s "$main_proof"; then
+            jq -r '"Reviewed PR promotion: candidate base `" + .base_sha
+              + "`, proven main head `" + .main_sha + "` ("
+              + (.first_parent_commits | tostring) + " first-parent commits, "
+              + (.plumbing_paths | tostring) + " plumbing paths, "
+              + (.added_paths | tostring) + " added paths, delta SHA-256 `"
+              + .delta_sha256 + "`)"' "$main_proof" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Verify reviewed lane pull request base
         id: verify_reviewed_lane_pull_request_base
@@ -5614,6 +5627,16 @@ jobs:
               title="Add signed encoding manifests for ${PROMOTION_UNIT_COUNT} units (${CITATION} and others)"
             fi
             body="$(printf '%s\n' "$body" '' "Units (${PROMOTION_UNIT_COUNT}): \`${PROMOTION_UNITS}\`")"
+          fi
+          main_proof="$RUNNER_TEMP/reviewed-pr-main-proof.json"
+          if test -s "$main_proof"; then
+            # Base-advance switch on: the head of main proven before publication.
+            body="$(printf '%s\n' "$body" '' "$(jq -r \
+              '"Proven main head: `" + .main_sha + "` (candidate base `" + .base_sha
+               + "`, " + (.first_parent_commits | tostring) + " first-parent commits, "
+               + (.plumbing_paths | tostring) + " plumbing paths, "
+               + (.added_paths | tostring) + " added paths, delta SHA-256 `"
+               + .delta_sha256 + "`)"' "$main_proof")")"
           fi
           gh auth setup-git
           git -C "$RULESPEC_CHECKOUT" -c core.hooksPath=/dev/null push \

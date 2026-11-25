@@ -298,6 +298,8 @@ refused before the approval. All remaining generation,
 repair, import, legacy and queue inputs must be empty. Production-signing approval
 still applies. A moved candidate or main base requires a new dispatch on the new
 head; an API error requires investigating the API state, not disabling the checks.
+"A candidate on an older main base" describes a switched-off rule for a base
+that `main` has passed.
 
 The signed RuleSpec PR still requires green exact-head CI before merge. This
 feature does not automatically merge it.
@@ -636,6 +638,204 @@ switch goes on; items 3 to 5 are open while the canary runs.
 - Nothing dispatches a batch automatically, nothing merges it, and there is no
   evidence gate (reviewer verdict, oracle result) in this lane.
 - A limit above 6 units (see "Limits").
+
+## A candidate on an older main base
+
+**Switched off.** `BASE_ADVANCE_ADMISSION_ENABLED` in
+`src/axiom_encode/reviewed_pr_admission.py` is `False`. While it is not exactly
+`True`, the base of the candidate pull request must be the current head of
+RuleSpec `main` at admission and at every revalidation, and every read, record
+and error of this lane is the same as before the switch existed. The switch is
+a constant on encoder main, read at call time. There is no environment
+variable, CLI flag, dispatch input or repository setting, and a change to it
+needs a code-owner review.
+
+Why: every merge to RuleSpec `main` makes every open candidate stale, and a
+signing run in flight fails when `main` moves. On 2026-11-25 `main` moved three
+times in one morning through `LICENSE` and `NOTICE` only (two of the three
+commits changed no file), and each move forced a merge of `main` into every
+open candidate.
+
+### What the exact-head rule protects, and when CI checks it
+
+The signing run validates the candidate head: the tree of the base plus the
+units. With the base at the head of `main`, that tree is `main` plus the
+units at the time of the signature.
+
+RuleSpec CI, as `rulespec-us` runs it today: `repository-checks.yml` runs on
+`pull_request`, on `push` to `main`, daily, and on dispatch. It has no
+`merge_group` trigger. It calls the shared `validate-rulespec.yml` at the pin
+`882c5f1`. In that workflow a pull request validates its **changed files
+only** (`mode="changed"`); a push, a scheduled run and every other event
+validate all modules.
+
+| Property | Before landing (pull request run) | Only after landing (push or daily run) |
+|---|---|---|
+| The unit compiles, its imports resolve and its companion tests pass in the merged tree | Yes: the unit's files are changed files, and `main` requires an up-to-date branch | |
+| A check of the unit that reads other modules (an upstream duplicate, a sibling rule name, a child fragment, a shadowed import) | Yes, for the unit, in the merged tree | |
+| The same checks of a module that is **already on `main`**, against the new unit | No: that module is not a changed file | Yes |
+| No module on `main` changed under the unit | By the unit's own validation only; nothing compares hashes | |
+| The unit's paths are new on `main` | Git refuses an add/add conflict; only the admission names the rule | |
+| The candidate changes nothing but its units | Admission only, from the complete tree delta base to head | |
+
+The signed manifest binds the unit's bytes (`applied_files`), the citation and
+source attestation, the encoder and engine identities, and
+`reviewed_rulespec_ref`, the candidate head. It does not bind a commit of
+`main`, and it holds no hash of an imported file.
+`validation_execution.policy_pre_apply.pre_apply_content_sha256` is the digest
+of the whole validated tree; a verifier checks only its form. The manifest's
+field set is closed: a verifier refuses a manifest with one more field, so
+the proven head of `main` cannot be added to it without a new manifest form
+and a move of the verifier pin.
+
+So what the exact-head rule gives is this: **when the signature is made, the
+unit has been validated beside every module that is on `main` at that
+time.** After the signature `main` may move, and then only the pull request
+run stands between a unit and `main`. The relaxation below keeps the
+statement true for every module that a check of the unit can read.
+
+### The rule with the switch on
+
+`main` may be ahead of the candidate's base when all of this is proven from
+live GitHub state, at admission and again at every revalidation after a
+further move:
+
+1. **The base was a head of `main`.** The comparison of the base with the head
+   of `main` is `ahead`, its merge base is the base, and its commit list is
+   complete. Walking first parents from the head of `main` reaches the base in
+   at most `MAX_BASE_ADVANCE_COMMITS` (20) commits. A base that was merged
+   into `main` as a second parent is refused.
+2. **Nothing that existed at the base changed.** From the two complete
+   recursive trees: every path that differs is repository plumbing, or a new
+   regular file. So every other file of the base is the same object at the
+   head of `main` (path, type, mode and object ID). This needs no list of
+   what a validation reads: imports, proof targets, programs, the toolchain
+   and corpus pin, waivers and ledgers are all files of the base. Plumbing is
+   the list of the publication rule (#1892): `.claude/`, `.github/`, `bulk/`,
+   `tests/`, `tools/`, `CLAUDE.md`, `LICENSE`, `LICENSE-CODE`, `NOTICE`,
+   `README.md`.
+3. **A new file is a landing in an unrelated jurisdiction.** It must be at
+   the canonical path of a module or companion
+   (`<jurisdiction>/<legislation|policies|regulations|statutes>/.../name.yaml`,
+   no part that starts with a dot) or of a signed manifest
+   (`.axiom/encoding-manifests/` plus such a path, `.json`), and its
+   jurisdiction root must be unrelated to the root of every unit: not the
+   same root, not a root above it (`us` for `us-az`) and not a root below it.
+   A federal unit therefore admits no new module at all.
+4. **The units are still new.** No path of the head of `main` is, or collides
+   with (another letter case, a file above or below), the primary, the
+   companion or the manifest of a unit.
+
+Every other rule is unchanged and stays bound to the base: the candidate must
+descend from its base, and its complete tree delta from the base must be
+exactly its units.
+
+Why rule 3 refuses related jurisdictions. A new module can change the verdict
+of a unit through checks that read other files, and the signing run validates
+the candidate head, which does not hold that module. The checks found in
+review, and where each one reads (`harness/validator_pipeline.py`):
+
+| Check | Reads | Covered by |
+|---|---|---|
+| Duplicate of an upstream executable rule (`_find_duplicate_upstream_executable_issues`, `_candidate_upstream_rulespec_roots`) | the unit's own root and every root above it | own root and roots above |
+| Sibling rule-name collision (`find_sibling_rule_name_collision_issues`) | the `*.yaml` files of the unit's directory | own root |
+| Child fragment re-encoding (`find_child_fragment_reencoding_issues`) | the directory named as the unit without `.yaml` | own root (and rule 4) |
+| Missing child exception import (`find_missing_child_exception_import_issues`) | the same directory | own root (and rule 4) |
+| An import without a prefix that a new file shadows (import file candidates) | two paths under the unit's own root | own root |
+| An import with a prefix (`_candidate_rulespec_repo_roots`) | one fixed path per checkout; a new file at another path cannot take its place, and the file itself is a file of the base (rule 2) | rule 2 |
+
+Roots below the unit's root are refused too, although no check above reads
+them: a module there reads the unit's root as its upstream. The list is
+complete against these checks. It is not a proof about every check of the
+validator; see "Before the switch goes on".
+
+There is no bound in time. A commit date is set by whoever makes the commit,
+and the anonymous API gives no time of the push. The number of first-parent
+commits is the bound.
+
+A candidate on an older base may carry at most
+`MAX_PROMOTION_UNITS_ON_ADVANCED_BASE` units. The proof costs 2 more reads at
+an admission and 3 more at a revalidation after `main` moved again:
+`2 x (13 + 2k) + 3 x 7 = 47 + 4k <= 60`, so `k <= 3` (59 reads). A larger
+batch must be on the head of `main`, as today.
+
+### Where the proven head of `main` is recorded
+
+- The admission records the proof in `base_advance`
+  (`axiom-encode/reviewed-pr-base-advance/v1`): the base, the head of `main`
+  that was proven, the number of first-parent commits, the counts of plumbing
+  and added paths, and a digest of the path list. The key is absent when
+  `main` is at the base, so such an admission is byte-identical to one made
+  with the switch off. It is in the runtime attestation of the run.
+- Each revalidation makes its own proof. The last one, before publication,
+  is written to the run summary and to the body of the lane pull request
+  (`Proven main head: ...`), also when `main` is at the base and also when
+  the admission recorded nothing. So the last proven head is readable in the
+  RuleSpec repository. While the switch is off nothing is written and the
+  body is unchanged.
+- The signed manifest does not hold it (its field set is closed, above).
+
+### Why the signing run does not validate the merged tree
+
+The better design validates the unit in the merge of the candidate with the
+head of `main` and signs that statement; the stale base then does not
+matter. It is not built here, because it is not a change of the admission:
+
+- the trusted Git wrapper of the signing runtime admits read commands only;
+  it has no `fetch`, `merge`, `merge-tree`, `read-tree` or `commit-tree`
+  (`scripts/provision_verification_supervisor.py`, the `allowed` set);
+- `promote-reviewed-candidate` requires `HEAD` to be the exact candidate head
+  and the checkout to be clean, reads every unit with `git show HEAD:`, and
+  validates in an overlay that is staged from that working tree (`cli.py`,
+  `cmd_promote_reviewed_candidate`, `_validate_reviewed_candidate_unit`);
+- the workflow verifies that the checkout is the dispatched `rulespec_ref`
+  and publishes the lane on that commit ("Verify immutable checkout
+  identities", `Base commit` in the lane pull request).
+
+It needs a reviewed change of those three places and a hosted canary. It is
+the next step; this rule is the part that the admission can decide alone.
+
+### What the rule does not do
+
+- A landing in the unit's own jurisdiction, in `us`, or below the unit's
+  root still needs a merge of `main` into the candidate. So does a move
+  through a program file, the toolchain, a waiver, a ledger or an existing
+  module. On 2026-11-25 this rule would have admitted the three moves of the
+  morning; it would not admit an Arizona candidate after an Arizona train.
+- The comparison returns at most 250 commits. A train that merges more
+  commits than that in one step refuses.
+- Replacement lanes are not covered: this lane admits new modules only.
+- Limit: a run started while the switch was on can be re-run by its
+  dispatcher after the switch is off again (see "Known limit" under
+  "Admission basis").
+
+### Before the switch goes on
+
+Every item is a condition, not a note.
+
+- [ ] An audit of `harness/validator_pipeline.py` confirms that no check of
+      a unit reads a module outside the unit's own root and the roots above
+      it. The table above lists the checks found in review; it is not that
+      audit.
+- [ ] RuleSpec `main` still requires an up-to-date branch and the
+      `validate / validate` check, **or** its merge queue runs
+      `repository-checks.yml` on `merge_group` with a shared-workflow pin
+      that validates all modules for that event. The pin `882c5f1` does so
+      in its target selection; `rulespec-us` does not trigger on
+      `merge_group` today.
+- [ ] One hosted run shows the `Proven main head` line in the lane pull
+      request and in the run summary.
+- [ ] Dry run, no signing: the rule is evaluated for each open candidate
+      against the last 20 moves of `main` and agrees with a hand
+      classification.
+- [ ] One single-unit candidate one plumbing commit behind `main` is signed,
+      and its lane pull request is green after a merge of `main`.
+- [ ] One candidate behind a landing in its own jurisdiction is refused with
+      the paths named, and nothing is signed.
+- [ ] Stop rule agreed: if a candidate that must be refused is signed, or a
+      signed unit fails RuleSpec CI for a reason that a validation at the
+      head of `main` would have found, the switch goes back to `False` in a
+      reviewed change, and the recent runs of the workflow are checked.
 
 ## Rollout
 
