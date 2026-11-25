@@ -226,6 +226,7 @@ from .validator_pipeline import (
     _parse_rulespec_target,
     _resolve_rulespec_target_file,
     _source_text_looks_like_table,
+    _strict_top_level_import_strings,
     build_existing_target_oracle_contract,
     evaluate_numeric_grounding_values_scoped,
     extract_embedded_source_text,
@@ -10375,50 +10376,6 @@ def _imported_named_scalar_occurrences(
 _STRICT_IMPORT_SYMBOL_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _STRICT_IMPORT_PATH_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9_.~-]+")
 _STRICT_IMPORT_REFUSED_FILENAME_SUFFIXES = (".yaml", ".yml", ".test")
-_YAML_STRING_TAG = "tag:yaml.org,2002:str"
-
-
-def _strict_top_level_import_strings(content: str) -> list[str]:
-    """Return the import strings written in place in the top-level mapping.
-
-    The rules engine does not apply YAML merge keys, so a loaded payload can
-    show an ``imports`` list that the engine never sees. This reader works on
-    the event and node level and credits nothing for the whole file unless the
-    file is one document with no alias and no explicit tag, whose top-level
-    mapping has no merge key and exactly one ``imports`` key, valued by a
-    sequence of string scalars.
-    """
-
-    try:
-        events = list(yaml.parse(content, Loader=yaml.SafeLoader))
-        documents = list(yaml.compose_all(content, Loader=yaml.SafeLoader))
-    except (yaml.YAMLError, TypeError, ValueError):
-        return []
-    for event in events:
-        if isinstance(event, yaml.AliasEvent):
-            return []
-        if isinstance(event, yaml.NodeEvent) and event.tag is not None:
-            return []
-    if len(documents) != 1 or not isinstance(documents[0], yaml.MappingNode):
-        return []
-    import_values: list[yaml.Node] = []
-    for key_node, value_node in documents[0].value:
-        # A non-scalar key has a list value, so neither comparison matches it.
-        if key_node.value == "<<":
-            return []
-        if key_node.value == "imports":
-            import_values.append(value_node)
-    if len(import_values) != 1 or not isinstance(import_values[0], yaml.SequenceNode):
-        return []
-    items: list[str] = []
-    for item_node in import_values[0].value:
-        if (
-            not isinstance(item_node, yaml.ScalarNode)
-            or item_node.tag != _YAML_STRING_TAG
-        ):
-            return []
-        items.append(item_node.value)
-    return items
 
 
 def _strict_import_target_is_engine_loadable(import_target: str) -> bool:

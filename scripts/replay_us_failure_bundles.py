@@ -290,6 +290,21 @@ def _import_items(content: str) -> list[str]:
     return _extract_import_items_from_content(content)
 
 
+def _typed_import_items(content: str) -> list[str]:
+    """Import items as ``_complete_source_unit_import_bindings`` reads them.
+
+    Only the string items written in place under the one top-level
+    ``imports`` key earn typed credit; text that looks like an imports block
+    in a block scalar or under ``module:`` does not.
+    """
+
+    from axiom_encode.harness.validator_pipeline import (
+        _strict_top_level_import_strings,
+    )
+
+    return _strict_top_level_import_strings(content)
+
+
 def _deferral_targets(content: str) -> list[str]:
     """``blocked_by`` targets, parsed the way the CI validator parses them."""
 
@@ -373,10 +388,9 @@ def import_symbol_contents(case: ReplayCase) -> tuple[list[tuple[str, str]], lis
     bindings: list[tuple[str, str]] = []
     unresolved: list[str] = []
     seen: set[tuple[str, str]] = set()
-    for item in _import_items(case.candidate):
+    for item in _typed_import_items(case.candidate):
         target, separator, symbol = item.rpartition("#")
-        symbol = symbol.strip()
-        if not separator or not symbol:
+        if not separator or not symbol or any(char.isspace() for char in item):
             continue
         if _lacks_policy_prefix(target, case.policy_prefix):
             unresolved.append(item)

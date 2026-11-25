@@ -34038,6 +34038,52 @@ def _statute_path_parts_for_file(
     return _statute_path_parts_from_relative_parts(relative_parts)
 
 
+_YAML_STRING_TAG = "tag:yaml.org,2002:str"
+
+
+def _strict_top_level_import_strings(content: str) -> list[str]:
+    """Return the import strings written in place in the top-level mapping.
+
+    The rules engine does not apply YAML merge keys, so a loaded payload can
+    show an ``imports`` list that the engine never sees. This reader works on
+    the event and node level and credits nothing for the whole file unless the
+    file is one document with no alias and no explicit tag, whose top-level
+    mapping has no merge key and exactly one ``imports`` key, valued by a
+    sequence of string scalars.
+    """
+
+    try:
+        events = list(yaml.parse(content, Loader=yaml.SafeLoader))
+        documents = list(yaml.compose_all(content, Loader=yaml.SafeLoader))
+    except (yaml.YAMLError, TypeError, ValueError):
+        return []
+    for event in events:
+        if isinstance(event, yaml.AliasEvent):
+            return []
+        if isinstance(event, yaml.NodeEvent) and event.tag is not None:
+            return []
+    if len(documents) != 1 or not isinstance(documents[0], yaml.MappingNode):
+        return []
+    import_values: list[yaml.Node] = []
+    for key_node, value_node in documents[0].value:
+        # A non-scalar key has a list value, so neither comparison matches it.
+        if key_node.value == "<<":
+            return []
+        if key_node.value == "imports":
+            import_values.append(value_node)
+    if len(import_values) != 1 or not isinstance(import_values[0], yaml.SequenceNode):
+        return []
+    items: list[str] = []
+    for item_node in import_values[0].value:
+        if (
+            not isinstance(item_node, yaml.ScalarNode)
+            or item_node.tag != _YAML_STRING_TAG
+        ):
+            return []
+        items.append(item_node.value)
+    return items
+
+
 def _extract_import_items_from_content(content: str) -> list[str]:
     """Extract raw import references from an imports block."""
     items: list[str] = []
@@ -38858,15 +38904,24 @@ class ValidatorPipeline:
             return ()
         try:
             source_root = self._validation_source_root(rules_file)
-            import_items = self._extract_import_items(rules_file.read_text())
+            # Typed credit reads the engine's import list only: the string
+            # items written in place under the one top-level ``imports`` key.
+            # A line reader also matches ``imports:`` text in a block scalar
+            # or under ``module:``, which the engine never loads.
+            import_items = _strict_top_level_import_strings(rules_file.read_text())
         except (OSError, ValueError, UnsafeRulespecContextPath):
             return ()
         bindings: list[ResolvedImportedExport] = []
         snapshots: dict[Path, str] = {}
         for import_item in import_items:
             _target, separator, imported_symbol = import_item.rpartition("#")
-            imported_symbol = imported_symbol.strip()
-            if not separator or not imported_symbol:
+            if (
+                not separator
+                or not imported_symbol
+                or any(char.isspace() for char in import_item)
+            ):
+                # The engine takes the item as written; a quoted item with
+                # whitespace is not a reference it can load.
                 continue
             try:
                 dependency = _resolve_rulespec_import_file_static(
