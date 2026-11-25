@@ -101,6 +101,7 @@ from axiom_encode.producer_review_guidance import (
 from axiom_encode.prompts.encoder import (
     INTERPRETATIONS_PROTOCOL,
     SOURCE_SCOPE_PROTOCOL,
+    cfr_state_set_amount_rule_applies,
     us_cfr_unit_section_key,
     with_cfr_state_set_amount_rule,
 )
@@ -15926,13 +15927,17 @@ def _format_cited_regulation_context_guidance(
         )
     if not lines:
         return ""
+    state_set_pointer = (
+        " When the source\napplies a State-set amount that a cited module only "
+        "takes as a local input,\nfollow the exception for State-set amounts."
+        if cfr_state_set_amount_rule_applies(citation)
+        else ""
+    )
     return f"""
 Cited regulation RuleSpec context detected from source text:
 {chr(10).join(lines)}
 When this source computes with a value that one of these modules exports,
-import that export and use its bare name in the formula. When the source
-applies a State-set amount that a cited module only takes as a local input,
-follow the exception for State-set amounts.
+import that export and use its bare name in the formula.{state_set_pointer}
 """
 
 

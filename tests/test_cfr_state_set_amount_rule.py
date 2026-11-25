@@ -1,9 +1,10 @@
-"""The State-set amount exception is emitted only for federal CFR units.
+"""The State-set amount exception is emitted only for allow-listed CFR parts.
 
 Both prompt copies (the shared encoder prompt and the eval prompt) insert the
 same rule directly after the cross-reference defer rule, and only when the
-unit is a `us/regulation/<title>/<part>/<section>` provision. Every other
-unit gets the prompt without it, byte for byte.
+unit is a federal unit of a CFR part in `CFR_STATE_SET_AMOUNT_PARTS`
+(42 CFR part 435). Every other unit, also every other CFR unit, gets the
+prompt without it, byte for byte.
 """
 
 import re
@@ -22,31 +23,67 @@ NON_CFR_UNITS = [
     "us-co/regulation/10-ccr-2506-1/4.804.1",
     "uk/statute/2020/1/section/1",
 ]
+# Federal CFR units outside the allow-list: the rule was not measured there.
+OTHER_CFR_UNITS = [
+    "us/regulation/7/273/9",
+    "us/regulation/7/273/10",
+    "us/regulation/42/436/831",
+    "us/regulation/42/457/608",
+    "us/regulation/20/416/1100",
+]
 
 # Each sentence of the rule; removing any one of them fails a test.
-SENTENCES = (
-    "Exception for State-set amounts (federal CFR units only): it covers a "
-    "value that this source applies from another provision when no copied "
-    "context module exports that value and either (a) the citing phrase names "
-    "the State or the agency as the actor that sets it, with a verb such as "
-    '"establishes", "elects", "specifies", "sets", "selects", or "chooses" '
+FORMS_SENTENCE = (
+    "Exception for State-set amounts (federal units of 42 CFR part 435 only): "
+    "it covers an amount that this source applies when no copied context "
+    "module exports that amount and this unit's own source text attributes "
+    "the amount to the State in one of exactly two forms: (a) the text names "
+    "the State, the State agency, or the agency (in 42 CFR part 435 the agency "
+    "is the State Medicaid agency) as the actor of one of these verbs, with "
+    'the amount as the thing acted on: "establishes", "sets", "elects", '
+    '"specifies", "selects", "chooses", or "determines ... in its State plan" '
     '(for example household income "at or below the income standard '
-    "established by the agency in its State plan\", or names the State's own "
-    "standard or level, such as \"the State's AFDC payment standard in effect "
-    'as of July 16, 1996"), or (b) the phrase says the value is established '
-    "under a section of this CFR part whose copied module takes that value as "
-    'a local input and exports no rule for it (for example "the medically '
-    'needy income standard established under § 435.811", whose module lists '
-    "`medically_needy_income_standard_amount` as an input slot).",
+    'established by the agency in its State plan"); or (b) the text names a '
+    "level in effect on a stated calendar date under the State's own plan: "
+    "the State's AFDC payment standard or AFDC income standard, or a level "
+    "under the Medicaid State plan or a waiver of the State plan (for example "
+    '"the State\'s AFDC payment standard in effect as of July 16, 1996").'
+)
+CROSS_REFERENCE_SENTENCE = (
+    "For an amount that meets form (a) or (b), and for no other value, these "
+    "rules above do not apply: the rule that a cited context file with "
+    "`module.status: deferred`, `entity_not_supported`, or `rules: []` gets no "
+    "local cross-reference input; the rule against a local `section_...` or "
+    "`subsection_...` placeholder input for a cited source; the rule directly "
+    "above against a local cross-reference fact when the context lacks the "
+    "needed export; and the rule that defers when a cited sibling file is "
+    "deferred."
+)
+FEDERAL_SENTENCE = (
+    "That holds for every amount that a federal statute, a federal regulation, "
+    "a federal agency, or a federal formula sets, also when the amount differs "
+    "by State and also when this unit states no number: import it when a "
+    "copied context module exports it; otherwise defer that branch with a "
+    "reason that names that federal provision."
+)
+DELEGATES_SENTENCE = (
+    "Emit the `kind: source_relation` record with `source_relation.type: "
+    "delegates` that the source-relation rules above require for it."
+)
+SENTENCES = (
+    FORMS_SENTENCE,
+    "No other wording qualifies.",
+    "A phrase that only calls the amount the State's, or that only says the "
+    "amount is established under a cited section, does not name the State as "
+    "the actor that sets it.",
     "Then encode the branch; do not defer it for that reason, also when the "
     "cited module is deferred.",
-    "This exception takes precedence over the rule that defers when a cited "
-    "sibling file is deferred.",
-    "An amount that another federal program or provision sets, such as the "
-    "SSI income standard or the Federal benefit rate, is never a State-set "
-    "input, also when this unit states no number: import it when a copied "
-    "context module exports it; otherwise defer that branch with a reason "
-    "that names that federal provision.",
+    "This exception is narrow.",
+    CROSS_REFERENCE_SENTENCE,
+    "Every other value stays under those rules.",
+    "An amount that the source text does not attribute to the State in form "
+    "(a) or (b) is not a State-set input.",
+    FEDERAL_SENTENCE,
     "Encode literally every number, percentage of the Federal poverty level, "
     "or dollar amount that this source or a cited federal provision states; "
     "such a value is never an input.",
@@ -55,13 +92,20 @@ SENTENCES = (
     "Federal text that limits what the State may set (a floor or ceiling on "
     "the State's own standard) is encoded as a rule about the State plan, not "
     "as an input that replaces that limit.",
+    "Record the delegation: the federal text that lets the State set the "
+    "amount creates the delegated slot.",
+    DELEGATES_SENTENCE,
+    "Do not use `sets` or `implements` here; those belong to the State "
+    "authority that fills the slot.",
     "Declare the State-set value in the document-root `inputs` list with "
     "`entity`, `dtype`, `period`, `unit` for money, and a `description` that "
     "names the provision under which the State or agency sets it.",
-    "For case (b) use the cited module's input identifier; otherwise use a "
-    "descriptive name.",
-    "Give the rule that uses the State-set value a proof atom whose excerpt is "
-    "the citing phrase from this unit's source text.",
+    "When the source cites a section of this CFR part whose copied module "
+    "lists the value as a local input slot, use that module's input "
+    "identifier; otherwise use a descriptive name.",
+    "Give the rule that uses the State-set value a proof atom whose excerpt "
+    "is, word for word, the phrase of this unit's source text that meets form "
+    "(a) or (b).",
     "Encode the branch's own comparisons, max/min, and conditions on that "
     "value, and set the input in every companion test.",
 )
@@ -115,6 +159,7 @@ def test_rule_follows_the_cross_reference_defer_rule(cfr_copies, copy):
     text = cfr_copies[copy]
     end = text.index(RULE_TAIL) + len(RULE_TAIL)
     assert text[end:].startswith(" - " + SENTENCES[0])
+    assert text.count("Exception for State-set amounts") == 1
     positions = [text.index(sentence) for sentence in SENTENCES]
     assert positions == sorted(positions)
 
@@ -130,6 +175,99 @@ def test_non_cfr_encoder_prompt_is_unchanged(citation):
 @pytest.mark.parametrize("citation", NON_CFR_UNITS)
 def test_non_cfr_eval_prompt_has_no_state_set_rule(tmp_path, citation):
     assert "State-set" not in _eval_prompt(tmp_path, citation)
+
+
+@pytest.mark.parametrize("citation", OTHER_CFR_UNITS)
+def test_cfr_unit_outside_the_allow_list_gets_no_rule(tmp_path, citation):
+    """7 CFR 273 ("the maximum allotment established under § 273.10(e)(4)"),
+    42 CFR 436/457 and 20 CFR 416 are federal CFR units, and get no rule."""
+    assert encoder_prompt.us_cfr_unit_section_key(citation) is not None
+    assert encoder_prompt.cfr_state_set_amount_rule_applies(citation) is False
+    prompt = _encoder_prompt(citation)
+    assert "State-set" not in prompt
+    assert prompt.startswith(encoder_prompt.ENCODER_PROMPT + "\n")
+    assert encoder_prompt.with_cfr_state_set_amount_rule(prompt, citation) is prompt
+    assert "State-set" not in _eval_prompt(tmp_path, citation)
+
+
+def test_allow_list_is_the_measured_part_only():
+    assert encoder_prompt.CFR_STATE_SET_AMOUNT_PARTS == frozenset({("42", "435")})
+    assert (
+        encoder_prompt.CFR_PARTS_WHERE_AGENCY_IS_THE_STATE
+        <= encoder_prompt.CFR_STATE_SET_AMOUNT_PARTS
+    )
+    assert encoder_prompt.cfr_state_set_amount_rule_applies(CFR_UNIT) is True
+    assert encoder_prompt.cfr_state_set_amount_rule_applies("") is False
+    for citation in NON_CFR_UNITS:
+        assert encoder_prompt.cfr_state_set_amount_rule_applies(citation) is False
+
+
+def test_gate_follows_the_allow_list(monkeypatch):
+    """The gate is the allow-list: adding a part emits the rule for it."""
+    plain = encoder_prompt.ENCODER_PROMPT
+    unit = "us/regulation/42/436/831"
+    assert encoder_prompt.with_cfr_state_set_amount_rule(plain, unit) is plain
+    monkeypatch.setattr(
+        encoder_prompt,
+        "CFR_STATE_SET_AMOUNT_PARTS",
+        frozenset({("42", "435"), ("42", "436")}),
+    )
+    assert encoder_prompt.CFR_STATE_SET_AMOUNT_RULE in (
+        encoder_prompt.with_cfr_state_set_amount_rule(plain, unit)
+    )
+    assert (
+        encoder_prompt.with_cfr_state_set_amount_rule(plain, "us/regulation/7/273/9")
+        is plain
+    )
+
+
+def test_acceptance_is_a_closed_positive_condition():
+    """A closed verb list, no possessive test, no list of federal names."""
+    rule = _flat(encoder_prompt.CFR_STATE_SET_AMOUNT_RULE)
+    assert "such as" not in FORMS_SENTENCE
+    assert "one of exactly two forms" in rule
+    assert "names the State's own standard or level" not in rule
+    assert "established under a section of this CFR part whose" not in rule
+    for federal_name in ("SSI", "Supplemental Security Income", "benefit rate"):
+        assert federal_name not in rule
+
+
+def test_rule_names_the_three_rules_it_narrows_and_they_precede_it():
+    plain = _flat(encoder_prompt.ENCODER_PROMPT)
+    gated = _flat(
+        encoder_prompt.with_cfr_state_set_amount_rule(
+            encoder_prompt.ENCODER_PROMPT, CFR_UNIT
+        )
+    )
+    narrowed = (
+        "Do not preserve, rename, or recreate a local cross-reference input "
+        "for that cited source.",
+        "do not create a local `section_...` or `subsection_...` placeholder "
+        "input for that cited source.",
+        "do not preserve, rename, or recreate the local cross-reference fact;",
+    )
+    start = gated.index(CROSS_REFERENCE_SENTENCE)
+    for rule in narrowed:
+        assert plain.count(rule) == 1
+        assert gated.index(rule) < start
+    # The existing rules themselves are not reworded for any unit.
+    assert gated.replace(_flat(encoder_prompt.CFR_STATE_SET_AMOUNT_RULE), "") == plain
+
+
+def test_rule_requires_the_delegates_record_the_relation_rules_demand():
+    plain = _flat(encoder_prompt.ENCODER_PROMPT)
+    required = (
+        "Federal provisions that authorize state agencies to set a value create "
+        "the delegated slot; encode those source graph records with "
+        "`source_relation.type: delegates`."
+    )
+    gated = _flat(
+        encoder_prompt.with_cfr_state_set_amount_rule(
+            encoder_prompt.ENCODER_PROMPT, CFR_UNIT
+        )
+    )
+    assert plain.count(required) == 1
+    assert gated.index(required) < gated.index(DELEGATES_SENTENCE)
 
 
 def test_shared_encoder_prompt_constant_does_not_carry_the_rule():
@@ -230,6 +368,34 @@ def test_cited_regulation_guidance_points_to_the_exception(tmp_path):
         "When the source applies a State-set amount that a cited module only "
         "takes as a local input, follow the exception for State-set amounts."
     )
+
+
+def test_cited_regulation_guidance_has_no_pointer_outside_the_allow_list(tmp_path):
+    root = tmp_path / "repos" / "rulespec-us" / "us"
+    module = root / "regulations" / "7-cfr" / "273" / "10.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "format: rulespec/v1\nrules:\n  - name: allotment\n    kind: derived\n"
+        "    entity: Household\n    dtype: Money\n    period: Month\n"
+        "    versions:\n      - effective_from: '2014-01-01'\n"
+        "        formula: maximum_allotment_amount * 1\n"
+    )
+    item = evals.EvalContextFile(
+        source_path=str(module),
+        workspace_path="context/regulations/7-cfr/273/10.yaml",
+        import_path="us:regulations/7-cfr/273/10",
+        kind="implementation_precedent",
+    )
+    guidance = _flat(
+        evals._format_cited_regulation_context_guidance(
+            "us/regulation/7/273/9",
+            "the maximum allotment established under § 273.10(e)(4)",
+            [item],
+        )
+    )
+    assert "Source cites" in guidance
+    assert "State-set" not in guidance
+    assert guidance.rstrip().endswith("use its bare name in the formula.")
 
 
 def test_encoder_prompt_version_is_bumped_for_the_gated_rule():

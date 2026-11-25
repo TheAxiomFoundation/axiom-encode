@@ -8,36 +8,53 @@ Every input of the candidate that the baseline does not have is checked:
 root `inputs` entries and implicit inputs (a free name in a formula that is
 no rule, no import and no root input, the style of 42 CFR 435.811 on main).
 
+The tool fails closed. It exits 2 with an `ERROR` line when it cannot do its
+work: a path that does not exist (`--rulespec-root`, `--source`, `--module`,
+`--baseline`), a module, baseline or RuleSpec-root file that is not parsable
+YAML, a RuleSpec root with no module, an empty source, or a module with no
+`module.source_verification.corpus_citation_path`.
+
 For each new input it prints one owner-table row (with the trigger that
 applies) and a FAIL line for each failed check; it exits 1 when any check
 fails:
 
-1. description: a root `inputs` entry whose `description` names a provision
+1. scope: the unit is on the allow-list of CFR parts for which the State-set
+   amount rule is emitted (`CFR_STATE_SET_AMOUNT_PARTS` of the encoder
+   prompt). A new input in any other unit fails.
+2. description: a root `inputs` entry whose `description` names a provision
    (`N CFR P.S`, `§ P.S`, `section N`, or a bare `P.S` of the unit's own CFR
-   part such as `435.811`). An implicit input has none and fails.
-2. value: a State-set value is a number; a Boolean or Judgment input is a
+   part such as `435.811`). An implicit input has none and fails. The
+   description is model-authored; it never satisfies the trigger.
+3. value: a State-set value is a number; a Boolean or Judgment input is a
    fact and fails.
-3. federal: the name or description cites a federal benefit program
-   standard (SSI, Supplemental Security Income, Federal benefit rate); such
-   an amount is never State-set.
-4. trigger, recorded per input as the first that holds:
-   - `actor`: a proof excerpt of a rule using the input, or the source
-     paragraph holding it, names the State or the agency as the actor of an
-     establish-type verb ("set by the agency", "the State elects"; "State
-     plan" is not an actor);
-   - `state-level`: the excerpt, its paragraph or the description names the
-     State's own level ("the State's ...", "State approved AFDC plan",
-     "State optional supplement", "under the Medicaid State plan",
-     "section 1115");
-   - `typed:<P.S>`: the description or an excerpt cites a section of the
-     unit's CFR part (not its own) that the unit's source text cites as
-     "established ... under/in accordance with § P.S", and a module for that
-     section exists under the RuleSpec root.
-5. exported: no rule anywhere under the RuleSpec root has the same name.
-6. literals: every dollar amount and "N percent of the Federal poverty level"
+4. excerpt: every proof excerpt of a rule that uses the input is verbatim
+   (whitespace-normalised) in the unit's source text. An excerpt that is not
+   in the source fails and is not used for the trigger.
+5. trigger: acceptance is a positive condition on the source text. A verified
+   excerpt must have one of two closed forms, recorded per input as the first
+   that holds:
+   - `actor`: the State, the State agency or (only in the CFR parts where the
+     agency is the State agency) the agency is the actor of a verb of the
+     closed list establish, set, elect, specify, select, choose, or of
+     "determine ... in/under its State plan" ("set by the agency", "the
+     State elects"; "State plan" is not an actor);
+   - `plan-level`: a level in effect on a stated calendar date under the
+     State's own plan ("the State's AFDC payment standard in effect as of
+     July 16, 1996", "under the Medicaid State plan ... as of March 23,
+     2010").
+   Everything else has no trigger, so an amount that a federal actor or a
+   federal formula sets is never accepted; no list of federal names is used.
+6. relation: when a new input has a trigger, the module holds a
+   `kind: source_relation` record with `source_relation.type: delegates`.
+7. exported: no rule anywhere under the RuleSpec root has the same name.
+8. literals: every dollar amount and "N percent of the Federal poverty level"
    in the source paragraphs that hold those excerpts appears in some
    `versions[].formula` of the module (as N or N/100). Summaries and proof
    excerpts do not count.
+
+The trigger binds a rule's excerpt, not the input's name, to the source: a
+rule that uses two amounts and cites one actor phrase gives both a trigger.
+The owner reads every row.
 """
 
 from __future__ import annotations
@@ -50,13 +67,44 @@ from pathlib import Path
 import yaml
 
 from axiom_encode.harness import evals
+from axiom_encode.prompts import encoder as encoder_prompt
 
-_VERB = r"(?:establish|elect|specif|set|select|choos)\w*"
-_ACTOR = r"(?:the\s+)?(?:State\s+agency|State|agency)(?!\s+plan)\b"
-_ACTOR_PHRASE = re.compile(
-    rf"\b{_VERB}\s+by\s+{_ACTOR}"
-    rf"|\b{_ACTOR}\s+(?:has\s+|may\s+|must\s+|shall\s+|will\s+)?{_VERB}",
-    re.IGNORECASE,
+_ARTICLE = r"(?:the|a|each)\s+"
+_STATE_ACTOR = rf"\b{_ARTICLE}(?:State\s+agency|State)(?!\s+plan\b)\b"
+_AGENCY_ACTOR = (
+    rf"\b{_ARTICLE}(?:(?:single\s+)?State\s+|Medicaid\s+)?agency(?!\s+plan\b)\b"
+)
+_BASE = r"(?:establish|set|elect|specify|select|choose)"
+_THIRD = r"(?:establishes|sets|elects|specifies|selects|chooses)"
+_PARTICIPLE = r"(?:established|set|elected|specified|selected|chosen)"
+_MODAL = r"(?:must|may|shall|will)\s+(?:also\s+)?"
+_IN_STATE_PLAN = r"(?:in|under)\s+(?:its|the)\s+(?:Medicaid\s+)?State\s+plan\b"
+
+
+def _actor_phrase(actor: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"\b{_PARTICIPLE}\s+by\s+(?:{actor})"
+        rf"|(?:{actor})\s+(?:{_MODAL}{_BASE}|has\s+{_PARTICIPLE}|{_THIRD})\b"
+        rf"|\bdetermined\s+by\s+(?:{actor})\s+{_IN_STATE_PLAN}"
+        rf"|(?:{actor})\s+(?:{_MODAL}determine|determines)\b[^.;]{{0,120}}?"
+        rf"\b{_IN_STATE_PLAN}",
+        re.IGNORECASE,
+    )
+
+
+_STATE_ACTOR_PHRASE = _actor_phrase(_STATE_ACTOR)
+_STATE_OR_AGENCY_ACTOR_PHRASE = _actor_phrase(f"{_STATE_ACTOR}|{_AGENCY_ACTOR}")
+_MONTH = (
+    r"(?:January|February|March|April|May|June|July|August|September|October"
+    r"|November|December)"
+)
+_PLAN_LEVEL_ANCHOR = re.compile(
+    r"\bState's\s+AFDC\s+(?:payment|income)\s+standard\b"
+    r"|\bunder\s+the\s+(?:Medicaid\s+)?State\s+plan\b"
+    r"|\bwaiver\s+of\s+the\s+State\s+plan\b"
+)
+_PLAN_LEVEL_DATE = re.compile(
+    rf"\b(?:as\s+of|in\s+effect\s+on)\s+{_MONTH}\s+\d{{1,2}},\s+\d{{4}}\b"
 )
 _PROVISION = re.compile(r"\b\d+\s+C\.?\s?F\.?\s?R\.?\s+\S|§\s*\d|\bsection\s+\d", re.I)
 _DOLLAR = re.compile(r"\$\s?([\d,]+(?:\.\d+)?)")
@@ -65,26 +113,35 @@ _FPL = re.compile(
     re.IGNORECASE,
 )
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_STATE_LEVEL = re.compile(
-    r"\bState's\b"
-    r"|\bState[-\s]+approved\s+AFDC\b|\bState\s+AFDC\b"
-    r"|\bState\s+optional\s+supplement"
-    r"|\b(?:under|in)\s+(?:the|its)\s+(?:Medicaid\s+)?State\s+plan\b"
-    r"|\bsection\s+1115\b",
-    re.IGNORECASE,
-)
-_FEDERAL_DESCRIPTION = re.compile(
-    r"\bSSI\b|\bsupplemental\s+security\s+income\b|\bfederal\s+benefit\s+rate\b"
-    r"|\bFBR\b",
-    re.IGNORECASE,
-)
-_FEDERAL_NAME_TOKENS = frozenset({"ssi", "fbr"})
 _NUMERIC_DTYPES = frozenset({"money", "rate", "decimal", "integer", "number"})
 
 
-def _payload(path: Path) -> dict:
-    payload = yaml.safe_load(path.read_text()) if path.exists() else None
-    return payload if isinstance(payload, dict) else {}
+class ToolError(Exception):
+    """The tool cannot do its work; the run must not count as a pass."""
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _read(path: Path, what: str) -> str:
+    if not path.is_file():
+        raise ToolError(f"{what} not found: {path}")
+    try:
+        return path.read_text()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ToolError(f"{what} is not readable: {path}") from exc
+
+
+def _payload(path: Path, what: str) -> dict:
+    text = _read(path, what)
+    try:
+        payload = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ToolError(f"{what} is not parsable YAML: {path}") from exc
+    if not isinstance(payload, dict):
+        raise ToolError(f"{what} is not a YAML mapping: {path}")
+    return payload
 
 
 def _rules(payload: dict) -> list[dict]:
@@ -99,9 +156,9 @@ def _formulas(rule: dict) -> list[str]:
     ]
 
 
-def module_inputs(path: Path) -> dict[str, dict]:
+def module_inputs(path: Path, what: str = "module") -> dict[str, dict]:
     """Return every input of a module: root entries and implicit names."""
-    payload = _payload(path)
+    payload = _payload(path, what)
     inputs = {
         str(item["name"]): dict(item)
         for item in payload.get("inputs") or []
@@ -116,24 +173,59 @@ def module_inputs(path: Path) -> dict[str, dict]:
 
 
 def exported_names(root: Path) -> set[str]:
+    if not root.is_dir():
+        raise ToolError(f"RuleSpec root not found: {root}")
     names: set[str] = set()
-    for path in root.rglob("*.yaml"):
+    modules = 0
+    for path in sorted(root.rglob("*.yaml")):
         if path.name.endswith(".test.yaml"):
             continue
+        text = _read(path, "RuleSpec root file")
         try:
-            payload = _payload(path)
-        except yaml.YAMLError:
-            continue
-        names.update(str(rule["name"]) for rule in _rules(payload) if rule.get("name"))
+            payload = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise ToolError(f"RuleSpec root file is not parsable YAML: {path}") from exc
+        modules += 1
+        if isinstance(payload, dict):
+            names.update(
+                str(rule["name"]) for rule in _rules(payload) if rule.get("name")
+            )
+    if not modules:
+        raise ToolError(f"RuleSpec root holds no module: {root}")
     return names
 
 
-def actor_sets_value(excerpt: str) -> bool:
-    return _ACTOR_PHRASE.search(" ".join(excerpt.split())) is not None
+def actor_sets_value(excerpt: str, *, agency_is_state: bool) -> bool:
+    """True when the text names the State (or its agency) as the setting actor."""
+    pattern = _STATE_OR_AGENCY_ACTOR_PHRASE if agency_is_state else _STATE_ACTOR_PHRASE
+    return pattern.search(_flat(excerpt)) is not None
+
+
+def plan_level_on_a_date(excerpt: str) -> bool:
+    """True for a level in effect on a stated date under the State's own plan."""
+    flat = _flat(excerpt)
+    return bool(_PLAN_LEVEL_ANCHOR.search(flat) and _PLAN_LEVEL_DATE.search(flat))
+
+
+def state_set_trigger(
+    excerpt: str, unit_key: tuple[str, str, str] | None
+) -> str | None:
+    """Return the closed form that source text meets, for an allow-listed unit."""
+    if (
+        unit_key is None
+        or unit_key[:2] not in encoder_prompt.CFR_STATE_SET_AMOUNT_PARTS
+    ):
+        return None
+    agency_is_state = unit_key[:2] in encoder_prompt.CFR_PARTS_WHERE_AGENCY_IS_THE_STATE
+    if actor_sets_value(excerpt, agency_is_state=agency_is_state):
+        return "actor"
+    if plan_level_on_a_date(excerpt):
+        return "plan-level"
+    return None
 
 
 def unit_section_key(citation: str) -> tuple[str, str, str] | None:
-    return evals._us_cfr_unit_section_key(citation) if citation else None
+    return encoder_prompt.us_cfr_unit_section_key(citation) if citation else None
 
 
 def provision_named(description: str, unit_key: tuple[str, str, str] | None) -> bool:
@@ -145,49 +237,13 @@ def provision_named(description: str, unit_key: tuple[str, str, str] | None) -> 
     )
 
 
-def cited_same_part_sections(text: str, unit_key: tuple[str, str, str]) -> list[str]:
-    """Sections of the unit's CFR part cited in text (`§ P.S`, `N CFR P.S`, bare `P.S`)."""
-    title, part, own = unit_key
-    sections = [
-        group.section
-        for group in evals._cited_cfr_sections_for_unit(
-            f"us/regulation/{title}/{part}/{own}", text
-        )
-        if (group.title, group.part) == (title, part)
-    ]
-    for match in re.finditer(rf"(?<![\d.§]){part}\.(\d{{1,4}})(?![\d])", text):
-        if match.group(1) != own and match.group(1) not in sections:
-            sections.append(match.group(1))
-    return sections
-
-
-def typed_trigger(
-    texts: list[str],
-    source: str,
-    root: Path,
-    unit_key: tuple[str, str, str] | None,
-) -> str | None:
-    """Return `typed:P.S` when a cited same-part section is one the source
-    says the value is established under, and its module exists."""
-    if unit_key is None:
-        return None
-    title, part, _own = unit_key
-    flat_source = " ".join(source.split())
-    windows = []
-    for match in re.finditer(r"\bestablish\w*", flat_source, re.IGNORECASE):
-        window = flat_source[match.end() : match.end() + 100]
-        window = re.split(r";|\.\s", window, maxsplit=1)[0]
-        if "§" in window:
-            windows.append(window)
-    for text in texts:
-        for section in cited_same_part_sections(text, unit_key):
-            number = re.compile(rf"(?<![\d.]){part}\.{section}(?![\d])")
-            if not any(number.search(window) for window in windows):
-                continue
-            group = evals._CitedCfrSectionGroup(title, part, section, ())
-            if evals._cfr_section_group_context_modules(root, group):
-                return f"typed:{part}.{section}"
-    return None
+def has_delegates_relation(payload: dict) -> bool:
+    return any(
+        rule.get("kind") == "source_relation"
+        and isinstance(rule.get("source_relation"), dict)
+        and rule["source_relation"].get("type") == "delegates"
+        for rule in _rules(payload)
+    )
 
 
 def literal_values(paragraph: str) -> list[tuple[str, set[str]]]:
@@ -204,21 +260,36 @@ def literal_values(paragraph: str) -> list[tuple[str, set[str]]]:
 def check(
     root: Path, source: str, module: Path, baseline: Path | None
 ) -> tuple[list[str], list[str]]:
-    """Return (owner-table rows, failures)."""
-    payload = _payload(module)
-    citation = str(
-        (payload.get("module") or {})
-        .get("source_verification", {})
-        .get("corpus_citation_path", "")
-    )
+    """Return (owner-table rows, failures); raise ToolError when it cannot check."""
+    payload = _payload(module, "module")
+    verification = (payload.get("module") or {}).get("source_verification") or {}
+    citation = str(verification.get("corpus_citation_path") or "")
+    if not citation:
+        raise ToolError(
+            f"module has no module.source_verification.corpus_citation_path: {module}"
+        )
+    flat_source = _flat(source)
+    if not flat_source:
+        raise ToolError("unit source text is empty")
     unit_key = unit_section_key(citation)
-    old = set(module_inputs(baseline)) if baseline is not None else set()
+    in_scope = encoder_prompt.cfr_state_set_amount_rule_applies(citation)
+    allowed = ", ".join(
+        f"{title} CFR part {part}"
+        for title, part in sorted(encoder_prompt.CFR_STATE_SET_AMOUNT_PARTS)
+    )
+    old = set(module_inputs(baseline, "baseline")) if baseline is not None else set()
     exports = exported_names(root)
     formula_text = "\n".join(
         formula for rule in _rules(payload) for formula in _formulas(rule)
     )
     rows: list[str] = []
     failures: list[str] = []
+
+    def fail(message: str) -> None:
+        if message not in failures:
+            failures.append(message)
+
+    any_trigger = False
     for name, item in module_inputs(module).items():
         if name in old:
             continue
@@ -227,27 +298,32 @@ def check(
             for rule in _rules(payload)
             if any(name in _IDENTIFIER.findall(f) for f in _formulas(rule))
         ]
-        excerpts = [
-            str(atom["source"]["excerpt"])
+        cited = [
+            _flat(str(atom["source"]["excerpt"]))
             for rule in users
             for atom in ((rule.get("metadata") or {}).get("proof") or {}).get("atoms")
             or []
-            if isinstance(atom.get("source"), dict) and atom["source"].get("excerpt")
+            if isinstance(atom, dict)
+            and isinstance(atom.get("source"), dict)
+            and atom["source"].get("excerpt")
         ]
-        flat = lambda text: " ".join(text.split())  # noqa: E731
+        # Only text that is verbatim in the unit source counts from here on.
+        excerpts = [excerpt for excerpt in cited if excerpt in flat_source]
         paragraphs = [
             paragraph
             for paragraph in re.split(r"\n\s*\n", source)
-            if any(flat(e) in flat(paragraph) for e in excerpts)
+            if any(excerpt in _flat(paragraph) for excerpt in excerpts)
         ]
         description = str(item.get("description") or "")
-        trigger = None
-        if any(actor_sets_value(t) for t in [*excerpts, *paragraphs]):
-            trigger = "actor"
-        elif any(_STATE_LEVEL.search(t) for t in [*excerpts, *paragraphs, description]):
-            trigger = "state-level"
-        else:
-            trigger = typed_trigger([description, *excerpts], source, root, unit_key)
+        trigger = next(
+            (
+                kind
+                for kind in (state_set_trigger(e, unit_key) for e in excerpts)
+                if kind
+            ),
+            None,
+        )
+        any_trigger = any_trigger or trigger is not None
         shown = " ".join((excerpts[0] if excerpts else "").split()[:12])
         shape = "implicit" if item.get("implicit") else "root"
         rows.append(
@@ -255,37 +331,43 @@ def check(
             f"{item.get('entity', '-')}/{item.get('dtype', '-')}/{item.get('period', '-')}"
             f" | {trigger or '-'} | {shown} |"
         )
+        if not in_scope:
+            fail(
+                f"scope: `{name}` is a new input of `{citation}`, a unit outside "
+                f"the allow-list ({allowed})"
+            )
         if not provision_named(description, unit_key):
-            failures.append(
-                f"description: `{name}` has no description naming a provision"
-            )
+            fail(f"description: `{name}` has no description naming a provision")
         if str(item.get("dtype") or "").lower() not in _NUMERIC_DTYPES:
-            failures.append(f"value: `{name}` is not a number; a State-set value is")
-        if _FEDERAL_DESCRIPTION.search(description) or (
-            _FEDERAL_NAME_TOKENS & set(name.lower().split("_"))
-        ):
-            failures.append(
-                f"federal: `{name}` cites a federal benefit program standard; "
-                "it is never State-set"
-            )
-        if trigger is None:
-            failures.append(
-                f"trigger: no actor, State-level or typed trigger holds for `{name}`"
+            fail(f"value: `{name}` is not a number; a State-set value is")
+        for excerpt in cited:
+            if excerpt not in flat_source:
+                fail(
+                    f"excerpt: a proof excerpt cited for `{name}` is not verbatim "
+                    f'in the unit source: "{" ".join(excerpt.split()[:12])}"'
+                )
+        if in_scope and trigger is None:
+            fail(
+                f"trigger: no verified source excerpt names the State as the "
+                f"actor that sets `{name}`, or a dated State plan level"
             )
         if name in exports:
-            failures.append(
-                f"exported: `{name}` is a rule name under the RuleSpec root"
-            )
+            fail(f"exported: `{name}` is a rule name under the RuleSpec root")
         for paragraph in paragraphs:
             for label, forms in literal_values(paragraph):
                 if not any(
                     re.search(rf"(?<![\d.]){re.escape(form)}(?![\d])", formula_text)
                     for form in forms
                 ):
-                    failures.append(
+                    fail(
                         f"literal: {label} in the cited branch is in no formula "
                         f"(input `{name}`)"
                     )
+    if any_trigger and not has_delegates_relation(payload):
+        fail(
+            "relation: the module has no `kind: source_relation` record with "
+            "`source_relation.type: delegates` for the State-set amount"
+        )
     return rows, failures
 
 
@@ -296,9 +378,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--module", type=Path, required=True)
     parser.add_argument("--baseline", type=Path)
     args = parser.parse_args(argv)
-    rows, failures = check(
-        args.rulespec_root, args.source.read_text(), args.module, args.baseline
-    )
+    try:
+        rows, failures = check(
+            args.rulespec_root,
+            _read(args.source, "unit source"),
+            args.module,
+            args.baseline,
+        )
+    except ToolError as exc:
+        print(f"ERROR {exc}", file=sys.stderr)
+        return 2
     print("| unit | input | form | entity/dtype/period | trigger | citing excerpt |")
     print("|---|---|---|---|---|---|")
     print("\n".join(rows))
