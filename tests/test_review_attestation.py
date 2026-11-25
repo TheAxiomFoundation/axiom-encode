@@ -265,14 +265,14 @@ def test_the_attestation_key_needs_the_record_key_and_exactly_true():
 @needs_shell
 def test_only_the_attestation_key_adds_the_attestation_flag():
     record_only = helper.split_atomic_source_input(wrapper(require_review_record=True))
-    assert "--require-review-attestation" not in promotion_command(record_only)
+    assert "--require-review-attestation" not in promotion_command(record_only, "true")
     assert (
         promotion_command(helper.split_atomic_source_input(wrapper())) == BASE_COMMAND
     )
     both = helper.split_atomic_source_input(
         wrapper(require_review_record=True, require_review_attestation=True)
     )
-    assert promotion_command(both) == [
+    assert promotion_command(both, "true") == [
         *BASE_COMMAND,
         "--require-review-record",
         "/runner/temp/promotion-review-records/candidate-review-records.json",
