@@ -26,6 +26,7 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline,
     _engine_import_items,
     _extract_import_items_from_content,
+    _strict_top_level_import_strings,
 )
 from tests import test_rulespec_validation as fixtures
 
@@ -296,3 +297,103 @@ def test_untyped_numeric_occurrences_keep_a_real_top_level_import(tmp_path):
 
     assert evals._engine_import_targets(candidate) == ["us:statutes/1/1"]
     assert evals._imported_named_scalar_occurrences(candidate, root)[4321.0] == 1
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    (
+        ("imports:\n  - us:statutes/1/1#a\n  - us:statutes/1/2\n", 2),
+        ("imports:\n- us:statutes/1/1#a\n", 1),
+        ('imports:\n  - "us:statutes/1/1#a"\n', 1),
+        ("imports: [us:statutes/1/1#a]\n", 0),
+        ('"imports":\n  - us:statutes/1/1#a\n', 0),
+        ("imports: # note\n  - us:statutes/1/1#a\n", 0),
+        ("imports:\n  - us:statutes/1/1#a # note\n", 0),
+        ("imports:\n  - >-\n    us:statutes/1/1#a\n", 0),
+        ("imports:\n  - us:statutes/1/1#a\n# note\n  - us:statutes/1/2\n", 1),
+        ('imports:\n  - "us:statutes/1/1#a "\n  - us:statutes/1/2\n', 1),
+        ('imports:\n  - "us:statutes/1/1 #a"\n', 0),
+        ("imports:\n  - |\n    us:statutes/1/1#a\n", 0),
+        ('imports:\n  - ""\n', 0),
+        ("imports:\n  - us:statutes/1/1#a\n  - 5\n", 0),
+        ("imports:\n  path: us:statutes/1/1#a\n", 0),
+        ("imports:\n  - us:statutes/1/1#a\nimports: []\n", 0),
+        ("imports:\n  - us:statutes/1/1#a\n<<: {notes: text}\n", 0),
+        ("notes: &n text\nother: *n\nimports:\n  - us:statutes/1/1#a\n", 0),
+        ("notes: &n text\nimports:\n  - us:statutes/1/1#a\n", 1),
+        ("imports:\n  - !!str us:statutes/1/1#a\n", 0),
+        ("imports:\n  - us:statutes/1/1#a\n---\nformat: rulespec/v1\n", 0),
+        ("imports:\n  - us:statutes/1/1#a\nbroken: [unclosed\n", 0),
+        ("module:\n  imports:\n    - us:statutes/1/1#a\n", 0),
+        ("notes: |\n  imports:\n    - us:statutes/1/1#a\n", 0),
+    ),
+    ids=(
+        "block_sequence",
+        "column_zero_items",
+        "quoted_item",
+        "flow_sequence_not_read_by_line_reader",
+        "quoted_imports_key_not_read_by_line_reader",
+        "header_comment_not_read_by_line_reader",
+        "item_with_trailing_comment",
+        "folded_item_not_read_by_line_reader",
+        "item_after_comment_line_not_read_by_line_reader",
+        "item_with_trailing_space_dropped",
+        "item_with_inner_space",
+        "literal_item_with_line_end",
+        "empty_item",
+        "non_string_item_refuses_list",
+        "mapping_value",
+        "duplicate_imports_key",
+        "top_level_merge_key",
+        "alias_in_file",
+        "anchor_without_alias",
+        "explicit_tag",
+        "second_document",
+        "unparsable_yaml",
+        "nested_under_module",
+        "block_scalar_text",
+    ),
+)
+def test_engine_import_items_reads_only_the_top_level_string_list(content, expected):
+    text = "format: rulespec/v1\n" + content
+    items = _engine_import_items(text)
+
+    assert len(items) == expected
+    assert all(item and not any(char.isspace() for char in item) for item in items)
+    # Credit is never wider than the line reader or the engine list.
+    assert set(items) <= set(_extract_import_items_from_content(text))
+    assert set(items) <= set(_strict_top_level_import_strings(text))
+
+
+@pytest.mark.parametrize(
+    "addition",
+    (
+        "anchored: &shared [1]\nreused: *shared\n",
+        "tagged: !!str text\n",
+        "<<: {notes: text}\n",
+        "imports: []\n",
+    ),
+    ids=("alias", "explicit_tag", "merge_key", "duplicate_imports_key"),
+)
+def test_file_the_reader_refuses_earns_no_credit_at_a_check(
+    addition, tmp_path, monkeypatch
+):
+    case = CASES["cross_reference_exception_placeholder"]
+    seen: dict[str, list[str]] = {}
+    original = getattr(ValidatorPipeline, case.check)
+
+    def wrapper(self, rules_file):
+        untouched = rules_file.read_text()
+        real = _real_top_level_import(untouched, case.items)
+        for name, content in (("real", real), ("refused", real + addition)):
+            rules_file.write_text(content)
+            seen[name] = original(self, rules_file)
+        rules_file.write_text(untouched)
+        seen["base"] = original(self, rules_file)
+        return seen["base"]
+
+    monkeypatch.setattr(ValidatorPipeline, case.check, wrapper)
+    getattr(fixtures, case.fixture_test)(tmp_path)
+
+    assert seen["real"] == []
+    assert seen["base"] and seen["refused"] == seen["base"]

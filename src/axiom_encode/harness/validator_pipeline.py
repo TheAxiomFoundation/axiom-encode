@@ -34085,19 +34085,26 @@ def _strict_top_level_import_strings(content: str) -> list[str]:
 
 
 def _engine_import_items(content: str) -> list[str]:
-    """Return the import items the rules engine loads, for credit decisions.
+    """Return the import items that may excuse a finding.
 
-    A check that lets an import excuse a finding must read the same list the
-    engine reads: the whitespace-free string items written in place under the
-    one top-level ``imports`` key. The line readers below also match
-    ``imports:`` text in a block scalar or under ``module:``; they stay in use
-    only where an extra item can add a finding and never remove one.
+    A check that lets an import excuse a finding must not read more than the
+    rules engine loads: the whitespace-free string items written in place
+    under the one top-level ``imports`` key. The line readers below also
+    match ``imports:`` text in a block scalar or under ``module:``; they stay
+    in use only where an extra item can add a finding and never remove one.
+
+    An item counts only when the line reader read it too. The engine list
+    alone also holds shapes the line reader never read (a flow sequence, a
+    quoted ``imports`` key, an item after a comment line), and credit for
+    those would let a file pass that failed before. The result is never
+    wider than the line reader's.
     """
 
+    line_items = set(_extract_import_items_from_content(content))
     return [
         item
         for item in _strict_top_level_import_strings(content)
-        if item and not any(char.isspace() for char in item)
+        if item and not any(char.isspace() for char in item) and item in line_items
     ]
 
 
