@@ -1,3 +1,7 @@
+## 0.2.2401
+
+- Keep page furniture and example-only numbers of US manual pages out of numeric recall (#2354)
+
 ## 0.2.2400
 
 - Turn the multi-unit promotion switch on for the hosted canary (#2301) (#2350)
