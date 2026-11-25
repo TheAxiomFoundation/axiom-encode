@@ -1768,14 +1768,24 @@ CFR_STATE_SET_AMOUNT_RULE = """- Exception for State-set amounts (federal units 
   does not name the State as the actor that sets it.
 - Then encode the branch; do not defer it for that reason, also when the
   cited module is deferred.
+- Each State-set input needs its own source phrase. In that phrase the
+  amount itself is the object of the verb in form (a), or is the level named
+  in form (b), and the input's name uses the words of that amount. One phrase
+  supports one input; a phrase for one amount does not support a second
+  amount of the same rule.
+- When the phrase defines the amount from another quantity (a percentage of
+  a benefit amount or of the Federal poverty level, an adjustment by a price
+  index), only the parameter that the State chooses, such as the percentage
+  that the State elects, can be the input. The other quantity is imported,
+  encoded literally, or deferred.
 - This exception is narrow. For an amount that meets form (a) or (b), and for
-  no other value, these rules above do not apply: the rule that a cited
-  context file with `module.status: deferred`, `entity_not_supported`, or
-  `rules: []` gets no local cross-reference input; the rule against a local
-  `section_...` or `subsection_...` placeholder input for a cited source; the
-  rule directly above against a local cross-reference fact when the context
-  lacks the needed export; and the rule that defers when a cited sibling file
-  is deferred. Every other value stays under those rules.
+  no other value, these rules of this prompt do not apply, wherever they
+  appear, before or after this exception: the rule that a cited context file
+  that is deferred, unsupported, or empty gets no local cross-reference
+  input; the rule against local `section_...` or `subsection_...` inputs for
+  a cited source; the rule against a local cross-reference fact when the
+  context lacks the needed export; and the rule that defers when a cited
+  sibling file is deferred. Every other value stays under those rules.
 - An amount that the source text does not attribute to the State in form (a)
   or (b) is not a State-set input. That holds for every amount that a federal
   statute, a federal regulation, a federal agency, or a federal formula sets,
@@ -1791,19 +1801,19 @@ CFR_STATE_SET_AMOUNT_RULE = """- Exception for State-set amounts (federal units 
   input that replaces that limit.
 - Record the delegation: the federal text that lets the State set the amount
   creates the delegated slot. Emit the `kind: source_relation` record with
-  `source_relation.type: delegates` that the source-relation rules above
-  require for it. Do not use `sets` or `implements` here; those belong to the
-  State authority that fills the slot.
+  `source_relation.type: delegates` that the source-relation rules of this
+  prompt require for it. Do not use `sets` or `implements` here; those belong
+  to the State authority that fills the slot.
 - Declare the State-set value in the document-root `inputs` list with
   `entity`, `dtype`, `period`, `unit` for money, and a `description` that
   names the provision under which the State or agency sets it. When the
   source cites a section of this CFR part whose copied module lists the value
-  as a local input slot, use that module's input identifier; otherwise use a
-  descriptive name.
-- Give the rule that uses the State-set value a proof atom whose excerpt is,
-  word for word, the phrase of this unit's source text that meets form (a) or
-  (b). Encode the branch's own comparisons, max/min, and conditions on that
-  value, and set the input in every companion test.
+  as a local input slot under a name made of those words, use that module's
+  input identifier; otherwise use a name made of the words of that amount.
+- Give the rule that uses the State-set value one proof atom per State-set
+  input whose excerpt is, word for word, that input's phrase of this unit's
+  source text. Encode the branch's own comparisons, max/min, and conditions
+  on that value, and set the input in every companion test.
 """
 
 

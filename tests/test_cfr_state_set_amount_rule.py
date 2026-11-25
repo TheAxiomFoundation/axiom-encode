@@ -51,14 +51,55 @@ FORMS_SENTENCE = (
 )
 CROSS_REFERENCE_SENTENCE = (
     "For an amount that meets form (a) or (b), and for no other value, these "
-    "rules above do not apply: the rule that a cited context file with "
-    "`module.status: deferred`, `entity_not_supported`, or `rules: []` gets no "
-    "local cross-reference input; the rule against a local `section_...` or "
-    "`subsection_...` placeholder input for a cited source; the rule directly "
-    "above against a local cross-reference fact when the context lacks the "
-    "needed export; and the rule that defers when a cited sibling file is "
-    "deferred."
+    "rules of this prompt do not apply, wherever they appear, before or after "
+    "this exception: the rule that a cited context file that is deferred, "
+    "unsupported, or empty gets no local cross-reference input; the rule "
+    "against local `section_...` or `subsection_...` inputs for a cited "
+    "source; the rule against a local cross-reference fact when the context "
+    "lacks the needed export; and the rule that defers when a cited sibling "
+    "file is deferred."
 )
+BINDING_SENTENCES = (
+    "Each State-set input needs its own source phrase.",
+    "In that phrase the amount itself is the object of the verb in form (a), "
+    "or is the level named in form (b), and the input's name uses the words "
+    "of that amount.",
+    "One phrase supports one input; a phrase for one amount does not support "
+    "a second amount of the same rule.",
+    "When the phrase defines the amount from another quantity (a percentage "
+    "of a benefit amount or of the Federal poverty level, an adjustment by a "
+    "price index), only the parameter that the State chooses, such as the "
+    "percentage that the State elects, can be the input.",
+    "The other quantity is imported, encoded literally, or deferred.",
+)
+# The rules that the exception narrows or cites, as each prompt copy words
+# them. The eval prompt states some of them after the insertion point.
+REFERENCED_RULES = {
+    "encoder": (
+        "Do not preserve, rename, or recreate a local cross-reference input "
+        "for that cited source.",
+        "do not create a local `section_...` or `subsection_...` placeholder "
+        "input for that cited source.",
+        "do not preserve, rename, or recreate the local cross-reference fact;",
+        "If the cited sibling file is deferred, empty, unsupported, or missing "
+        "a usable exported rule",
+        "Federal provisions that authorize state agencies to set a value create "
+        "the delegated slot; encode those source graph records with "
+        "`source_relation.type: delegates`.",
+    ),
+    "evals": (
+        "Do not preserve, rename, or recreate a local cross-reference input "
+        "for that cited source.",
+        "do not create local `section_...` or `subsection_...` inputs for "
+        "those cited sources.",
+        "do not preserve, rename, or recreate the local cross-reference fact;",
+        "If the cited sibling file is deferred, empty, unsupported, or missing "
+        "a usable exported rule",
+        "Federal provisions that authorize state agencies to set a value create "
+        "the delegated slot; encode those source graph records with "
+        "`source_relation.type: delegates`.",
+    ),
+}
 FEDERAL_SENTENCE = (
     "That holds for every amount that a federal statute, a federal regulation, "
     "a federal agency, or a federal formula sets, also when the amount differs "
@@ -68,7 +109,7 @@ FEDERAL_SENTENCE = (
 )
 DELEGATES_SENTENCE = (
     "Emit the `kind: source_relation` record with `source_relation.type: "
-    "delegates` that the source-relation rules above require for it."
+    "delegates` that the source-relation rules of this prompt require for it."
 )
 SENTENCES = (
     FORMS_SENTENCE,
@@ -78,6 +119,7 @@ SENTENCES = (
     "the actor that sets it.",
     "Then encode the branch; do not defer it for that reason, also when the "
     "cited module is deferred.",
+    *BINDING_SENTENCES,
     "This exception is narrow.",
     CROSS_REFERENCE_SENTENCE,
     "Every other value stays under those rules.",
@@ -101,11 +143,12 @@ SENTENCES = (
     "`entity`, `dtype`, `period`, `unit` for money, and a `description` that "
     "names the provision under which the State or agency sets it.",
     "When the source cites a section of this CFR part whose copied module "
-    "lists the value as a local input slot, use that module's input "
-    "identifier; otherwise use a descriptive name.",
-    "Give the rule that uses the State-set value a proof atom whose excerpt "
-    "is, word for word, the phrase of this unit's source text that meets form "
-    "(a) or (b).",
+    "lists the value as a local input slot under a name made of those words, "
+    "use that module's input identifier; otherwise use a name made of the "
+    "words of that amount.",
+    "Give the rule that uses the State-set value one proof atom per State-set "
+    "input whose excerpt is, word for word, that input's phrase of this "
+    "unit's source text.",
     "Encode the branch's own comparisons, max/min, and conditions on that "
     "value, and set the input in every companion test.",
 )
@@ -232,42 +275,50 @@ def test_acceptance_is_a_closed_positive_condition():
         assert federal_name not in rule
 
 
-def test_rule_names_the_three_rules_it_narrows_and_they_precede_it():
+@pytest.mark.parametrize("copy", ["encoder", "evals"])
+def test_every_rule_the_exception_refers_to_is_in_that_prompt_copy(cfr_copies, copy):
+    """The cross-reference is true in both copies: each rule it names or cites
+    is in the same prompt, exactly once, in that copy's own wording."""
+    text = cfr_copies[copy]
+    assert text.count(CROSS_REFERENCE_SENTENCE) == 1
+    assert text.count(DELEGATES_SENTENCE) == 1
+    for rule in REFERENCED_RULES[copy]:
+        assert text.count(rule) == 1, rule
+
+
+def test_cross_reference_does_not_depend_on_the_position_of_the_rule(cfr_copies):
+    """The eval prompt states the delegates, `section_...` and sibling-defer
+    rules after the exception, the encoder prompt before it. The exception
+    therefore names no position."""
+    rule = _flat(encoder_prompt.CFR_STATE_SET_AMOUNT_RULE)
+    for positional in ("rules above", "rule above", "directly above", "rules below"):
+        assert positional not in rule
+    assert "wherever they appear, before or after this exception" in rule
+    sibling, delegates = REFERENCED_RULES["evals"][3], REFERENCED_RULES["evals"][4]
+    for copy, after in (("encoder", False), ("evals", True)):
+        text = cfr_copies[copy]
+        start = text.index("Exception for State-set amounts")
+        assert (text.index(sibling) > start) is after
+        assert (text.index(delegates) > start) is after
+
+
+def test_existing_rules_are_not_reworded_for_any_unit():
     plain = _flat(encoder_prompt.ENCODER_PROMPT)
     gated = _flat(
         encoder_prompt.with_cfr_state_set_amount_rule(
             encoder_prompt.ENCODER_PROMPT, CFR_UNIT
         )
     )
-    narrowed = (
-        "Do not preserve, rename, or recreate a local cross-reference input "
-        "for that cited source.",
-        "do not create a local `section_...` or `subsection_...` placeholder "
-        "input for that cited source.",
-        "do not preserve, rename, or recreate the local cross-reference fact;",
-    )
-    start = gated.index(CROSS_REFERENCE_SENTENCE)
-    for rule in narrowed:
-        assert plain.count(rule) == 1
-        assert gated.index(rule) < start
-    # The existing rules themselves are not reworded for any unit.
     assert gated.replace(_flat(encoder_prompt.CFR_STATE_SET_AMOUNT_RULE), "") == plain
 
 
-def test_rule_requires_the_delegates_record_the_relation_rules_demand():
-    plain = _flat(encoder_prompt.ENCODER_PROMPT)
-    required = (
-        "Federal provisions that authorize state agencies to set a value create "
-        "the delegated slot; encode those source graph records with "
-        "`source_relation.type: delegates`."
+def test_eval_prompt_differs_from_another_cfr_unit_only_by_the_rule(tmp_path):
+    """Removing the rule from the 435 eval prompt leaves no State-set text."""
+    prompt = _eval_prompt(tmp_path, CFR_UNIT)
+    assert prompt.count(encoder_prompt.CFR_STATE_SET_AMOUNT_RULE) == 1
+    assert "State-set" not in prompt.replace(
+        encoder_prompt.CFR_STATE_SET_AMOUNT_RULE, ""
     )
-    gated = _flat(
-        encoder_prompt.with_cfr_state_set_amount_rule(
-            encoder_prompt.ENCODER_PROMPT, CFR_UNIT
-        )
-    )
-    assert plain.count(required) == 1
-    assert gated.index(required) < gated.index(DELEGATES_SENTENCE)
 
 
 def test_shared_encoder_prompt_constant_does_not_carry_the_rule():
