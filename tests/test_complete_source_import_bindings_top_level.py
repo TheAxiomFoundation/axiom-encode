@@ -82,11 +82,18 @@ NO_CREDIT_FILES = {
         + MODULE
         + RULES
     ),
+    "inline_merge_key_beside_real_import": (REAL_IMPORT + "<<: {notes: text}\n"),
+    "quoted_inline_merge_key_beside_real_import": (
+        REAL_IMPORT + '"<<": {notes: text}\n'
+    ),
     "aliased_item": (
         f"format: rulespec/v1\nnotes: &uri {URI}\nimports:\n  - *uri\n" + MODULE + RULES
     ),
     "tagged_item": (
         f"format: rulespec/v1\nimports:\n  - !!str {URI}\n" + MODULE + RULES
+    ),
+    "literal_item_with_line_end": (
+        f"format: rulespec/v1\nimports:\n  - |\n    {URI}\n" + MODULE + RULES
     ),
     "quoted_item_with_space": (
         f'format: rulespec/v1\nimports:\n  - "{URI} "\n' + MODULE + RULES
@@ -99,6 +106,14 @@ NO_CREDIT_FILES = {
 
 CREDITED_FILES = {
     "block_sequence": REAL_IMPORT,
+    "quoted_imports_key": (
+        f'format: rulespec/v1\n"imports":\n  - {URI}\n' + MODULE + RULES
+    ),
+    "crlf_line_ends": REAL_IMPORT.replace("\n", "\r\n"),
+    "document_markers": "---\n" + REAL_IMPORT + "...\n",
+    "folded_item": (
+        f"format: rulespec/v1\nimports:\n  - >-\n    {URI}\n" + MODULE + RULES
+    ),
     "quoted_item": f'format: rulespec/v1\nimports:\n  - "{URI}"\n' + MODULE + RULES,
     "flow_sequence": f"format: rulespec/v1\nimports: [{URI}]\n" + MODULE + RULES,
     "imports_after_rules": "format: rulespec/v1\n"

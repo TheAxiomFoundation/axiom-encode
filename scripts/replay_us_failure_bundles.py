@@ -371,7 +371,10 @@ def _lacks_policy_prefix(target: str, policy_prefix: str | None) -> bool:
 def referenced_context_keys(content: str, policy_prefix: str | None) -> list[str]:
     """Context modules a candidate needs: its imports and deferral providers."""
 
-    targets = [item.rpartition("#")[0] for item in _import_items(content)]
+    # Context collection stays wide: the line reader for text the other CI
+    # checks still read, plus the typed reader for flow and quoted forms.
+    items = [*_import_items(content), *_typed_import_items(content)]
+    targets = [item.rpartition("#")[0] for item in items]
     targets.extend(_deferral_targets(content))
     keys = [_context_key(target, policy_prefix) for target in targets if target]
     return sorted({key for key in keys if key is not None})
