@@ -16,20 +16,32 @@ the files alone, without a model and without the rules engine:
    ``#name``), program specs that scope ``old`` (outputs and transformations),
    and the other modules in those program scopes, which the composer binds by
    name. A rule nobody reads may be removed only when the record declares it.
+   A rule that the new files add must not take a name that a scoping program
+   or a co-scoped module already defines. The module-level ``imports``,
+   ``inputs`` and every other module-level field except provenance metadata
+   are compared too; a difference must be declared in the record.
 2. Program bindings. A name that a scoping program spec defines and ``old``
    reads (for example ``gross_income`` bound by a transformation) is still read
    by the new files, so the binding does not silently become dead.
 3. Declared behavior change. For each rule in both ``old`` and ``new``, the
    effective-dated versions are compared at every boundary date. Any
    difference must be declared in a behavior-change record with an
-   ``effective_from`` on or before the first different date, and the old
-   definition must hold on every earlier date (the old value is kept for
-   periods before the change). A declared change with no difference is also
-   an issue, so the record stays exact.
+   ``effective_from`` equal to the first different date, so the old
+   definition holds on every earlier date (the old value is kept for
+   periods before the change) and the record does not name an earlier date
+   than the real change. A declared change with no difference is also an
+   issue, so the record stays exact.
+
+The check fails closed. It refuses (exit status 2) whatever it cannot parse
+or resolve: a YAML mapping with a repeated key, a path that is not the exact
+canonical spelling of a file in the repo tree, a program scope entry or an
+import entry that it cannot resolve, and a rule with a non-string key.
 
 The check does not run companion tests, the oracle comparison or the
-reviewer; those stay with the existing gates. Exit status: 0 when no issue is
-found, 1 when issues are found, 2 for a usage or input error.
+reviewer; those stay with the existing gates. It reads one repository, so
+readers in other jurisdiction repositories are not checked. Exit status: 0
+when no issue is found, 1 when issues are found, 2 for a usage or input
+error.
 """
 
 from __future__ import annotations
@@ -38,6 +50,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -57,12 +70,23 @@ _DATE_KEYS = frozenset({"effective_from", "effective_to", "from", "to"})
 _STRING_LITERAL = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_JURISDICTION = re.compile(r"[a-z]{2}(?:-[a-z0-9]{2,})*")
 _MAX_BYTES = 10 * 1024 * 1024
+# Module-level keys that the check handles by their own rule (``rules``,
+# ``imports``, ``inputs``) and ``module`` keys that are provenance metadata.
+# Every other module-level field is compared as written.
+_MODULE_METADATA_KEYS = frozenset(
+    {"summary", "source_verification", "proof_validation"}
+)
+_INPUT_METADATA_KEYS = frozenset({"description", "source", "metadata", "summary"})
 NOT_CHECKED = (
     "companion and dependent test results (rules engine)",
     "oracle or PolicyEngine comparison",
     "reviewer model judgment and source fidelity",
     "signature, manifest and replacement receipt",
+    "readers in other jurisdiction repositories (for example rulespec-us-tn, "
+    "rulespec-us-nc): only the given checkout is scanned",
+    "YAML outside jurisdiction directories and program specs",
 )
 
 
@@ -79,6 +103,33 @@ class Issue:
         return {"code": self.code, "message": self.message}
 
 
+class _DuplicateKeyError(yaml.YAMLError):
+    """A YAML mapping repeats a key."""
+
+
+class _UniqueKeyLoader(getattr(yaml, "CSafeLoader", yaml.SafeLoader)):
+    """A safe loader that refuses a mapping with a repeated key.
+
+    ``yaml.safe_load`` keeps the last value of a repeated key, so a file
+    could show one value to a reader and another to this check.
+    """
+
+    def construct_mapping(self, node: Any, deep: bool = False) -> dict[Any, Any]:
+        seen: set[Any] = set()
+        for key_node, _ in node.value:
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                continue
+            key = self.construct_object(key_node, deep=True)
+            try:
+                repeated = key in seen
+            except TypeError as exc:
+                raise _DuplicateKeyError("a mapping key is not hashable") from exc
+            if repeated:
+                raise _DuplicateKeyError(f"key {key!r} is repeated")
+            seen.add(key)
+        return super().construct_mapping(node, deep)
+
+
 def _load_yaml(path: Path, label: str) -> Any:
     try:
         raw = path.read_bytes()
@@ -87,8 +138,12 @@ def _load_yaml(path: Path, label: str) -> Any:
     if len(raw) > _MAX_BYTES:
         raise ReplacementCheckError(f"{label} exceeds the size limit: {path}")
     try:
-        return yaml.safe_load(raw)
-    except yaml.YAMLError as exc:
+        return yaml.load(raw, Loader=_UniqueKeyLoader)  # noqa: S506 - safe subclass
+    except _DuplicateKeyError as exc:
+        raise ReplacementCheckError(
+            f"{label} repeats a YAML key ({exc}): {path}"
+        ) from exc
+    except (yaml.YAMLError, ValueError, RecursionError) as exc:
         raise ReplacementCheckError(f"{label} is not valid YAML: {path}") from exc
 
 
@@ -99,6 +154,10 @@ def _module_rules(payload: Any, label: str) -> dict[str, dict[str, Any]]:
     for rule in payload["rules"]:
         if not isinstance(rule, dict) or not isinstance(rule.get("name"), str):
             raise ReplacementCheckError(f"{label} has a rule without a name")
+        if not all(isinstance(key, str) for key in rule):
+            raise ReplacementCheckError(
+                f"{label} rule {rule['name']} has a key that is not a string"
+            )
         if rule["name"] in rules:
             raise ReplacementCheckError(
                 f"{label} defines {rule['name']} more than once"
@@ -254,41 +313,170 @@ def first_difference(
 def _anchor(path: str) -> tuple[str, str]:
     """(jurisdiction directory, module path without .yaml) for a repo path."""
 
-    parts = PurePosixPath(path).parts
     if (
-        len(parts) < 3
-        or path.startswith("/")
-        or ".." in parts
+        not _is_canonical(path)
+        or path.count("/") < 2
         or not path.endswith(".yaml")
         or path.endswith(".test.yaml")
     ):
-        raise ReplacementCheckError(f"not a RuleSpec module path: {path}")
+        raise ReplacementCheckError(
+            f"not a canonical RuleSpec module path (no './', '//', '..' or "
+            f"leading '/'): {path}"
+        )
+    parts = PurePosixPath(path).parts
     return parts[0], str(PurePosixPath(*parts[1:])).removesuffix(".yaml")
 
 
+def _is_canonical(path: str) -> bool:
+    """True when ``path`` is a relative POSIX path with one spelling."""
+
+    return (
+        bool(path)
+        and path == path.strip()
+        and "\\" not in path
+        and all(part not in {"", ".", ".."} for part in path.split("/"))
+    )
+
+
+class _Tree:
+    """Exact-case lookups in the repo tree.
+
+    ``Path.is_file`` follows the file system, which ignores case on macOS
+    and follows symlinks. A path is a file of the tree only when every
+    component is listed in its directory with the same spelling and is not
+    a symlink.
+    """
+
+    def __init__(self, repo: Path) -> None:
+        self.repo = repo
+        self._names: dict[Path, frozenset[str]] = {}
+
+    def _listed(self, directory: Path) -> frozenset[str]:
+        if directory not in self._names:
+            try:
+                self._names[directory] = frozenset(os.listdir(directory))
+            except OSError:
+                self._names[directory] = frozenset()
+        return self._names[directory]
+
+    def file(self, path: str) -> Path | None:
+        if not _is_canonical(path):
+            return None
+        current = self.repo
+        for part in path.split("/"):
+            if part not in self._listed(current):
+                return None
+            current = current / part
+            if current.is_symlink():
+                return None
+        return current if current.is_file() else None
+
+
 def _import_targets(
-    payload: Any, jurisdiction: str
+    payload: Any, jurisdiction: str, label: str
 ) -> list[tuple[str, str, str | None]]:
     """(jurisdiction, module, name or None) for each import entry."""
 
-    targets = []
-    if not isinstance(payload, dict) or not isinstance(payload.get("imports"), list):
+    targets: list[tuple[str, str, str | None]] = []
+    if not isinstance(payload, dict) or payload.get("imports") is None:
         return targets
+    if not isinstance(payload["imports"], list):
+        raise ReplacementCheckError(f"{label} has imports that are not a list")
     for raw in payload["imports"]:
         if not isinstance(raw, str):
-            continue
-        ref, _, name = raw.strip().partition("#")
+            raise ReplacementCheckError(
+                f"{label} has an import entry that is not a string: {raw!r}"
+            )
+        ref, marker, name = raw.strip().partition("#")
         owner, sep, module = ref.partition(":")
         if not sep:
             owner, module = jurisdiction, ref
-        targets.append((owner.strip(), module.strip().strip("/"), name.strip() or None))
+        owner, module, name = owner.strip(), module.strip(), name.strip()
+        if (
+            not _is_canonical(owner)
+            or "/" in owner
+            or not _is_canonical(module)
+            or module.endswith(".yaml")
+            or (marker and not _IDENTIFIER.fullmatch(name))
+        ):
+            raise ReplacementCheckError(
+                f"{label} has an import entry the check cannot resolve: {raw!r}"
+            )
+        targets.append((owner, module, name or None))
     return targets
 
 
+def _import_text(target: tuple[str, str, str | None]) -> str:
+    owner, module, name = target
+    return f"{owner}:{module}" + (f"#{name}" if name else "")
+
+
+def _module_inputs(payload: dict[str, Any], label: str) -> dict[str, str]:
+    """{input name: canonical declaration} for the module-level inputs."""
+
+    raw = payload.get("inputs")
+    if raw is None:
+        return {}
+    if not isinstance(raw, list):
+        raise ReplacementCheckError(f"{label} has inputs that are not a list")
+    inputs: dict[str, str] = {}
+    for item in raw:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("name"), str)
+            or not all(isinstance(key, str) for key in item)
+        ):
+            raise ReplacementCheckError(f"{label} has an input the check cannot read")
+        if item["name"] in inputs:
+            raise ReplacementCheckError(
+                f"{label} declares input {item['name']} more than once"
+            )
+        body = {
+            k: v
+            for k, v in item.items()
+            if k != "name" and k not in _INPUT_METADATA_KEYS
+        }
+        inputs[item["name"]] = json.dumps(_normal_scalar(body), sort_keys=True)
+    return inputs
+
+
+def _module_fields(payload: dict[str, Any], label: str) -> dict[str, str]:
+    """Canonical module-level fields other than rules, imports and inputs."""
+
+    fields: dict[str, str] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str):
+            raise ReplacementCheckError(f"{label} has a key that is not a string")
+        if key in {"rules", "imports", "inputs"}:
+            continue
+        if key == "module" and value is not None:
+            if not isinstance(value, dict) or not all(
+                isinstance(sub, str) for sub in value
+            ):
+                raise ReplacementCheckError(
+                    f"{label} has a module block it cannot read"
+                )
+            for sub, item in value.items():
+                if sub not in _MODULE_METADATA_KEYS:
+                    fields[f"module.{sub}"] = json.dumps(
+                        _normal_scalar(item), sort_keys=True
+                    )
+        else:
+            fields[key] = json.dumps(_normal_scalar(value), sort_keys=True)
+    return fields
+
+
 def _rulespec_files(repo: Path) -> Iterable[Path]:
+    """Module files: YAML under a jurisdiction directory (``us``, ``us-az``).
+
+    Other top-level directories (``programs``, ``bulk``, ``tests``, ``tools``)
+    and top-level files hold no modules; an import resolves to
+    ``<jurisdiction>/<module>.yaml`` only.
+    """
+
     for path in sorted(repo.rglob("*.yaml")):
         relative = path.relative_to(repo)
-        if relative.parts[0].startswith(".") or relative.parts[0] == "programs":
+        if len(relative.parts) < 2 or not _JURISDICTION.fullmatch(relative.parts[0]):
             continue
         if path.name.endswith(".test.yaml") or path.is_symlink() or not path.is_file():
             continue
@@ -303,14 +491,32 @@ def _program_scope_paths(program: dict[str, Any], spec: Path, repo: Path) -> lis
         else spec.relative_to(repo).parts[1]
     )
     country = jurisdiction.split("-", 1)[0]
-    paths = []
+    label = spec.relative_to(repo).as_posix()
+    paths: list[str] = []
     scope = program.get("scope")
-    if isinstance(scope, dict):
-        for key, entries in scope.items():
-            root = country if key == "federal" else jurisdiction
-            for entry in entries if isinstance(entries, list) else []:
-                if isinstance(entry, str):
-                    paths.append(f"{root}/{entry.strip().strip('/')}.yaml")
+    if scope is None:
+        return paths
+    if not isinstance(scope, dict):
+        raise ReplacementCheckError(f"{label} has a scope that is not a mapping")
+    for key, entries in scope.items():
+        root = country if key == "federal" else jurisdiction
+        if entries is None:
+            continue
+        if not isinstance(entries, list):
+            raise ReplacementCheckError(f"{label} scope {key!r} is not a list")
+        for entry in entries:
+            # An entry names a module without the suffix. An entry with a
+            # suffix, or any spelling that is not canonical, would be missed
+            # by a string compare, so the check refuses it.
+            if (
+                not isinstance(entry, str)
+                or not _is_canonical(entry)
+                or entry.endswith(".yaml")
+            ):
+                raise ReplacementCheckError(
+                    f"{label} has a scope entry the check cannot resolve: {entry!r}"
+                )
+            paths.append(f"{root}/{entry}.yaml")
     return paths
 
 
@@ -351,11 +557,12 @@ def _program_read_names(program: dict[str, Any]) -> set[str]:
 
 def _load_record(
     path: Path | None, old_path: str
-) -> tuple[dict[str, str], dict[str, str], set[str], list[Issue]]:
-    """Declared changes {rule: effective_from}, removals and interface changes."""
+) -> tuple[dict[str, str], dict[str, str], set[str], set[str], list[Issue]]:
+    """Declared changes {rule: effective_from}, removals, interface changes
+    and module-level field changes."""
 
     if path is None:
-        return {}, {}, set(), []
+        return {}, {}, set(), set(), []
     record = _load_yaml(path, "behavior-change record")
     findings: list[Issue] = []
     if not isinstance(record, dict) or record.get("schema") != RECORD_SCHEMA:
@@ -416,7 +623,19 @@ def _load_record(
                 )
             )
         removed[item["name"]] = item.get("reason") or ""
-    return changes, removed, interface_changes, findings
+    module_changes: set[str] = set()
+    for item in record.get("module_changes") or []:
+        if not isinstance(item, dict) or not isinstance(item.get("field"), str):
+            raise ReplacementCheckError("each module change needs a field")
+        if not isinstance(item.get("reason"), str) or not item["reason"].strip():
+            findings.append(
+                Issue(
+                    "record_missing_reason",
+                    f"module change {item['field']} has no reason",
+                )
+            )
+        module_changes.add(item["field"])
+    return changes, removed, interface_changes, module_changes, findings
 
 
 def check_replacement(
@@ -431,20 +650,45 @@ def check_replacement(
     if not new_files:
         raise ReplacementCheckError("at least one new module is required")
     old_jurisdiction, old_module = _anchor(old_path)
-    old_file = repo / old_path
-    old_raw = old_file.read_bytes() if old_file.is_file() else None
-    if old_raw is None:
-        raise ReplacementCheckError(f"old module is not a file in the repo: {old_path}")
-    old_rules = _module_rules(_load_yaml(old_file, "old module"), old_path)
+    tree = _Tree(repo)
+    old_file = tree.file(old_path)
+    if old_file is None:
+        raise ReplacementCheckError(
+            f"old module is not a file in the repo under this exact path: {old_path}"
+        )
+    old_raw = old_file.read_bytes()
+    old_payload = _load_yaml(old_file, "old module")
+    old_rules = _module_rules(old_payload, old_path)
+    old_imports = set(_import_targets(old_payload, old_jurisdiction, old_path))
+    old_inputs = _module_inputs(old_payload, old_path)
+    old_fields = _module_fields(old_payload, old_path)
 
     new_rules: dict[str, dict[str, Any]] = {}
     new_owner: dict[str, str] = {}
     new_report = []
     findings: list[Issue] = []
+    new_anchors = {_anchor(path) for path in new_files}
+    new_imports: set[tuple[str, str, str | None]] = set()
+    new_inputs: dict[str, set[str]] = {}
+    field_changes: dict[str, str] = {}
     for path, file in sorted(new_files.items()):
-        _anchor(path)
         raw = file.read_bytes()
-        for name, rule in _module_rules(_load_yaml(file, "new module"), path).items():
+        new_payload = _load_yaml(file, "new module")
+        path_rules = _module_rules(new_payload, path)
+        # An import of another new file of the same split is not an import
+        # of the replaced module's surroundings.
+        new_imports.update(
+            target
+            for target in _import_targets(new_payload, path.split("/", 1)[0], path)
+            if target[:2] not in new_anchors
+        )
+        for name, declaration in _module_inputs(new_payload, path).items():
+            new_inputs.setdefault(name, set()).add(declaration)
+        path_fields = _module_fields(new_payload, path)
+        for key in sorted(set(old_fields) | set(path_fields)):
+            if old_fields.get(key) != path_fields.get(key):
+                field_changes.setdefault(key, f"{key} differs in {path}")
+        for name, rule in path_rules.items():
             if name in new_rules:
                 findings.append(
                     Issue(
@@ -478,6 +722,9 @@ def check_replacement(
     programs: list[str] = []
     program_bound: dict[str, set[str]] = {}
     old_names = set(old_rules)
+    # Names that a scoping program or a co-scoped module defines. The
+    # composer binds by name, so a new rule must not take one of them.
+    taken: dict[str, set[str]] = {}
 
     def note(name: str, reader: str) -> None:
         consumers.setdefault(name, set()).add(reader)
@@ -486,16 +733,12 @@ def check_replacement(
         relative = file.relative_to(repo).as_posix()
         if relative == old_path or relative in new_files:
             continue
-        text = file.read_text(errors="replace")
-        if old_module not in text:
-            continue
-        try:
-            payload = yaml.safe_load(text)
-        except yaml.YAMLError as exc:
-            raise ReplacementCheckError(f"cannot read importer {relative}") from exc
+        # Every module is parsed. A text search for the module path would
+        # miss an import written with another spelling or a YAML escape.
+        payload = _load_yaml(file, "module")
         targets = [
             target
-            for target in _import_targets(payload, relative.split("/", 1)[0])
+            for target in _import_targets(payload, relative.split("/", 1)[0], relative)
             if target[:2] == (old_jurisdiction, old_module)
         ]
         if not targets:
@@ -513,13 +756,21 @@ def check_replacement(
     programs_root = repo / "programs"
     for spec in sorted(programs_root.rglob("*.yaml")) if programs_root.is_dir() else []:
         program = _load_yaml(spec, "program spec")
+        relative = spec.relative_to(repo).as_posix()
         if not isinstance(program, dict):
-            continue
+            raise ReplacementCheckError(f"program spec is not a mapping: {relative}")
         scope = _program_scope_paths(program, spec, repo)
+        for member in scope:
+            if tree.file(member) is None:
+                raise ReplacementCheckError(
+                    f"{relative} scopes {member}, which is not a file in the repo; "
+                    "the check cannot tell whether it scopes the old module"
+                )
         if old_path not in scope:
             continue
-        relative = spec.relative_to(repo).as_posix()
         programs.append(relative)
+        for name in sorted(_program_defined_names(program)):
+            taken.setdefault(name, set()).add(relative)
         for name in _program_read_names(program) & old_names:
             note(name, relative)
         bound = _program_defined_names(program) & (
@@ -530,15 +781,11 @@ def check_replacement(
         for member in scope:
             if member == old_path or member in new_files:
                 continue
-            member_file = repo / member
-            if not member_file.is_file():
-                continue
-            member_payload = _load_yaml(member_file, "scoped module")
-            if not isinstance(member_payload, dict) or not isinstance(
-                member_payload.get("rules"), list
-            ):
-                continue
-            member_rules = _module_rules(member_payload, member)
+            member_rules = _module_rules(
+                _load_yaml(repo / member, "scoped module"), member
+            )
+            for name in member_rules:
+                taken.setdefault(name, set()).add(f"{member} (via {relative})")
             for name in (
                 _formula_identifiers(member_rules) - set(member_rules)
             ) & old_names:
@@ -546,10 +793,52 @@ def check_replacement(
 
     removed_names = sorted(old_names - set(new_rules))
     added_names = sorted(set(new_rules) - old_names)
-    changes, declared_removed, declared_interface, record_findings = _load_record(
-        record_path, old_path
-    )
+    (
+        changes,
+        declared_removed,
+        declared_interface,
+        declared_module,
+        record_findings,
+    ) = _load_record(record_path, old_path)
     findings.extend(record_findings)
+
+    for name in added_names:
+        if name in taken:
+            findings.append(
+                Issue(
+                    "added_name_collides",
+                    f"{name} is added but is already defined by {', '.join(sorted(taken[name]))}",
+                )
+            )
+
+    if new_imports != old_imports:
+        gone = sorted(_import_text(t) for t in old_imports - new_imports)
+        come = sorted(_import_text(t) for t in new_imports - old_imports)
+        field_changes["imports"] = (
+            f"imports removed [{', '.join(gone)}], added [{', '.join(come)}]"
+        )
+    changed_inputs = sorted(
+        name
+        for name in set(old_inputs) | set(new_inputs)
+        if new_inputs.get(name, set()) != {old_inputs.get(name)}
+    )
+    if changed_inputs:
+        field_changes["inputs"] = f"inputs changed: {', '.join(changed_inputs)}"
+    for key, detail in sorted(field_changes.items()):
+        if key not in declared_module:
+            findings.append(
+                Issue(
+                    "undeclared_module_change",
+                    f"{detail} and the record does not declare it",
+                )
+            )
+    for key in sorted(declared_module - set(field_changes)):
+        findings.append(
+            Issue(
+                "declared_module_change_absent",
+                f"{key} is declared as a module change but it is the same",
+            )
+        )
 
     type_changed = []
     for name in sorted(old_names & set(new_rules)):
@@ -658,6 +947,13 @@ def check_replacement(
                     f"{name} differs from {first}, before its declared effective_from {changes[name]}",
                 )
             )
+        elif first > changes[name]:
+            findings.append(
+                Issue(
+                    "declared_effective_from_too_early",
+                    f"{name} first differs on {first}, after its declared effective_from {changes[name]}",
+                )
+            )
     for name in sorted(set(changes) & set(removed_names)):
         findings.append(
             Issue(
@@ -713,6 +1009,10 @@ def check_replacement(
             k: sorted(v) for k, v in sorted(program_bound.items())
         },
         "behavior_changes": behavior,
+        "module_changes": [
+            {"field": key, "detail": detail}
+            for key, detail in sorted(field_changes.items())
+        ],
         "mechanical_updates": mechanical,
         "issues": [finding.payload() for finding in findings],
         "not_checked": list(NOT_CHECKED),
@@ -756,6 +1056,10 @@ def main(argv: list[str] | None = None) -> int:
         report = check_replacement(args.repo, args.old, new_files, args.record)
     except (ReplacementCheckError, OSError) as exc:
         print(json.dumps({"schema": SCHEMA, "error": str(exc)}), file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - refuse with JSON, never a traceback
+        error = f"refused: the check failed on an input it cannot handle ({type(exc).__name__})"
+        print(json.dumps({"schema": SCHEMA, "error": error}), file=sys.stderr)
         return 2
     print(json.dumps(report, indent=2))
     return 0 if report["passed"] else 1
