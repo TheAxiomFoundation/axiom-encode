@@ -1,70 +1,84 @@
-"""Post-run checks for new inputs in an encoded CFR module (A/B tool, not a validator).
+"""A/B report aid: list the new inputs of an encoded CFR module for a reader.
+
+This tool is NOT a gate and NOT a validator. It prints rows that a person
+reads after an A/B run. Its checks are lexical; a FAIL or WARN line points the
+reader at a row, and a row without one is not proof that the encoding is
+right. It still fails closed on bad input, and it still fails the known
+federal-amount attacks.
 
 Usage:
     python scripts/check_state_set_inputs.py --rulespec-root <rulespec-us/us> \\
         --unit <us/regulation/42/435/733> --source <source.txt> \\
         --module <candidate.yaml> [--baseline <baseline.yaml>]
 
-Every input of the candidate that the baseline does not have is checked:
-root `inputs` entries and implicit inputs (a free name in a formula that is
-no rule, no import and no root input, the style of 42 CFR 435.811 on main).
+Every input of the candidate that the baseline does not have is listed: root
+`inputs` entries and implicit inputs (a free name in a formula that is no
+rule, no import and no root input).
 
-The tool fails closed. It exits 2 with an `ERROR` line when it cannot do its
-work: a path that does not exist (`--rulespec-root`, `--source`, `--module`,
-`--baseline`), a module, baseline or RuleSpec-root file that is not parsable
-YAML, a module whose `inputs` or `rules` is not a list of mappings, a
+Two tables:
+
+- State-set amount inputs (checked). A new input is in this table when it
+  claims to be a State-set amount: a root `inputs` entry with a numeric
+  `dtype` whose `description` names a provision (`N CFR P.S`, `§ P.S`,
+  `section N`, a bare `P.S` of the unit's own part) or names the State or the
+  agency; or any new input that a verified source phrase binds (see trigger).
+- Fact inputs (not checked). Every other new input: Booleans, income,
+  household facts, implicit inputs. They never fail. The reader checks that
+  no amount hides there.
+
+The last line is machine-readable, for A/B scoring:
+
+    state_set_inputs=<n> failures=<n> warnings=<n>
+
+`state_set_inputs` counts the checked inputs that have a trigger. A branch
+counts as encoded with a State-set input only when `state_set_inputs >= 1 and
+failures == 0`. A deferred module (`rules: []`) prints `state_set_inputs=0`
+and exits 0; that is not a success.
+
+Exit 2 with an `ERROR` line (no table, no summary line) when the tool cannot
+do its work: a path that does not exist, a file that is not parsable YAML, a
+module or baseline whose `module`, `inputs`, `rules`, `metadata`, `proof`,
+`atoms` or `versions` has the wrong shape, an input without a name, a
 RuleSpec root with no module, an empty source, or a module whose
 `module.source_verification.corpus_citation_path` is missing or is not the
-unit given with `--unit`. The unit comes from the caller, not from the
-module, so a module cannot declare itself into scope.
+unit given with `--unit`.
 
-For each new input it prints one owner-table row (with the trigger that
-applies) and a FAIL line for each failed check; it exits 1 when any check
-fails:
+Exit 1 when a checked input has a FAIL line:
 
 1. scope: the unit is on the allow-list of CFR parts for which the State-set
-   amount rule is emitted (`CFR_STATE_SET_AMOUNT_PARTS` of the encoder
-   prompt). A new input in any other unit fails.
-2. description: a root `inputs` entry whose `description` names a provision
-   (`N CFR P.S`, `§ P.S`, `section N`, or a bare `P.S` of the unit's own CFR
-   part such as `435.811`). An implicit input has none and fails. The
-   description is model-authored; it never satisfies the trigger.
-3. value: a State-set value is a number; a Boolean or Judgment input is a
-   fact and fails.
-4. excerpt: every proof excerpt of a rule that uses the input is verbatim
-   (whitespace-normalised) in the unit's source text. An excerpt that is not
-   in the source fails and is not used for the trigger.
-5. trigger: acceptance is a positive condition that binds one verified
-   excerpt to one input. The excerpt must hold a phrase of a closed shape,
-   and the head noun phrase of that phrase (its words up to the first
-   preposition) must hold every word of the input's name (`amount` and
-   `state` are free). The shapes, recorded per input as the first that binds:
+   amount rule is emitted (`CFR_STATE_SET_AMOUNT_PARTS`).
+2. description: the `description` names a provision.
+3. excerpt: every proof excerpt of a rule that uses the input is verbatim
+   (whitespace-normalised) in the unit's source text.
+4. trigger: one phrase of the unit source, inside a verified excerpt, binds
+   the input. The phrase has a closed shape, and the input's name contains
+   every word of the head noun phrase (plurals normalised; `amount`, `state`
+   and `such` are free; the name may add qualifiers):
    - `actor`: the State, the State agency or (only in the CFR parts where the
      agency is the State agency) the agency is the actor of a verb of the
-     closed list establish, set, elect, specify, select, choose, and the
-     noun phrase is the object of that verb: "<the> NP established by the
-     agency", "<the> NP the State elects", "the agency sets <the> NP". The
-     verb determine counts only with "in/under its State plan" after it.
+     closed list establish, set, elect, specify, select, choose, and the head
+     noun phrase is the object: "<the> NP established by the agency", "<the>
+     NP the State elects", "the agency sets <the> NP". The verb determine
+     counts only with "in/under its State plan".
    - `plan-level`: a level in effect on a stated calendar date under the
-     State's own plan: "State's AFDC payment|income standard in effect as
-     of <date>", or "<the> NP under the [Medicaid] State plan [or waiver of
-     the State plan] as of <date>".
-   One excerpt serves one input. Because the noun phrase ends at the first
-   preposition, in "a percentage of the Federal poverty level that the State
-   elects" only `percentage` binds: a federal base (a benefit rate, the
-   poverty level, a price index) is never the bound amount. No list of
-   federal names is used.
-6. relation: when a new input has a trigger, the module holds a
+     State's own plan: "State's AFDC payment|income standard in effect as of
+     <date>", "<the> NP under the [Medicaid] State plan ... as of <date>",
+     "<the> NP in effect under the State's Medicaid plan on <date>".
+   The head noun phrase ends at the first preposition, so in "a percentage of
+   the Federal poverty level that the State elects" only a name with
+   `percentage` binds. One source span (character range of the phrase in the
+   normalised source) binds one input, whatever excerpt cites it.
+5. relation: when an input has a trigger, the module holds a
    `kind: source_relation` record with `source_relation.type: delegates`.
-7. exported: no rule anywhere under the RuleSpec root has the same name.
-8. literals: when the module has a new input, every dollar amount and every
-   "N percent" (also "133 1/3 percent") of the unit's source text is a number
-   in some `versions[].formula` of the module (N, N/100 or a fraction).
-   Summaries and proof excerpts do not count.
+6. exported: no rule anywhere under the RuleSpec root has the same name.
+7. literals: when the module has a checked input, every dollar amount, every
+   "N percent" / "N%" (also "133 1/3 percent") and every "one-half"-style
+   fraction of the unit source is a number in some `versions[].formula`.
 
-The binding is lexical: it proves that the source attributes an amount with
-that name to the State, not that the formula uses it correctly. The owner
-reads every row.
+WARN (no exit code): `qualifier` lists the words of an input's name that are
+not in its bound excerpt. Known residual: a name with a federal qualifier
+(`ssi_income_standard`) binds a generic phrase ("the income standard
+established by the agency"); the reader sees the extra word `ssi`.
 """
 
 from __future__ import annotations
@@ -74,6 +88,7 @@ import math
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -81,7 +96,7 @@ from axiom_encode import corpus_resolver
 from axiom_encode.harness import evals
 from axiom_encode.prompts import encoder as encoder_prompt
 
-_DETERMINERS = frozenset({"the", "a", "an", "any", "each"})
+_DETERMINERS = frozenset({"the", "a", "an", "any", "each", "such"})
 # A noun phrase ends at the first of these words.
 _PHRASE_ENDS = frozenset(
     "of for to at in on under by as than from with per that which who whose "
@@ -109,7 +124,8 @@ _AFDC_LEVEL = re.compile(
     rf"(?:as\s+of|on)\s+{_DATE}"
 )
 _PLAN_LEVEL = re.compile(
-    r"\s+under\s+the\s+(?:Medicaid\s+)?State\s+plan"
+    r"\s+(?:in\s+effect\s+)?under\s+the\s+"
+    r"(?:(?:Medicaid\s+)?State\s+plan|State's\s+Medicaid\s+plan)"
     r"(?:\s+or\s+(?:a\s+)?waiver\s+of\s+the\s+(?:State\s+)?plan)?"
     r"(?:\s+under\s+section\s+1115(?:\s+of\s+the\s+Act)?)?"
     rf",?\s+{_ON_DATE}"
@@ -118,19 +134,55 @@ _CLAUSE_END = re.compile(r"[.;:,()—]")
 _PROVISION = re.compile(r"\b\d+\s+C\.?\s?F\.?\s?R\.?\s+\S|§\s*\d|\bsection\s+\d", re.I)
 _DOLLAR = re.compile(r"\$\s?(\d[\d,]*(?:\.\d+)?)")
 _PERCENT = re.compile(
-    r"(?<![\d./])(\d+(?:\.\d+)?)(?:\s+(\d+)/(\d+))?\s*percent\b", re.IGNORECASE
+    r"(?<![\d./])(\d+(?:\.\d+)?)(?:\s+(\d+)/(\d+))?\s*(?:percent\b|%)",
+    re.IGNORECASE,
 )
+_WORD_FRACTIONS = {
+    "one-half": 1 / 2,
+    "one-third": 1 / 3,
+    "two-thirds": 2 / 3,
+    "one-fourth": 1 / 4,
+    "one-quarter": 1 / 4,
+    "three-fourths": 3 / 4,
+    "three-quarters": 3 / 4,
+}
+_WORD_FRACTION = re.compile(r"\b(" + "|".join(_WORD_FRACTIONS) + r")\b", re.IGNORECASE)
 _NUMBER = r"\d+(?:\.\d+)?"
 _FORMULA_FRACTION = re.compile(rf"({_NUMBER})\s*/\s*({_NUMBER})")
 _FORMULA_NUMBER = re.compile(rf"(?<![A-Za-z_\d.]){_NUMBER}")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _NUMERIC_DTYPES = frozenset({"money", "rate", "decimal", "integer", "number"})
-# Name words that need not be in the source phrase.
-_FREE_NAME_WORDS = frozenset({"amount", "state"})
+# Phrase words that the input's name need not contain.
+_FREE_PHRASE_WORDS = frozenset({"amount", "state", "such"})
+_STATE_CLAIM = re.compile(r"\b(?:State|agency)\b")
 
 
 class ToolError(Exception):
     """The tool cannot do its work; the run must not count as a pass."""
+
+
+class Report:
+    """What the tool found: two tables, FAIL lines, WARN lines, one count."""
+
+    def __init__(self) -> None:
+        self.rows: list[str] = []
+        self.fact_rows: list[str] = []
+        self.failures: list[str] = []
+        self.warnings: list[str] = []
+        self.state_set_inputs = 0
+
+    @property
+    def summary(self) -> str:
+        return (
+            f"state_set_inputs={self.state_set_inputs} "
+            f"failures={len(self.failures)} warnings={len(self.warnings)}"
+        )
+
+
+class Phrase(NamedTuple):
+    kind: str
+    words: frozenset[str]  # head noun phrase
+    span: tuple[int, int]  # of the verb or plan construct, in the flat source
 
 
 def _flat(text: str) -> str:
@@ -146,7 +198,24 @@ def _read(path: Path, what: str) -> str:
         raise ToolError(f"{what} is not readable: {path}") from exc
 
 
+def _mappings(value: object, what: str, path: Path) -> list[dict]:
+    if value is None:
+        return []
+    if not (isinstance(value, list) and all(isinstance(i, dict) for i in value)):
+        raise ToolError(f"{what} is not a list of mappings: {path}")
+    return value
+
+
+def _mapping(value: object, what: str, path: Path) -> dict:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ToolError(f"{what} is not a mapping: {path}")
+    return value
+
+
 def _payload(path: Path, what: str) -> dict:
+    """Load a module or baseline and refuse every shape the checks rely on."""
     text = _read(path, what)
     try:
         payload = yaml.safe_load(text)
@@ -154,12 +223,17 @@ def _payload(path: Path, what: str) -> dict:
         raise ToolError(f"{what} is not parsable YAML: {path}") from exc
     if not isinstance(payload, dict):
         raise ToolError(f"{what} is not a YAML mapping: {path}")
-    for key in ("inputs", "rules"):
-        value = payload.get(key)
-        if value is not None and not (
-            isinstance(value, list) and all(isinstance(item, dict) for item in value)
-        ):
-            raise ToolError(f"{what} `{key}` is not a list of mappings: {path}")
+    module = _mapping(payload.get("module"), f"{what} `module`", path)
+    _mapping(module.get("source_verification"), f"{what} `source_verification`", path)
+    for item in _mappings(payload.get("inputs"), f"{what} `inputs`", path):
+        if not item.get("name"):
+            raise ToolError(f"{what} has an input without a name: {path}")
+    for rule in _mappings(payload.get("rules"), f"{what} `rules`", path):
+        _mappings(rule.get("versions"), f"{what} `versions`", path)
+        metadata = _mapping(rule.get("metadata"), f"{what} `metadata`", path)
+        proof = _mapping(metadata.get("proof"), f"{what} `proof`", path)
+        for atom in _mappings(proof.get("atoms"), f"{what} `atoms`", path):
+            _mapping(atom.get("source"), f"{what} atom `source`", path)
     return payload
 
 
@@ -178,11 +252,7 @@ def _formulas(rule: dict) -> list[str]:
 def module_inputs(path: Path, what: str = "module") -> dict[str, dict]:
     """Return every input of a module: root entries and implicit names."""
     payload = _payload(path, what)
-    inputs = {
-        str(item["name"]): dict(item)
-        for item in payload.get("inputs") or []
-        if item.get("name")
-    }
+    inputs = {str(item["name"]): dict(item) for item in payload.get("inputs") or []}
     formulas = "\n".join(f for rule in _rules(payload) for f in _formulas(rule))
     for name in sorted(evals._context_file_local_inputs(str(path))):
         if re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}\s*\(", formulas):
@@ -215,7 +285,7 @@ def exported_names(root: Path) -> set[str]:
 
 
 def _words(text: str) -> list[str]:
-    words = (re.sub(r"['\u2019]s$", "", word.strip(",")) for word in text.split())
+    words = (re.sub(r"['’]s$", "", word.strip(",")) for word in text.split())
     return [word.lower() for word in words if word]
 
 
@@ -237,18 +307,25 @@ def _head(words: list[str]) -> frozenset[str]:
 def _phrase_before(text: str, end: int) -> frozenset[str]:
     """Head noun phrase that ends at `end`.
 
-    The phrase runs back to a determiner or the clause start, and on through
-    "of" ("a percentage of the Federal poverty level" starts at "percentage"),
-    so the head is the amount itself, not the quantity it is a share of.
+    The phrase runs back to a determiner, and on through "of" ("a percentage
+    of the Federal poverty level" starts at "percentage"), so the head is the
+    amount itself, not the quantity it is a share of. With no determiner in
+    the clause, the phrase starts after the last preposition other than "of"
+    ("subject to reasonable limits" is "reasonable limits").
     """
     clause = _words(_CLAUSE_END.split(text[:end])[-1])
     start = len(clause)
     while start > 0:
         word = clause[start - 1]
         if word in _DETERMINERS and not (start > 1 and clause[start - 2] == "of"):
-            break
+            return _head(clause[start:])
         start -= 1
-    return _head(clause[start:])
+    for index in range(len(clause) - 1, -1, -1):
+        if clause[index] in _PHRASE_ENDS and clause[index] != "of":
+            head = _head(clause[index + 1 :])
+            if head:
+                return head
+    return _head(clause)
 
 
 def _phrase_after(text: str, start: int) -> frozenset[str]:
@@ -262,20 +339,19 @@ def _phrase_after(text: str, start: int) -> frozenset[str]:
     return _head(run)
 
 
-def actor_amount_phrases(
-    excerpt: str, *, agency_is_state: bool
-) -> list[frozenset[str]]:
-    """Noun phrases that the text makes the object of a State actor's verb."""
-    text = _flat(excerpt)
+def _actor_phrases(text: str, *, agency_is_state: bool) -> list[Phrase]:
     actor = f"(?:{_STATE_ACTOR}|{_AGENCY_ACTOR})" if agency_is_state else _STATE_ACTOR
-    phrases: list[frozenset[str]] = []
+    found: list[Phrase] = []
 
     def scan(pattern: str, *, before: bool) -> None:
         for match in re.finditer(pattern, text, re.IGNORECASE):
-            if before:
-                phrases.append(_phrase_before(text, match.start()))
-            else:
-                phrases.append(_phrase_after(text, match.end()))
+            words = (
+                _phrase_before(text, match.start())
+                if before
+                else _phrase_after(text, match.end())
+            )
+            if words:
+                found.append(Phrase("actor", words, match.span()))
 
     active = rf"(?:{_MODAL}{_BASE}|has\s+{_PARTICIPLE}|{_THIRD})\b"
     determine = rf"(?:{_MODAL}determine|determines)\b"
@@ -291,49 +367,77 @@ def actor_amount_phrases(
         rf"{actor}\s+{determine}{_OBJECT_START}(?=[^.;]{{0,120}}?\b{_IN_STATE_PLAN})",
         before=False,
     )
-    return [phrase for phrase in phrases if phrase]
+    return found
+
+
+def _plan_phrases(text: str) -> list[Phrase]:
+    found = [
+        Phrase("plan-level", _head(_words(match.group(0))), match.span())
+        for match in _AFDC_LEVEL.finditer(text)
+    ]
+    for match in _PLAN_LEVEL.finditer(text):
+        words = _phrase_before(text, match.start())
+        if words:
+            found.append(Phrase("plan-level", words, match.span()))
+    return found
+
+
+def actor_amount_phrases(
+    excerpt: str, *, agency_is_state: bool
+) -> list[frozenset[str]]:
+    """Noun phrases that the text makes the object of a State actor's verb."""
+    found = _actor_phrases(_flat(excerpt), agency_is_state=agency_is_state)
+    return [phrase.words for phrase in found]
 
 
 def plan_level_phrases(excerpt: str) -> list[frozenset[str]]:
     """Levels in effect on a stated date under the State's own plan."""
-    text = _flat(excerpt)
-    phrases = [
-        _head(_words(match.group(0))) | frozenset(re.findall(r"\d{4}", match.group(0)))
-        for match in _AFDC_LEVEL.finditer(text)
-    ]
-    for match in _PLAN_LEVEL.finditer(text):
-        phrase = _phrase_before(text, match.start())
-        if phrase:
-            years = re.findall(r"\b\d{4}\b", match.group(0))
-            phrases.append(phrase | frozenset(years))
-    return phrases
+    return [phrase.words for phrase in _plan_phrases(_flat(excerpt))]
 
 
-def name_words(name: str) -> frozenset[str]:
-    return frozenset(name.lower().split("_")) - _FREE_NAME_WORDS - {""}
+def source_phrases(
+    flat_source: str, unit_key: tuple[str, str, str] | None
+) -> list[Phrase]:
+    """Every phrase of a closed shape in the unit source; none off the allow-list."""
+    if (
+        unit_key is None
+        or unit_key[:2] not in encoder_prompt.CFR_STATE_SET_AMOUNT_PARTS
+    ):
+        return []
+    agency_is_state = unit_key[:2] in encoder_prompt.CFR_PARTS_WHERE_AGENCY_IS_THE_STATE
+    return _actor_phrases(flat_source, agency_is_state=agency_is_state) + _plan_phrases(
+        flat_source
+    )
+
+
+def _singular(word: str) -> str:
+    return word[:-1] if word.endswith("s") and not word.endswith("ss") else word
+
+
+def name_binds(name: str, phrase_words: frozenset[str]) -> bool:
+    """True when the input's name contains every word of the head noun phrase."""
+    name_words = {_singular(word) for word in name.lower().split("_") if word}
+    core = {_singular(word) for word in phrase_words} - _FREE_PHRASE_WORDS
+    return bool(core) and core <= name_words
 
 
 def state_set_trigger(
     name: str, excerpt: str, unit_key: tuple[str, str, str] | None
 ) -> str | None:
-    """Return the closed shape that binds this excerpt to this input name."""
-    if (
-        unit_key is None
-        or unit_key[:2] not in encoder_prompt.CFR_STATE_SET_AMOUNT_PARTS
-    ):
-        return None
-    needed = name_words(name)
-    if not needed:
-        return None
-    agency_is_state = unit_key[:2] in encoder_prompt.CFR_PARTS_WHERE_AGENCY_IS_THE_STATE
-    shapes = (
-        ("actor", actor_amount_phrases(excerpt, agency_is_state=agency_is_state)),
-        ("plan-level", plan_level_phrases(excerpt)),
-    )
-    for kind, phrases in shapes:
-        if any(needed <= phrase for phrase in phrases):
-            return kind
+    """Return the closed shape by which this text binds this input name."""
+    for phrase in source_phrases(_flat(excerpt), unit_key):
+        if name_binds(name, phrase.words):
+            return phrase.kind
     return None
+
+
+def _occurrences(text: str, part: str) -> list[tuple[int, int]]:
+    spans = []
+    start = text.find(part)
+    while start != -1:
+        spans.append((start, start + len(part)))
+        start = text.find(part, start + 1)
+    return spans
 
 
 def unit_section_key(citation: str) -> tuple[str, str, str] | None:
@@ -356,6 +460,18 @@ def provision_named(description: str, unit_key: tuple[str, str, str] | None) -> 
     )
 
 
+def claims_state_set_amount(item: dict, unit_key: tuple[str, str, str] | None) -> bool:
+    """A numeric root input whose description cites a provision or the State."""
+    if item.get("implicit"):
+        return False
+    if str(item.get("dtype") or "").lower() not in _NUMERIC_DTYPES:
+        return False
+    description = str(item.get("description") or "")
+    return provision_named(description, unit_key) or bool(
+        _STATE_CLAIM.search(description)
+    )
+
+
 def has_delegates_relation(payload: dict) -> bool:
     return any(
         rule.get("kind") == "source_relation"
@@ -366,8 +482,8 @@ def has_delegates_relation(payload: dict) -> bool:
 
 
 def literal_values(source: str) -> list[tuple[str, list[float], float]]:
-    """Dollar amounts and percentages the source states: label, accepted
-    forms, and the tolerance (exact, but for a fraction such as 133 1/3)."""
+    """Dollar amounts, percentages and word fractions the source states:
+    label, accepted forms, and the tolerance (exact, but for thirds)."""
     flat = _flat(source)
     values: list[tuple[str, list[float], float]] = []
     for raw in _DOLLAR.findall(flat):
@@ -381,6 +497,8 @@ def literal_values(source: str) -> list[tuple[str, list[float], float]]:
             label = f"{whole} {numerator}/{denominator}"
             tolerance = 1e-3
         values.append((f"{label} percent", [number, number / 100], tolerance))
+    for raw in _WORD_FRACTION.findall(flat):
+        values.append((raw.lower(), [_WORD_FRACTIONS[raw.lower()]], 1e-3))
     return values
 
 
@@ -394,8 +512,8 @@ def formula_numbers(formula_text: str) -> list[float]:
 
 def check(
     root: Path, unit: str, source: str, module: Path, baseline: Path | None
-) -> tuple[list[str], list[str]]:
-    """Return (owner-table rows, failures); raise ToolError when it cannot check."""
+) -> Report:
+    """Return the report; raise ToolError when the tool cannot check."""
     payload = _payload(module, "module")
     verification = (payload.get("module") or {}).get("source_verification") or {}
     citation = str(verification.get("corpus_citation_path") or "")
@@ -421,15 +539,14 @@ def check(
     formula_text = "\n".join(
         formula for rule in _rules(payload) for formula in _formulas(rule)
     )
-    rows: list[str] = []
-    failures: list[str] = []
+    phrases = source_phrases(flat_source, unit_key)
+    report = Report()
 
     def fail(message: str) -> None:
-        if message not in failures:
-            failures.append(message)
+        if message not in report.failures:
+            report.failures.append(message)
 
-    any_trigger = False
-    bound: dict[str, str] = {}  # excerpt -> the one input it serves
+    bound: dict[tuple[int, int], str] = {}  # source span -> the one input it serves
     for name, item in module_inputs(module).items():
         if name in old:
             continue
@@ -443,33 +560,43 @@ def check(
             for rule in users
             for atom in ((rule.get("metadata") or {}).get("proof") or {}).get("atoms")
             or []
-            if isinstance(atom, dict)
-            and isinstance(atom.get("source"), dict)
-            and atom["source"].get("excerpt")
+            if (atom.get("source") or {}).get("excerpt")
         ]
         # Only text that is verbatim in the unit source counts from here on.
         excerpts = [excerpt for excerpt in cited if excerpt in flat_source]
-        description = str(item.get("description") or "")
         trigger = None
         taken = None
-        shown = ""
+        bound_excerpt = ""
         for excerpt in excerpts:
-            kind = state_set_trigger(name, excerpt, unit_key)
-            if kind is None:
-                continue
-            if bound.setdefault(excerpt, name) != name:
-                taken = bound[excerpt]
-                continue
-            trigger, shown = kind, excerpt
-            break
-        any_trigger = any_trigger or trigger is not None
-        shown = " ".join((shown or (excerpts[0] if excerpts else "")).split()[:12])
+            for start, end in _occurrences(flat_source, excerpt):
+                for phrase in phrases:
+                    inside = start <= phrase.span[0] and phrase.span[1] <= end
+                    if not (inside and name_binds(name, phrase.words)):
+                        continue
+                    if bound.setdefault(phrase.span, name) != name:
+                        taken = bound[phrase.span]
+                        continue
+                    trigger, bound_excerpt = phrase.kind, excerpt
+                    break
+                if trigger:
+                    break
+            if trigger:
+                break
+        shown = " ".join(
+            (bound_excerpt or (excerpts[0] if excerpts else "")).split()[:12]
+        )
         shape = "implicit" if item.get("implicit") else "root"
-        rows.append(
+        row = (
             f"| {module.stem} | {name} | {shape} | "
             f"{item.get('entity', '-')}/{item.get('dtype', '-')}/{item.get('period', '-')}"
             f" | {trigger or '-'} | {shown} |"
         )
+        if trigger is None and not claims_state_set_amount(item, unit_key):
+            report.fact_rows.append(row)
+            continue
+        report.rows.append(row)
+        report.state_set_inputs += trigger is not None
+        description = str(item.get("description") or "")
         if not in_scope:
             fail(
                 f"scope: `{name}` is a new input of `{unit}`, a unit outside "
@@ -477,8 +604,6 @@ def check(
             )
         if not provision_named(description, unit_key):
             fail(f"description: `{name}` has no description naming a provision")
-        if str(item.get("dtype") or "").lower() not in _NUMERIC_DTYPES:
-            fail(f"value: `{name}` is not a number; a State-set value is")
         for excerpt in cited:
             if excerpt not in flat_source:
                 fail(
@@ -488,17 +613,33 @@ def check(
         if in_scope and trigger is None:
             if taken is not None:
                 fail(
-                    f"trigger: the only excerpt that names `{name}` already "
-                    f"serves `{taken}`; one excerpt serves one input"
+                    f"trigger: the only source phrase that names `{name}` "
+                    f"already serves `{taken}`; one phrase serves one input"
                 )
             else:
                 fail(
                     f"trigger: no verified source excerpt makes `{name}` the "
                     "object of a State actor's verb, or a dated State plan level"
                 )
+        if trigger is not None:
+            excerpt_words = {
+                _singular(word) for word in re.findall(r"\w+", bound_excerpt.lower())
+            }
+            extra = sorted(
+                word
+                for word in name.lower().split("_")
+                if word
+                and word not in _FREE_PHRASE_WORDS
+                and _singular(word) not in excerpt_words
+            )
+            if extra:
+                report.warnings.append(
+                    f"qualifier: `{name}` adds words that are not in its source "
+                    f"excerpt: {', '.join(extra)}"
+                )
         if name in exports:
             fail(f"exported: `{name}` is a rule name under the RuleSpec root")
-    if rows:
+    if report.rows:
         numbers = formula_numbers(formula_text)
         for label, forms, tolerance in literal_values(source):
             if not any(
@@ -507,12 +648,18 @@ def check(
                 for form in forms
             ):
                 fail(f"literal: {label} of the unit source is in no formula")
-    if any_trigger and not has_delegates_relation(payload):
+    if report.state_set_inputs and not has_delegates_relation(payload):
         fail(
             "relation: the module has no `kind: source_relation` record with "
             "`source_relation.type: delegates` for the State-set amount"
         )
-    return rows, failures
+    return report
+
+
+_TABLE_HEAD = (
+    "| unit | input | form | entity/dtype/period | trigger | citing excerpt |\n"
+    "|---|---|---|---|---|---|"
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -526,7 +673,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline", type=Path)
     args = parser.parse_args(argv)
     try:
-        rows, failures = check(
+        report = check(
             args.rulespec_root,
             args.unit,
             _read(args.source, "unit source"),
@@ -536,13 +683,18 @@ def main(argv: list[str] | None = None) -> int:
     except ToolError as exc:
         print(f"ERROR {exc}", file=sys.stderr)
         return 2
-    print("| unit | input | form | entity/dtype/period | trigger | citing excerpt |")
-    print("|---|---|---|---|---|---|")
-    print("\n".join(rows))
-    for failure in failures:
+    print("State-set amount inputs (checked):")
+    print(_TABLE_HEAD)
+    print("\n".join(report.rows))
+    print("\nFact inputs (not checked):")
+    print(_TABLE_HEAD)
+    print("\n".join(report.fact_rows))
+    for failure in report.failures:
         print(f"FAIL {failure}")
-    print(f"new inputs: {len(rows)}; failures: {len(failures)}")
-    return 1 if failures else 0
+    for warning in report.warnings:
+        print(f"WARN {warning}")
+    print(report.summary)
+    return 1 if report.failures else 0
 
 
 if __name__ == "__main__":

@@ -1770,9 +1770,10 @@ CFR_STATE_SET_AMOUNT_RULE = """- Exception for State-set amounts (federal units 
   cited module is deferred.
 - Each State-set input needs its own source phrase. In that phrase the
   amount itself is the object of the verb in form (a), or is the level named
-  in form (b), and the input's name uses the words of that amount. One phrase
-  supports one input; a phrase for one amount does not support a second
-  amount of the same rule.
+  in form (b). The input's name contains the words of that amount's noun
+  phrase ("income standard" gives a name with `income_standard`); the name
+  may add qualifiers. One phrase supports one input; a phrase for one amount
+  does not support a second amount of the same rule.
 - When the phrase defines the amount from another quantity (a percentage of
   a benefit amount or of the Federal poverty level, an adjustment by a price
   index), only the parameter that the State chooses, such as the percentage
@@ -1790,8 +1791,20 @@ CFR_STATE_SET_AMOUNT_RULE = """- Exception for State-set amounts (federal units 
   or (b) is not a State-set input. That holds for every amount that a federal
   statute, a federal regulation, a federal agency, or a federal formula sets,
   also when the amount differs by State and also when this unit states no
-  number: import it when a copied context module exports it; otherwise defer
-  that branch with a reason that names that federal provision.
+  number.
+- When a branch depends on such a federally set amount that this unit does
+  not state (for example the SSI income standard or the Federal benefit
+  rate), do not make the amount an input and do not write a vague deferral.
+  First look for an import: when a copied context module for the provision
+  that the source cites exports the amount, import that export. Do not defer
+  a branch until a provision is encoded when a copied context module for that
+  provision has the needed export.
+- Otherwise defer that branch and write `reason` as the deferral-reason rules
+  of this prompt require: name the exact federal provision that the source
+  cites (the section of the Act or the CFR section, as the source writes it),
+  not a description of the amount. When the source cites no provision for the
+  amount, cite this unit's exact branch and name the federal amount as the
+  missing input, as those rules require for a branch of the current source.
 - Encode literally every number, percentage of the Federal poverty level, or
   dollar amount that this source or a cited federal provision states; such a
   value is never an input. A federally stated floor or ceiling, such as "at
@@ -1808,8 +1821,8 @@ CFR_STATE_SET_AMOUNT_RULE = """- Exception for State-set amounts (federal units 
   `entity`, `dtype`, `period`, `unit` for money, and a `description` that
   names the provision under which the State or agency sets it. When the
   source cites a section of this CFR part whose copied module lists the value
-  as a local input slot under a name made of those words, use that module's
-  input identifier; otherwise use a name made of the words of that amount.
+  as a local input slot under a name that contains those words, use that
+  module's input identifier.
 - Give the rule that uses the State-set value one proof atom per State-set
   input whose excerpt is, word for word, that input's phrase of this unit's
   source text. Encode the branch's own comparisons, max/min, and conditions

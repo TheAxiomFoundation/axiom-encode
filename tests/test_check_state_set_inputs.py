@@ -136,8 +136,14 @@ def _one(tmp_path, name, excerpt, *, formula=None, **kwargs):
     )
 
 
+def _report(root, tmp_path, module, source=SOURCE, unit=UNIT, baseline=True):
+    base = _baseline(tmp_path) if baseline else None
+    return script.check(root, unit, source, module, base)
+
+
 def _check(root, tmp_path, module, source=SOURCE, unit=UNIT):
-    return script.check(root, unit, source, module, _baseline(tmp_path))
+    report = _report(root, tmp_path, module, source, unit)
+    return report.rows, report.failures
 
 
 def _main(root, source_path, module, baseline=None, unit=UNIT):
@@ -208,13 +214,14 @@ def test_state_actor_in_a_verified_excerpt_passes(root, tmp_path):
     )
 
 
-def test_baseline_inputs_are_not_new(root, tmp_path):
-    rows, _failures = script.check(root, UNIT, SOURCE, _module(tmp_path), None)
-    assert {row.split(" | ")[1] for row in rows} == {
-        "medically_needy_income_standard_amount",
-        "need",
-        "fpl",
-    }
+def test_baseline_inputs_are_not_new_and_facts_are_not_checked(root, tmp_path):
+    report = _report(root, tmp_path, _module(tmp_path), baseline=False)
+    assert [row.split(" | ")[1] for row in report.rows] == [
+        "medically_needy_income_standard_amount"
+    ]
+    assert {row.split(" | ")[1] for row in report.fact_rows} == {"need", "fpl"}
+    assert report.failures == []
+    assert report.summary == "state_set_inputs=1 failures=0 warnings=0"
 
 
 def test_input_without_description_fails(root, tmp_path):
@@ -249,15 +256,34 @@ def test_bare_section_of_the_units_part_names_a_provision(
     assert any(f.startswith("description:") for f in failures) is (not ok)
 
 
-def test_implicit_identifier_is_an_input_and_fails_description(root, tmp_path):
-    rows, failures = _check(root, tmp_path, _module(tmp_path, root_input=False))
-    assert "| medically_needy_income_standard_amount | implicit | -/-/- |" in rows[0]
-    assert failures == [
+def test_implicit_identifier_without_a_phrase_is_a_fact_row(root, tmp_path):
+    """No root entry, no claim, no bound phrase: listed for the reader, not
+    checked. The run is not a success: `state_set_inputs` stays 0."""
+    module = _module(tmp_path, root_input=False, excerpt=NO_ACTOR_EXCERPT)
+    report = _report(root, tmp_path, module)
+    assert report.rows == [] and report.failures == []
+    assert (
+        "| medically_needy_income_standard_amount | implicit | -/-/- |"
+        in (report.fact_rows[0])
+    )
+    assert report.summary == "state_set_inputs=0 failures=0 warnings=0"
+
+
+def test_implicit_identifier_that_a_phrase_binds_is_checked(root, tmp_path):
+    report = _report(root, tmp_path, _module(tmp_path, root_input=False))
+    assert report.fact_rows == []
+    assert "| implicit | -/-/- | actor |" in report.rows[0]
+    assert report.failures == [
         "description: `medically_needy_income_standard_amount` has no description "
-        "naming a provision",
-        "value: `medically_needy_income_standard_amount` is not a number; a "
-        "State-set value is",
+        "naming a provision"
     ]
+    assert report.summary == "state_set_inputs=1 failures=1 warnings=0"
+
+
+def test_numeric_input_that_names_the_state_needs_a_provision(root, tmp_path):
+    module = _module(tmp_path, description="Standard that the agency sets.")
+    _rows, failures = _check(root, tmp_path, module)
+    assert _kinds(failures) == ["description"]
 
 
 def test_exported_name_fails(root, tmp_path):
@@ -271,18 +297,27 @@ def test_exported_name_fails(root, tmp_path):
     ]
 
 
-def test_boolean_input_is_not_a_state_set_value(root, tmp_path):
+@pytest.mark.parametrize(
+    ("name", "dtype", "description"),
+    [
+        ("agency_elects_option", "Boolean", "Election under 42 CFR 435.811."),
+        ("household_is_institutionalized", "Judgment", None),
+        ("household_income", "Money", "Countable income of the household."),
+        ("household_size", "Integer", None),
+    ],
+)
+def test_plain_fact_inputs_do_not_fail(root, tmp_path, name, dtype, description):
     module = _module(
         tmp_path,
-        name="agency_elects_option",
-        dtype="Boolean",
-        formula="agency_elects_option",
+        name=name,
+        dtype=dtype,
+        description=description,
+        formula=f"max(30, 1.33 * fpl) if {name} else need",
     )
-    _rows, failures = _check(root, tmp_path, module)
-    assert (
-        "value: `agency_elects_option` is not a number; a State-set value is"
-        in failures
-    )
+    report = _report(root, tmp_path, module)
+    assert report.rows == [] and report.failures == [] and report.warnings == []
+    assert f"| {name} | root |" in report.fact_rows[0]
+    assert report.state_set_inputs == 0
 
 
 def test_formula_function_names_are_not_inputs(root, tmp_path):
@@ -290,18 +325,43 @@ def test_formula_function_names_are_not_inputs(root, tmp_path):
         tmp_path,
         formula="count_where(need > 0) + medically_needy_income_standard_amount + 30 + 1.33",
     )
-    rows, _ = script.check(root, UNIT, SOURCE, module, None)
-    names = {row.split(" | ")[1] for row in rows}
+    report = _report(root, tmp_path, module, baseline=False)
+    names = {row.split(" | ")[1] for row in report.rows + report.fact_rows}
     assert "count_where" not in names
     assert "need" in names
 
 
-def test_main_exit_code_and_table(root, tmp_path, source_path, capsys):
+def test_main_prints_two_tables_and_the_summary_line(
+    root, tmp_path, source_path, capsys
+):
     module = _module(tmp_path)
-    assert _main(root, source_path, module, _baseline(tmp_path)) == 0
-    assert "new inputs: 1; failures: 0" in capsys.readouterr().out
-    # Without a baseline `need` and `fpl` are new inputs too, and fail.
-    assert _main(root, source_path, module) == 1
+    assert _main(root, source_path, module) == 0
+    out = capsys.readouterr().out
+    checked, facts = out.split("Fact inputs (not checked):")
+    assert checked.startswith("State-set amount inputs (checked):")
+    assert "| medically_needy_income_standard_amount |" in checked
+    assert "| need |" in facts and "| fpl |" in facts
+    assert out.rstrip().splitlines()[-1] == "state_set_inputs=1 failures=0 warnings=0"
+
+
+def test_main_exit_code_follows_the_failures(root, tmp_path, source_path, capsys):
+    module = _module(tmp_path, excerpt=NO_ACTOR_EXCERPT)
+    assert _main(root, source_path, module, _baseline(tmp_path)) == 1
+    out = capsys.readouterr().out
+    assert "FAIL trigger:" in out
+    assert out.rstrip().splitlines()[-1] == "state_set_inputs=0 failures=1 warnings=0"
+
+
+def test_deferred_module_is_not_a_success(root, tmp_path, source_path, capsys):
+    """`rules: []` has no failure, and no State-set input either."""
+    module = tmp_path / "candidate.yaml"
+    module.write_text(
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        f"    corpus_citation_path: {UNIT}\nrules: []\n"
+    )
+    assert _main(root, source_path, module) == 0
+    out = capsys.readouterr().out
+    assert out.rstrip().splitlines()[-1] == "state_set_inputs=0 failures=0 warnings=0"
 
 
 # --- the closed shapes: which noun phrase the State verb acts on ---
@@ -424,23 +484,23 @@ def test_bare_agency_is_an_actor_only_where_it_is_the_state_agency(excerpt, expe
     [
         (
             "the State's AFDC payment standard in effect as of July 16, 1996",
-            [{"state", "afdc", "payment", "standard", "1996"}],
+            [{"state", "afdc", "payment", "standard"}],
         ),
         (
             "a State's AFDC income standard in effect as of May 1, 1988, "
             "increased by no more than the percentage increase in the Consumer "
             "Price Index for all urban consumers",
-            [{"state", "afdc", "income", "standard", "1988"}],
+            [{"state", "afdc", "income", "standard"}],
         ),
         (
             "the effective income level for section 1931 families under the "
             "Medicaid State plan or waiver of the State plan as of March 23, "
             "2010 or December 31, 2013",
-            [{"effective", "income", "level", "2010"}],
+            [{"effective", "income", "level"}],
         ),
         (
             "the level under the State plan in effect on July 1, 1997",
-            [{"level", "1997"}],
+            [{"level"}],
         ),
         # A plan anchor with no date, a date that is not the plan's date.
         ("the State's AFDC payment standard", []),
@@ -491,7 +551,6 @@ def test_plan_level_phrases(excerpt, phrases):
             "a percentage of the Federal poverty level that the State elects",
             None,
         ),
-        ("ssi_income_standard", "the income standard established by the agency", None),
         ("mnis", "the medically needy income standard established by the agency", None),
         (
             "standard",
@@ -506,6 +565,142 @@ def test_trigger_binds_the_input_name_to_the_object_of_the_verb(name, excerpt, t
     assert script.state_set_trigger(name, excerpt, ("42", "435", "733")) == trigger
     assert script.state_set_trigger(name, excerpt, ("42", "436", "733")) is None
     assert script.state_set_trigger(name, excerpt, None) is None
+
+
+# Short phrases of 42 CFR part 435, with input names an encoder would
+# naturally choose. True: the name binds. The misses are known: the name must
+# contain every word of the head noun phrase.
+PART_435_PHRASES = [
+    (
+        "the income standard established by the agency in the State plan",
+        {"state_plan_income_standard": True, "parent_caretaker_income_standard": True},
+    ),
+    (
+        "the income standard established by the agency in its State plan",
+        {"pregnant_women_income_standard": True},
+    ),
+    (
+        "the applicable income limit established by the agency in its State plan",
+        {
+            "state_plan_full_medicaid_applicable_income_limit": True,
+            "full_medicaid_income_limit": False,
+        },
+    ),
+    (
+        "the income standard elected by the agency and approved in its Medicaid State plan",
+        {"elected_income_standard": True, "optional_adult_group_income_standard": True},
+    ),
+    (
+        "the income standard established by the State in its State plan",
+        {"tuberculosis_income_standard": True},
+    ),
+    (
+        "a State's AFDC income standard in effect as of May 1, 1988",
+        {"afdc_income_standard_may_1_1988": True, "minimum_income_standard": False},
+    ),
+    (
+        "the State's AFDC payment standard in effect as of July 16, 1996",
+        {
+            "afdc_payment_standard_july_16_1996": True,
+            "state_afdc_payment_standard_in_effect_july_16_1996": True,
+        },
+    ),
+    (
+        "a reasonable amount set by the agency",
+        {"reasonable_amount": True, "personal_needs_allowance": False},
+    ),
+    (
+        "An amount for the maintenance needs of the individual that the State may set at any level",
+        {
+            "maintenance_needs_allowance": True,
+            "individual_maintenance_needs_deduction": True,
+        },
+    ),
+    (
+        "The State establishes a maximum deduction amount",
+        {
+            "maximum_maintenance_deduction": True,
+            "maintenance_needs_maximum_deduction_amount": True,
+        },
+    ),
+    (
+        "the agency may establish a separate single medically needy income standard",
+        {
+            "separate_single_medically_needy_income_standard": True,
+            "medically_needy_income_standard_amount": False,
+        },
+    ),
+    (
+        "the standard selected by the State under paragraph (e)(2) of this section",
+        {"spend_down_standard": True, "selected_standard": True},
+    ),
+    (
+        "The effective income level for coverage of individuals infected with tuberculosis under the State plan in effect as of March 23, 2010",
+        {
+            "tuberculosis_effective_income_level_2010": True,
+            "effective_income_level_march_23_2010": True,
+        },
+    ),
+    (
+        "the medically needy income standard in effect under the State's Medicaid plan on January 1, 1972",
+        {"medically_needy_income_standard_1972": True, "income_standard_1972": False},
+    ),
+    (
+        "reasonable limits the agency may establish on amounts of these expenses",
+        {"reasonable_limit": True, "medical_expense_deduction_limit": False},
+    ),
+    (
+        "such higher number of hours as the State may elect in its State plan",
+        {"higher_number_of_hours": True, "unemployed_parent_hours_limit": False},
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("excerpt", "name", "binds"),
+    [
+        (excerpt, name, binds)
+        for excerpt, names in PART_435_PHRASES
+        for name, binds in names.items()
+    ],
+)
+def test_real_part_435_phrases_bind_natural_names(excerpt, name, binds):
+    key = ("42", "435", "733")
+    assert (script.state_set_trigger(name, excerpt, key) is not None) is binds
+    # The federal amounts of the reviewed attacks bind none of these phrases.
+    for federal in (
+        "ssi_federal_benefit_rate",
+        "federal_poverty_level",
+        "cpi_u_percentage_increase",
+    ):
+        assert script.state_set_trigger(federal, excerpt, key) is None
+
+
+def test_part_435_811_historical_level_is_a_plan_level(root, tmp_path):
+    source = (
+        "(c) The standard must be no lower than the medically needy income "
+        "standard in effect under the State's Medicaid plan on January 1, 1972.\n"
+    )
+    excerpt = source.split("than ", 1)[1].strip().rstrip(".")
+    module = _one(tmp_path, "medically_needy_income_standard_1972", excerpt)
+    rows, failures = _check(root, tmp_path, module, source)
+    assert "| plan-level |" in _row(rows, "medically_needy_income_standard_1972")
+    assert failures == []
+
+
+@pytest.mark.parametrize(
+    ("name", "phrase", "binds"),
+    [
+        ("income_standards", {"income", "standard"}, True),
+        ("income_standard", {"income", "standards"}, True),
+        ("parent_income_standard", {"income", "standard", "amount"}, True),
+        ("income", {"income", "standard"}, False),
+        ("standard", {"income", "standard"}, False),
+        ("state_amount", {"amount", "state"}, False),
+    ],
+)
+def test_name_contains_the_head_phrase_words(name, phrase, binds):
+    assert script.name_binds(name, frozenset(phrase)) is binds
 
 
 @pytest.mark.parametrize(
@@ -648,8 +843,9 @@ def test_the_bound_input_passes_and_its_rule_mates_fail(root, tmp_path):
 
 
 def test_one_excerpt_serves_one_input(root, tmp_path):
-    """Two names that both fit the phrase: the second has no excerpt of its own."""
+    """Two names that both fit the phrase: the second has no phrase of its own."""
     names = ["medically_needy_income_standard", "needy_income_standard"]
+    names[1] = "spouse_medically_needy_income_standard"
     module = _multi(
         tmp_path,
         names,
@@ -657,11 +853,86 @@ def test_one_excerpt_serves_one_input(root, tmp_path):
     )
     rows, failures = _check(root, tmp_path, module, SOURCE_725)
     assert "| actor |" in _row(rows, "medically_needy_income_standard")
-    assert "| - |" in _row(rows, "needy_income_standard")
+    assert "| - |" in _row(rows, names[1])
     assert failures == [
-        "trigger: the only excerpt that names `needy_income_standard` already "
-        "serves `medically_needy_income_standard`; one excerpt serves one input"
+        f"trigger: the only source phrase that names `{names[1]}` already "
+        "serves `medically_needy_income_standard`; one phrase serves one input"
     ]
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "income standard for one person established by the agency under § 435.811",
+        "The amount of the medically needy income standard for one person "
+        "established by the agency",
+        "standard for one person established by the agency",
+    ],
+)
+def test_two_excerpt_variants_of_one_phrase_bind_one_input(root, tmp_path, variant):
+    """435.725(c)(2): the binding key is the source span of the phrase, so a
+    second excerpt that cuts the same phrase differently binds nothing."""
+    names = ["medically_needy_income_standard", "mnis_medically_needy_income_standard"]
+    module = _multi(
+        tmp_path,
+        names,
+        [
+            _rule("first", f"min(need, {names[0]})", [EXCERPT_725]),
+            _rule("second", f"min(need, {names[1]})", [variant]),
+        ],
+    )
+    report = _report(root, tmp_path, module, SOURCE_725)
+    assert "| actor |" in _row(report.rows, names[0])
+    assert "| - |" in _row(report.rows, names[1])
+    assert _kinds(report.failures) == ["trigger"]
+    assert report.state_set_inputs == 1
+
+
+def test_generic_name_does_not_bind_a_longer_phrase(root, tmp_path):
+    """`income_standard` (the SSI standard of (c)(2)(i)) does not ride on the
+    medically needy income standard phrase."""
+    module = _multi(
+        tmp_path,
+        ["income_standard"],
+        [_rule("ceiling", "min(need, income_standard)", [EXCERPT_725])],
+    )
+    _rows, failures = _check(root, tmp_path, module, SOURCE_725)
+    assert _kinds(failures) == ["trigger"]
+
+
+def test_excerpt_cut_before_plan_does_not_make_the_state_an_actor(root, tmp_path):
+    """The phrase is read in the source, not in the excerpt."""
+    source = "(a) Income may not exceed the standard established by the State plan.\n"
+    module = _one(tmp_path, "standard", "the standard established by the State")
+    rows, failures = _check(root, tmp_path, module, source)
+    assert "| - |" in _row(rows, "standard")
+    assert _kinds(failures) == ["trigger"]
+
+
+def test_federal_qualifier_on_a_generic_phrase_is_a_warning(root, tmp_path):
+    """Known residual: the name adds `ssi` to a generic State phrase. The row
+    passes; the WARN line shows the reader the extra word."""
+    source = (
+        "(a) Income is at or below the income standard established by the "
+        "agency in its State plan.\n"
+    )
+    excerpt = "the income standard established by the agency in its State plan"
+    report = _report(
+        root, tmp_path, _one(tmp_path, "ssi_income_standard", excerpt), source
+    )
+    assert report.failures == []
+    assert report.warnings == [
+        "qualifier: `ssi_income_standard` adds words that are not in its source "
+        "excerpt: ssi"
+    ]
+    assert report.summary == "state_set_inputs=1 failures=0 warnings=1"
+    report = _report(
+        root,
+        tmp_path,
+        _one(tmp_path, "state_plan_income_standard_amount", excerpt),
+        source,
+    )
+    assert report.failures == [] and report.warnings == []
 
 
 def test_ssi_input_citing_an_unrelated_actor_phrase_fails(root, tmp_path):
@@ -739,9 +1010,10 @@ def test_the_state_chosen_level_of_the_same_sentence_is_bound(root, tmp_path):
     )
     rows, failures = _check(root, tmp_path, module, source)
     assert "| actor |" in _row(rows, "special_income_level")
-    # `ssi_benefit` is a second new input with no phrase of its own.
-    assert "| - |" in _row(rows, "ssi_benefit")
-    assert any("`ssi_benefit`" in f and f.startswith("trigger:") for f in failures)
+    assert failures == []
+    # `ssi_benefit` is an implicit input: a fact row for the reader.
+    report = _report(root, tmp_path, module, source)
+    assert "| ssi_benefit | implicit |" in report.fact_rows[0]
 
 
 def test_snap_maximum_allotment_is_not_an_input(root, tmp_path):
@@ -893,6 +1165,13 @@ def test_literal_in_a_neighbour_paragraph_is_required(root, tmp_path):
         ("300 percent of the SSI benefit amount", "fpl", False),
         ("$1,500.50", "1500.50 + fpl", True),
         ("$1,500.50", "1500 + fpl", False),
+        ("185% of the poverty level", "1.85 * fpl", True),
+        ("185% of the poverty level", "fpl", False),
+        ("one-half of the poverty level", "0.5 * fpl", True),
+        ("one-half of the poverty level", "1 / 2 * fpl", True),
+        ("one-half of the poverty level", "fpl", False),
+        ("two-thirds of the standard of need", "2 / 3 * fpl", True),
+        ("two-thirds of the standard of need", "fpl", False),
     ],
 )
 def test_part_435_literal_wordings(root, tmp_path, wording, formula_term, ok):
@@ -915,7 +1194,7 @@ def test_part_435_literal_wordings(root, tmp_path, wording, formula_term, ok):
 
 def _error(capsys):
     captured = capsys.readouterr()
-    assert "failures: 0" not in captured.out
+    assert "state_set_inputs=" not in captured.out
     return captured.err
 
 
@@ -958,6 +1237,55 @@ def test_inputs_or_rules_of_the_wrong_shape_is_an_error(
     )
     assert _main(root, source_path, module) == 2
     assert f"ERROR module `{key}` is not a list of mappings" in _error(capsys)
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("format: rulespec/v1\nmodule: nope\nrules: []\n", "`module` is not a mapping"),
+        (
+            "module:\n  source_verification: nope\nrules: []\n",
+            "`source_verification` is not a mapping",
+        ),
+        (
+            "HEADrules:\n  - name: r\n    metadata: nope\n",
+            "`metadata` is not a mapping",
+        ),
+        (
+            "HEADrules:\n  - name: r\n    metadata:\n      proof: nope\n",
+            "`proof` is not a mapping",
+        ),
+        (
+            "HEADrules:\n  - name: r\n    metadata:\n      proof:\n        atoms: nope\n",
+            "`atoms` is not a list of mappings",
+        ),
+        (
+            "HEADrules:\n  - name: r\n    metadata:\n      proof:\n        atoms:\n          - source: nope\n",
+            "atom `source` is not a mapping",
+        ),
+        (
+            "HEADrules:\n  - name: r\n    versions: nope\n",
+            "`versions` is not a list of mappings",
+        ),
+        (
+            "HEADinputs:\n  - entity: Person\n    dtype: Money\nrules: []\n",
+            "has an input without a name",
+        ),
+    ],
+)
+def test_wrong_shapes_exit_2_without_a_traceback(
+    root, tmp_path, source_path, capsys, text, message
+):
+    head = (
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        f"    corpus_citation_path: {UNIT}\n"
+    )
+    module = tmp_path / "candidate.yaml"
+    module.write_text(text.replace("HEAD", head))
+    assert _main(root, source_path, module) == 2
+    err = _error(capsys)
+    assert f"ERROR module {message}" in err
+    assert "Traceback" not in err
 
 
 def test_baseline_of_the_wrong_shape_is_an_error(root, tmp_path, source_path, capsys):
@@ -1050,7 +1378,7 @@ def test_module_cannot_declare_itself_into_scope(root, tmp_path, capsys):
         "The standard utility allowance set by the State agency",
         unit=UNIT,
     )
-    assert script.check(root, UNIT, SNAP_SOURCE, module, _baseline(tmp_path))[1] == []
+    assert _check(root, tmp_path, module, SNAP_SOURCE)[1] == []
     assert _main(root, source, module, _baseline(tmp_path), unit=SNAP_UNIT) == 2
     assert "is not the unit `us/regulation/7/273/9`" in _error(capsys)
 
@@ -1089,7 +1417,8 @@ def test_subsection_unit_of_an_allow_listed_part_is_in_scope(root, tmp_path):
 
 def test_unit_outside_the_allow_list_with_no_new_input_passes(root, tmp_path):
     module = _module(tmp_path, root_input=False, formula="need + fpl", unit=SNAP_UNIT)
-    assert _check(root, tmp_path, module, SNAP_SOURCE, SNAP_UNIT) == ([], [])
+    report = _report(root, tmp_path, module, SNAP_SOURCE, SNAP_UNIT)
+    assert report.rows == [] and report.fact_rows == [] and report.failures == []
 
 
 def test_tool_uses_the_prompt_allow_list(root, tmp_path, monkeypatch):
