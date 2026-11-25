@@ -17124,8 +17124,10 @@ class TestEvalPrompt:
         assert "Do not simplify source-stated ratios or fractions" in prompt
         assert "ungrounded decimal such as `0.10`" in prompt
         assert (
-            'If `./source.txt` says someone is "aged 18 or over", "under 25"' in prompt
+            'If the source says someone is "aged 18 or over", "under 25", or similar,'
+            in prompt
         )
+        assert "threshold parameter (`person_age >= <threshold>`)" in prompt
         assert "Do not create scalar variables for citation numbers" in prompt
         assert (
             "Do not invent `dtype: String` variables just to restate the effective date"
