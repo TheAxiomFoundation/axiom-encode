@@ -184,6 +184,8 @@ class Packaging:
                 ATOMIC_SOURCE_JSON=wrapper(units),
                 GITHUB_EVENT_PATH=str(event),
                 GITHUB_SHA="a" * 40,
+                # The versioned encoder commit that ran (axiom-encode#2333).
+                AXIOM_ENCODER_COMMIT="b" * 40,
             ),
         )
 
@@ -505,6 +507,7 @@ def run_metadata(tmp_path: Path, units, *, switch_on=True):
             CITATION=citation("a"),
             GITHUB_RUN_ATTEMPT="1",
             GITHUB_RUN_ID="5678",
+            GITHUB_SHA="a" * 40,
             PR_BASE_BRANCH="codex/candidate",
             REPLACE_RULESPEC_PATH=primary("a"),
             RULESPEC_CHECKOUT="rulespec-us",

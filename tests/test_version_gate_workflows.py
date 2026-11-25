@@ -118,6 +118,9 @@ def test_the_encode_job_selects_its_encoder_before_any_encoder_code_runs():
             "${{ inputs.queue_id != '' "
             "|| needs.attempt_budget.outputs.head_only != 'false' }}"
         ),
+        # Read here too, so a re-run of this job sees a switch set after the
+        # first attempt; it can only add head-only.
+        "HEAD_ONLY_SETTING": "${{ vars.AXIOM_SIGNING_HEAD_ONLY }}",
         "BUDGET_ENCODER_COMMIT": "${{ needs.attempt_budget.outputs.encoder_commit }}",
     }
     assert (
@@ -175,12 +178,16 @@ def _step_run(job: str, name: str) -> str:
 
 
 def _fake_tools(bin_dir: Path, encoder_commit: str) -> Path:
-    """python3 records its arguments and prints the selected commit; python
+    """python3 records its arguments and prints the selected commit, or, with
+    --head-only, refuses as the selector does at an unversioned head; python
     (the infra issue recorder) does nothing."""
     bin_dir.mkdir()
     log = bin_dir / "python3.log"
     (bin_dir / "python3").write_text(
-        f'#!/bin/sh\necho "$@" >> "{log}"\necho {encoder_commit}\n'
+        f'#!/bin/sh\necho "$@" >> "{log}"\n'
+        'case "$*" in *--head-only*) echo "signs only from the dispatched head" >&2; '
+        "exit 1;; esac\n"
+        f"echo {encoder_commit}\n"
     )
     (bin_dir / "python").write_text("#!/bin/sh\nexit 0\n")
     for tool in ("python3", "python"):
@@ -218,11 +225,14 @@ def test_the_head_only_variable_fails_closed(tmp_path: Path, setting, head_only)
         capture_output=True,
         text=True,
     )
-    assert completed.returncode == 0, completed.stderr
+    assert completed.returncode == (1 if head_only == "true" else 0), completed.stderr
     outputs = dict(
         line.split("=", 1) for line in output.read_text().splitlines() if line
     )
-    assert outputs == {"head_only": head_only, "encoder_commit": "c" * 40}
+    expected = {"head_only": head_only}
+    if head_only == "false":
+        expected["encoder_commit"] = "c" * 40
+    assert outputs == expected
     assert ("--head-only" in log.read_text()) == (head_only == "true")
 
 
@@ -253,7 +263,15 @@ def _encoder_checkout(root: Path) -> tuple[str, str]:
     return commits[0], commits[1]
 
 
-def _run_select(tmp_path: Path, *, head_only: str, budget: str, ignored: bool = False):
+def _run_select(
+    tmp_path: Path,
+    *,
+    head_only: str,
+    budget: str,
+    ignored: bool = False,
+    setting: str = "",
+    attempt: str = "1",
+):
     older, head = _encoder_checkout(tmp_path)
     if ignored:
         (tmp_path / "axiom-encode/.gitignore").write_text("leftover\n")
@@ -281,8 +299,10 @@ def _run_select(tmp_path: Path, *, head_only: str, budget: str, ignored: bool = 
         env={
             "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}",
             "HEAD_ONLY": head_only,
+            "HEAD_ONLY_SETTING": setting,
             "BUDGET_ENCODER_COMMIT": budget.replace("OLDER", older),
             "GITHUB_ENV": str(env_file),
+            "GITHUB_RUN_ATTEMPT": attempt,
             "GITHUB_SHA": head,
         },
         capture_output=True,
@@ -312,8 +332,44 @@ def test_the_selection_step_checks_out_the_older_commit(tmp_path: Path):
 def test_the_selection_step_is_head_only_unless_exactly_false(
     tmp_path: Path, head_only
 ):
-    _, _, _, log, _ = _run_select(tmp_path, head_only=head_only, budget="")
+    completed, _, _, log, env_file = _run_select(
+        tmp_path, head_only=head_only, budget=""
+    )
     assert "--head-only" in log.read_text()
+    assert completed.returncode != 0 and not env_file.exists()
+
+
+@pytest.mark.parametrize("setting", ["true", "1", "True", "yes", " false"])
+def test_a_switch_set_after_the_budget_job_still_forces_the_head(
+    tmp_path: Path, setting
+):
+    # The budget job's outputs said "new rule"; the variable was set later.
+    completed, _, _, log, env_file = _run_select(
+        tmp_path, head_only="false", budget="OLDER", setting=setting
+    )
+    assert "--head-only" in log.read_text()
+    assert completed.returncode != 0 and not env_file.exists()
+    assert "AXIOM_SIGNING_HEAD_ONLY is set" in completed.stderr
+
+
+@pytest.mark.parametrize("setting", ["", "false"])
+def test_an_unset_or_false_switch_keeps_the_budget_decision(tmp_path: Path, setting):
+    completed, older, _, log, env_file = _run_select(
+        tmp_path, head_only="false", budget="OLDER", setting=setting
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "--head-only" not in log.read_text()
+    assert env_file.read_text() == f"AXIOM_ENCODER_COMMIT={older}\n"
+
+
+@pytest.mark.parametrize("attempt", ["2", "3", ""])
+def test_a_rerun_signs_only_from_the_head(tmp_path: Path, attempt):
+    completed, _, _, log, env_file = _run_select(
+        tmp_path, head_only="false", budget="OLDER", attempt=attempt
+    )
+    assert "--head-only" in log.read_text()
+    assert completed.returncode != 0 and not env_file.exists()
+    assert "a re-run (attempt" in completed.stderr
 
 
 def test_the_selection_step_refuses_a_commit_the_budget_job_did_not_pick(

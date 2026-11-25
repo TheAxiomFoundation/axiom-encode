@@ -411,13 +411,27 @@ def _signing_lag_refusal(
             return f"{member[:12]} is not a two-parent merge"
     oldest_after = span[-2]
     committed = int(_git(repo, "show", "-s", "--format=%ct", oldest_after).strip())
-    if now - committed > max_age_seconds:
+    age = now - committed
+    if age < 0:
+        return f"its first unversioned merge {oldest_after[:12]} is dated in the future"
+    if age > max_age_seconds:
         return (
             f"its first unversioned merge {oldest_after[:12]} is older than "
             f"{max_age_seconds // 3600} h; the version bump looks stalled"
         )
+    # Every path, whatever the repository's own diff configuration: no rename
+    # pairing (a moved script must count at its old path) and no hidden
+    # submodule (gitlink) change.
     changed = _git(
-        repo, "diff", "--name-only", "--no-renames", "-z", commit, head
+        repo,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "--ignore-submodules=none",
+        "--no-relative",
+        "-z",
+        commit,
+        head,
     ).split("\0")
     outside = sorted(
         path

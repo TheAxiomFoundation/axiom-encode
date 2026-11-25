@@ -240,8 +240,8 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "Select the versioned encoder commit",
         "No versioned encoder commit can sign this run",
         "The attempt-budget job's rule holds here too and selects the same "
-        "commit. A queue run, or `AXIOM_SIGNING_HEAD_ONLY` set to anything but "
-        "`false`, needs the dispatched head itself.",
+        "commit. A queue run, a re-run, or `AXIOM_SIGNING_HEAD_ONLY` set to "
+        "anything but `false`, needs the dispatched head itself.",
         "The encoder version is assigned after merge. The run executes the "
         "newest versioned main commit, so every signed manifest names one "
         "versioned encoder state.",

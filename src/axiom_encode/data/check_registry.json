@@ -847,7 +847,7 @@
       "fix": "Wait for the automatic encoder version bump to merge, then dispatch again from the new main head.",
       "gate": "workflow",
       "id": "infra:select-the-versioned-encoder-commit",
-      "requires": "The attempt-budget job's rule holds here too and selects the same commit. A queue run, or `AXIOM_SIGNING_HEAD_ONLY` set to anything but `false`, needs the dispatched head itself.",
+      "requires": "The attempt-budget job's rule holds here too and selects the same commit. A queue run, a re-run, or `AXIOM_SIGNING_HEAD_ONLY` set to anything but `false`, needs the dispatched head itself.",
       "severity": "important",
       "site": ".github/workflows/targeted-signed-reencode.yml:Select the versioned encoder commit",
       "title": "No versioned encoder commit can sign this run",
@@ -1274,6 +1274,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "e92c79362a24d92af5aa949f5b4d3129a10561ecd0cb6655bd60e8a18d81d1d1",
+  "registry_sha256": "d4479e7100a4edac3c28a8f80397036e814af018ffc7ef574c67b4a0920b88d5",
   "schema": "axiom-encode/check-registry/v1"
 }

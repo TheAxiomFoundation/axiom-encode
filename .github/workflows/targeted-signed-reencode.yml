@@ -331,20 +331,41 @@ jobs:
       # waits for its bump; the attempt_budget job reads it once, and this job
       # uses that decision and must reach the same commit. A skipped budget
       # job (queue run) leaves no decision, which means head-only.
+      #
+      # This job also reads the variable itself, and may only add head-only
+      # with it: "Re-run failed jobs" keeps the budget job's outputs from the
+      # first attempt, so a switch set after that attempt must still apply.
+      # A re-run (run_attempt > 1) always signs from the head only.
       - name: Select the versioned encoder commit
         env:
           HEAD_ONLY: ${{ inputs.queue_id != '' || needs.attempt_budget.outputs.head_only != 'false' }}
+          HEAD_ONLY_SETTING: ${{ vars.AXIOM_SIGNING_HEAD_ONLY }}
           BUDGET_ENCODER_COMMIT: ${{ needs.attempt_budget.outputs.encoder_commit }}
         run: |
           set -euo pipefail
           test "$(git -C axiom-encode rev-parse HEAD)" = "$GITHUB_SHA"
           head_only=()
+          reason=""
           if [ "$HEAD_ONLY" != "false" ]; then
-            head_only+=(--head-only)
+            reason="a queue run, or the attempt-budget job's decision, signs only from the dispatched head"
           fi
-          encoder_commit="$(python3 -I axiom-encode/src/axiom_encode/version_provenance.py \
+          if [ -n "$HEAD_ONLY_SETTING" ] && [ "$HEAD_ONLY_SETTING" != "false" ]; then
+            reason="AXIOM_SIGNING_HEAD_ONLY is set: this run signs only from the dispatched head"
+          fi
+          if [ "${GITHUB_RUN_ATTEMPT:-}" != "1" ]; then
+            reason="a re-run (attempt ${GITHUB_RUN_ATTEMPT:-unknown}) signs only from the dispatched head"
+          fi
+          if [ -n "$reason" ]; then
+            head_only+=(--head-only)
+            echo "Head-only: $reason"
+          fi
+          if ! encoder_commit="$(python3 -I axiom-encode/src/axiom_encode/version_provenance.py \
             signing-commit --repo axiom-encode --ref "$GITHUB_SHA" \
-            ${head_only[@]+"${head_only[@]}"})"
+            ${head_only[@]+"${head_only[@]}"})"; then
+            echo "no versioned encoder commit can sign this run (${reason:-newest versioned commit refused})" >&2
+            python axiom-encode/scripts/infra_issue.py record infra:select-the-versioned-encoder-commit "no versioned encoder commit can sign this run (${reason:-newest versioned commit refused})" || true
+            exit 1
+          fi
           if [[ ! "$encoder_commit" =~ ^[0-9a-f]{40}$ ]]; then
             echo "selected encoder commit is not a full lowercase commit SHA" >&2
             python axiom-encode/scripts/infra_issue.py record infra:select-the-versioned-encoder-commit "selected encoder commit is not a full lowercase commit SHA" || true

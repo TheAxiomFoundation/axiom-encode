@@ -1206,3 +1206,58 @@ def test_a_versioned_commit_that_is_not_a_merge_never_signs(repo: Path, tmp_path
     with pytest.raises(ValueError, match="not a two-parent merge"):
         version_provenance.signing_commit(repo, head)
     assert not _provisioner_accepts(repo, tmp_path / "home", head, direct)
+
+
+def test_a_script_moved_into_tests_waits_for_the_bump(repo: Path, tmp_path: Path):
+    # Rename detection would report only tests/moved.py; the old path counts.
+    _write(repo, "scripts/moved.py", "MOVED = 1\n")()
+    _commit(repo, "a script")
+    bump = _signing_repo(repo)
+    _encoder_merge(repo, "encoder")
+
+    def move():
+        (repo / "tests").mkdir(exist_ok=True)
+        (repo / "scripts/moved.py").rename(repo / "tests/moved.py")
+
+    head = _merge(repo, "move", move)
+
+    with pytest.raises(ValueError, match="scripts/moved.py"):
+        version_provenance.signing_commit(repo, head)
+    assert not _provisioner_accepts(repo, tmp_path / "home", head, bump)
+
+
+def test_a_hidden_submodule_change_waits_for_the_bump(repo: Path, tmp_path: Path):
+    # A gitlink outside the inert list, with the repository told to ignore
+    # submodules in diffs.
+    bump = _signing_repo(repo)
+    _encoder_merge(repo, "encoder")
+    _git(repo, "checkout", "-qb", "vendor")
+    _git(
+        repo,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"160000,{bump},vendor/tool",
+    )
+    _git(repo, "commit", "-qm", "vendor a tool")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "-q", "--no-ff", "vendor", "-m", "Merge vendor")
+    head = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "config", "diff.ignoreSubmodules", "all")
+    _git(repo, "config", "diff.relative", "true")
+
+    with pytest.raises(ValueError, match="vendor/tool"):
+        version_provenance.signing_commit(repo, head)
+    assert not _provisioner_accepts(repo, tmp_path / "home", head, bump)
+
+
+def test_a_merge_dated_in_the_future_refuses(repo: Path, tmp_path: Path):
+    bump = _signing_repo(repo)
+    head = _encoder_merge(repo, "encoder")
+    opened = _opened_at(repo, bump, head)
+
+    assert version_provenance.signing_commit(repo, head, now=opened) == bump
+    assert _provisioner_accepts(repo, tmp_path / "home", head, bump, opened)
+    with pytest.raises(ValueError, match="dated in the future"):
+        version_provenance.signing_commit(repo, head, now=opened - 1)
+    assert not _provisioner_accepts(repo, tmp_path / "home2", head, bump, opened - 1)

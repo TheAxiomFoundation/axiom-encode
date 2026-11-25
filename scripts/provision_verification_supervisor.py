@@ -1646,6 +1646,11 @@ def _require_newest_versioned_commit(
     oldest_after = span[-2]
     committed = int(git("show", "-s", "--format=%ct", oldest_after))
     current = datetime.now(timezone.utc).timestamp() if now is None else now
+    if current - committed < 0:
+        raise SystemExit(
+            f"refusing to provision: the first merge after the encoder commit "
+            f"({oldest_after[:12]}) is dated in the future"
+        )
     if current - committed > _SIGNING_MAX_AGE_SECONDS:
         raise SystemExit(
             f"refusing to provision: the first merge after the encoder commit "
@@ -1659,6 +1664,8 @@ def _require_newest_versioned_commit(
         "diff",
         "--name-only",
         "--no-renames",
+        "--ignore-submodules=none",
+        "--no-relative",
         "-z",
         encoder_commit,
         workflow_commit,
