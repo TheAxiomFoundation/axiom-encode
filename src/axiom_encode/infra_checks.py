@@ -224,11 +224,29 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
     (
         "Refuse an encoder head that no version bump covers",
         "The encoder head is not covered by a version bump",
-        "Every encoder change on the dispatched head is at or before the "
-        "latest automatic version bump.",
-        "The encoder version is assigned after merge. A head with changes "
-        "that no bump covers would be refused inside the protected job, "
-        "after the signing approval.",
+        "The dispatched head has every encoder change at or before the latest "
+        "automatic version bump, or the newest versioned main commit is at "
+        "most 5 merges and 4 hours behind it, every commit between is a merge, "
+        "and only versioned source outside the signing lane, tests, docs and "
+        "changelog files differ. "
+        "`AXIOM_SIGNING_HEAD_ONLY` set to anything but `false` needs the head "
+        "itself.",
+        "The encoder version is assigned after merge. A run signs from the "
+        "newest versioned main commit; without one it would be refused inside "
+        "the protected job, after the signing approval.",
+        "Wait for the automatic encoder version bump to merge, then dispatch "
+        "again from the new main head.",
+    ),
+    (
+        "Select the versioned encoder commit",
+        "No versioned encoder commit can sign this run",
+        "The attempt-budget job's commit is one of the 6 newest first-parent "
+        "commits of the head, and that commit's own selector selects it. A "
+        "queue run, a re-run, or `AXIOM_SIGNING_HEAD_ONLY` set to anything "
+        "but `false`, needs the dispatched head itself.",
+        "The encoder version is assigned after merge. The run executes the "
+        "newest versioned main commit, so every signed manifest names one "
+        "versioned encoder state.",
         "Wait for the automatic encoder version bump to merge, then dispatch "
         "again from the new main head.",
     ),
@@ -334,7 +352,8 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
     (
         "Install locked preflight runtime",
         "The locked preflight runtime installation failed",
-        "The encoder checkout matches `GITHUB_SHA`, and its Python 3.13 "
+        "The encoder checkout matches the selected versioned encoder commit, "
+        "and its Python 3.13 "
         "preflight environment installs from `uv.lock` with the API extra.",
         _SETUP_WHY,
         "Read the step's log. Correct a checkout or lock mismatch in "

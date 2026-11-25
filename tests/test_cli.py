@@ -1885,6 +1885,8 @@ def _reviewed_candidate_binding(rule: Path, companion: Path, **overrides) -> dic
         "live-head",
         "live-path",
         "live-encoder",
+        "live-workflow",
+        "live-workflow-encoder",
         "live-invalid-static",
         "live-unknown-basis",
     ],
@@ -1977,11 +1979,19 @@ def test_promote_reviewed_candidate_changes_only_manifest(
             "live-head",
             "live-path",
             "live-encoder",
+            "live-workflow",
+            "live-workflow-encoder",
         }:
             payload = json.loads(runtime_attestation.read_text())
             live = payload["reviewed_pr_admission"]
             if admission == "live-encoder":
                 live["workflow_commit"] = "f" * 40
+            elif admission in {"live-workflow", "live-workflow-encoder"}:
+                # The run signs from versioned encoder commit e... below its
+                # unversioned head f...; the provisioner recorded the head.
+                payload["workflow_commit"] = "f" * 40
+                if admission == "live-workflow":
+                    live["workflow_commit"] = "f" * 40
             else:
                 key, value = {
                     "live-run": ("run_id", "54321"),
@@ -2123,6 +2133,7 @@ def test_promote_reviewed_candidate_changes_only_manifest(
             "live-head",
             "live-path",
             "live-encoder",
+            "live-workflow-encoder",
             "live-invalid-static",
         }:
             if admission == "live-invalid-static":
@@ -2162,7 +2173,7 @@ def test_promote_reviewed_candidate_changes_only_manifest(
         bindings_mock.assert_not_called()
 
     overlay_mock.assert_called_once()
-    assert live_check.call_count == (2 if admission == "live" else 0)
+    assert live_check.call_count == (2 if admission in {"live", "live-workflow"} else 0)
     assert overlay_mock.call_args.kwargs["amendment_documents"] == (amendment,)
     assert overlay_mock.call_args.kwargs["amendment_source_texts"] == {
         amendment.citation_path: amendment.body,

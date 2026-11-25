@@ -182,6 +182,9 @@ class Run:
         self.fail_revalidation_at: int | None = None
         self.fail_verification: str | None = None
         self.installs: list[list[str]] = []
+        # The run head that the provisioner recorded when the run signs from
+        # an older versioned encoder commit (axiom-encode#2333), or None.
+        self.attested_workflow_commit: str | None = None
         for directory in ("axiom-rules-engine", "axiom-corpus"):
             (tmp_path / directory).mkdir(exist_ok=True)
         self.args = SimpleNamespace(
@@ -247,7 +250,10 @@ class Run:
 
     def __call__(self, monkeypatch):
         runtime = self.tmp_path / "runtime-attestation.json"
-        runtime.write_text(json.dumps({"reviewed_pr_admission": self.live}))
+        attestation = {"reviewed_pr_admission": self.live}
+        if self.attested_workflow_commit is not None:
+            attestation["workflow_commit"] = self.attested_workflow_commit
+        runtime.write_text(json.dumps(attestation))
         records = self.tmp_path / "reviewed-rulespec-refs"
         records.mkdir(exist_ok=True)
         monkeypatch.setenv(_TRUSTED_RUNTIME_ENV, "1")
@@ -701,6 +707,27 @@ def test_a_batch_admission_of_another_run_or_head_is_refused(
 
 def test_a_batch_admission_of_another_encoder_commit_is_refused(run, monkeypatch):
     run.live["workflow_commit"] = "f" * 40
+    with pytest.raises(ValueError, match="does not match this operation"):
+        run(monkeypatch)
+    assert run.revalidations == 0 and run.signed == []
+
+
+def test_a_batch_admission_names_the_run_head_when_the_encoder_is_older(
+    run, monkeypatch
+):
+    # The run signs from versioned encoder commit e... below its unversioned
+    # head f...: the admission names the live run's head_sha, f....
+    run.attested_workflow_commit = "f" * 40
+    run.live["workflow_commit"] = "f" * 40
+    run(monkeypatch)
+    assert sorted(run.signed) == sorted(NAMES)
+
+
+def test_a_batch_admission_naming_the_encoder_instead_of_the_head_is_refused(
+    run, monkeypatch
+):
+    run.attested_workflow_commit = "f" * 40
+    assert run.live["workflow_commit"] == "e" * 40
     with pytest.raises(ValueError, match="does not match this operation"):
         run(monkeypatch)
     assert run.revalidations == 0 and run.signed == []
