@@ -333,6 +333,12 @@ def on(monkeypatch):
 
 
 @pytest.fixture
+def off(monkeypatch):
+    """The switch as it was before the hosted canary; the shipped value is on."""
+    monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", False)
+
+
+@pytest.fixture
 def run(tmp_path, on):
     repo, head = candidate(tmp_path)
     return Run(tmp_path, repo, head, batch_admission(repo, head))
@@ -700,7 +706,9 @@ def test_a_batch_admission_of_another_encoder_commit_is_refused(run, monkeypatch
     assert run.revalidations == 0 and run.signed == []
 
 
-def test_switch_off_refuses_a_batch_admission_before_any_work(tmp_path, monkeypatch):
+def test_switch_off_refuses_a_batch_admission_before_any_work(
+    tmp_path, monkeypatch, off
+):
     """With the switch off the command does not know the batch form."""
     repo, head = candidate(tmp_path)
     run = Run(tmp_path, repo, head, batch_admission(repo, head))
@@ -1025,8 +1033,8 @@ def test_the_wrapper_without_units_is_unchanged():
     assert normalized["rulespec_pr"] == 42
 
 
-def test_switch_off_refuses_the_units_key_as_before():
-    """With the switch off the wrapper is read exactly as on main."""
+def test_switch_off_refuses_the_units_key_as_before(off):
+    """With the switch off the wrapper is read as before the switch existed."""
     assert admission.MULTI_UNIT_PROMOTION_ENABLED is False
     with pytest.raises(
         ValueError,
@@ -1188,7 +1196,7 @@ def test_the_preflight_builds_the_batch_selector_from_the_list(
 
 
 def test_the_preflight_refuses_a_unit_list_while_the_switch_is_off(
-    script, monkeypatch, tmp_path
+    script, off, monkeypatch, tmp_path
 ):
     monkeypatch.setenv("DISPATCH_JSON", dispatch([citation(name) for name in NAMES]))
     with pytest.raises(

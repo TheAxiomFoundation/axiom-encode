@@ -23,12 +23,14 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/targeted-signed-reencode.yml"
 TOOL = "axiom-encode promote-reviewed-candidate"
 NAMES = ("a", "b", "c")
-# Turns the multi-unit switch on inside a child interpreter. The switch has no
-# environment variable; a test can only replace the constant.
+# Sets the multi-unit switch inside a child interpreter, on or off, so that no
+# test here depends on the shipped value. The switch has no environment
+# variable; a test can only replace the constant.
 SWITCH_ON = (
     "from axiom_encode import reviewed_pr_admission\n"
     "reviewed_pr_admission.MULTI_UNIT_PROMOTION_ENABLED = True\n"
 )
+SWITCH_OFF = SWITCH_ON.replace("= True", "= False")
 
 
 def citation(name: str) -> str:
@@ -111,8 +113,7 @@ def child_env(tmp_path: Path, *, switch_on: bool, **extra: str) -> dict:
     """The environment of a child interpreter that runs workflow code."""
     site = tmp_path / ("site-on" if switch_on else "site-off")
     site.mkdir(exist_ok=True)
-    if switch_on:
-        (site / "sitecustomize.py").write_text(SWITCH_ON)
+    (site / "sitecustomize.py").write_text(SWITCH_ON if switch_on else SWITCH_OFF)
     return {
         **os.environ,
         "PYTHONPATH": os.pathsep.join([str(site), str(ROOT / "src")]),
