@@ -1,3 +1,7 @@
+## 0.2.2403
+
+- Sign from the newest versioned main commit while a version bump is pending (#2333)
+
 ## 0.2.2402
 
 - Ground numbers Chinese statutes write in characters (百分之五, 二十億元, 民國一百十四年) (#2356)
