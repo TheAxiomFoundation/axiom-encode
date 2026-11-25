@@ -1749,13 +1749,21 @@ CFR_STATE_SET_AMOUNT_RULE = """- Exception for State-set amounts (federal CFR un
   the State or the agency as the actor that sets it, with a verb such as
   "establishes", "elects", "specifies", "sets", "selects", or "chooses" (for
   example household income "at or below the income standard established by
-  the agency in its State plan"), or (b) the phrase cites a provision whose
-  copied module takes that value as a local input and exports no rule for it
-  (for example "the medically needy income standard established under
-  § 435.811", whose module lists `medically_needy_income_standard_amount` as
-  an input slot). Then encode the branch; do not defer it for that reason,
+  the agency in its State plan", or names the State's own standard or level,
+  such as "the State's AFDC payment standard in effect as of July 16, 1996"),
+  or
+  (b) the phrase says the value is established under a section of this CFR
+  part whose copied module takes that value as a local input and exports no
+  rule for it (for example "the medically needy income standard established
+  under § 435.811", whose module lists `medically_needy_income_standard_amount`
+  as an input slot). Then encode the branch; do not defer it for that reason,
   also when the cited module is deferred. This exception takes precedence
   over the rule that defers when a cited sibling file is deferred.
+- An amount that another federal program or provision sets, such as the SSI
+  income standard or the Federal benefit rate, is never a State-set input,
+  also when this unit states no number: import it when a copied context
+  module exports it; otherwise defer that branch with a reason that names
+  that federal provision.
 - Encode literally every number, percentage of the Federal poverty level, or
   dollar amount that this source or a cited federal provision states; such a
   value is never an input. A federally stated floor or ceiling, such as "at
