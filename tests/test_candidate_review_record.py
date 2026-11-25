@@ -115,6 +115,7 @@ def test_a_passed_review_gives_a_complete_record(tmp_path):
         "status",
         "reviewers",
         "findings",
+        "findings_sha256",
         "generalist_review",
         "run",
         "created_at",
@@ -313,7 +314,8 @@ def test_render_and_read_back_give_the_same_record(tmp_path):
     assert block.endswith(crr.END_MARKER + "\n")
     assert "- Status: **passed** (score 9/10)" in block
     assert (
-        "1. **non-blocking** (generalist-reviewer): The test names are terse." in block
+        "1. **non-blocking** (generalist-reviewer): ` The test names are terse. `"
+        in block
     )
     assert f"`{sha(RULE)}`" in block and f"`{sha(COMPANION)}`" in block
 
@@ -342,8 +344,13 @@ def test_finding_text_cannot_form_a_marker_a_fence_or_markup(tmp_path):
     assert block.count(crr.BEGIN_MARKER) == 1 and block.count(crr.END_MARKER) == 1
     assert block.count("```") == 2
     readable = block.split("```json", 1)[0]
-    assert "<script>" not in readable and "[link]" not in readable
-    assert "`code`" not in readable and "**bold**" not in readable
+    # The finding is one code span: GitHub renders no markup, link, HTML or
+    # mention inside it, and the text holds no backtick that could end it.
+    (line,) = [item for item in readable.splitlines() if item.startswith("1. ")]
+    span = line.split("): ", 1)[1]
+    assert span.startswith("` ") and span.endswith(" `")
+    assert "`" not in span[1:-1]
+    assert "<!--" not in line and "-->" not in line
     assert "<" not in block.split("```json\n", 1)[1].split("\n```", 1)[0]
     (read,) = crr.extract_records("intro\n" + block)
     assert read == record
@@ -370,10 +377,13 @@ def test_finding_text_cannot_form_a_marker_a_fence_or_markup(tmp_path):
         ),
         (lambda b: b.replace("```json\n", "```json\n\n"), "single-line fenced json"),
         (lambda b: b.replace("```json\n", "```\n"), "single-line fenced json"),
-        (lambda b: b.replace(":v1:begin -->", ":v2:begin -->"), "unknown form"),
+        (
+            lambda b: b.replace(":v1:begin -->", ":v2:begin -->"),
+            "not exactly one of the two marker lines",
+        ),
         (
             lambda b: b.replace(crr.BEGIN_MARKER, "text " + crr.BEGIN_MARKER + " text"),
-            "line of its own",
+            "not exactly one of the two marker lines",
         ),
         (
             lambda b: b.replace('{"citation":', '{"citation":"x","citation":'),
@@ -442,3 +452,123 @@ def test_the_read_document_round_trips_and_is_strict(tmp_path):
     assert "#2044" in summary and sha(body.encode()) in summary
     assert "Signing run: 123, attempt 2" in summary
     assert crr.extract_records(summary) == [record]
+
+
+# --- Review round 1 ---------------------------------------------------------------
+
+
+def with_finding(tmp_path, text: str) -> dict:
+    output = json.dumps(
+        {
+            "score": 9.0,
+            "passed": True,
+            "blocking_issues": [],
+            "non_blocking_issues": [text],
+        }
+    )
+    return make_record(tmp_path, output=output)
+
+
+def test_mentions_and_links_are_inert_in_the_readable_part(tmp_path):
+    record = with_finding(
+        tmp_path, "ping @MaxGhenis and @org/team, see https://example.invalid/x #12"
+    )
+    readable = crr.render_block(record).split("```json", 1)[0]
+    (line,) = [item for item in readable.splitlines() if item.startswith("1. ")]
+    # The whole text is inside one code span, where GitHub makes no mention,
+    # no link and no issue reference.
+    assert line == (
+        "1. **non-blocking** (generalist-reviewer): "
+        "` ping @MaxGhenis and @org/team, see https://example.invalid/x #12 `"
+    )
+
+
+@pytest.mark.parametrize(
+    "run_id", ["@MaxGhenis", "a/b", "https://example.invalid", "a b", "x" * 101, ""]
+)
+def test_a_run_id_that_could_mention_or_link_is_refused(tmp_path, run_id):
+    record = make_record(tmp_path)
+    record["run"]["id"] = run_id
+    assert admit(record) == ["the run id or the attempt number is malformed"]
+    assert "`local:run-7`" in crr.render_block(make_record(tmp_path))
+
+
+def test_an_edited_finding_text_is_refused(tmp_path):
+    record = make_record(tmp_path)
+    assert record["findings_sha256"] == crr.findings_sha256(record["findings"])
+    edited = copy.deepcopy(record)
+    edited["findings"][0]["text"] = "No finding."
+    (issue,) = admit(edited)
+    assert "the findings differ from their digest" in issue
+    # The same edit in a rendered body is refused when the body is checked.
+    body = crr.render_block(record).replace("The test names are terse.", "No finding.")
+    (read,) = crr.extract_records(body)
+    assert admit(read) != []
+
+
+def test_readable_text_that_differs_from_the_json_refuses_the_body(tmp_path):
+    block = crr.render_block(make_record(tmp_path))
+    for changed in (
+        block.replace("- Status: **passed**", "- Status: **failed**"),
+        block.replace("**non-blocking**", "**BLOCKING**"),
+        block.replace("Findings (1):", "Findings (1):\n\nAn added line."),
+        block.replace("` The test names are terse. `", "` Nothing found. `"),
+    ):
+        assert changed != block
+        with pytest.raises(ReviewRecordError, match="exact rendered form"):
+            crr.extract_records("intro\n" + changed)
+
+
+@pytest.mark.parametrize(
+    ("wrap", "message"),
+    [
+        (lambda b: "```\n" + b + "```\n", "inside a code fence"),
+        (lambda b: "~~~~ text\n" + b + "~~~~\n", "inside a code fence"),
+        (
+            lambda b: "<details><summary>x</summary>\n\n" + b + "</details>\n",
+            "<details>",
+        ),
+        (lambda b: "<DETAILS>\n" + b, "<details>"),
+        (
+            lambda b: b.replace(crr.BEGIN_MARKER, "\u00a0" + crr.BEGIN_MARKER),
+            "marker lines",
+        ),
+        (lambda b: b.replace(crr.BEGIN_MARKER, " " + crr.BEGIN_MARKER), "marker lines"),
+        (lambda b: b.replace(crr.END_MARKER, crr.END_MARKER + " "), "marker lines"),
+        (lambda b: "> " + b.replace("\n", "\n> "), "marker lines"),
+    ],
+)
+def test_a_block_that_is_not_at_the_top_level_of_the_body_is_refused(
+    tmp_path, wrap, message
+):
+    block = crr.render_block(make_record(tmp_path))
+    with pytest.raises(ReviewRecordError, match=message):
+        crr.extract_records("intro\n\n" + wrap(block) + "\noutro\n")
+
+
+def test_a_block_after_a_closed_fence_or_details_is_read(tmp_path):
+    record = make_record(tmp_path)
+    body = (
+        "```yaml\nrules: []\n```\n\n<details>\nnotes\n</details>\n\n"
+        + crr.render_block(record)
+    )
+    assert crr.extract_records(body) == [record]
+
+
+def test_more_records_than_a_body_may_hold_are_refused(tmp_path):
+    block = crr.render_block(make_record(tmp_path, output=CLEAN))
+    assert len(crr.extract_records(block * crr.MAX_RECORDS_PER_BODY)) == 64
+    with pytest.raises(ReviewRecordError, match="too many review records"):
+        crr.extract_records(block * (crr.MAX_RECORDS_PER_BODY + 1))
+
+
+@pytest.mark.parametrize(
+    "status", ["Passed", "PASSED", " passed", "passed ", "pass", True]
+)
+def test_only_the_exact_word_passed_is_a_pass(tmp_path, status):
+    record = make_record(tmp_path)
+    record["status"] = status
+    assert admit(record) != []
+    record["reviewers"][0]["status"] = status
+    record["generalist_review"]["status"] = status
+    assert admit(record) != []

@@ -33,8 +33,10 @@ record".
 
 Unlike the embedded v2 record, this record carries reviewer prose (the
 findings). It is therefore never placed in a signed manifest. The text is
-bounded, and ``render_block`` escapes it so that it cannot form a marker line
-or a code fence in the pull request body.
+bounded, and ``render_block`` shows it as an inert code span, so that it
+cannot form a marker line, a code fence, a mention or a link in the pull
+request body. The JSON block is the record; ``extract_records`` refuses a
+block whose readable part is not exactly the rendering of its JSON.
 """
 
 from __future__ import annotations
@@ -84,6 +86,7 @@ _FIELDS = frozenset(
         "status",
         "reviewers",
         "findings",
+        "findings_sha256",
         GENERALIST_REVIEW_FIELD,
         "run",
         "created_at",
@@ -99,9 +102,11 @@ _RUN_FIELDS = frozenset({"id", "attempt"})
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 _VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
-_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}")
+# No ``@``, ``/`` or ``+``: a run id is shown in a pull request body.
+_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,99}")
 _CREATED_AT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 _PATH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@+-]{0,511}")
+_BODY_FENCE = re.compile(r" {0,3}(?P<fence>`{3,}|~{3,})(?P<rest>.*)")
 _FENCE = re.compile(
     r"\n```json\n(?P<json>[^\n]*)\n```\n\Z",
 )
@@ -196,6 +201,7 @@ def build_candidate_review_record(
     verdict = generalist_review.get("verdict")
     verdict = verdict if isinstance(verdict, Mapping) else {}
     moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    findings = findings_from_issues(issues, max_chars=max_finding_chars)
     record: dict[str, object] = {
         "schema": SCHEMA,
         "citation": citation,
@@ -217,7 +223,8 @@ def build_candidate_review_record(
                 "score": verdict.get("score"),
             }
         ],
-        "findings": findings_from_issues(issues, max_chars=max_finding_chars),
+        "findings": findings,
+        "findings_sha256": findings_sha256(findings),
         # ``required`` says whether the run that made the v2 record would
         # have refused without a pass. Here the requirement belongs to the
         # signing run, so the published record always says False; a failed
@@ -335,6 +342,11 @@ def record_issues(record: object) -> list[str]:
     ):
         issues.append("the findings are malformed")
         findings = None
+    elif record["findings_sha256"] != findings_sha256(findings):
+        issues.append(
+            "the findings differ from their digest: a finding was edited, "
+            "added or removed after the record was made"
+        )
 
     embedded = record[GENERALIST_REVIEW_FIELD]
     companion_path = companion_test_manifest_path(path)
@@ -550,13 +562,24 @@ def record_sha256(record: object) -> str:
     return hashlib.sha256(canonical_json(record).encode("ascii")).hexdigest()
 
 
-def _prose(text: str) -> str:
-    """Finding text as one inert line of pull request Markdown."""
+def findings_sha256(findings: object) -> str:
+    """The SHA-256 of the canonical one-line JSON of a findings list."""
 
-    return "".join(
-        f"&#{ord(character)};" if character in "<>&`*_[]|~#\\" else character
-        for character in " ".join(text.split())
-    )
+    return hashlib.sha256(canonical_json(findings).encode("ascii")).hexdigest()
+
+
+def _prose(text: str) -> str:
+    """Finding text as one inert code span of pull request Markdown.
+
+    Inside a code span GitHub renders no markup, no HTML, no link and no
+    ``@`` mention. A backtick would end the span and an HTML comment opener
+    could look like a marker line, so both are respelled here. The readable
+    part is for people; the JSON block holds the exact text.
+    """
+
+    flat = " ".join(text.split()).replace("`", "'")
+    flat = flat.replace("<!--", "<! --").replace("-->", "-- >")
+    return f"` {flat} `"
 
 
 def render_block(record: object) -> str:
@@ -593,7 +616,7 @@ def render_block(record: object) -> str:
         + (
             f" (`{record['encoder']['commit']}`)" if record["encoder"]["commit"] else ""
         ),
-        f"- Run: {record['run']['id'] or 'not named'}, attempt "
+        f"- Run: `{record['run']['id'] or 'not named'}`, attempt "
         f"{record['run']['attempt']}, {record['created_at']}",
         f"- Record sha256: `{record_sha256(record)}`",
         "",
@@ -660,24 +683,54 @@ def extract_records(body: object) -> list[dict]:
     lines = text.split("\n")
     records: list[dict] = []
     start: int | None = None
+    fence: str | None = None
+    details = 0
     for index, raw_line in enumerate(lines):
-        line = raw_line.strip()
-        if line.startswith(_MARKER_PREFIX) and line not in (BEGIN_MARKER, END_MARKER):
+        if start is None:
+            # Position in the body outside a block: a marker inside a code
+            # fence or a <details> element is not at the top level.
+            opened = _BODY_FENCE.match(raw_line)
+            if fence is None and opened is not None:
+                fence = opened.group("fence")
+                continue
+            if fence is not None:
+                if _MARKER_PREFIX in raw_line:
+                    raise ReviewRecordError(
+                        "a review record marker is inside a code fence"
+                    )
+                closed = _BODY_FENCE.match(raw_line)
+                if (
+                    closed is not None
+                    and closed.group("fence")[0] == fence[0]
+                    and len(closed.group("fence")) >= len(fence)
+                    and not closed.group("rest").strip()
+                ):
+                    fence = None
+                continue
+            lowered = raw_line.lower()
+            details += lowered.count("<details") - lowered.count("</details")
+        if _MARKER_PREFIX in raw_line and raw_line not in (BEGIN_MARKER, END_MARKER):
             raise ReviewRecordError(
-                "the pull request body holds a review record marker of an unknown form"
+                "a review record marker is not exactly one of the two marker "
+                "lines (no other text, no leading or trailing space, version v1)"
             )
-        if line == BEGIN_MARKER:
+        if raw_line == BEGIN_MARKER:
             if start is not None:
                 raise ReviewRecordError(
                     "a review record block starts inside another block"
                 )
+            if details > 0:
+                raise ReviewRecordError(
+                    "a review record block is inside a <details> element"
+                )
             start = index
-        elif line == END_MARKER:
+        elif raw_line == END_MARKER:
             if start is None:
                 raise ReviewRecordError(
                     "a review record block ends without a start marker"
                 )
             block = "\n".join(lines[start + 1 : index]) + "\n"
+            whole = "\n".join(lines[start : index + 1]) + "\n"
             start = None
             match = _FENCE.search(block)
             if match is None or block.count("```") != 2:
@@ -685,13 +738,24 @@ def extract_records(body: object) -> list[dict]:
                     "a review record block does not end with exactly one "
                     "single-line fenced json block"
                 )
-            records.append(_load_record_json(match.group("json")))
+            record = _load_record_json(match.group("json"))
+            # The JSON is the record. The readable part must be exactly what
+            # ``render_block`` writes for that JSON, so the text a person
+            # reads cannot differ from the record a program checks. A record
+            # that cannot be rendered is kept: ``record_issues`` names why.
+            try:
+                expected = render_block(record)
+            except ReviewRecordError:
+                expected = None
+            if expected is not None and whole != expected:
+                raise ReviewRecordError(
+                    "a review record block is not in the exact rendered form: "
+                    "its readable part differs from its JSON. Render the "
+                    "record again with review-record render"
+                )
+            records.append(record)
             if len(records) > MAX_RECORDS_PER_BODY:
                 raise ReviewRecordError("the body holds too many review records")
-        elif _MARKER_PREFIX in raw_line:
-            raise ReviewRecordError(
-                "a review record marker is not on a line of its own"
-            )
     if start is not None:
         raise ReviewRecordError("a review record block has no end marker")
     return records
@@ -808,6 +872,7 @@ def render_read_summary(
     head = [
         "## Review record",
         "",
+        "Review record required: yes",
         f"Candidate pull request: #{document['rulespec_pr']} at head "
         f"`{document['head_sha']}`",
         f"Pull request body sha256 (read once, {document['read_at']}): "
@@ -826,7 +891,7 @@ def render_read_summary(
     short = list(head)
     for record in admitted:
         short.append(
-            f"- `{record['citation']}`: {record['status']}, module sha256 "
+            f"- `{record['citation']}`: status {record['status']}, module sha256 "
             f"`{record['reviewed']['rulespec_sha256']}`, companion sha256 "
             f"`{record['reviewed']['companion_sha256']}`, record attempt "
             f"{record['run']['attempt']}, {len(record['findings'])} findings, "

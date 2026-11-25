@@ -649,10 +649,22 @@ switch goes on; items 3 to 5 are open while the canary runs.
 wrapper carries `"require_review_record": true` is signed only when the body of
 the candidate pull request holds, for every unit, one review record with the
 status `passed` that is bound to the exact bytes the run signs. Without the key
-nothing is read, the supervised command is the command it was, and the lane
-pull request and the run artifact are unchanged. The switch is in the dispatch
-input, which the dispatch record keeps. There is no repository variable,
-environment variable or setting for it.
+no pull request body is read, the supervised command is the command it was,
+and the run artifact is unchanged. The switch is in the dispatch input. There is no
+repository variable, environment variable or setting for it.
+
+**Every run says which it was.** An auditor does not have to infer "not
+enforced" from a missing section:
+
+- the run summary has the line `Review record required: yes` or `Review
+  record required: no` (step `Decide the review record switch`, in every run);
+- the lane pull request body has the same line; with `yes` it is the first
+  line of the `Review record` section, which also gives each record's status,
+  the two file hashes and the SHA-256 of the body that was read;
+- the dispatch record (`dispatch-record.json`) has `review_record_required`:
+  `true`, `false`, or `null` when the source input cannot be read or the key
+  has another value than `true` (the run then refuses). The dispatch record
+  keeps `source_bundle_json` itself only as present or absent.
 
 The key is in the wrapper and not a workflow input because the workflow has 25
 dispatch inputs and GitHub refuses a 26th.
@@ -696,6 +708,7 @@ version, not a different shape.
 | `status` | `passed`, `partial`, `failed`, `unavailable` or `skipped` |
 | `reviewers[]` | `name`, `backend`, `model`, `prompt_sha256`, `status`, `score` |
 | `findings[]` | `reviewer`, `severity` (`blocking` or `non_blocking`), `text`, `truncated` |
+| `findings_sha256` | SHA-256 of the canonical one-line JSON of `findings` |
 | `generalist_review` | The complete `axiom-encode/generalist-review/v2` record (#2229): verdict, digests, coverage of every reviewer call |
 | `run.id`, `run.attempt` | The local run, and which review of this unit this is |
 | `created_at` | UTC time of the review |
@@ -739,8 +752,21 @@ environment of a protected run, which is not made for a subscription CLI.
 `render` writes one block per record. The block starts and ends with a marker
 line, holds a readable part (status, hashes, reviewer, every finding with its
 mark) and ends with one fenced `json` block that carries the record on one
-line. Only the JSON is read back. Finding text is escaped in both parts, so it
-cannot form a marker, a code fence or markup.
+line.
+
+**The JSON is the record; the readable part must equal it.** A reader parses
+the JSON, renders it again, and refuses the body unless the block is exactly
+that rendering, character for character. So the text a person reads cannot
+say something else than the record a program checks. A finding is shown as
+one code span: GitHub makes no mention, link, issue reference, markup or HTML
+inside it. A backtick in the text is shown as `'` and an HTML comment opener
+is respelled in the readable part only; the JSON keeps the exact text. A run
+id may hold letters, digits, `.`, `_`, `:` and `-` only (at most 100).
+
+A block is accepted only at the top level of the body: the two marker lines
+exactly, with no other character on the line (also no leading space or
+no-break space), not inside a code fence, not inside a `<details>` element,
+not quoted. Anything else refuses the whole body.
 
 The record travels in the pull request **body**. A comment is not read: every
 GitHub account can comment on a public repository, and a second read costs
@@ -776,18 +802,49 @@ A unit is admitted when exactly one record names it and that record:
 - has the status `passed`;
 - has `reviewed.rulespec_sha256` and `reviewed.companion_sha256` equal to the
   bytes to be signed;
-- names an encoder version that is not newer than the signing encoder. (No
-  rule for the encoder version of a candidate exists in this lane; this is the
-  one rule applied to the record.)
+- has findings that equal `findings_sha256`;
+- names an encoder version that is not newer than the signing encoder.
+
+What is recorded and **not** checked, stated plainly:
+
+- `reviewed.commit`. It is not compared with the candidate head. A candidate
+  must sit on the newest `main`, so its head changes with every update of the
+  branch while the two files stay the same; a check of the commit would force
+  a new review for each update. The two file hashes bind the review.
+- The source digest. The embedded v2 record names the digest of the source
+  text that the reviewer was shown (`reviewed.source_sha256`). It is not
+  compared with the `source_sha256` pin of the module: the two are digests of
+  different forms of the text (the reviewer's excerpt, the resolver's stored
+  body). The promotion checks the pin against the corpus as before.
+- The prompt digest and the reviewer model. Recorded only; no list of allowed
+  prompts or models exists.
+- A lowest encoder version. This lane has no rule for the encoder version of
+  a candidate and the repository configures no floor, so none is applied to
+  the record. The one rule is "not newer than the signing encoder".
 
 Refused, each with its reason: no record, two records for one unit (also equal
 ones), a status that is not `passed`, a changed module, a changed companion,
 another citation, another path, JSON that cannot be read, a damaged or nested
-block, a marker of another version, a body read at another head. In a batch,
-one unit without an admitting record refuses every unit; nothing is signed.
+block, a marker of another version, a block that is not at the top level, a
+readable part that differs from the JSON, an edited finding, a body read at
+another head, a response that is not the pull request, a failed read. In a
+batch, one unit without an admitting record refuses every unit; nothing is
+signed.
 
-The read costs one anonymous API request. With the key, a run of `k` units
-reads `35 + 4k` times, so 59 for 6 units (see "Limits").
+The switch is parsed once, by the step `Decide the review record switch`. The
+reader step runs when that value is `true`, and the step that builds the
+supervised command compares the value with its own parse of the wrapper. When
+they differ the run stops with `review record switch mismatch` before any
+command is queued. So spacing or an escape in the key cannot turn the check
+on in one place and off in the other.
+
+The read costs one anonymous API request for the run, not one for each unit.
+With the key, a run of `k` units reads `35 + 4k` times: 39 for one unit, 59
+for six, against GitHub's limit of 60 an hour for one address. Seven units
+are refused by `MAX_PROMOTION_UNITS` before anything is read. A batch of six
+leaves one request: a second dispatch or a re-run from the same address in
+the same hour fails closed, and the refusal names the limit and the count of
+that run. Nothing is cached across runs.
 
 ### What the gate guarantees, and what it does not
 
@@ -795,8 +852,11 @@ It guarantees:
 
 1. No unit is signed by such a run without a published review record, bound
    by hash to the exact module and companion that are signed.
-2. The findings are public before and after the landing: in the candidate
-   pull request, in the lane pull request and in the run artifact.
+2. The findings of that record are public before and after the landing: in
+   the candidate pull request, in the lane pull request and in the run
+   artifact, and the readable text equals the record. They are the findings
+   that the record's author published. Whoever can edit the body can replace
+   the record, with its digest, by another well-formed one (see below).
 3. A file that changed after its review is refused.
 4. A second review is visible: the record carries its attempt number, and the
    run records its own run attempt and the SHA-256 of the body it read.

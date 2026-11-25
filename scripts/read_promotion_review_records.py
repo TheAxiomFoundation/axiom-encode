@@ -49,6 +49,35 @@ def _committed(repo: Path, path: str) -> bytes:
     )
 
 
+def review_record_required(dispatch: dict) -> bool:
+    """Whether this dispatch requires review records: the one parsed value.
+
+    True only for a promotion wrapper that carries ``"require_review_record":
+    true``, as ``split_atomic_source_input`` reads it. Every other dispatch,
+    also one whose source input cannot be parsed, is False here; the workflow
+    refuses a malformed input in its own later step, as before. The workflow
+    gates the reader step on this value and refuses the promotion when its
+    own parse of the wrapper disagrees with it.
+    """
+
+    raw = dispatch.get("source_bundle_json", "[]")
+    try:
+        outer = json.loads(raw)
+    except (TypeError, ValueError, RecursionError):
+        return False
+    if not isinstance(outer, dict) or outer.get("schema") != PROMOTION_SCHEMA:
+        return False
+    # Imported only for a promotion wrapper: every other run decides with
+    # the standard library alone.
+    from axiom_encode.prepare_signed_backfill import split_atomic_source_input
+
+    try:
+        transaction = split_atomic_source_input(raw)
+    except ValueError:
+        return False
+    return transaction.get("promotion_review_record_required") is True
+
+
 def read_records(
     *,
     dispatch: dict,
@@ -66,16 +95,9 @@ def read_records(
         split_atomic_source_input,
     )
 
-    raw = dispatch.get("source_bundle_json", "[]")
-    try:
-        outer = json.loads(raw)
-    except (TypeError, ValueError, RecursionError):
-        outer = None
-    if not isinstance(outer, dict) or outer.get("schema") != PROMOTION_SCHEMA:
+    if not review_record_required(dispatch):
         return False, ""
-    transaction = split_atomic_source_input(raw)
-    if transaction.get("promotion_review_record_required") is not True:
-        return False, ""
+    transaction = split_atomic_source_input(dispatch["source_bundle_json"])
 
     country = dispatch["country"]
     head = dispatch["rulespec_ref"]
@@ -91,7 +113,17 @@ def read_records(
     number = transaction["rulespec_pr"]
     citations = transaction.get("promotion_units") or [dispatch["citation"]]
 
-    pull = fetch(f"/repos/TheAxiomFoundation/rulespec-{country}/pulls/{number}")
+    try:
+        pull = fetch(f"/repos/TheAxiomFoundation/rulespec-{country}/pulls/{number}")
+    except Exception as exc:  # noqa: BLE001 - every read failure refuses
+        raise ValueError(
+            f"the candidate pull request #{number} could not be read "
+            f"({type(exc).__name__}). The read is anonymous: GitHub allows 60 "
+            f"requests an hour for one address, and a run that requires review "
+            f"records reads 35 + 4k times for k units ({35 + 4 * len(citations)} "
+            "here). A second run from the same address in the same hour can "
+            "exhaust the limit; dispatch again later"
+        ) from exc
     if not isinstance(pull, dict) or pull.get("number") != number:
         raise ValueError("the candidate pull request could not be read")
     pull_head = pull.get("head")
@@ -147,34 +179,52 @@ def read_records(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", type=Path, required=True)
-    parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("command", choices=["switch", "read"])
+    parser.add_argument("--repo", type=Path)
+    parser.add_argument("--out-dir", type=Path)
     args = parser.parse_args()
+
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+
+    def summarize(text: str) -> None:
+        if summary_path:
+            with open(summary_path, "a", encoding="utf-8") as stream:
+                stream.write(text + "\n")
+
+    dispatch = json.loads(os.environ["DISPATCH_JSON"])
+    if args.command == "switch":
+        # Every run states the switch, also when it is off.
+        required = isinstance(dispatch, dict) and review_record_required(dispatch)
+        summarize(f"Review record required: {'yes' if required else 'no'}")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+            stream.write(f"required={'true' if required else 'false'}\n")
+        return 0
 
     from axiom_encode import reviewed_pr_admission
 
-    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if args.repo is None or args.out_dir is None:
+        parser.error("read requires --repo and --out-dir")
     try:
         required, summary = read_records(
-            dispatch=json.loads(os.environ["DISPATCH_JSON"]),
+            dispatch=dispatch,
             repo=args.repo,
             out_dir=args.out_dir,
             run_id=os.environ["GITHUB_RUN_ID"],
             run_attempt=int(os.environ["GITHUB_RUN_ATTEMPT"]),
             fetch=reviewed_pr_admission.github_json,
         )
+        if not required:
+            # The step runs only when the switch step said yes.
+            raise ValueError(
+                "the reader step ran for a dispatch that does not require "
+                "review records"
+            )
     except Exception as exc:  # noqa: BLE001 - every failure refuses the run
         message = f"Review record refused: {exc}"
         print(message, file=sys.stderr)
-        if summary_path:
-            with open(summary_path, "a", encoding="utf-8") as stream:
-                stream.write("## Review record\n\n" + message + "\n")
+        summarize("## Review record\n\nReview record required: yes\n\n" + message)
         return 1
-    if required and summary_path:
-        with open(summary_path, "a", encoding="utf-8") as stream:
-            stream.write(summary + "\n")
-    with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
-        stream.write(f"required={'true' if required else 'false'}\n")
+    summarize(summary)
     return 0
 
 

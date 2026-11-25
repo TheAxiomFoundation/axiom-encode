@@ -486,19 +486,31 @@ jobs:
             --repo "$RULESPEC_CHECKOUT" \
             --selector "$RUNNER_TEMP/reviewed-pr-selector.json"
 
-      # Only for a promotion whose wrapper carries "require_review_record":
-      # true (docs/reviewed-pr-promotion.md, "Review record"). One anonymous
-      # read of the candidate pull request; no token; nothing is signed here.
-      # Without the key this step is skipped and nothing below changes.
+      # The review record switch (docs/reviewed-pr-promotion.md, "Review
+      # record"): the wrapper key "require_review_record": true of a promotion
+      # dispatch, parsed once, here. Every run writes "Review record required:
+      # yes|no" to its summary. The reader step and the supervised promotion
+      # both take this one value; the promotion refuses when its own parse of
+      # the wrapper disagrees.
+      - name: Decide the review record switch
+        id: review_record_switch
+        env:
+          DISPATCH_JSON: ${{ toJSON(inputs) }}
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python axiom-encode/scripts/read_promotion_review_records.py switch
+
+      # One anonymous read of the candidate pull request; no token; nothing
+      # is signed here. Skipped unless the switch is on.
       - name: Read candidate review records
         id: candidate_review_records
-        if: ${{ steps.reviewed_pr_admission.outputs.enabled == 'true' && contains(inputs.source_bundle_json, '"require_review_record"') }}
+        if: ${{ steps.review_record_switch.outputs.required == 'true' }}
         env:
           DISPATCH_JSON: ${{ toJSON(inputs) }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
-          axiom-encode/.venv/bin/python axiom-encode/scripts/read_promotion_review_records.py \
+          axiom-encode/.venv/bin/python axiom-encode/scripts/read_promotion_review_records.py read \
             --repo "$RULESPEC_CHECKOUT" \
             --out-dir "$RUNNER_TEMP/promotion-review-records"
 
@@ -2163,6 +2175,7 @@ jobs:
           CORPUS_REF: ${{ inputs.corpus_ref }}
           COUNTRY: ${{ inputs.country }}
           REVIEW_FINDING: ${{ inputs.review_finding }}
+          REVIEW_RECORD_REQUIRED: ${{ steps.review_record_switch.outputs.required }}
           REPAIR_CANDIDATE_PATH: ${{ steps.repair_candidate.outputs.path }}
           REPAIR_CANDIDATE_ROOT: ${{ steps.repair_candidate.outputs.root }}
           REPAIR_CANDIDATE_RULESPEC_SHA256: ${{ steps.repair_candidate.outputs.rulespec_sha256 }}
@@ -2991,9 +3004,16 @@ jobs:
             fi
             # The wrapper key "require_review_record": true. The command
             # then signs only when the file holds, for every unit, one passed
-            # review record bound to the exact bytes it signs.
-            if [ "$(jq -r '.promotion_review_record_required == true' \
-              <<< "$atomic_source_payload")" = "true" ]; then
+            # review record bound to the exact bytes it signs. The value of
+            # the switch step and this step's own parse must agree.
+            review_record_required="$(jq -r \
+              '.promotion_review_record_required == true' \
+              <<< "$atomic_source_payload")"
+            if [ "$review_record_required" != "${REVIEW_RECORD_REQUIRED:-false}" ]; then
+              echo "review record switch mismatch: the switch step says '${REVIEW_RECORD_REQUIRED:-false}' and the promotion wrapper says '$review_record_required'; nothing is signed" >&2
+              exit 1
+            fi
+            if [ "$review_record_required" = "true" ]; then
               promotion_args+=(--require-review-record \
                 "$RUNNER_TEMP/promotion-review-records/candidate-review-records.json")
             fi
@@ -5595,6 +5615,7 @@ jobs:
           PUBLICATION_BASE_SHA256: ${{ steps.reviewed_lane_pull_request_branch.outputs.publication_base_sha256 }}
           PROMOTION_UNITS: ${{ steps.reviewed_lane_pull_request_branch.outputs.promotion_units }}
           PROMOTION_UNIT_COUNT: ${{ steps.reviewed_lane_pull_request_branch.outputs.promotion_unit_count }}
+          REVIEW_RECORD_REQUIRED: ${{ steps.review_record_switch.outputs.required }}
         run: |
           set -euo pipefail
           test "$PRIOR_STATUS" = success
@@ -5639,11 +5660,15 @@ jobs:
             fi
             body="$(printf '%s\n' "$body" '' "Units (${PROMOTION_UNIT_COUNT}): \`${PROMOTION_UNITS}\`")"
           fi
-          # Written only by a run that required review records and admitted
-          # every unit: status, digests, findings, attempt, body digest.
+          # Every lane pull request states the review record switch. A run
+          # that required review records and admitted every unit adds the
+          # section: status, digests, findings, attempt, body digest.
           review_records="$RUNNER_TEMP/promotion-review-records/candidate-review-records.md"
-          if [ -s "$review_records" ]; then
+          if [ "${REVIEW_RECORD_REQUIRED:-false}" = "true" ]; then
+            test -s "$review_records"
             body="$(printf '%s\n' "$body" '' "$(cat "$review_records")")"
+          else
+            body="$(printf '%s\n' "$body" '' 'Review record required: no')"
           fi
           gh auth setup-git
           git -C "$RULESPEC_CHECKOUT" -c core.hooksPath=/dev/null push \

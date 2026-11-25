@@ -636,3 +636,165 @@ def test_the_reader_needs_a_record_for_every_unit_of_a_batch(tmp_path, monkeypat
     assert required and all(citation(name) in summary for name in NAMES)
     with pytest.raises(ValueError, match="no review record for us/statute/7/2015/b"):
         call(crr.render_blocks([records[0], records[2]]), "missing")
+
+
+# --- Review round 1: the reader's other refusals, its entry point, the audit trail ----
+
+
+def test_the_reader_refuses_when_the_pull_request_cannot_be_read(tmp_path):
+    promotion = _Promotion(tmp_path / "p")
+
+    def failing(path):
+        raise OSError("HTTP Error 403: rate limit exceeded")
+
+    with pytest.raises(ValueError) as refusal:
+        read(tmp_path, promotion, failing)
+    message = str(refusal.value)
+    assert "could not be read (OSError)" in message
+    # The limit and this run's own count are in the message.
+    assert "60 requests an hour" in message and "35 + 4k" in message
+    assert "(39 here)" in message
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"number": 7}, "could not be read"),
+        ("not an object", "could not be read"),
+        ({"number": 2044, "head": "x"}, "head is not the reviewed ref"),
+        ({"number": 2044, "body": 5}, "body is not text"),
+        ({"number": 2044, "body": ["x"]}, "body is not text"),
+    ],
+)
+def test_the_reader_refuses_an_unexpected_response(tmp_path, payload, message):
+    promotion = _Promotion(tmp_path / "p")
+    pull = Pull("", promotion.ref)
+    if isinstance(payload, dict):
+        pull.payload = {"head": {"sha": promotion.ref}, "body": "", **payload}
+    else:
+        pull.payload = payload
+    with pytest.raises(ValueError, match=message):
+        read(tmp_path, promotion, pull)
+    assert not (tmp_path / "out" / "candidate-review-records.json").exists()
+
+
+def test_the_reader_treats_a_missing_body_as_empty(tmp_path):
+    promotion = _Promotion(tmp_path / "p")
+    with pytest.raises(ValueError, match="no review record"):
+        read(tmp_path, promotion, Pull(None, promotion.ref))
+
+
+def test_the_reader_refuses_a_checkout_that_is_not_at_the_reviewed_head(tmp_path):
+    promotion = _Promotion(tmp_path / "p")
+    body = crr.render_block(unit_record(tmp_path, promotion))
+    pull = Pull(body, "d" * 40)
+    with pytest.raises(ValueError, match="checkout is not at the reviewed head"):
+        read(tmp_path, promotion, pull, dispatch_json=dispatch("d" * 40))
+    # Refused before the read: GitHub is not asked.
+    assert pull.paths == []
+
+
+def run_reader_main(tmp_path, monkeypatch, promotion, pull, request=None):
+    script = load_script()
+    output, summary = tmp_path / "github-output", tmp_path / "github-summary"
+    monkeypatch.setenv("DISPATCH_JSON", json.dumps(request or dispatch(promotion.ref)))
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    monkeypatch.setattr(admission, "github_json", pull)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "read_promotion_review_records.py",
+            "read",
+            "--repo",
+            str(promotion.repo),
+            "--out-dir",
+            str(tmp_path / "out"),
+        ],
+    )
+    status = script.main()
+    return status, summary.read_text() if summary.exists() else ""
+
+
+def test_the_reader_entry_point_writes_the_summary_of_an_admitted_run(
+    tmp_path, monkeypatch
+):
+    promotion = _Promotion(tmp_path / "p")
+    record = unit_record(tmp_path, promotion)
+    body = crr.render_block(record)
+    status, summary = run_reader_main(
+        tmp_path, monkeypatch, promotion, Pull(body, promotion.ref)
+    )
+    assert status == 0
+    # What an auditor needs, without the artifact: the switch, the status,
+    # the two file hashes and the digest of the body that was read.
+    import hashlib
+
+    assert "Review record required: yes" in summary
+    assert "- Status: **passed**" in summary
+    assert record["reviewed"]["rulespec_sha256"] in summary
+    assert record["reviewed"]["companion_sha256"] in summary
+    assert hashlib.sha256(body.encode()).hexdigest() in summary
+    assert "attempt 2" in summary
+
+
+def test_the_reader_entry_point_fails_and_says_why(tmp_path, monkeypatch, capsys):
+    promotion = _Promotion(tmp_path / "p")
+    status, summary = run_reader_main(
+        tmp_path, monkeypatch, promotion, Pull("no record here", promotion.ref)
+    )
+    assert status == 1
+    assert "Review record required: yes" in summary
+    assert "Review record refused:" in summary and "no review record" in summary
+    assert "Review record refused:" in capsys.readouterr().err
+
+
+def test_the_reader_entry_point_refuses_a_run_that_does_not_require_records(
+    tmp_path, monkeypatch
+):
+    promotion = _Promotion(tmp_path / "p")
+    pull = Pull("", promotion.ref)
+    status, summary = run_reader_main(
+        tmp_path,
+        monkeypatch,
+        promotion,
+        pull,
+        request=dispatch(promotion.ref, required=False),
+    )
+    assert status == 1 and pull.paths == []
+    assert "does not require review records" in summary
+
+
+def test_the_dispatch_record_states_the_switch():
+    spec = importlib.util.spec_from_file_location(
+        "_dispatch_record_for_review", ROOT / "scripts/dispatch_record.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def required(bundle):
+        return module.build_record({"source_bundle_json": bundle}, {})[
+            "review_record_required"
+        ]
+
+    on = dispatch("c" * 40)["source_bundle_json"]
+    off = dispatch("c" * 40, required=False)["source_bundle_json"]
+    assert required(on) is True
+    assert required(off) is False
+    assert required("[]") is False and required("") is False
+    assert (
+        required(json.dumps({"schema": "other", "require_review_record": True}))
+        is False
+    )
+    # Unknown, never a silent "no": an unreadable bundle or another value.
+    assert required("not json") is None
+    assert (
+        required(
+            on.replace('"require_review_record": true', '"require_review_record": 1')
+        )
+        is None
+    )
