@@ -1,3 +1,7 @@
+## 0.2.2402
+
+- Ground numbers Chinese statutes write in characters (百分之五, 二十億元, 民國一百十四年) (#2356)
+
 ## 0.2.2401
 
 - Keep page furniture and example-only numbers of US manual pages out of numeric recall (#2354)
