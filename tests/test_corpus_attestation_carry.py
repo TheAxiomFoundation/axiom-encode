@@ -552,7 +552,20 @@ def test_import_candidates_may_be_absent_in_both_releases(gained):
         view_a=_view(unit),
         view_b=_view(unit),
     )
-    assert verdict.status is CarryStatus.CARRIED
+    assert verdict.status is CarryStatus.NOT_VERIFIABLE
+    assert verdict.resolution_checked is True
+    both = {candidate: _cited([])}
+    verdict = _carry(
+        attestation,
+        new,
+        old,
+        dependency_paths=[candidate],
+        view_a=_view(unit, both),
+        view_b=_view(unit, both),
+    )
+    assert verdict.status is CarryStatus.CONTEXT_CHANGED
+    verdict = _carry(attestation, new, old, dependency_paths=[candidate])
+    assert verdict.status is CarryStatus.NOT_VERIFIABLE
     appears = {candidate: _cited([])}
     verdict = _carry(
         attestation,
@@ -1221,13 +1234,29 @@ def test_console_entrypoint_dispatches_the_dry_run(base, monkeypatch, capsys):
     assert "current\tcurrent.json" in capsys.readouterr().out
 
 
-def _single_entry(tmp_path: Path, raw: bytes, *, name="us/a.yaml", tamper=None):
+def _single_entry(
+    tmp_path: Path,
+    raw: bytes,
+    *,
+    name="us/a.yaml",
+    tamper=None,
+    attestation=None,
+    applied=None,
+):
     repo = _manifest_repo(tmp_path, {})
     module = _bind(repo, name, raw)
     if tamper is not None:
         tamper(repo)
+    if attestation is None:
+        attestation = {"rulespec_root": "rulespec-us/us"}
     repo = _manifest_repo(
-        tmp_path, {"a.json": {"source_attestation": {}, "applied_files": [module]}}
+        tmp_path,
+        {
+            "a.json": {
+                "source_attestation": attestation,
+                "applied_files": [module] if applied is None else applied,
+            }
+        },
     )
     (entry,) = iter_manifest_attestations(repo / ".axiom" / "encoding-manifests")
     return entry
@@ -1495,3 +1524,135 @@ def test_attested_release_may_be_signed_with_the_retired_key(base, tmp_path, cap
         )
         == 0
     )
+
+
+@pytest.mark.parametrize("directory", ["rulespec-us-wt", "rulespec-us-ny", "checkout"])
+def test_import_jurisdiction_comes_from_the_attestation_not_the_directory(
+    tmp_path, directory
+):
+    raw = _rulespec([UNIT_CITATION]) + b"imports:\n- regulations/7/273/1#x\n"
+    entry = _single_entry(tmp_path / directory, raw)
+    assert entry.dependency_paths == ("us/regulation/7/273/1",)
+    for attestation in ({}, {"rulespec_root": "rulespec-us-wt/us"}, None):
+        entry = _single_entry(
+            tmp_path / f"{directory}-x{len(str(attestation))}",
+            raw,
+            attestation=attestation
+            if attestation is not None
+            else {"rulespec_root": 5},
+        )
+        assert any("canonical rulespec_root" in item for item in entry.problems)
+
+
+def test_changed_regulation_under_an_import_does_not_carry(base):
+    root, old = base
+    attestation = _attestation(root, old)
+    _write_scope(root, OTHER_PAIR, OTHER_CITATION, "other words changed")
+    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR])
+    verdict = _carry(attestation, new, old, dependency_paths=["us/regulation/7/273/1"])
+    assert verdict.status is CarryStatus.CONTEXT_CHANGED
+
+
+@pytest.mark.parametrize(
+    ("raw", "problem"),
+    [
+        (b"module: {}\nimports:\n- regulations/7/1#x\n", "unsupported format None"),
+        (b"rules: []\n", "unsupported format None"),
+    ],
+)
+def test_bound_module_without_a_format_is_malformed(tmp_path, raw, problem):
+    entry = _single_entry(tmp_path, raw)
+    assert any(problem in item for item in entry.problems), entry.problems
+    assert entry.dependency_paths == ()
+
+
+def test_waiver_ledger_is_bound_without_a_format(tmp_path):
+    entry = _single_entry(tmp_path, b"entries: []\n", name="known-validation-gaps.yaml")
+    assert entry.problems == ()
+
+
+@pytest.mark.parametrize(
+    ("applied", "problem"),
+    [
+        (["us/a.yaml"], "is not an object"),
+        ([{"sha256": "0" * 64}], "no string path"),
+        ([{"path": "us/a.YAML", "sha256": "0" * 64}], "unexpected suffix case"),
+        ([{"path": "us/a.Yml", "deleted": True}], "unexpected suffix case"),
+    ],
+)
+def test_applied_files_entries_of_unexpected_shape_are_malformed(
+    tmp_path, applied, problem
+):
+    entry = _single_entry(tmp_path, _rulespec([UNIT_CITATION]), applied=applied)
+    assert any(problem in item for item in entry.problems), entry.problems
+
+
+def test_null_source_attestation_is_malformed(tmp_path):
+    manifests = tmp_path / "repo" / ".axiom" / "encoding-manifests"
+    manifests.mkdir(parents=True)
+    (manifests / "a.json").write_text(
+        '{"source_attestation": null, "applied_files": []}'
+    )
+    (entry,) = iter_manifest_attestations(manifests)
+    assert entry.problems == ("source_attestation is not an object",)
+
+
+def test_cli_refuses_a_missing_manifest_directory(base, tmp_path, capsys):
+    root, old = base
+    code = run_corpus_attestation_carry(
+        [
+            "--rulespec-repo",
+            str(tmp_path / "nowhere"),
+            "--to-release",
+            str(_release_file(root, old)),
+            "--public-key",
+            TEST_RELEASE_PUBLIC_KEY,
+        ]
+    )
+    assert code == 2
+    assert "no manifest directory" in capsys.readouterr().err
+
+
+def test_cli_refuses_a_corpus_without_the_attested_release(base, tmp_path, capsys):
+    root, old = base
+    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR])
+    other = tmp_path / "other-corpus"
+    _write_scope(other, UNIT, UNIT_CITATION, "unit words")
+    _signed(other, "carry-new-copy", [UNIT])
+    repo = _manifest_repo(tmp_path, {})
+    (repo / ".axiom" / "encoding-manifests").mkdir(parents=True)
+    code = run_corpus_attestation_carry(
+        [
+            "--rulespec-repo",
+            str(repo),
+            "--to-release",
+            str(_release_file(root, new)),
+            "--from-release",
+            str(_release_file(root, old)),
+            "--corpus-root",
+            str(root),
+            "--from-corpus-root",
+            str(other),
+            "--public-key",
+            TEST_RELEASE_PUBLIC_KEY,
+        ]
+    )
+    assert code == 2
+    assert "cannot load a corpus" in capsys.readouterr().err
+
+
+def test_import_candidates_without_corpora_are_not_verifiable(base):
+    root, old = base
+    new = _signed(root, "carry-new", [UNIT, SIBLING, OTHER_PAIR])
+    verdict = _carry(
+        _attestation(root, old), new, old, dependency_paths=["us/regulation/9/1"]
+    )
+    assert verdict.status is CarryStatus.NOT_VERIFIABLE
+    assert verdict.pair_gained_scopes == ()
+
+
+def test_only_the_root_waiver_ledger_may_lack_a_format(tmp_path):
+    entry = _single_entry(
+        tmp_path, b"entries: []\n", name="us/known-validation-gaps.yaml"
+    )
+    assert any("unsupported format" in item for item in entry.problems)

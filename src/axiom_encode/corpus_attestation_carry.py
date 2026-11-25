@@ -52,6 +52,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -357,6 +358,15 @@ def classify_attestation_carry(
     )
 
     if view_a is None or view_b is None:
+        if dependency_paths:
+            return CarryVerdict(
+                CarryStatus.NOT_VERIFIABLE,
+                (
+                    "import candidates must be resolved in materialized corpora "
+                    "of both releases",
+                ),
+                pair_gained_scopes=gained,
+            )
         if gained:
             return CarryVerdict(
                 CarryStatus.NOT_VERIFIABLE,
@@ -419,6 +429,7 @@ def classify_attestation_carry(
     if unit_a.has_amendment_context or unit_b.has_amendment_context:
         return checked(CarryStatus.CONTEXT_CHANGED, "the unit has amendment context")
 
+    unverifiable: list[str] = []
     references = [(path, False) for path in sorted(set(cited_paths))]
     references += [(path, True) for path in sorted(set(dependency_paths))]
     for reference, may_be_absent in references:
@@ -432,6 +443,7 @@ def classify_attestation_carry(
                 outcomes.append(f"error: {exc}")
         result_a, result_b = outcomes
         if result_a == "absent" and result_b == "absent" and may_be_absent:
+            unverifiable.append(f"import candidate {reference} is in neither release")
             continue
         if not isinstance(result_a, ResolvedCitationEvidence) or not isinstance(
             result_b, ResolvedCitationEvidence
@@ -459,6 +471,8 @@ def classify_attestation_carry(
             )
     if reasons:
         return checked(CarryStatus.CONTEXT_CHANGED, *reasons)
+    if unverifiable:
+        return checked(CarryStatus.NOT_VERIFIABLE, *unverifiable)
     return checked(CarryStatus.CARRIED)
 
 
@@ -528,8 +542,25 @@ def _citations(value: object, problems: list[str]) -> Iterable[str]:
             yield from _citations(item, problems)
 
 
+_RULESPEC_ROOT_RE = re.compile(r"(rulespec-[a-z]{2})/[a-z]{2}(?:-[a-z0-9_]+)*")
+_WAIVER_LEDGER_PATH = "known-validation-gaps.yaml"
+
+
+def _attested_rulespec_repo(holder: Mapping[str, Any]) -> str | None:
+    """Return the canonical RuleSpec repository named by the attestation."""
+
+    attestation = holder.get("source_attestation")
+    root = (
+        attestation.get("rulespec_root") if isinstance(attestation, Mapping) else None
+    )
+    if not isinstance(root, str):
+        return None
+    match = _RULESPEC_ROOT_RE.fullmatch(root)
+    return match.group(1) if match else None
+
+
 def _import_candidates(
-    repo_root: Path, document: Mapping[str, Any], problems: list[str]
+    rulespec_repo: str | None, document: Mapping[str, Any], problems: list[str]
 ) -> set[str]:
     imports = document.get("imports")
     if imports is None:
@@ -537,13 +568,24 @@ def _import_candidates(
     if not isinstance(imports, list) or not all(isinstance(x, str) for x in imports):
         problems.append("imports is not a list of strings")
         return set()
+    if not imports:
+        return set()
+    if rulespec_repo is None:
+        # The candidate of a bare import depends on the repository's
+        # jurisdiction; a checkout directory name is not evidence of it.
+        problems.append(
+            "has imports, but the attestation names no canonical rulespec_root"
+        )
+        return set()
     from axiom_encode.harness.dependency_stubs import (
         _candidate_corpus_paths_for_import_target,
     )
 
     candidates: set[str] = set()
     for target in imports:
-        candidates.update(_candidate_corpus_paths_for_import_target(target, repo_root))
+        candidates.update(
+            _candidate_corpus_paths_for_import_target(target, Path(rulespec_repo))
+        )
     return candidates
 
 
@@ -559,12 +601,21 @@ def _bound_references(
     if not isinstance(applied, list):
         return (), (), ("manifest has no applied_files list",)
     resolved_root = repo_root.resolve()
+    rulespec_repo = _attested_rulespec_repo(holder)
     for item in applied:
-        if not isinstance(item, Mapping) or item.get("deleted") is True:
+        if not isinstance(item, Mapping):
+            problems.append("an applied_files entry is not an object")
             continue
         path = item.get("path")
         digest = item.get("sha256")
-        if not isinstance(path, str) or not path.endswith(_YAML_SUFFIXES):
+        if not isinstance(path, str):
+            problems.append("an applied_files entry has no string path")
+            continue
+        if not path.endswith(_YAML_SUFFIXES):
+            if path.lower().endswith(_YAML_SUFFIXES):
+                problems.append(f"applied file {path} has an unexpected suffix case")
+            continue
+        if item.get("deleted") is True:
             continue
         parts = path.split("/")
         if path.startswith("/") or any(part in {"", ".", ".."} for part in parts):
@@ -594,14 +645,15 @@ def _bound_references(
         local: list[str] = []
         if path.endswith(_TEST_SUFFIXES):
             citations.update(_citations(document, local))
+        elif path == _WAIVER_LEDGER_PATH:
+            pass
         elif not isinstance(document, Mapping):
             local.append("is not a YAML mapping")
-        elif "format" in document and document.get("format") != "rulespec/v1":
+        elif document.get("format") != "rulespec/v1":
             local.append(f"has unsupported format {document.get('format')!r}")
         else:
             citations.update(_citations(document, local))
-            if document.get("format") == "rulespec/v1":
-                dependencies.update(_import_candidates(repo_root, document, local))
+            dependencies.update(_import_candidates(rulespec_repo, document, local))
         problems.extend(f"applied file {path} {problem}" for problem in local)
     return tuple(sorted(citations)), tuple(sorted(dependencies)), tuple(problems)
 
@@ -647,6 +699,8 @@ def iter_manifest_attestations(manifests_root: Path) -> Iterable[ManifestAttesta
             if isinstance(holder, dict) and "source_attestation" in holder:
                 found = True
                 cited, dependencies, problems = _bound_references(repo_root, holder)
+                if not isinstance(holder["source_attestation"], dict):
+                    problems = ("source_attestation is not an object", *problems)
                 yield ManifestAttestation(
                     f"{relative}#{location}" if location else relative,
                     holder["source_attestation"],
@@ -814,16 +868,29 @@ def run_corpus_attestation_carry(argv: Sequence[str]) -> int:
     except (OSError, ValueError) as exc:
         print(f"corpus-attestation-carry: {exc}", file=sys.stderr)
         return 2
+    manifests_root = args.rulespec_repo / ".axiom" / "encoding-manifests"
+    if manifests_root.is_symlink() or not manifests_root.is_dir():
+        print(
+            f"corpus-attestation-carry: no manifest directory at {manifests_root}",
+            file=sys.stderr,
+        )
+        return 2
     view_b: CorpusView | None = None
     views_a: dict[tuple[str, str], CorpusView] = {}
     if args.corpus_root is not None:
-        view_b = corpus_view(args.corpus_root, target, current_keys)
         from_root = args.from_corpus_root or args.corpus_root
-        for release in attested:
-            views_a[(release.name, release.content_sha256)] = corpus_view(
-                from_root, release, attested_keys
+        try:
+            view_b = corpus_view(args.corpus_root, target, current_keys)
+            for release in attested:
+                views_a[(release.name, release.content_sha256)] = corpus_view(
+                    from_root, release, attested_keys
+                )
+        except (OSError, ValueError) as exc:
+            print(
+                f"corpus-attestation-carry: cannot load a corpus: {exc}",
+                file=sys.stderr,
             )
-    manifests_root = args.rulespec_repo / ".axiom" / "encoding-manifests"
+            return 2
     rows: list[dict[str, Any]] = []
     for entry in iter_manifest_attestations(manifests_root):
         attestation = entry.attestation
