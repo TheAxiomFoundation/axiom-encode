@@ -3257,6 +3257,31 @@ _JURISDICTION_SET_LABEL_CAPTION_QUALIFIER = re.compile(
 _JURISDICTION_SET_LABEL_FIRST_ROW = re.compile(
     r"(?:(?!household)[^\d$]){0,200}?(?<!\S)1[ \t]+\$[ \t]*\d", re.IGNORECASE
 )
+# The whole jurisdiction-set label that `_JURISDICTION_SET_LABEL_NUMERIC_RECALL_
+# IDENTIFIER` recognizes, read from its `48`.
+_JURISDICTION_SET_LABEL = re.compile(
+    r"48 States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
+    r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
+    r"Virgin[ \t]+Islands\b)"
+    r"(?:[ \t]*(?:,|&|and\b)[ \t]*(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|"
+    r"DC\b|Guam\b|Virgin[ \t]+Islands\b))*"
+)
+# A row label of a jurisdiction table under an `Area` column caption: the
+# label's first cell is an amount directly after it, only column-header words
+# and range labels (no currency sign, at most 200 characters) separate it from
+# the caption, and at least two sibling rows of the same closed jurisdiction
+# set, each with an amount, follow within 400 characters (`Area Maximum Amount
+# 48 States and D.C. $769 Alaska $1,229 Hawaii $1,036 ...`).
+_JURISDICTION_SET_ROW_AREA_CAPTION = re.compile(r"(?<![\w$])Area\b[^$]*\Z")
+_JURISDICTION_SET_ROW_FIRST_CELL = re.compile(r"[ \t]*\$[ \t]*\d")
+_JURISDICTION_SET_SIBLING_ROW = re.compile(
+    r"(?<![\w$])(?P<name>Alaska|Hawaii|Guam|Virgin[ \t]+Islands)[ \t]+\$[ \t]*\d"
+)
+# A table title that ends with the label and is directly followed by the
+# `Household Size` caption and the column label that the #2012 rule masks
+# (`Maximum SNAP Allotments for 48 States and D.C. Household Size 48 States
+# and D.C. 1 $306 ...`).
+_JURISDICTION_SET_TITLE_CAPTION = re.compile(r"\s+Household[ \t]+Size\s+")
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
     r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+-\d+[A-Za-z]?)*"
@@ -6618,6 +6643,25 @@ def _without_manual_typography_operators(source_text: str) -> str:
     return "".join(masked)
 
 
+# The header row of a USDA household-size table whose column labels are
+# ranges and whose next cell is a jurisdiction column: `Household Size ...
+# Area 1-2 3 4 5 6+ 48 States and D.C.`. The table captions are capitalized
+# cells (`Household Size`, `Area`, in either order, repeated as a flattened
+# header prints them), only range labels (`3`, `1-2`, `1 -2`) follow them up
+# to the `N+` label, and the cell after `N+` is the closed jurisdiction set of
+# `_JURISDICTION_SET_LABEL` or a sibling area. Then `6+` is the last column,
+# not addition; lower-case prose (`service area 2 3+ 4`) is not a caption.
+_HOUSEHOLD_SIZE_RANGE_HEADER_ROW = re.compile(
+    r"(?<![\w$])(?:Household[ \t]+Size|Area)(?:\s+(?:Household[ \t]+Size|Area))*"
+    r"(?:\s+\d+(?:\s*-\s*\d+)?)+\s+$"
+)
+_HOUSEHOLD_SIZE_RANGE_HEADER_NEXT_CELL = re.compile(
+    r"\d+\+\s+(?=48 States[ \t]*(?:,|&|and\b)[ \t]*(?:the[ \t]+)?"
+    r"(?:District[ \t]+of[ \t]+Columbia\b|D\.[ \t]?C\.|DC\b|Guam\b|"
+    r"Virgin[ \t]+Islands\b)|(?:Alaska|Hawaii|Guam|Virgin[ \t]+Islands)\b)"
+)
+
+
 def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     """Ignore prose conjunctions and year spans, retaining actual arithmetic."""
 
@@ -6666,6 +6710,12 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
                 r"\bhousehold\s+size(?:\s+\d+)+\s+$",
                 title_prefix,
                 flags=re.IGNORECASE,
+            )
+            or (
+                _HOUSEHOLD_SIZE_RANGE_HEADER_ROW.search(title_prefix)
+                and _HOUSEHOLD_SIZE_RANGE_HEADER_NEXT_CELL.match(
+                    masked_source_text, match.start()
+                )
             )
         ):
             # An age threshold ("age 60+ or disabled") or the last column
@@ -18615,6 +18665,7 @@ def _contiguous_states_numeric_recall_spans(
             r"(?<!\w)the$", source_text[max(0, before - 4) : before], re.IGNORECASE
         ):
             yield identifier.span()
+    column_labels: set[int] = set()
     # The same geography as a table column label. Only the `Household Size`
     # column caption may precede it (text start, `the`, a currency, sign,
     # number or any other word keeps the 48 demanded), and the table's first
@@ -18635,6 +18686,37 @@ def _contiguous_states_numeric_recall_spans(
             )
             and _JURISDICTION_SET_LABEL_FIRST_ROW.match(source_text, identifier.end())
         ):
+            column_labels.add(identifier.start())
+            yield identifier.span()
+    for identifier in _JURISDICTION_SET_LABEL_NUMERIC_RECALL_IDENTIFIER.finditer(
+        source_text
+    ):
+        if identifier.start() in column_labels:
+            continue
+        label = _JURISDICTION_SET_LABEL.match(source_text, identifier.start())
+        if label is None:
+            continue
+        # A row of an `Area` table, with its amount and two sibling rows.
+        if (
+            _JURISDICTION_SET_ROW_FIRST_CELL.match(source_text, label.end())
+            and _JURISDICTION_SET_ROW_AREA_CAPTION.search(
+                source_text, max(0, identifier.start() - 200), identifier.start()
+            )
+            and len(
+                {
+                    re.sub(r"\s+", " ", sibling.group("name")).lower()
+                    for sibling in _JURISDICTION_SET_SIBLING_ROW.finditer(
+                        source_text, label.end(), label.end() + 400
+                    )
+                }
+            )
+            >= 2
+        ):
+            yield identifier.span()
+            continue
+        # A table title directly before a masked column label.
+        caption = _JURISDICTION_SET_TITLE_CAPTION.match(source_text, label.end())
+        if caption is not None and caption.end() in column_labels:
             yield identifier.span()
 
 
