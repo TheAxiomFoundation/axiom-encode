@@ -3289,6 +3289,17 @@ def main():
             "read"
         ),
     )
+    promote_reviewed_candidate_parser.add_argument(
+        "--require-review-attestation",
+        action="store_true",
+        help=(
+            "Use with --require-review-record. Sign only when each admitted "
+            "review record carries exactly one Ed25519 signature by a key "
+            "that is enrolled in the review attestation root of this encoder "
+            "commit (axiom_encode/data/review_attestation_roots.json). Off by "
+            "default. An empty root admits nothing"
+        ),
+    )
     _add_required_corpus_path_argument(promote_reviewed_candidate_parser)
     _add_rulespec_dependency_root_argument(promote_reviewed_candidate_parser)
     promote_reviewed_candidate_parser.add_argument(
@@ -11164,6 +11175,11 @@ def _promotion_required_review_records(args) -> dict | None:
 
     record_file = getattr(args, "require_review_record", None)
     if record_file is None:
+        if getattr(args, "require_review_attestation", False) is True:
+            raise ValueError(
+                "promote-reviewed-candidate --require-review-attestation "
+                "requires --require-review-record"
+            )
         return None
     from .candidate_review_record import ReviewRecordError, load_read_document
 
@@ -11190,6 +11206,7 @@ def _require_promotion_review_records(
     *,
     reviewed_ref: str,
     announce: bool,
+    attested: bool = False,
 ) -> None:
     """Refuse unless every unit has a passed record bound to its exact bytes.
 
@@ -11234,6 +11251,26 @@ def _require_promotion_review_records(
             "reviewed candidate promotion requires a review record "
             f"(--require-review-record): {exc}. Nothing was signed."
         ) from exc
+    attestation_keys: dict[str, str] = {}
+    if attested:
+        # --require-review-attestation: each admitted record must carry one
+        # signature by a key of the review attestation root that ships with
+        # this encoder commit. An empty root admits nothing.
+        from .review_attestation import require_attested_records, shipped_roots
+
+        try:
+            attestations = require_attested_records(
+                admitted, document["attestations"], shipped_roots()
+            )
+        except ReviewRecordError as exc:
+            raise RuntimeError(
+                "reviewed candidate promotion requires a review attestation "
+                f"(--require-review-attestation): {exc}. Nothing was signed."
+            ) from exc
+        attestation_keys = {
+            attestation["record_sha256"]: attestation["key_id"]
+            for attestation in attestations
+        }
     if announce:
         for record in admitted:
             print(
@@ -11247,6 +11284,15 @@ def _require_promotion_review_records(
                         "record_sha256": record_sha256(record),
                         "record_attempt": record["run"]["attempt"],
                         "body_sha256": document["body_sha256"],
+                        **(
+                            {
+                                "attestation_key_id": attestation_keys[
+                                    record_sha256(record)
+                                ]
+                            }
+                            if attested
+                            else {}
+                        ),
                     },
                     sort_keys=True,
                 )
@@ -11609,8 +11655,13 @@ def cmd_promote_reviewed_candidate(args):
     # Before the long validation: a unit without a passed review record bound
     # to these exact bytes stops the run here. The same check runs again
     # immediately before the signatures.
+    review_attested = getattr(args, "require_review_attestation", False) is True
     _require_promotion_review_records(
-        required_review_records, units, reviewed_ref=reviewed_ref, announce=False
+        required_review_records,
+        units,
+        reviewed_ref=reviewed_ref,
+        announce=False,
+        attested=review_attested,
     )
     _recover_apply_transaction(repo_path)
     with _authoritative_rulespec_dependency_scope(dependency_roots):
@@ -11749,6 +11800,7 @@ def cmd_promote_reviewed_candidate(args):
                 units,
                 reviewed_ref=reviewed_ref,
                 announce=True,
+                attested=review_attested,
             )
             # Every unit is signed before any manifest is written.
             for unit in units:

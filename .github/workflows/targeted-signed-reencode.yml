@@ -2997,6 +2997,13 @@ jobs:
               promotion_args+=(--require-review-record \
                 "$RUNNER_TEMP/promotion-review-records/candidate-review-records.json")
             fi
+            # The wrapper key "require_review_attestation": true (it needs the
+            # key above). Each record must then carry a signature by a key of
+            # the review attestation root of this encoder commit.
+            if [ "$(jq -r '.promotion_review_attestation_required == true' \
+              <<< "$atomic_source_payload")" = "true" ]; then
+              promotion_args+=(--require-review-attestation)
+            fi
             queue_operation command "${promotion_args[@]}"
             # A multi-unit promotion (docs/reviewed-pr-promotion.md, "Several
             # units in one candidate") names every unit in its one commit.

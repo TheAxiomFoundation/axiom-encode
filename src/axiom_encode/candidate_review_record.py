@@ -738,6 +738,7 @@ def build_read_document(
     records: Sequence[object],
     run_id: str,
     run_attempt: int,
+    attestations: Sequence[object] = (),
     now: datetime | None = None,
 ) -> dict[str, object]:
     """What the signing run read from the candidate pull request, once."""
@@ -753,6 +754,7 @@ def build_read_document(
         "signing_run_id": run_id,
         "signing_run_attempt": run_attempt,
         "records": list(records),
+        "attestations": list(attestations),
     }
 
 
@@ -767,6 +769,7 @@ _READ_FIELDS = frozenset(
         "signing_run_id",
         "signing_run_attempt",
         "records",
+        "attestations",
     }
 )
 
@@ -787,6 +790,8 @@ def load_read_document(text: str) -> dict:
         or type(document["signing_run_attempt"]) is not int
         or not isinstance(document["records"], list)
         or len(document["records"]) > MAX_RECORDS_PER_BODY
+        or not isinstance(document["attestations"], list)
+        or len(document["attestations"]) > MAX_RECORDS_PER_BODY
     ):
         raise ReviewRecordError(
             f"the review record file is not a {READ_SCHEMA} document"

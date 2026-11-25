@@ -830,15 +830,128 @@ It does **not** guarantee:
   because it is not written for a pinned target. The signature then states
   that the signing run verified a passed review record for exactly these
   bytes. It still does not state that a model produced the record.
-- **Phase 3, a record signed where the review ran.** The local trusted
-  supervisor signs the record with a key that the unprivileged user and the
-  encoder child cannot read, and the signing run verifies it against an
-  enrolled public key. That is evidence that a provisioned supervisor ran the
-  reviewer. A model credential in CI would give the same and was declined.
+- **Phase 3, a record signed where the review ran.** The verifying half is
+  built and switched off; see "Review attestation". The signing half needs a
+  component that the user who runs the encoder cannot use directly, and the
+  supervisor is not one. A model credential in CI would give the same
+  evidence and was declined.
 - **The operations page.** `encodings.encoding_runs.outcome` (JSONB) is the
   field for the record, under the key `candidate_review_record`; the page can
   then show status, score and findings for each unit. Nothing writes it yet.
 - A counter of reviews per unit that the reviewing machine cannot reset.
+
+## Review attestation
+
+**The verifying half only. Switched off, and nobody is enrolled.** A review
+record is not signed. A *review attestation* is an Ed25519 signature over one
+record by a key that is enrolled in the review attestation root. A dispatch
+whose wrapper carries both `"require_review_record": true` and
+`"require_review_attestation": true` is signed only when every admitted record
+carries exactly one attestation that verifies against an enrolled key. The
+second key without the first is refused.
+
+What is built: the signed message, the attestation, the root, the checks in
+the workflow's reader and in `promote-reviewed-candidate
+--require-review-attestation`, and their tests with throwaway keys. What is
+not built: anything that holds a key or signs. No command signs.
+
+### The signed message, the attestation and the root
+
+- The message is the line `axiom-encode/review-attestation/v1`, a line break,
+  the SHA-256 of the canonical one-line JSON of the record in lowercase hex,
+  and a line break. The domain line keeps a signature made for another
+  purpose from being an attestation.
+- The attestation (`axiom-encode/review-attestation/v1`) has `key_id`
+  (`sha256:` and the digest of the 32 raw public key bytes), `record_sha256`
+  and `signature` (base64). It travels in the candidate pull request body in
+  its own five-line block, after the record blocks.
+- The root (`axiom-encode/review-attestation-roots/v1`) is
+  `src/axiom_encode/data/review_attestation_roots.json` in this repository: a
+  list of `key_id`, `ed25519_public_key`, `owner` and `enrolled`, so several
+  machines can be enrolled. It ships in the package, so it is versioned with
+  the encoder commit, reaches the signing run through the attested runtime,
+  and changes only through a pull request with a code-owner review. It is not
+  a repository variable. It is empty: an empty root admits nothing.
+
+Refused, each with its reason: no attestation for a record, two attestations
+for one record, a key that is not enrolled, a signature that does not verify,
+an attestation for another record, a malformed attestation or block, a
+malformed root (the whole root is refused).
+
+### Why no signer is built: the supervisor has no privileged side
+
+The signing supervisor refuses to run as root and requires equal real and
+effective user ids (`cmd/axiom-encode-signing-supervisor/execution_trust.go`).
+It runs with the uid of the user who starts it, and so does the encoder child.
+The root-owned runtime protects the *code* from that user. It gives the
+supervisor no secret that the user lacks: the two production keys are in
+external signers and reach the supervisor only as descriptors.
+
+So a review attestation key cannot be given to the supervisor. A file that
+the supervisor can read is a file that the user, the encoder child, a Codex
+child and every agent session of that user can read, like `auth.json`. A
+signature by such a key would prove what the unsigned record proves. "The
+supervisor signs after the child exits" does not help: the reader would still
+be the user's uid.
+
+### The smallest change that gives evidence (not built)
+
+A separate root-owned **review attestor**: a service that is started by root
+(launchd or systemd), runs under its own account, and holds the key in a file
+that only that account can read.
+
+1. Provisioning (`scripts/provision_verification_supervisor.py`, in the
+   operator's own `sudo` command) creates the service account, generates the
+   key pair inside that command, writes the private key root-owned with read
+   access for the service account only, and prints the public key and its
+   key id once.
+2. The attestor takes a request over a local socket: checkout path, commit,
+   citation. It never takes a record or a verdict.
+3. It reads the module and the companion from the Git objects of that commit,
+   resolves the source text with the root-owned runtime, and runs the
+   reviewer itself: a root-owned reviewer CLI with a root-owned configuration
+   (fixed endpoint, no user configuration directory), under the service
+   account. It builds the record with the code of this change and signs it.
+4. It signs only a review that ran: never `skipped`, never a retained
+   candidate. It keeps a counter per citation and file hashes under its own
+   account and writes it into `run.attempt`, so a rerun cannot be hidden by
+   the requester.
+
+The open problem is the model credential. The reviewer needs a login. A
+subscription login belongs to the user (a home directory, on macOS the
+keychain), and the token refresh of a copied `auth.json` is the problem that
+`docs/trusted-signing-supervisor.md` already calls unsolved. The service
+account needs its own login or a provisioned credential. That is a decision
+for the owner and the operator, not a code detail.
+
+### What an attestation would prove, and what not
+
+With the attestor: a root-provisioned service on an enrolled machine ran the
+reviewer on exactly these bytes and got this result. Without it (today): the
+verifying code exists and no key is enrolled, so nothing is proven and the
+switch refuses every run.
+
+It never proves that the reviewer's judgment is right. Whoever has root on
+an enrolled machine can sign anything. An enrolled key attests a machine, not
+a person.
+
+### To turn it on
+
+1. The operator provisions the attestor on the reviewing machine (one `sudo`
+   command) and gets its public key. **This step does not exist yet.**
+2. A maintainer adds that public key to
+   `src/axiom_encode/data/review_attestation_roots.json` in
+   `TheAxiomFoundation/axiom-encode`, through a pull request with a code-owner
+   review.
+3. Dispatches carry `"require_review_record": true` and
+   `"require_review_attestation": true`.
+
+Rotation: enrol the new key (step 2), then remove the old one. Revocation:
+remove the key id from the root. A signing run uses the root of its own
+encoder commit, so a removal reaches runs that start after it is on `main`;
+a run started before can be re-run by its dispatcher with the older root
+(see "Known limit" under "Admission basis"). Records signed by a removed key
+are refused from then on; manifests that were signed before are not changed.
 
 ## Rollout
 
