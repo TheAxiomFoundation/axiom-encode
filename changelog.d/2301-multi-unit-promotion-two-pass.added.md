@@ -1,0 +1,1 @@
+A unit of a multi-unit promotion is validated twice, and both passes must pass (#2301): isolated from the other units of the batch, and with every unit present. `metadata.json` of the signing run records what each unit was isolated from, and the isolation refuses a path that leaves the validation overlay through a link. `MULTI_UNIT_PROMOTION_ENABLED` stays `False`.
