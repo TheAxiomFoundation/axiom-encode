@@ -1099,6 +1099,10 @@ def _complete_source_obligations(module, complete_source_module, outline):
     payload = dataclasses.asdict(result)
     # Companion-case synthesis hints are not findings and postdate the baseline.
     payload.pop("companion_test_obligations", None)
+    # The source view's values (#1801) postdate the baseline too. They are the
+    # values behind `source_numeric_occurrence_count`, which stays compared,
+    # and every numeric-recall finding stays compared exactly.
+    payload.pop("source_numeric_occurrence_values", None)
     # The pinned baseline predates this optional branch metadata. Fill only
     # absent defaults so actual metadata values remain part of the comparison.
     for branch in payload["branches"]:

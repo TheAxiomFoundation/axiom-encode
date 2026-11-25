@@ -12112,10 +12112,18 @@ def _half_up_rounding_supported_line_flags(
     return tuple(flags)
 
 
-def normalize_source_backed_half_up_rounding_occurrence_text(
+# A source-backed half-up increment `by 1`; a `1` that starts a longer number
+# (`1,000`, `1.5`) is not one.
+_HALF_UP_WHOLE_ONE_INCREMENT = re.compile(r"(\bby\s+)(1)\b(?![.,]?\d)", re.IGNORECASE)
+
+
+def source_backed_half_up_increment_spans(
     source_text: str,
-) -> str:
-    """Spell out increments only inside recognized affirmative instructions."""
+) -> tuple[tuple[int, int], ...]:
+    """Return the `1` of each `by 1` increment inside a recognized instruction.
+
+    Only a whole `1` counts: `by 1,000` and `by 1.5 percent` keep their number.
+    """
     instruction_patterns, invalidation, negated_or_excepted = (
         _half_up_rounding_source_matchers()
     )
@@ -12123,26 +12131,29 @@ def normalize_source_backed_half_up_rounding_occurrence_text(
         re.compile(pattern.pattern, re.IGNORECASE) for pattern in instruction_patterns
     )
 
-    def normalize_instruction_units(text: str) -> str:
+    def increment_spans(text: str, following: str) -> list[tuple[int, int]]:
         spans = _half_up_rounding_clause_instruction_spans(
             text, case_insensitive_patterns, negated_or_excepted
         )
-        if not spans:
-            return text
-        for start, end in sorted(spans, reverse=True):
-            instruction = re.sub(
-                r"(\bby\s+)1\b",
-                r"\g<1>one",
-                text[start:end],
-                flags=re.IGNORECASE,
-            )
-            text = text[:start] + instruction + text[end:]
-        return text
+        # Read each increment against the source that follows, so the whole
+        # number is seen across the clause split at `.`.
+        return [
+            match.span(2)
+            for start, end in spans
+            for match in _HALF_UP_WHOLE_ONE_INCREMENT.finditer(text + following)
+            if match.start() >= start and match.end() <= end
+        ]
 
     parts = re.split(r"([.!?;]+)", source_text)
+    part_offsets = []
+    offset = 0
+    for part in parts:
+        part_offsets.append(offset)
+        offset += len(part)
     clause_indexes = [
         index for index in range(0, len(parts), 2) if parts[index].strip()
     ]
+    found: set[tuple[int, int]] = set()
     for position, part_index in enumerate(clause_indexes):
         clause = parts[part_index]
         context_indexes = clause_indexes[max(0, position - 1) : position + 2]
@@ -12155,16 +12166,32 @@ def normalize_source_backed_half_up_rounding_occurrence_text(
         supported_line_flags = _half_up_rounding_supported_line_flags(
             lines, instruction_patterns, negated_or_excepted
         )
+        following = "".join(parts[part_index + 1 : part_index + 3])
+        base = part_offsets[part_index]
         if any(supported_line_flags):
-            parts[part_index] = "".join(
-                normalize_instruction_units(line)
-                if supported_line_flags[index]
-                else line
-                for index, line in enumerate(lines)
-            )
+            line_offset = 0
+            for index, line in enumerate(lines):
+                if supported_line_flags[index]:
+                    for start, end in increment_spans(
+                        line, "".join(lines[index + 1 :]) + following
+                    ):
+                        found.add(
+                            (base + line_offset + start, base + line_offset + end)
+                        )
+                line_offset += len(line)
         else:
-            parts[part_index] = normalize_instruction_units(clause)
-    return "".join(parts)
+            for start, end in increment_spans(clause, following):
+                found.add((base + start, base + end))
+    return tuple(sorted(found))
+
+
+def normalize_source_backed_half_up_rounding_occurrence_text(
+    source_text: str,
+) -> str:
+    """Spell out increments only inside recognized affirmative instructions."""
+    for start, end in reversed(source_backed_half_up_increment_spans(source_text)):
+        source_text = source_text[:start] + "one" + source_text[end:]
+    return source_text
 
 
 def _is_source_backed_half_up_rounding_helper(

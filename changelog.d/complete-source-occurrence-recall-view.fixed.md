@@ -1,0 +1,1 @@
+In complete-source-unit mode, count the encode eval's numeric-occurrence check ("Source numeric value N appears K time(s)") on the numbers that complete-source numeric recall demands, not on the raw corpus body, so page numbers, table labels and locators that numeric recall does not demand are not demanded again (#1801).
