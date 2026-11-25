@@ -174,6 +174,13 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from axiom_encode.scan_memo import (
+    ParseOutcome,
+    TextFactsUnavailable,
+    register_text_facts,
+    scan_cache_enabled,
+    text_facts,
+)
 from axiom_encode.signing_broker import supervisor_codex_home
 from axiom_encode.statute import (
     citation_to_citation_path,
@@ -23315,42 +23322,141 @@ def _rulespec_executable_index_for_roots(
             )
             if source_root is None:
                 continue
+            memoized = scan_cache_enabled()
             for rules_file in sorted(source_root.rglob("*.yaml")):
                 if rules_file.name.endswith(".test.yaml"):
                     continue
-                try:
-                    payload = yaml.safe_load(rules_file.read_text())
-                except (OSError, yaml.YAMLError, ValueError):
-                    continue
-                if (
-                    not isinstance(payload, dict)
-                    or payload.get("format") != "rulespec/v1"
+                if memoized and _index_executable_rules_in_file_memoized(
+                    records,
+                    rules_file=rules_file,
+                    prefix=prefix,
+                    root=root,
                 ):
                     continue
-                rules = payload.get("rules")
-                if not isinstance(rules, list):
-                    continue
-                for rule in rules:
-                    if not _is_executable_rulespec_rule(rule):
-                        continue
-                    signature = _rulespec_executable_signature(rule)
-                    if signature is None:
-                        continue
-                    symbol = _rulespec_rule_name(rule)
-                    records.append(
-                        _IndexedExecutableRule(
-                            target=_canonical_rulespec_target(
-                                prefix=prefix,
-                                repo_root=root,
-                                rules_file=rules_file,
-                                symbol=symbol,
-                            ),
-                            symbol=symbol,
-                            signature=signature,
-                            source_file=str(rules_file.resolve()),
-                        )
-                    )
+                _index_executable_rules_in_file(
+                    records,
+                    rules_file=rules_file,
+                    prefix=prefix,
+                    root=root,
+                )
     return tuple(records)
+
+
+def _index_executable_rules_in_file(
+    records: list[_IndexedExecutableRule],
+    *,
+    rules_file: Path,
+    prefix: str,
+    root: Path,
+) -> None:
+    try:
+        payload = yaml.safe_load(rules_file.read_text())
+    except (OSError, yaml.YAMLError, ValueError):
+        return
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return
+    for rule in rules:
+        if not _is_executable_rulespec_rule(rule):
+            continue
+        signature = _rulespec_executable_signature(rule)
+        if signature is None:
+            continue
+        symbol = _rulespec_rule_name(rule)
+        records.append(
+            _IndexedExecutableRule(
+                target=_canonical_rulespec_target(
+                    prefix=prefix,
+                    repo_root=root,
+                    rules_file=rules_file,
+                    symbol=symbol,
+                ),
+                symbol=symbol,
+                signature=signature,
+                source_file=str(rules_file.resolve()),
+            )
+        )
+
+
+_EXECUTABLE_RULE_FACTS = "rulespec-executable-rule-facts"
+
+
+def _executable_rule_facts(
+    content: str,
+    outcome: ParseOutcome,
+) -> tuple[tuple[str, str], ...]:
+    """``(symbol, signature)`` of each rule the index records, in file order.
+
+    The unmemoized scan skips a module whose parse raises ``yaml.YAMLError``
+    or ``ValueError``; any other parse error is re-raised so that no value is
+    memoized and the unmemoized scan raises it.
+    """
+
+    if outcome.error is not None:
+        if isinstance(outcome.error, (yaml.YAMLError, ValueError)):
+            return ()
+        raise outcome.error
+    payload = outcome.payload
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return ()
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return ()
+    facts: list[tuple[str, str]] = []
+    for rule in rules:
+        if not _is_executable_rulespec_rule(rule):
+            continue
+        signature = _rulespec_executable_signature(rule)
+        if signature is None:
+            continue
+        facts.append((_rulespec_rule_name(rule), signature))
+    return tuple(facts)
+
+
+register_text_facts(_EXECUTABLE_RULE_FACTS, _executable_rule_facts)
+
+
+def _index_executable_rules_in_file_memoized(
+    records: list[_IndexedExecutableRule],
+    *,
+    rules_file: Path,
+    prefix: str,
+    root: Path,
+) -> bool:
+    """Index one module from memoized text facts; ``False`` means not handled.
+
+    The text facts are a pure function of the module's exact text. The target
+    and the resolved source path depend on the path and are computed on every
+    call, as the unmemoized scan does. When any step raises an exception that
+    the unmemoized scan does not catch, nothing is appended and the caller
+    runs the unmemoized scan for this module, which raises it again.
+    """
+
+    try:
+        content = rules_file.read_text()
+    except (OSError, ValueError):
+        return True
+    try:
+        facts = text_facts(content, _EXECUTABLE_RULE_FACTS)
+    except TextFactsUnavailable:
+        return False
+    for symbol, signature in facts:
+        records.append(
+            _IndexedExecutableRule(
+                target=_canonical_rulespec_target(
+                    prefix=prefix,
+                    repo_root=root,
+                    rules_file=rules_file,
+                    symbol=symbol,
+                ),
+                symbol=symbol,
+                signature=signature,
+                source_file=str(rules_file.resolve()),
+            )
+        )
+    return True
 
 
 def _is_executable_rulespec_rule(rule: Any) -> bool:
@@ -36768,10 +36874,42 @@ def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
     return checkout
 
 
+_SYMLINK_AUDIT_MEMO: ContextVar[dict[Path, _CachedSymlinkAudit] | None] = ContextVar(
+    "axiom_rulespec_symlink_audit_memo",
+    default=None,
+)
+
+
+@contextlib.contextmanager
+def _symlink_audit_memo_scope() -> Iterator[None]:
+    """Reuse passed checkout symlink audits for one companion-test run.
+
+    Only the symlink audit is kept, not the other resolution-cache entries,
+    so no admission, message or identity crosses from one check to another.
+    A passed audit is served again only while every directory it walked has
+    the same lstat stamp (device, inode, mode, size, mtime, ctime): adding,
+    removing or renaming any entry changes its directory's stamp. A failed
+    audit is never kept, and an audit is kept only when no directory changed
+    while it ran. Off when ``AXIOM_ENCODE_SCAN_CACHE`` is off.
+    """
+
+    if _SYMLINK_AUDIT_MEMO.get() is not None or not scan_cache_enabled():
+        yield
+        return
+    token = _SYMLINK_AUDIT_MEMO.set({})
+    try:
+        yield
+    finally:
+        _SYMLINK_AUDIT_MEMO.reset(token)
+
+
 def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
     """Reject every symlink beneath a checkout exposed to the RuleSpec engine."""
 
     cache = _RULESPEC_RESOLUTION_CACHE.get()
+    if cache is None and _SYMLINK_AUDIT_MEMO.get() is not None:
+        _reject_rulespec_checkout_symlinks_memoized(checkout, label=label)
+        return
     cache_key = Path(checkout).resolve()
     cached = cache.symlink_audits.get(cache_key) if cache is not None else None
     if cached is not None:
@@ -36810,6 +36948,53 @@ def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
         cache.symlink_audits[cache_key] = _CachedSymlinkAudit(
             directory_stamps=stable_stamps,
         )
+
+
+def _reject_rulespec_checkout_symlinks_memoized(checkout: Path, *, label: str) -> None:
+    """``_reject_rulespec_checkout_symlinks`` with no resolution cache open.
+
+    Raises exactly what the uncached audit raises. Unlike the resolution
+    cache, a tree that changed during the walk is not an error here (the
+    uncached audit does not check it); the audit is then simply not kept.
+    """
+
+    memo = _SYMLINK_AUDIT_MEMO.get()
+    assert memo is not None
+    memo_key = Path(checkout).resolve()
+    memoized = memo.get(memo_key)
+    if memoized is not None:
+        current_stamps = tuple(
+            (directory, _path_mutation_stamp(directory))
+            for directory, _stamp in memoized.directory_stamps
+        )
+        if current_stamps == memoized.directory_stamps:
+            return
+        memo.pop(memo_key, None)
+
+    directory_stamps: list[tuple[Path, _PathMutationStamp]] = []
+    for current, directory_names, file_names in os.walk(checkout, followlinks=False):
+        current_path = Path(current)
+        current_stamp = _path_mutation_stamp(current_path)
+        if current_stamp is None:
+            raise UnsafeRulespecContextPath(
+                f"{label} changed during symlink audit: {current_path}"
+            )
+        directory_stamps.append((current_path, current_stamp))
+        for name in (*directory_names, *file_names):
+            candidate = current_path / name
+            if candidate.is_symlink():
+                raise UnsafeRulespecContextPath(
+                    f"{label} contains a symlink: {candidate}"
+                )
+    stable_stamps = tuple(
+        (directory, _path_mutation_stamp(directory))
+        for directory, _stamp in directory_stamps
+    )
+    if (
+        stable_stamps == tuple(directory_stamps)
+        and Path(checkout).resolve() == memo_key
+    ):
+        memo[memo_key] = _CachedSymlinkAudit(directory_stamps=stable_stamps)
 
 
 def _normalize_rulespec_dependency_roots(
@@ -40507,6 +40692,24 @@ class ValidatorPipeline:
         execution_capture: ExecutionCapture | None = None,
     ) -> list[str]:
         """Run compact RuleSpec `.test.yaml` cases against the compiled artifact."""
+        with _symlink_audit_memo_scope():
+            return self._run_rulespec_test_cases_impl(
+                rules_file=rules_file,
+                compiled_path=compiled_path,
+                compiled_payload=compiled_payload,
+                cases=cases,
+                execution_capture=execution_capture,
+            )
+
+    def _run_rulespec_test_cases_impl(
+        self,
+        *,
+        rules_file: Path,
+        compiled_path: Path,
+        compiled_payload: dict[str, Any],
+        cases: list[Any],
+        execution_capture: ExecutionCapture | None = None,
+    ) -> list[str]:
         issues: list[str] = []
         binary: Path | None = None
         derived_by_key, parameter_by_key = self._rulespec_program_maps(compiled_payload)

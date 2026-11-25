@@ -117,6 +117,36 @@ def _rulespec_routing_cache_scope() -> Iterator[_RuleSpecRoutingCache]:
         _RULESPEC_ROUTING_CACHE.reset(token)
 
 
+_CHECKOUT_IDENTITY_MEMO: ContextVar[
+    dict[tuple[Path, bool, bool], _CachedCheckoutInspection] | None
+] = ContextVar("axiom_checkout_identity_memo", default=None)
+
+
+@contextmanager
+def _checkout_identity_memo_scope() -> Iterator[None]:
+    """Reuse one successful checkout inspection for the rest of one scan.
+
+    A repository-wide scan asks for the identity of the same checkout once per
+    module. Inside this scope a successful inspection is kept and served again
+    only while its mutation fingerprint (path identities, the checkout
+    directory stamp, the hashed Git marker, HEAD and config files, the Git
+    environment) is unchanged. A rejection is never kept. Unlike the routing
+    cache, this also admits the trusted supervisor's fixed Git environment
+    (``GIT_CONFIG_GLOBAL=/dev/null``, ``GIT_CONFIG_NOSYSTEM=1``), where the
+    only configuration files are the repository's own, and only when those
+    contain no include directive.
+    """
+
+    if _CHECKOUT_IDENTITY_MEMO.get() is not None:
+        yield
+        return
+    token = _CHECKOUT_IDENTITY_MEMO.set({})
+    try:
+        yield
+    finally:
+        _CHECKOUT_IDENTITY_MEMO.reset(token)
+
+
 def _path_mutation_stamp(
     path: Path,
     *,
@@ -240,6 +270,125 @@ def inspect_canonical_rulespec_checkout(
     allow_checkout_source_roots: bool = False,
 ) -> CanonicalRuleSpecCheckoutInspection:
     """Inspect one exact country checkout without weakening route acceptance."""
+
+    memo = _CHECKOUT_IDENTITY_MEMO.get()
+    if memo is None:
+        return _inspect_canonical_rulespec_checkout_routed(
+            path,
+            allow_composition_specs=allow_composition_specs,
+            allow_checkout_source_roots=allow_checkout_source_roots,
+        )
+    memo_key = (
+        Path(os.path.abspath(Path(path).expanduser())),
+        allow_composition_specs,
+        allow_checkout_source_roots,
+    )
+    memoized = memo.get(memo_key)
+    if memoized is not None:
+        current_fingerprint = _checkout_mutation_fingerprint(
+            memo_key[0],
+            git_config_inputs=memoized.git_config_inputs,
+        )
+        if current_fingerprint == memoized.fingerprint:
+            return memoized.inspection
+        memo.pop(memo_key, None)
+
+    before_inputs = _memo_git_config_inputs(memo_key[0])
+    before = (
+        _checkout_mutation_fingerprint(
+            memo_key[0],
+            git_config_inputs=before_inputs,
+        )
+        if before_inputs is not None
+        else None
+    )
+    inspection = _inspect_canonical_rulespec_checkout_routed(
+        path,
+        allow_composition_specs=allow_composition_specs,
+        allow_checkout_source_roots=allow_checkout_source_roots,
+    )
+    if inspection.name is None or before is None:
+        return inspection
+    after_inputs = _memo_git_config_inputs(memo_key[0])
+    if after_inputs != before_inputs or after_inputs is None:
+        return inspection
+    after = _checkout_mutation_fingerprint(
+        memo_key[0],
+        git_config_inputs=after_inputs,
+    )
+    if after is not None and after == before:
+        memo[memo_key] = _CachedCheckoutInspection(
+            inspection=inspection,
+            git_config_inputs=after_inputs,
+            fingerprint=after,
+        )
+    return inspection
+
+
+def _memo_git_config_inputs(checkout: Path) -> tuple[Path, ...] | None:
+    """Return the Git config files an identity probe reads, or ``None``.
+
+    ``None`` means the inputs are not known exactly, and the inspection is not
+    memoized.
+    """
+
+    try:
+        git_boundary = _nearest_git_boundary(checkout)
+    except _GitProbeError:
+        return None
+    if git_boundary is None:
+        return ()
+    try:
+        return _git_config_input_paths(str(checkout))
+    except _GitProbeError as exc:
+        if exc.category != "custom-config-environment":
+            return None
+    if not _is_repository_only_git_config_environment():
+        return None
+    git_directory = _git_directory_from_marker(git_boundary / ".git")
+    if git_directory is None:
+        return None
+    common_directory = _git_common_directory(git_directory)
+    if common_directory is None:
+        return None
+    for config_file in (
+        git_directory / "config",
+        git_directory / "config.worktree",
+        common_directory / "config",
+        common_directory / "config.worktree",
+    ):
+        try:
+            if not config_file.exists() and not config_file.is_symlink():
+                continue
+            if config_file.is_symlink() or not config_file.is_file():
+                return None
+            if "include" in config_file.read_text(encoding="utf-8").casefold():
+                return None
+        except (OSError, UnicodeError):
+            return None
+    return ()
+
+
+def _is_repository_only_git_config_environment() -> bool:
+    """Return whether Git reads no global or system configuration file.
+
+    This is the trusted supervisor's fixed child environment.
+    """
+
+    return (
+        os.environ.get("GIT_CONFIG_GLOBAL") == "/dev/null"
+        and os.environ.get("GIT_CONFIG_SYSTEM", "/dev/null") == "/dev/null"
+        and os.environ.get("GIT_CONFIG_NOSYSTEM") == "1"
+    )
+
+
+def _inspect_canonical_rulespec_checkout_routed(
+    path: Path,
+    *,
+    allow_composition_specs: bool = False,
+    allow_checkout_source_roots: bool = False,
+) -> CanonicalRuleSpecCheckoutInspection:
+    """Inspect one checkout through the operation routing cache, if any."""
 
     cache = _RULESPEC_ROUTING_CACHE.get()
     cache_key = (
