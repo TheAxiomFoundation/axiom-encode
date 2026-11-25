@@ -1,3 +1,8 @@
+## 0.2.2398
+
+- Count the complete-mode numeric-occurrence check positionally on the numeric-recall view (#1801) (#2336)
+- Validate each unit of a multi-unit promotion twice: isolated and with every unit present (#2301) (#2324)
+
 ## 0.2.2397
 
 - Give CFR units their cited-section context; encode State-established amounts as inputs (#2335)
