@@ -17,6 +17,7 @@ import selectors
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -259,14 +260,103 @@ def strict_json(raw: bytes) -> dict[str, Any]:
 
 
 class _PatchLoader(yaml.SafeLoader):
+    def compose_node(self, parent, index):
+        node = super().compose_node(parent, index)
+        # Alternate collection constructors (e.g. !!omap/!!pairs) skip
+        # construct_mapping for their entries and lose the original key types.
+        if (
+            isinstance(node, yaml.MappingNode) and node.tag != "tag:yaml.org,2002:map"
+        ) or (
+            isinstance(node, yaml.SequenceNode) and node.tag != "tag:yaml.org,2002:seq"
+        ):
+            raise ValueError("reviewed patch YAML requires ordinary maps and sequences")
+        return node
+
     def construct_mapping(self, node, deep=False):
         result = {}
         for key_node, value_node in node.value:
-            key = self.construct_object(key_node, deep=deep)
-            if not isinstance(key, str) or key in result or key == "<<":
+            if (
+                not isinstance(key_node, yaml.ScalarNode)
+                or key_node.tag != "tag:yaml.org,2002:str"
+            ):
+                raise ValueError("reviewed patch YAML keys must be unique strings")
+            key = key_node.value
+            if key in result or key == "<<":
                 raise ValueError("reviewed patch YAML keys must be unique strings")
             result[key] = self.construct_object(value_node, deep=deep)
         return result
+
+
+def _indexed_date_tables(policy: dict):
+    """Yield only direct value tables on indexed Date parameter versions."""
+    rules = policy.get("rules")
+    if not isinstance(rules, list):
+        return
+    for rule_index, rule in enumerate(rules):
+        if not isinstance(rule, dict) or (
+            rule.get("kind") != "parameter"
+            or rule.get("dtype") != "Date"
+            or not isinstance(rule.get("indexed_by"), str)
+            or not rule["indexed_by"]
+            or not isinstance(rule.get("versions"), list)
+        ):
+            continue
+        for version_index, version in enumerate(rule["versions"]):
+            table = version.get("values") if isinstance(version, dict) else None
+            if isinstance(table, dict) and any(type(k) is int for k in table):
+                yield rule_index, version_index, table
+
+
+class _PolicyPatchLoader(_PatchLoader):
+    """Recognize the engine's signed i64-to-Date maps only in their legal slot."""
+
+    def construct_mapping(self, node, deep=False):
+        if not any(k.tag == "tag:yaml.org,2002:int" for k, _ in node.value):
+            return super().construct_mapping(node, deep)
+        table = {}
+        for key_node, value_node in node.value:
+            if (
+                not isinstance(key_node, yaml.ScalarNode)
+                or key_node.tag != "tag:yaml.org,2002:int"
+                or not re.fullmatch(r"0|-?[1-9][0-9]{0,18}", key_node.value)
+            ):
+                raise ValueError("reviewed Date table requires canonical integer keys")
+            key = int(key_node.value)
+            if (
+                not isinstance(value_node, yaml.ScalarNode)
+                or value_node.tag != "tag:yaml.org,2002:str"
+            ):
+                raise ValueError("invalid reviewed Date table entry")
+            value = value_node.value
+            if (
+                not -(2**63) <= key < 2**63
+                or key in table
+                or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value)
+            ):
+                raise ValueError("invalid reviewed Date table entry")
+            date.fromisoformat(value)
+            table[key] = value
+        self.integer_table_count += 1
+        return table
+
+    def get_single_data(self):
+        self.integer_table_count = 0
+        data = super().get_single_data()
+        recognized = list(_indexed_date_tables(data)) if isinstance(data, dict) else []
+        if self.integer_table_count != len(recognized):
+            raise ValueError("integer keys outside an indexed Date parameter table")
+        return data
+
+
+def policy_object_sha256(policy: dict) -> str:
+    typed = [[i, j, sorted(table)] for i, j, table in _indexed_date_tables(policy)]
+    if not typed:
+        return sha256(canonical_json(policy))
+    # JSON object keys alone cannot distinguish the integer 2025 from "2025".
+    return sha256(
+        b"axiom-encode/reviewed-indexed-Date-policy/v1\0"
+        + canonical_json([typed, policy])
+    )
 
 
 def strict_yaml(raw: bytes, *, tests: bool) -> object:
@@ -280,7 +370,7 @@ def strict_yaml(raw: bytes, *, tests: bool) -> object:
             for t in yaml.scan(text)
         ):
             raise ValueError("reviewed patch YAML aliases are not supported")
-        value = yaml.load(text, Loader=_PatchLoader)
+        value = yaml.load(text, Loader=_PatchLoader if tests else _PolicyPatchLoader)
     except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
         raise ValueError("reviewed patch YAML is malformed") from exc
     if tests:
@@ -686,11 +776,22 @@ def reconstruct_postimage(
         after_rules, after_tests = target.read_bytes(), companion.read_bytes()
     after_rule = strict_yaml(after_rules, tests=False)
     after_test = strict_yaml(after_tests, tests=True)
+    # A partial patch can inherit its selector from the seed. Check after joining.
+    for i, _, _ in _indexed_date_tables(after_rule):
+        index_name = after_rule["rules"][i]["indexed_by"]
+        selectors = [item for item in after_rule["rules"] if item["name"] == index_name]
+        if (
+            len(selectors) != 1
+            or selectors[0].get("kind") != "parameter"
+            or selectors[0].get("dtype") != "Integer"
+            or index_name in {item["name"] for item in after_rule.get("inputs", [])}
+        ):
+            raise ValueError("reviewed Date table requires a unique Integer parameter")
     expected = manifest["expected_postimage"]
     measured = {
         "rulespec_sha256": sha256(after_rules),
         "tests_sha256": sha256(after_tests),
-        "rulespec_object_sha256": sha256(canonical_json(after_rule)),
+        "rulespec_object_sha256": policy_object_sha256(after_rule),
         "tests_object_sha256": sha256(canonical_json(after_test)),
     }
     if measured != expected:
