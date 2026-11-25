@@ -304,13 +304,20 @@ feature does not automatically merge it.
 
 ## Several units in one candidate
 
-**Switched off.** `MULTI_UNIT_PROMOTION_ENABLED` in
-`src/axiom_encode/reviewed_pr_admission.py` is `False`. While it is not exactly
+**Switched on for the hosted canary.** `MULTI_UNIT_PROMOTION_ENABLED` in
+`src/axiom_encode/reviewed_pr_admission.py` is `True`. While it is not exactly
 `True`, everything in this section is refused and every single-unit read,
 record and error is the same as before the switch existed. The switch is a
 constant on encoder main, read at call time. There is no environment variable,
 CLI flag, dispatch input or repository setting, and a change to it needs a
 code-owner review.
+
+The switch is on before the canary has run, because the canary cannot run in
+any other way (see "The hosted canary"). Until the canary has passed, the
+batch form is for the canary batches only. Nothing dispatches a batch by
+itself: a run is a batch only when an enrolled owner's dispatch names `units`.
+A dispatch without `units` is a single-unit promotion and reads, records and
+refuses exactly as before.
 
 Why: per-unit owner approval is gone (#2301). The limit that remains is
 RuleSpec CI: one head takes 3 to 4 hours, and each landing needs the newest
@@ -537,10 +544,60 @@ an import that the resolver refuses as unsafe each stop the batch.
 | RuleSpec CI runs on a signed head | `k` | 1 |
 | Merges, each on the newest `main` | `k` | 1 |
 
-### Before the switch goes on
+### The hosted canary
 
-From the independent review of this lane. Each item is necessary; the state is
-of this document's commit.
+The switch went on with items 3 to 5 below open. This section is the state of
+this document's commit; the canary's result is added here when it has run.
+
+**Why the switch is on first.** A signing run can only be a run of `main`:
+
+- both jobs of `targeted-signed-reencode.yml` run only when `github.ref` is
+  `refs/heads/main`;
+- the `production-signing` environment has one deployment branch policy,
+  `main` (read from the environment's settings);
+- the admission refuses a run whose `head_branch` is not `main`;
+- the signer is started with this workflow at `refs/heads/main` as its only
+  allowed workflow ref.
+
+So a batch cannot be tried from another branch, and the switch has no other
+form than the constant on `main`. The canary is therefore run on `main` with
+the switch on. What limits the exposure in that window: a batch needs a
+dispatch by an enrolled owner that names `units`, the `production-signing`
+approval, and every check of this section; a signed batch is still only a
+pull request in the RuleSpec repository, which needs green CI on the signed
+head and a merge.
+
+**The three batches.** All units are encoder output, unedited.
+
+1. A batch of two or three units that must be **signed**: one run, one signed
+   manifest per unit, one lane pull request that names every unit, green
+   RuleSpec CI on the signed head.
+2. A batch that must be **refused because a unit names another unit** of the
+   batch. With an import, the refusal is the early one and names both files.
+   Nothing is signed.
+3. A batch that must be **refused in pass 2**: every unit is valid alone, and
+   one is refused beside another (for example two sibling modules that export
+   the same rule name, or a parent that opens an exception list beside its
+   child exception). The error says `with the other units of the batch
+   present`. Nothing is signed.
+
+**Pass.** Batch 1 is signed and its lane pull request is green; batches 2 and
+3 fail in the promotion step with the stated error, request no signature and
+open no pull request; and a single-unit promotion dispatched in the same
+window behaves as before.
+
+**Stop rule and rollback.** If a batch that must be refused is signed, or
+batch 1 is refused for a reason that is not in the candidate, or a manifest
+of a batch does not verify in RuleSpec CI: dispatch no further batch, close
+the lane pull request of that run without merging, and set
+`MULTI_UNIT_PROMOTION_ENABLED` back to `False` in a reviewed change (the
+constant, the first paragraph of this section, the one test that pins the
+shipped value). A run started while the switch was on can be re-run by the
+owner who dispatched it after the switch is off again (see "Known limit" under
+"Admission basis"); look at the recent runs of the workflow after a rollback.
+
+**State of the review's items.** Each item was named as necessary before the
+switch goes on; items 3 to 5 are open while the canary runs.
 
 1. **No unit passes because of another unit, and no unit is refused beside
    another.** Done: each unit is validated twice ("Each unit is validated
@@ -561,16 +618,18 @@ of this document's commit.
    ignores a manifest of another citation. Tested by running the workflow's
    embedded code; not yet run on a hosted runner (item 3).
 3. **A hosted canary** on real candidates: the first run with the real
-   engine. It needs a batch that must be signed, and one batch that must be
-   refused because a unit names another unit of the batch. No hosted run of a
-   batch has been made.
-4. **The engine reads only the overlay.** Confirm with the real engine that it
-   reads no path outside the validation overlay and the closure snapshot. The
-   two passes control the tree that the engine is given, not what the engine
-   opens.
-5. **The derived index.** Decide whether its content must reflect exactly the
-   `k` units. Today nothing in this lane checks the content of the index, for
-   a batch as for a single unit.
+   engine. **Open.** No hosted run of a batch has been made.
+4. **The engine reads only the overlay.** **Open.** Confirm with the real
+   engine that it reads no path outside the validation overlay and the
+   closure snapshot. The two passes control the tree that the engine is
+   given, not what the engine opens. Batch 2 shows this only if its unit
+   reaches the other unit by a route the early import refusal does not read
+   (a companion key, a proof import target, a formula reference, a relation
+   target); a batch refused by the early import message does not reach the
+   engine.
+5. **The derived index.** **Open.** Decide whether its content must reflect
+   exactly the `k` units. Today nothing in this lane checks the content of
+   the index, for a batch as for a single unit.
 
 ### What is not built
 

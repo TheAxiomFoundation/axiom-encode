@@ -61,6 +61,12 @@ def on(monkeypatch):
     monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", True)
 
 
+@pytest.fixture
+def off(monkeypatch):
+    """The switch as it was before the hosted canary; the shipped value is on."""
+    monkeypatch.setattr(admission, "MULTI_UNIT_PROMOTION_ENABLED", False)
+
+
 def _unit_of(text: str) -> str:
     """The unit whose source text a prompt or a review source carries."""
     found = [name for name in NAMES if f"source text of {citation(name)}" in text]
@@ -540,7 +546,7 @@ def test_the_script_refuses_the_batch_whose_unit_lacks_the_pin(on, index):
     assert [call[2] for call in calls] == [unit[1] for unit in UNITS3[: index + 1]]
 
 
-def test_the_script_refuses_a_batch_while_the_switch_is_off():
+def test_the_script_refuses_a_batch_while_the_switch_is_off(off):
     assert admission.MULTI_UNIT_PROMOTION_ENABLED is False
     status, message = pin_mod.evaluate(
         _batch_environment(), fetch=pin_mod_forbidden, admission=admission
@@ -549,10 +555,10 @@ def test_the_script_refuses_a_batch_while_the_switch_is_off():
     assert "multi-unit promotion is switched off" in message
 
 
-def test_the_switched_off_refusal_has_its_own_title(monkeypatch, capsys):
-    """Switch off: the one accepted difference from ``main``.
+def test_the_switched_off_refusal_has_its_own_title(off, monkeypatch, capsys):
+    """Switch off: the one accepted difference from the script before #2321.
 
-    ``main``'s script ignores a ``units`` key and checks the lead primary only
+    That script ignores a ``units`` key and checks the lead primary only
     (exit 0 when it carries its pin). Here a wrapper with ``units`` is refused
     before any read, under its own title. The protected wrapper parser refuses
     the key later anyway, so this is stricter and fail-closed.
