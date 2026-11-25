@@ -89,7 +89,7 @@ def read_records(
 ) -> tuple[bool, str]:
     """Return (required, summary). Raises ``ValueError`` on a refusal."""
 
-    from axiom_encode import __version__, candidate_review_record
+    from axiom_encode import __version__, candidate_review_record, review_attestation
     from axiom_encode.prepare_signed_backfill import (
         citation_rulespec_path,
         split_atomic_source_input,
@@ -140,11 +140,13 @@ def read_records(
     out_dir.mkdir(mode=0o700)
     (out_dir / BODY_NAME).write_bytes(body.encode("utf-8"))
     records = candidate_review_record.extract_records(body)
+    attestations = review_attestation.extract_attestations(body)
     document = candidate_review_record.build_read_document(
         rulespec_pr=number,
         head_sha=head,
         body=body,
         records=records,
+        attestations=attestations,
         run_id=run_id,
         run_attempt=run_attempt,
     )
@@ -173,6 +175,19 @@ def read_records(
             f"{document['body_sha256']})"
         ) from exc
     summary = candidate_review_record.render_read_summary(document, admitted)
+    if transaction.get("promotion_review_attestation_required") is True:
+        try:
+            signed = review_attestation.require_attested_records(
+                admitted, attestations, review_attestation.shipped_roots()
+            )
+        except candidate_review_record.ReviewRecordError as exc:
+            raise ValueError(str(exc)) from exc
+        summary += (
+            "\nReview attestation: every record above carries a signature by "
+            "an enrolled key ("
+            + ", ".join(sorted({item["key_id"] for item in signed}))
+            + ").\n"
+        )
     (out_dir / SUMMARY_NAME).write_text(summary, encoding="utf-8")
     return True, summary
 

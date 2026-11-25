@@ -1380,7 +1380,13 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         # review record, bound to its exact bytes, in the candidate pull
         # request body (docs/reviewed-pr-promotion.md, "Review record").
         # Without the key nothing is read and the result has no new key.
-        optional_keys = batch_keys | {"require_review_record"}
+        # ``require_review_attestation`` is optional, may only be exactly
+        # ``true`` and needs ``require_review_record``: each record must
+        # then carry a signature by a key of the review attestation root.
+        optional_keys = batch_keys | {
+            "require_review_record",
+            "require_review_attestation",
+        }
         if set(payload) - optional_keys != {"schema", "transaction", "rulespec_pr"}:
             raise ValueError(
                 "reviewed PR promotion requires exactly transaction and rulespec_pr"
@@ -1398,6 +1404,16 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             if "require_review_record" in payload
             else {}
         )
+        if "require_review_attestation" in payload:
+            if (
+                payload["require_review_attestation"] is not True
+                or "require_review_record" not in payload
+            ):
+                raise ValueError(
+                    "reviewed PR promotion require_review_attestation must be "
+                    "exactly true and needs require_review_record"
+                )
+            review_record["promotion_review_attestation_required"] = True
         units = payload.get("units")
         if "units" in payload and (
             not isinstance(units, list)
