@@ -26,6 +26,14 @@ Nothing is written to disk and nothing outlives the process. When a fact
 function raises, nothing is stored for it and the caller runs its unmemoized
 code, which raises the same exception from the same place.
 
+A value is stored only when the parse succeeded and the parsed payload nests
+at most ``_MAX_MEMOIZED_NESTING`` levels. The parse and the fact functions
+recurse once per level, so a deeper text can raise ``RecursionError`` when the
+caller's stack is deep and succeed when it is shallow; a stored value would
+hide that difference. A parse that failed is not stored either, because the
+depth it reached before the error is not known. Such texts are computed again
+on every call, at the caller's own stack depth.
+
 ``AXIOM_ENCODE_SCAN_CACHE=0`` (also ``off``, ``false`` or ``no``) turns every
 scan memo off, so the scans run the code they ran before the memos existed.
 Any value other than ``1``, ``on``, ``true``, ``yes`` or empty also turns them
@@ -35,6 +43,7 @@ and drops the variable, so there the memos are always on.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import threading
 from collections import OrderedDict
@@ -47,8 +56,13 @@ SCAN_CACHE_ENVIRONMENT_VARIABLE = "AXIOM_ENCODE_SCAN_CACHE"
 
 _ON_VALUES = frozenset({"", "1", "on", "true", "yes"})
 
-# Keys (texts) held per fact memo, counted in characters.
+# Keys (texts) plus stored values held per fact memo, counted in characters.
 _DEFAULT_MAX_CHARS = 128 * 1024 * 1024
+
+# Deepest parsed nesting that is memoized (see the module docstring).
+_MAX_MEMOIZED_NESTING = 100
+
+_CONTAINER_TYPES = (dict, list, tuple, set, frozenset)
 
 _MISSING = object()
 
@@ -76,30 +90,91 @@ class TextFactsUnavailable(Exception):
 FactFunction = Callable[[str, ParseOutcome], Any]
 
 
+def _nesting_exceeds(payload: Any, limit: int) -> bool:
+    """Return whether ``payload`` nests more than ``limit`` containers deep.
+
+    Walks one level at a time without recursion. A container reached twice on
+    one level (a YAML alias) is visited once; a cyclic payload exceeds every
+    limit.
+    """
+
+    level: list[Any] = [payload] if isinstance(payload, _CONTAINER_TYPES) else []
+    depth = 0
+    while level:
+        depth += 1
+        if depth > limit:
+            return True
+        children: dict[int, Any] = {}
+        for container in level:
+            if isinstance(container, dict):
+                items: Any = (*container.keys(), *container.values())
+            else:
+                items = container
+            for item in items:
+                if isinstance(item, _CONTAINER_TYPES):
+                    children[id(item)] = item
+        level = list(children.values())
+    return False
+
+
+def _value_chars(value: Any) -> int:
+    """Return the approximate size of one stored value, in characters.
+
+    Strings and bytes count their length; every value, container and
+    dataclass field also counts one.
+    """
+
+    total = 0
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        total += 1
+        if isinstance(current, (str, bytes)):
+            total += len(current)
+        elif isinstance(current, dict):
+            pending.extend(current.keys())
+            pending.extend(current.values())
+        elif isinstance(current, (list, tuple, set, frozenset)):
+            pending.extend(current)
+        elif dataclasses.is_dataclass(current) and not isinstance(current, type):
+            pending.extend(
+                getattr(current, field.name) for field in dataclasses.fields(current)
+            )
+    return total
+
+
 class _FactMemo:
-    """Least-recently-used map from an exact text to one immutable value."""
+    """Least-recently-used map from an exact text to one immutable value.
+
+    ``chars`` counts each entry's text and its stored value, so a small text
+    with a large value cannot grow the memo past ``max_chars``.
+    """
 
     def __init__(self, max_chars: int) -> None:
         self.max_chars = max_chars
         self.chars = 0
-        self.entries: OrderedDict[str, Any] = OrderedDict()
+        self.entries: OrderedDict[str, tuple[Any, int]] = OrderedDict()
         self.hits = 0
         self.misses = 0
 
     def get(self, content: str) -> Any:
-        value = self.entries.get(content, _MISSING)
-        if value is not _MISSING:
-            self.entries.move_to_end(content)
-        return value
+        entry = self.entries.get(content)
+        if entry is None:
+            return _MISSING
+        self.entries.move_to_end(content)
+        return entry[0]
 
     def put(self, content: str, value: Any) -> None:
-        if content in self.entries or len(content) > self.max_chars:
+        if content in self.entries:
             return
-        self.entries[content] = value
-        self.chars += len(content)
+        cost = len(content) + _value_chars(value)
+        if cost > self.max_chars:
+            return
+        self.entries[content] = (value, cost)
+        self.chars += cost
         while self.chars > self.max_chars and self.entries:
-            evicted, _ = self.entries.popitem(last=False)
-            self.chars -= len(evicted)
+            _, (_, evicted_cost) = self.entries.popitem(last=False)
+            self.chars -= evicted_cost
 
 
 _LOCK = threading.Lock()
@@ -134,7 +209,8 @@ def text_facts(content: str, name: str) -> Any:
 
     Raises ``TextFactsUnavailable`` when the memos are off, when ``content``
     is not exactly a ``str``, or when the function raised; the caller then runs
-    its unmemoized code.
+    its unmemoized code. The value is computed but not stored when the parse
+    failed or the payload nests too deep (see the module docstring).
     """
 
     if type(content) is not str or not scan_cache_enabled():
@@ -156,10 +232,14 @@ def text_facts(content: str, name: str) -> Any:
             computed[fact_name] = function(content, outcome)
         except Exception:  # noqa: BLE001 - the caller's own code decides
             continue
+    storable = outcome.error is None and not _nesting_exceeds(
+        outcome.payload, _MAX_MEMOIZED_NESTING
+    )
     with _LOCK:
         _FACT_MEMOS[name].misses += 1
-        for fact_name, value in computed.items():
-            _FACT_MEMOS[fact_name].put(content, value)
+        if storable:
+            for fact_name, value in computed.items():
+                _FACT_MEMOS[fact_name].put(content, value)
     if name not in computed:
         raise TextFactsUnavailable(name)
     return computed[name]
