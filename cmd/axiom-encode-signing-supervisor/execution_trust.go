@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,6 +171,9 @@ func validateTrustedExecutionChain(
 		return trustedExecutionChain{}, errors.New(
 			"Python interpreter must be contained by a declared trusted runtime root",
 		)
+	}
+	if err := validateTrustedRuntimeLayout(canonicalRuntimeRoots[0], terminalInterpreter); err != nil {
+		return trustedExecutionChain{}, fmt.Errorf("untrusted Python runtime: %w", err)
 	}
 	if !containedByAny(canonicalPackageRoot, canonicalRuntimeRoots) {
 		return trustedExecutionChain{}, errors.New(
@@ -364,19 +368,13 @@ func validateTrustedTree(root string) (string, error) {
 		if !info.IsDir() && !info.Mode().IsRegular() {
 			return fmt.Errorf("trusted tree contains a special file: %s", path)
 		}
-		if info.Mode().IsRegular() {
-			name := strings.ToLower(entry.Name())
-			if strings.HasSuffix(name, ".pth") ||
-				strings.HasSuffix(name, ".egg-link") ||
-				name == "sitecustomize.py" ||
-				name == "usercustomize.py" ||
-				name == "pyvenv.cfg" ||
-				strings.HasPrefix(name, "__editable__") {
-				return fmt.Errorf(
-					"trusted Python tree contains forbidden startup or editable injection: %s",
-					path,
-				)
-			}
+		// Files and directories alike: a sitecustomize directory is an
+		// importable package just as sitecustomize.py is a module.
+		if isPythonStartupCarrierName(entry.Name()) {
+			return fmt.Errorf(
+				"trusted Python tree contains forbidden startup or editable injection: %s",
+				path,
+			)
 		}
 		return validateTrustedMetadata(path, info, false)
 	})
@@ -384,6 +382,112 @@ func validateTrustedTree(root string) (string, error) {
 		return "", fmt.Errorf("could not validate trusted tree %s: %w", canonical, err)
 	}
 	return canonical, nil
+}
+
+// isPythonStartupCarrierName reports whether a trusted-tree entry, file or
+// directory, has a name CPython acts on at startup wherever it sits:
+//   - path configuration (getpath), which runs even under the supervisor's
+//     -I -S start, before the trusted bootstrap: <executable>._pth,
+//     pybuilddir.txt and pyvenv.cfg;
+//   - site, which -S skips but any site-enabled start of the same
+//     interpreter runs (the launcher's -I shebang, -I children): *.pth,
+//     *.egg-link, __editable__*, and sitecustomize and usercustomize in every
+//     importable form (source, sourceless .pyc, extension module, package
+//     directory).
+//
+// The stdlib zip and the interpreter directory are positional rules; see
+// validateTrustedRuntimeLayout. Matching ignores case because the default
+// macOS file system does, and getpath opens these paths through it.
+func isPythonStartupCarrierName(name string) bool {
+	name = strings.ToLower(name)
+	switch name {
+	case "pyvenv.cfg", "pybuilddir.txt", "sitecustomize", "usercustomize":
+		return true
+	}
+	for _, suffix := range []string{".pth", "._pth", ".egg-link"} {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	for _, prefix := range []string{"__editable__", "sitecustomize.", "usercustomize."} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isStdlibZipName reports whether a name fills CPython's stdlib zip slot,
+// python3XY[t].zip, in any case.
+func isStdlibZipName(name string) bool {
+	name = strings.ToLower(name)
+	return strings.HasPrefix(name, "python3") && strings.HasSuffix(name, ".zip")
+}
+
+// validateTrustedRuntimeLayout applies the trusted-runtime rules that depend
+// on where an entry sits rather than on its name alone. Both target CPython's
+// path configuration (getpath), which runs under the supervisor's -I -S start
+// before the trusted bootstrap can check anything:
+//   - The interpreter's own directory holds only regular files. getpath
+//     searches for the stdlib landmark starting at that directory, so a
+//     bin/lib/python3.X tree moves sys.prefix to bin/, and it treats
+//     bin/Modules/Setup.local as a build tree whose stdlib is bin/Lib. A POSIX
+//     install keeps only executables and scripts in bin/.
+//   - No entry, file or directory, named python3*.zip sits directly in lib/
+//     or lib64/ of the interpreter directory or of any of its ancestors inside
+//     the runtime, the prefixes that upward search can settle on. sys.path
+//     lists <prefix>/<platlibdir>/python3XY[t].zip first even when it is
+//     absent, and both zipimport and the path finder import from it. The same
+//     name elsewhere in the tree is a plain data file.
+//
+// os.ReadDir reads each directory under the file system's own case rule,
+// which is the rule getpath meets; entry names then match in any case.
+func validateTrustedRuntimeLayout(runtimeRoot, interpreter string) error {
+	interpreterDirectory := filepath.Dir(interpreter)
+	entries, err := os.ReadDir(interpreterDirectory)
+	if err != nil {
+		return fmt.Errorf(
+			"could not inspect trusted Python interpreter directory %s: %w",
+			interpreterDirectory,
+			err,
+		)
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			return fmt.Errorf(
+				"trusted Python interpreter directory must hold only regular files: %s",
+				filepath.Join(interpreterDirectory, entry.Name()),
+			)
+		}
+	}
+	for prefix := interpreterDirectory; pathContains(runtimeRoot, prefix); prefix = filepath.Dir(prefix) {
+		for _, libraryName := range []string{"lib", "lib64"} {
+			library := filepath.Join(prefix, libraryName)
+			entries, err := os.ReadDir(library)
+			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf(
+					"could not inspect trusted Python library directory %s: %w",
+					library,
+					err,
+				)
+			}
+			for _, entry := range entries {
+				if isStdlibZipName(entry.Name()) {
+					return fmt.Errorf(
+						"trusted Python tree contains forbidden startup or editable injection: %s",
+						filepath.Join(library, entry.Name()),
+					)
+				}
+			}
+		}
+		if prefix == runtimeRoot {
+			break
+		}
+	}
+	return nil
 }
 
 func validateTrustedAncestors(directory string) error {

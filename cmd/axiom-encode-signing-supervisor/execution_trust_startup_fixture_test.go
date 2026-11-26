@@ -1,0 +1,200 @@
+//go:build (darwin || linux) && signing_supervisor_test_fixture
+
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// newFixtureRuntimeTree builds a minimal current-user-owned runtime tree that
+// the fixture trust policy accepts before anything is planted in it. It
+// carries names a real CPython prefix or dependency holds that sit close to a
+// startup carrier, so every test that plants into it also proves they stay
+// accepted.
+func newFixtureRuntimeTree(t *testing.T) string {
+	t.Helper()
+	temporary, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(temporary, "runtime")
+	for _, directory := range []string{
+		"bin",
+		"include/python3.13",
+		"lib/python3.13/config-3.13-darwin",
+		"lib/python3.13/encodings",
+		"lib/python3.13/zipfile",
+		"lib/python3.13/site-packages/axiom_encode",
+		"lib/python3.13/site-packages/pkg",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, directory), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{
+		"bin/python3.13",
+		"include/python3.13/pythread.h",
+		"lib/libpython3.13.dylib",
+		"lib/python3.13/config-3.13-darwin/Setup.local",
+		"lib/python3.13/encodings/__init__.py",
+		"lib/python3.13/site.py",
+		"lib/python3.13/zipfile/__init__.py",
+		"lib/python3.13/zipimport.py",
+		"lib/python3.13/site-packages/axiom_encode/__init__.py",
+		"lib/python3.13/site-packages/sitecustomize_helper.py",
+		"lib/python3.13/site-packages/pkg/data.pth.txt",
+		// The stdlib zip name away from lib/ is a plain data file.
+		"lib/python3.13/site-packages/pkg/python313.zip",
+	} {
+		if err := os.WriteFile(filepath.Join(root, path), []byte("\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func plantFixturePath(t *testing.T, root, relative string, directory bool) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(relative))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if directory {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		path = filepath.Join(path, "__init__.py")
+	}
+	if err := os.WriteFile(path, []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The getpath forms run under the supervisor's own -I -S start, before the
+// trusted bootstrap; the site forms run in any site-enabled start of the same
+// interpreter (the -I launcher shebang, -I children). The entries marked
+// "guard" did not run on the CPython 3.13.9 build tested (site and the import
+// system compare names case-sensitively, and that build reads no ._pth beside
+// libpython); the rule refuses them because it is name-based, not because
+// they run. Directory entries are planted as a directory holding __init__.py.
+func TestFixtureTrustedTreeRefusesPythonStartupCarriers(t *testing.T) {
+	refused := []struct {
+		name      string
+		path      string
+		directory bool
+	}{
+		// Refused at 4a11230b already; kept as regression guards.
+		{"site pth", "lib/python3.13/site-packages/evil.pth", false},
+		{"site pth upper case (guard)", "lib/python3.13/site-packages/EVIL.PTH", false},
+		{"sitecustomize source", "lib/python3.13/site-packages/sitecustomize.py", false},
+		{"pyvenv cfg", "pyvenv.cfg", false},
+		{"sitecustomize mixed case (guard)", "lib/python3.13/SiteCustomize.py", false},
+		{"editable finder", "lib/python3.13/site-packages/__editable___x_finder.py", false},
+		// Accepted at 4a11230b.
+		{"sitecustomize package", "lib/python3.13/site-packages/sitecustomize", true},
+		{"sitecustomize package in stdlib", "lib/python3.13/sitecustomize", true},
+		{"sitecustomize package upper case (guard)", "lib/python3.13/site-packages/SITECUSTOMIZE", true},
+		{"usercustomize package", "lib/python3.13/site-packages/usercustomize", true},
+		{"sitecustomize sourceless bytecode", "lib/python3.13/site-packages/sitecustomize.pyc", false},
+		{"sitecustomize extension", "lib/python3.13/site-packages/sitecustomize.cpython-313-darwin.so", false},
+		{"sitecustomize abi3 extension", "lib/python3.13/site-packages/sitecustomize.abi3.so", false},
+		{"usercustomize extension", "lib/python3.13/site-packages/usercustomize.so", false},
+		{"underscore pth beside interpreter", "bin/python3.13._pth", false},
+		{"underscore pth upper case", "bin/PYTHON3.13._PTH", false},
+		{"underscore pth beside library (guard)", "lib/libpython3.13._pth", false},
+		{"pybuilddir beside interpreter", "bin/pybuilddir.txt", false},
+		{"pybuilddir upper case", "bin/PYBUILDDIR.TXT", false},
+	}
+	for _, carrier := range refused {
+		t.Run(carrier.name, func(t *testing.T) {
+			root := newFixtureRuntimeTree(t)
+			if _, err := validateTrustedTree(root); err != nil {
+				t.Fatalf("clean fixture tree must pass before planting: %v", err)
+			}
+			plantFixturePath(t, root, carrier.path, carrier.directory)
+			_, err := validateTrustedTree(root)
+			if err == nil || !strings.Contains(err.Error(), "forbidden startup") {
+				t.Fatalf("expected startup-carrier refusal for %s, got %v", carrier.path, err)
+			}
+		})
+	}
+}
+
+func validateFixtureChain(fixture fixturePythonChain) error {
+	_, err := validateTrustedExecutionChain(
+		fixture.executable,
+		[]string{fixture.runtimeRoot},
+		[]string{fixture.importRoot},
+		fixture.packageRoot,
+	)
+	return err
+}
+
+// sys.path lists <prefix>/lib/python3XY[t].zip first even when it is absent,
+// and CPython imports from it as a zip file or as a plain directory, under
+// -I -S and before the trusted bootstrap. The same name elsewhere is data.
+func TestFixtureTrustedChainRefusesStdlibZipInLibraryDirectory(t *testing.T) {
+	for _, carrier := range []struct {
+		name      string
+		path      string
+		directory bool
+	}{
+		{"stdlib zip", "lib/python313.zip", false},
+		{"stdlib zip upper case", "lib/PYTHON313.ZIP", false},
+		{"free-threaded stdlib zip", "lib/python313t.zip", false},
+		{"stdlib zip as a directory", "lib/python313.zip", true},
+		{"stdlib zip under lib64", "lib64/python313.zip", false},
+	} {
+		t.Run(carrier.name, func(t *testing.T) {
+			fixture := newFixturePythonChain(t)
+			plantFixturePath(
+				t,
+				fixture.runtimeRoot,
+				"lib/python3.13/site-packages/pkg/python313.zip",
+				false,
+			)
+			if err := validateFixtureChain(fixture); err != nil {
+				t.Fatalf("a stdlib zip name outside lib/ must stay accepted: %v", err)
+			}
+			plantFixturePath(t, fixture.runtimeRoot, carrier.path, carrier.directory)
+			err := validateFixtureChain(fixture)
+			if err == nil || !strings.Contains(err.Error(), "forbidden startup") {
+				t.Fatalf("expected stdlib zip refusal for %s, got %v", carrier.path, err)
+			}
+		})
+	}
+}
+
+// getpath searches for the stdlib landmark from the interpreter's own
+// directory upward and treats <dir>/Modules/Setup.local as a build tree whose
+// stdlib is <dir>/Lib, under -I -S as well, so any directory beside the
+// interpreter can move sys.prefix. A real Setup.local sits under
+// lib/python3.X/config-*/, which newFixtureRuntimeTree keeps accepted.
+func TestFixtureTrustedChainRefusesDirectoryBesideInterpreter(t *testing.T) {
+	for _, planted := range []string{
+		"bin/Modules/Setup.local",
+		"bin/modules/Setup.local",
+		"bin/Lib/os.py",
+		"bin/lib/python3.13/os.py",
+		"bin/lib/python3.13/lib-dynload/.keep",
+		"bin/empty/.keep",
+	} {
+		t.Run(planted, func(t *testing.T) {
+			fixture := newFixturePythonChain(t)
+			for _, sibling := range []string{"bin/git", "bin/python3.13-config"} {
+				plantFixturePath(t, fixture.runtimeRoot, sibling, false)
+			}
+			if err := validateFixtureChain(fixture); err != nil {
+				t.Fatalf("regular files beside the interpreter must stay accepted: %v", err)
+			}
+			plantFixturePath(t, fixture.runtimeRoot, planted, false)
+			err := validateFixtureChain(fixture)
+			if err == nil || !strings.Contains(err.Error(), "must hold only regular files") {
+				t.Fatalf("expected interpreter-directory refusal for %s, got %v", planted, err)
+			}
+		})
+	}
+}
