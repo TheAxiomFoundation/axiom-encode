@@ -29541,10 +29541,18 @@ def _uniform_indent_source(*paragraphs: str) -> str:
     return "".join(f"    {paragraph}\n" for paragraph in paragraphs)
 
 
-def _validate_scope(*, source_text: str, excerpt: str, rule_source: str):
+def _validate_scope(
+    *,
+    source_text: str,
+    excerpt: str,
+    rule_source: str,
+    citation_path: str = "us-nj/statute/54a:4-7",
+):
     return validate_rulespec_proofs(
-        _proof_scope_fixture(rule_source=rule_source, excerpt=excerpt),
-        source_texts={"us-nj/statute/54a:4-7": source_text},
+        _proof_scope_fixture(
+            rule_source=rule_source, excerpt=excerpt, citation_path=citation_path
+        ),
+        source_texts={citation_path: source_text},
     )
 
 
@@ -29735,7 +29743,7 @@ def test_rulespec_proof_validator_rejects_roman_under_alpha_past_hidden_level(ca
                 f"({letter}) Heading for paragraph {letter}.\n"
                 for letter in "abcdefghijklmnopqrst"
             )
-            + "(u) Requirements for recipients.\n"
+            + "(u) Requirements for recipients:\n"
             "(i) Verify information on the form.\n"
             "(ii) Verify the identity of the applicant.\n"
             "(iii) Verify the address of the applicant.\n"
@@ -29778,6 +29786,320 @@ def test_rulespec_proof_validator_closes_direct_alpha_roman_list(
 ):
     result = _validate_scope(
         source_text=source_text, excerpt=excerpt, rule_source=rule_source
+    )
+
+    assert result.passed is False
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        for issue in result.issues
+    )
+
+
+_ALPHA_THROUGH_T = "".join(
+    f"({letter}) Paragraph {letter}.\n" for letter in "abcdefghijklmnopqrst"
+)
+_U_THROUGH_FOUR = (
+    _ALPHA_THROUGH_T + "(u) Requirements:\n"
+    "(i) First requirement.\n"
+    "(ii) Second requirement.\n"
+    "(iii) Third requirement.\n"
+    "(iv) Fourth requirement.\n"
+)
+_DIRECT_LIST_BEFORE_CONDITION = (
+    "(a) Application requirements:\n"
+    "(i) First genuine clause.\n"
+    "(ii) Second genuine clause.\n"
+)
+_NESTED_VERIFICATION = (
+    "(b) A nested paragraph within processing steps:\n"
+    "(1) Verification procedures under the nested paragraph:\n"
+    "(i) Verify the supplemental application.\n"
+    "(ii) Notify the applicant.\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt", "rule_source"),
+    [
+        pytest.param(
+            "(a) Scope:\n"
+            "(i) An applicant subject to clause\n"
+            "(ii) of another section must show residency.\n"
+            "(b) Verification.\n",
+            "(ii) of another section must show residency.",
+            "42 CFR 1.1(a)(ii)",
+            id="wrapped-ii-reference",
+        ),
+        pytest.param(
+            "(a) General requirements:\n"
+            + "".join(
+                f"({item}) Item.\n" for item in "i ii iii iv v vi vii viii".split()
+            )
+            + "(ix) Review the procedure in clause\n"
+            "(x) of section 5 when applicable.\n"
+            "(b) Other rules.\n",
+            "(x) of section 5 when applicable.",
+            "42 CFR 1.1(a)(x)",
+            id="wrapped-x-reference",
+        ),
+        pytest.param(
+            "(a) Eligibility:\n"
+            "(i) File a notice.\n"
+            "(ii) Retain a copy.\n"
+            "(b) Guidance is given in paragraph\n"
+            "(c) of this section, which provides:\n"
+            "(1) File a notice under the local rules.\n"
+            "(i) For residents, file online.\n"
+            "(ii) For other applicants, file in person.\n",
+            "(i) For residents, file online.",
+            "42 CFR 1.1(c)(1)(i)",
+            id="wrapped-c-owner",
+        ),
+        pytest.param(
+            "(a) Eligibility:\n"
+            "(i) First requirement.\n"
+            "(ii) Second requirement.\n"
+            "(b) Consult paragraph\n"
+            "(c) CMS Rules:\n"
+            "(1) Files are required:\n"
+            "(i) For residents, file online.\n"
+            "(ii) For other applicants, file in person.\n",
+            "(i) For residents, file online.",
+            "42 CFR 1.1(c)(1)(i)",
+            id="wrapped-uppercase-c-owner",
+        ),
+        pytest.param(
+            _U_THROUGH_FOUR + "(v) The fifth requirement may be met by either method:\n"
+            "(1) Electronic verification:\n"
+            "(i) First method of verification.\n"
+            "(ii) Second method of verification.\n"
+            "(v) Appeals of a decision.\n"
+            "(w) Notices sent to applicants.\n",
+            "(i) First method of verification.",
+            "42 CFR 1.1(v)(1)(i)",
+            id="ambiguous-v-before-numeric",
+        ),
+        pytest.param(
+            _DIRECT_LIST_BEFORE_CONDITION + "(A) First condition.\n"
+            "(1) Processing steps under condition A:\n" + _NESTED_VERIFICATION,
+            "(i) Verify the supplemental application.",
+            "42 CFR 1.1(b)(1)(i)",
+            id="uppercase-suspension-numeric-stop",
+        ),
+        pytest.param(
+            "(a) General requirements:\n"
+            "(i) First item.\n"
+            "(ii) Second item.\n"
+            "(A) Review the procedure in clause\n"
+            "(iii) of section 5 when applicable.\n"
+            "(b) Other rules.\n",
+            "(iii) of section 5 when applicable.",
+            "42 CFR 1.1(a)(iii)",
+            id="uppercase-suspension-wrapped-iii",
+        ),
+        pytest.param(
+            "This section incorporates subsec.\n"
+            "(a) of the agreement, which lists these conditions:\n"
+            "(i) First condition of the agreement.\n"
+            "(ii) Second condition of the agreement.\n"
+            "(a) Actual scope of this section.\n"
+            "(b) Other provisions.\n",
+            "(i) First condition of the agreement.",
+            "42 CFR 1.1(a)(i)",
+            id="subsection-reference-preamble",
+        ),
+        pytest.param(
+            "(a) See Table 1 for filing codes.\n\n"
+            "Table 1—Filing codes and labels\n\n"
+            "(i) Renewal fee.\n"
+            "(ii) Transfer fee.\n"
+            "(b) Exceptions.\n",
+            "(i) Renewal fee.",
+            "42 CFR 1.1(a)(i)",
+            id="detached-table",
+        ),
+        pytest.param(
+            "Sec. 1.1 Filing codes.\n\n"
+            "(a) See Table 1 for filing codes.\n\n"
+            "Table 1—\n\n"
+            "(i) Renewal fee.\n\n"
+            "(ii) Transfer fee.\n\n"
+            "(b) Exceptions.\n",
+            "(i) Renewal fee.",
+            "42 CFR 1.1(a)(i)",
+            id="detached-table-in-uniform-blocks",
+        ),
+        pytest.param(
+            "(a) Actual first paragraph.\n"
+            "(b) Other substantive paragraph.\n"
+            + PROOF_EVIDENCE_SEGMENT_SEPARATOR
+            + "(a) The notice must reproduce the following language:\n"
+            "“Standard notice text:\n"
+            "(i) First item.\n"
+            "(ii) Second item.”\n"
+            "(b) Other rules.\n",
+            "(i) First item.",
+            "42 CFR 1.1(a)(i)",
+            id="quoted-notice-in-second-record",
+        ),
+        pytest.param(
+            "(a) General rule -- ( 1 ) First paragraph:\n"
+            "(i) First step.\n"
+            "(ii) Second step.\n"
+            "(b) Other rules.\n",
+            "(i) First step.",
+            "42 CFR 1.1(a)(i)",
+            id="inline-numeric-marker-with-spaces",
+        ),
+        pytest.param(
+            "(a) The agency applies the following guidance:\n"
+            "(i) An item may be cited.\n"
+            "(b) Other requirements.\n",
+            "(i) An item may be cited.",
+            "42 CFR 1.1(a)(i)",
+            id="lone-i-without-ii",
+        ),
+        pytest.param(
+            "(a) Review requirements:\n"
+            "(i) First item.\n"
+            "(ii) Second item.\n"
+            "(1) Apply the criteria set out in paragraph\n"
+            "(b) of section 7. The agency shall:\n"
+            "(2) Determine eligibility using the following:\n"
+            "(i) First eligibility requirement.\n"
+            "(ii) Second eligibility requirement.\n"
+            "(b) This is the real (b).\n",
+            "(i) First eligibility requirement.",
+            "42 CFR 1.1(b)(2)(i)",
+            id="numeric-taint-before-wrapped-b",
+        ),
+        pytest.param(
+            _DIRECT_LIST_BEFORE_CONDITION + "(b) Review the scope in paragraph\n"
+            "(c) of this section.\n",
+            "(i) First genuine clause.",
+            "42 CFR 1.1(a)(i)",
+            id="later-wrapped-header-vetoes-earlier-list",
+        ),
+        pytest.param(
+            _U_THROUGH_FOUR + "(v) Appeals of a decision.\n"
+            "(w) Notices sent to applicants.\n"
+            "(1) First notice.\n"
+            "(i) Notify the applicant.\n"
+            "(ii) Retain a copy.\n",
+            "(i) Notify the applicant.",
+            "42 CFR 1.1(w)(1)(i)",
+            id="ambiguous-v-without-numeric",
+        ),
+        pytest.param(
+            _DIRECT_LIST_BEFORE_CONDITION
+            + "(1) Processing steps under the second clause:\n"
+            + _NESTED_VERIFICATION,
+            "(i) Verify the supplemental application.",
+            "42 CFR 1.1(b)(1)(i)",
+            id="numeric-taint-before-uppercase-b",
+        ),
+        pytest.param(
+            _DIRECT_LIST_BEFORE_CONDITION
+            + "(A)(1) First condition.\n"
+            + _NESTED_VERIFICATION,
+            "(i) Verify the supplemental application.",
+            "42 CFR 1.1(b)(1)(i)",
+            id="compound-taint-before-uppercase-b",
+        ),
+        pytest.param(
+            "(a) General requirements:\n"
+            "(i) First item continues with clause\n"
+            "(ii) An embedded heading.\n"
+            "(b) Other rules.\n",
+            "(i) First item continues with clause",
+            "42 CFR 1.1(a)(i)",
+            id="lookahead-ii-not-starting-sentence",
+        ),
+        pytest.param(
+            "(a) General requirements:\n"
+            "(i) First item.\n"
+            "(ii) Second item continues with clause\n"
+            "(iii) An embedded heading.\n"
+            "(b) Other rules.\n",
+            "(iii) An embedded heading.",
+            "42 CFR 1.1(a)(iii)",
+            id="continuation-iii-not-starting-sentence",
+        ),
+        pytest.param(
+            "(a) General requirements.\n" + _DIRECT_LIST_TAIL,
+            "(i) A covered individual must apply.",
+            "42 CFR 1.1(a)(i)",
+            id="introducer-with-period",
+        ),
+        pytest.param(
+            "(a) General requirements.\n\n"
+            "Detached filing instructions:\n" + _DIRECT_LIST_TAIL,
+            "(i) A covered individual must apply.",
+            "42 CFR 1.1(a)(i)",
+            id="introducer-with-internal-blank-line",
+        ),
+        pytest.param(
+            "(a) General requirements:\nA. Conditions:\n" + _DIRECT_LIST_TAIL,
+            "(i) A covered individual must apply.",
+            "42 CFR 1.1(a)(i)",
+            id="introducer-with-dotted-header",
+        ),
+        pytest.param(
+            _DIRECT_LIST_BEFORE_CONDITION + "A. Conditions:\n"
+            "(iii) Check the application.\n"
+            "(b) Other rules.\n",
+            "(iii) Check the application.",
+            "42 CFR 1.1(a)(iii)",
+            id="dotted-header-taints-open-list",
+        ),
+        pytest.param(
+            _DIRECT_LIST_BEFORE_CONDITION + "( 1 ) Additional requirements:\n"
+            "(iii) Check the application.\n"
+            "(b) Other rules.\n",
+            "(iii) Check the application.",
+            "42 CFR 1.1(a)(iii)",
+            id="spaced-header-taints-open-list",
+        ),
+    ],
+)
+def test_rulespec_proof_validator_rejects_direct_roman_outside_trusted_outline(
+    source_text, excerpt, rule_source
+):
+    result = _validate_scope(
+        source_text=source_text,
+        excerpt=excerpt,
+        rule_source=rule_source,
+        citation_path="us/regulation/42/1/1",
+    )
+
+    assert result.passed is False
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        for issue in result.issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("introducer_end", "next_heading"),
+    [
+        pytest.param(".", "B.", id="review-row"),
+        pytest.param(":", "(b)", id="recognized-sibling"),
+    ],
+)
+def test_rulespec_proof_validator_rejects_direct_roman_under_dotted_outer_owner(
+    introducer_end, next_heading
+):
+    result = _validate_scope(
+        source_text=(
+            "A. General provisions.\n"
+            f"(a) Definitions{introducer_end}\n"
+            "(i) The first definition.\n"
+            "(ii) The second definition.\n"
+            f"{next_heading} Other provisions.\n"
+        ),
+        excerpt="(i) The first definition.",
+        rule_source="La. R.S. 47:1855(a)(i)",
+        citation_path="us-la/statute/47/47:1855",
     )
 
     assert result.passed is False
