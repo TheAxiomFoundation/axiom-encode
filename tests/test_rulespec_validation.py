@@ -29205,6 +29205,635 @@ def test_rulespec_proof_validator_rejects_wrong_flat_alpha_numeric_roman_parent(
     )
 
 
+# Trimmed from the corrected 2026-06-29 CMS-2454 IFC row for 42 CFR 435.554
+# (axiom-corpus, us/regulation/42/435/554): whole paragraphs, trailing spaces
+# removed. GPO prints every paragraph at the same four-space indent and wraps
+# cross-references such as "(c)(1)(i)(A) through (C)" to column 0, so
+# indentation carries no ancestry here.
+_FR_42_CFR_435_554_SOURCE = """Sec.  435.554  Specified excluded individuals.
+
+    (a) For purposes of this section--
+    Caretaker relative means a relative of a dependent child or a
+disabled individual, as those terms are defined in this section, by
+blood, adoption, or marriage with whom the child or disabled individual
+is living, who assumes primary responsibility for the dependent child's
+or disabled individual's care, and who is one of the following--
+    (i) The dependent child's or disabled individual's father, mother,
+grandfather, grandmother, brother, sister, stepfather, stepmother,
+stepbrother, stepsister, uncle, aunt, first cousin, nephew, or niece.
+    (ii) The disabled individual's husband, wife, son, daughter,
+stepson, stepdaughter, grandson, or granddaughter.
+    (iii) The spouse of such parent or relative, even after the
+marriage is terminated by death or divorce.
+    Dependent child means a child 13 years of age or under who relies
+on another individual for care.
+    (b) An individual who meets the criteria for one or more of the
+categories described in paragraph (c) of this section is excluded from
+the definition of an applicable individual as defined at Sec.  435.551.
+Community engagement is not a condition of eligibility for specified
+excluded individuals.
+    (c) An individual is a specified excluded individual if he or she
+meets one of the following:
+
+[[Page 33472]]
+
+    (3) The individual is a parent, guardian, caretaker relative, or
+family caregiver, as each is defined in this section, and for family
+caregivers, meets one of the criteria identified at paragraphs
+(c)(1)(i)(A) through (C) of this section. For purposes of this
+exclusion:
+    (i) An individual who is a family caregiver as defined in this
+section is a specified excluded individual if he or she meets one of
+the following criteria:
+    (A) The individual primarily resides with a dependent child or
+disabled individual, as these terms are defined in this section, for
+whom he or she provides assistance that occurs on a regular basis and
+is not solely incidental in nature.
+    (ii) In residences with more than one parent, guardian, caretaker
+relative, or family caregiver, multiple individuals who meet the
+relevant definitions at paragraph (a) of this section may qualify as a
+specified excluded individual as described in this section.
+    (4) The individual is a veteran with a temporary or permanent
+disability from the Department of Veterans Affairs, rated as 100
+percent (total) under 38 U.S.C. 1155.
+    (5) The individual is medically frail or otherwise has special
+medical needs. For purposes of this exclusion:
+    (i) An individual who is medically frail or otherwise has special
+medical needs is defined as an individual whose physical, mental, or
+other behavioral health condition significantly impairs the
+individual's ability to comply with the community engagement
+requirement in this subpart and is an individual:
+    (A) Who is blind or disabled (as defined in section 1614 of the
+Social Security Act);
+    (ii) The State must develop a list of diseases, diagnoses,
+disorders, or other health conditions to identify individuals who meet
+the criteria in paragraphs (a)(5)(i)(A) through (E) of this section.
+"""
+
+
+def _federal_register_paragraphs(source_text: str) -> list[str]:
+    """Unwrap GPO text: drop page blocks and join column-0 continuations."""
+    source_text = re.sub(r"\n\n\[\[Page \d+\]\]\n\n", "\n", source_text)
+    paragraphs: list[str] = []
+    for line in source_text.split("\n"):
+        if paragraphs and line and not line.startswith(" "):
+            paragraphs[-1] += " " + line
+        elif line.strip():
+            paragraphs.append(line.strip())
+    return paragraphs
+
+
+def _normalized_federal_register_shape(source_text: str) -> str:
+    """Keep the uniform four-space indent but remove pages and wrapped lines."""
+    return (
+        "\n".join(
+            "    " + paragraph
+            for paragraph in _federal_register_paragraphs(source_text)
+        )
+        + "\n"
+    )
+
+
+def _ecfr_shape(source_text: str) -> str:
+    """Render the corpus eCFR shape: one column-0 paragraph per block."""
+    return "\n\n".join(_federal_register_paragraphs(source_text)) + "\n"
+
+
+_FEDERAL_REGISTER_SOURCE_SHAPES = {
+    "federal_register": lambda source_text: source_text,
+    "normalized_federal_register": _normalized_federal_register_shape,
+    "ecfr": _ecfr_shape,
+}
+
+
+_435_554_C3I_EXCERPT = (
+    "(i) An individual who is a family caregiver as defined in this section "
+    "is a specified excluded individual if he or she meets one of the "
+    "following criteria:"
+)
+_435_554_C3II_EXCERPT = (
+    "(ii) In residences with more than one parent, guardian, caretaker "
+    "relative, or family caregiver,"
+)
+_435_554_C5I_EXCERPT = (
+    "(i) An individual who is medically frail or otherwise has special medical needs"
+)
+_435_554_AI_EXCERPT = (
+    "(i) The dependent child's or disabled individual's father, mother,"
+)
+_435_554_AII_EXCERPT = "(ii) The disabled individual's husband, wife, son, daughter,"
+
+_435_554_OWNER_CASES = [
+    (_435_554_C3I_EXCERPT, "42 CFR 435.554(c)(3)(i)"),
+    (_435_554_C3I_EXCERPT, "42 CFR 435.554(c)(3), (c)(3)(i)"),
+    (_435_554_C3II_EXCERPT, "42 CFR 435.554(c)(3)(ii)"),
+    (_435_554_C5I_EXCERPT, "42 CFR 435.554(c)(5)(i)"),
+    (_435_554_AI_EXCERPT, "42 CFR 435.554(a)(i)"),
+    (_435_554_AII_EXCERPT, "42 CFR 435.554(a)(ii)"),
+]
+_435_554_OWNER_IDS = ["c3i", "c3-and-c3i", "c3ii", "c5i", "ai", "aii"]
+# The paragraph-per-line shapes: GPO text with its page blocks and wrapped
+# lines rejoined, as axiom-corpus normalizes it, and the eCFR rendering.
+_UNWRAPPED_FEDERAL_SHAPES = ["ecfr", "normalized_federal_register"]
+
+
+def _validate_435_554_roman_excerpt(*, shape: str, excerpt: str, rule_source: str):
+    return validate_rulespec_proofs(
+        _proof_scope_fixture(
+            rule_source=rule_source,
+            excerpt=excerpt,
+            citation_path="us/regulation/42/435/554",
+        ),
+        source_texts={
+            "us/regulation/42/435/554": _FEDERAL_REGISTER_SOURCE_SHAPES[shape](
+                _FR_42_CFR_435_554_SOURCE
+            )
+        },
+    )
+
+
+@pytest.mark.parametrize("shape", _UNWRAPPED_FEDERAL_SHAPES)
+@pytest.mark.parametrize(
+    ("excerpt", "rule_source"), _435_554_OWNER_CASES, ids=_435_554_OWNER_IDS
+)
+def test_rulespec_proof_validator_allows_uniform_indent_federal_roman_excerpt(
+    shape, excerpt, rule_source
+):
+    # 435.554(a) lists (i)-(iv) directly under (a), with no numeric level.
+    # Read as an orphan Roman run, that list used to end the flat pass, so
+    # every later (c)(3)(i)-style owner was rejected too.
+    result = _validate_435_554_roman_excerpt(
+        shape=shape,
+        excerpt=excerpt,
+        rule_source=rule_source,
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    ("excerpt", "rule_source"), _435_554_OWNER_CASES, ids=_435_554_OWNER_IDS
+)
+def test_rulespec_proof_validator_leaves_wrapped_federal_register_roman_unresolved(
+    excerpt, rule_source
+):
+    # Raw GPO text wraps cross-references such as "(c)(1)(i)(A) through (C)"
+    # to column 0, where they read as headers and set the flat baseline. The
+    # ancestry stays unreadable, and the proof fails closed until the corpus
+    # rejoins the wrapped lines.
+    result = _validate_435_554_roman_excerpt(
+        shape="federal_register",
+        excerpt=excerpt,
+        rule_source=rule_source,
+    )
+
+    assert result.passed is False
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        for issue in result.issues
+    )
+
+
+@pytest.mark.parametrize("shape", _UNWRAPPED_FEDERAL_SHAPES)
+@pytest.mark.parametrize(
+    ("excerpt", "owner_source", "sibling_source"),
+    [
+        (
+            _435_554_C3I_EXCERPT,
+            "42 CFR 435.554(c)(3)(i)",
+            "42 CFR 435.554(c)(5)(i)",
+        ),
+        (
+            _435_554_C5I_EXCERPT,
+            "42 CFR 435.554(c)(5)(i)",
+            "42 CFR 435.554(c)(3)(i)",
+        ),
+        (
+            _435_554_C3II_EXCERPT,
+            "42 CFR 435.554(c)(3)(ii)",
+            "42 CFR 435.554(c)(5)(ii)",
+        ),
+        (
+            _435_554_AI_EXCERPT,
+            "42 CFR 435.554(a)(i)",
+            "42 CFR 435.554(c)(3)(i)",
+        ),
+        (
+            _435_554_C3I_EXCERPT,
+            "42 CFR 435.554(c)(3)(i)",
+            "42 CFR 435.554(a)(i)",
+        ),
+        (
+            _435_554_AII_EXCERPT,
+            "42 CFR 435.554(a)(ii)",
+            "42 CFR 435.554(c)(3)(ii)",
+        ),
+        (
+            _435_554_C3I_EXCERPT,
+            "42 CFR 435.554(c)(3)(i)",
+            "42 CFR 435.554(b)(3)(i)",
+        ),
+        (
+            _435_554_AI_EXCERPT,
+            "42 CFR 435.554(a)(i)",
+            "42 CFR 435.554(b)(i)",
+        ),
+    ],
+    ids=[
+        "c3i-as-c5i",
+        "c5i-as-c3i",
+        "c3ii-as-c5ii",
+        "ai-as-c3i",
+        "c3i-as-ai",
+        "aii-as-c3ii",
+        "c3i-as-b3i",
+        "ai-as-bi",
+    ],
+)
+def test_rulespec_proof_validator_rejects_uniform_indent_federal_roman_sibling(
+    shape, excerpt, owner_source, sibling_source
+):
+    # The owner check keeps the rejection from passing only because the
+    # source's Roman ancestry is unreadable.
+    assert (
+        _validate_435_554_roman_excerpt(
+            shape=shape,
+            excerpt=excerpt,
+            rule_source=owner_source,
+        ).passed
+        is True
+    )
+
+    result = _validate_435_554_roman_excerpt(
+        shape=shape,
+        excerpt=excerpt,
+        rule_source=sibling_source,
+    )
+
+    assert result.passed is False
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        for issue in result.issues
+    )
+
+
+# Outline depth of each unwrapped paragraph of _FR_42_CFR_435_554_SOURCE.
+_435_554_PARAGRAPH_LEVELS = (0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 2, 3, 2, 1, 1, 2, 3, 2)
+
+
+@pytest.mark.parametrize(
+    ("excerpt", "owner_source", "sibling_source"),
+    [
+        (
+            _435_554_C3I_EXCERPT,
+            "42 CFR 435.554(c)(3)(i)",
+            "42 CFR 435.554(c)(5)(i)",
+        ),
+        (
+            _435_554_C3II_EXCERPT,
+            "42 CFR 435.554(c)(3)(ii)",
+            "42 CFR 435.554(c)(5)(ii)",
+        ),
+        (
+            _435_554_AI_EXCERPT,
+            "42 CFR 435.554(a)(i)",
+            "42 CFR 435.554(c)(3)(i)",
+        ),
+    ],
+    ids=["c3i-as-c5i", "c3ii-as-c5ii", "ai-as-c3i"],
+)
+def test_rulespec_proof_validator_keeps_indented_federal_roman_owner(
+    excerpt, owner_source, sibling_source
+):
+    # Control: indented one level per outline depth, the same text already
+    # resolves through the indentation stack, which stays authoritative.
+    paragraphs = _federal_register_paragraphs(_FR_42_CFR_435_554_SOURCE)
+    source_text = (
+        "\n".join(
+            "  " * level + paragraph
+            for level, paragraph in zip(
+                _435_554_PARAGRAPH_LEVELS, paragraphs, strict=True
+            )
+        )
+        + "\n"
+    )
+
+    def validate(rule_source: str):
+        return validate_rulespec_proofs(
+            _proof_scope_fixture(
+                rule_source=rule_source,
+                excerpt=excerpt,
+                citation_path="us/regulation/42/435/554",
+            ),
+            source_texts={"us/regulation/42/435/554": source_text},
+        )
+
+    owner_result = validate(owner_source)
+    sibling_result = validate(sibling_source)
+
+    assert owner_result.passed is True
+    assert owner_result.issues == []
+    assert sibling_result.passed is False
+
+
+def _uniform_indent_source(*paragraphs: str) -> str:
+    return "".join(f"    {paragraph}\n" for paragraph in paragraphs)
+
+
+def _validate_scope(*, source_text: str, excerpt: str, rule_source: str):
+    return validate_rulespec_proofs(
+        _proof_scope_fixture(rule_source=rule_source, excerpt=excerpt),
+        source_texts={"us-nj/statute/54a:4-7": source_text},
+    )
+
+
+_DIRECT_LIST_TAIL = (
+    "(i) A covered individual must apply.\n"
+    "(ii) A second filing applies.\n"
+    "(b) Other rules.\n"
+)
+
+# In each source, the Roman items after an alpha paragraph may belong to a
+# level the flat pass cannot place, so they must not be read as a list directly
+# under the alpha paragraph: a citation that skips that level is rejected.
+# Shapes from the d2932 verification and review (2026-11-26):
+# - eCFR runs a numeric child into the alpha line, after a period (7 CFR
+#   273.7(a)), a dash in any of its forms, or with an adjacent "(A)";
+# - Montana prints a section's leading "(1)" before "(a)" (MCA 15-31-510);
+# - South Carolina opens with the compound header "(B)(1)" (S.C. Code
+#   12-6-5030);
+# - a tainted suspension or an uppercase level can sit between them;
+# - a column-0 "(b)" or "(i)" can be a wrapped cross-reference;
+# - an indented level can sit between the alpha header and the "(i)".
+_HIDDEN_LEVEL_CASES = {
+    "inline-numeric-child-period": (
+        "(a) Work requirements. (1) As a condition of eligibility, each"
+        " household member must:\n"
+        "(i) Register for work or be registered by the State agency at the"
+        " time of application;\n"
+        "(ii) Participate in an employment and training program if assigned;\n"
+        "(2) Exemptions are listed in paragraph (b) of this section.\n"
+        "(b) Exemptions from work requirements.\n",
+        "(i) Register for work or be registered by the State agency at the time",
+        "7 CFR 273.7(a)(i)",
+    ),
+    "inline-numeric-child-em-dash": (
+        "(a) General rule—(1) First paragraph:\n" + _DIRECT_LIST_TAIL,
+        "(i) A covered individual must apply.",
+        "42 CFR 1.1(a)(i)",
+    ),
+    "inline-numeric-child-spaced-en-dash": (
+        "(a) General rule – (1) First paragraph:\n" + _DIRECT_LIST_TAIL,
+        "(i) A covered individual must apply.",
+        "42 CFR 1.1(a)(i)",
+    ),
+    "inline-numeric-child-double-hyphen": (
+        "(a) General rule--(1) First paragraph:\n" + _DIRECT_LIST_TAIL,
+        "(i) A covered individual must apply.",
+        "42 CFR 1.1(a)(i)",
+    ),
+    "inline-adjacent-numeric-and-upper-children": (
+        "(a) General rule—(1)(A) First paragraph:\n" + _DIRECT_LIST_TAIL,
+        "(i) A covered individual must apply.",
+        "42 CFR 1.1(a)(i)",
+    ),
+    "inline-numeric-child-on-later-line": (
+        "(a) General rule.\n"
+        "The agency applies the rule in paragraph (1) below.\n" + _DIRECT_LIST_TAIL,
+        "(i) A covered individual must apply.",
+        "42 CFR 1.1(a)(i)",
+    ),
+    "leading-numeric-owner": (
+        "15-31-510. Estimated payments. (1) A corporation shall pay its"
+        " estimated tax as follows:\n"
+        "(a) 25% of the tax due for the tax year;\n"
+        "(b) the installment is computed:\n"
+        "(i) for the first 3 months of the tax year in the case of the"
+        " installment due in the fourth month;\n"
+        "(ii) for the first 5 months of the tax year in the case of the"
+        " installment due in the sixth month;\n"
+        "(c) the remaining installments are equal.\n",
+        "(i) for the first 3 months of the tax year in the case of the installment",
+        "Mont. Code Ann. 15-31-510(b)(i)",
+    ),
+    "compound-leading-header": (
+        "(B)(1) A composite return is a single return for two or more taxpayers\n"
+        "(a) for a participant who provides an affidavit to the department\n"
+        "(i) compute the participant's South Carolina income tax\n"
+        "(ii) compute the participant's South Carolina income tax without"
+        " regard to any deductions\n",
+        "(i) compute the participant's South Carolina income tax",
+        "S.C. Code § 12-6-5030(a)(i)",
+    ),
+    "compound-leading-header-punctuated": (
+        "(B)(1) A composite return is a single return for two or more taxpayers:\n"
+        "(a) For a participant who provides an affidavit to the department:\n"
+        "(i) Compute the participant's income tax;\n"
+        "(ii) Compute the participant's income tax without regard to any"
+        " deductions.\n",
+        "(i) Compute the participant's income tax;",
+        "S.C. Code § 12-6-5030(a)(i)",
+    ),
+    "wrapped-alpha-reference": (
+        "(a) The agency must apply the conditions described in paragraph\n"
+        "(b) of this section, as follows:\n" + _DIRECT_LIST_TAIL,
+        "(i) A covered individual must apply.",
+        "42 CFR 1.1(b)(i)",
+    ),
+    "wrapped-roman-reference": (
+        "(a) The agency applies the conditions in paragraph\n"
+        "(i) of section 5 and\n"
+        "(ii) of section 6.\n"
+        "(b) Other rules.\n",
+        "(i) of section 5 and",
+        "42 CFR 1.1(a)(i)",
+    ),
+    "indented-level-between": (
+        "(a) Rule text for alpha a.\n"
+        "  (A) Upper A text under a.\n"
+        "  (B) Upper B text under a.\n"
+        "(i) Roman one text after the indented level.\n"
+        "(ii) Roman two text after the indented level.\n"
+        "(b) Rule text for alpha b.\n",
+        "(i) Roman one text after the indented level.",
+        "42 CFR 1.1(a)(i)",
+    ),
+    "tainted-suspension": (
+        _uniform_indent_source(
+            "(a) General rule. The agency must do the following:",
+            "(1) Determine eligibility as follows:",
+            "(i) Alpha one-one-i text applies to applicants.",
+            "(ii) Alpha one-one-ii text applies to recipients.",
+            "(A) Upper A text under one-ii.",
+            "(B) Upper B text under one-ii.",
+            "(2) Redetermine eligibility as follows:",
+            "(i) Two-i text about renewal forms.",
+            "(ii) Two-ii text about renewal notices.",
+            "(b) Second paragraph text.",
+        ),
+        "(i) Two-i text about renewal forms.",
+        "42 CFR 1.1(a)(i)",
+    ),
+    "uppercase-level": (
+        _uniform_indent_source(
+            "(a) Rule text for alpha a.",
+            "(A) Upper A text under a.",
+            "(B) Upper B text under a.",
+            "(i) Roman one text under a-B.",
+            "(ii) Roman two text under a-B.",
+            "(b) Rule text for alpha b.",
+        ),
+        "(i) Roman one text under a-B.",
+        "42 CFR 1.1(a)(i)",
+    ),
+    "nested-italic-level": (
+        _uniform_indent_source(
+            "(a) Rule text for alpha a--",
+            "(i) Direct roman one under a.",
+            "(ii) Direct roman two under a.",
+            "(b) Rule text for alpha b.",
+            "(1) Numeric one under b.",
+            "(i) Roman one under b-one.",
+            "(A) Upper A under b-one-i.",
+            "(1) Italic one under b-one-i-A.",
+            "(i) Italic roman one under b-one-i-A-one.",
+            "(ii) Italic roman two under b-one-i-A-one.",
+            "(B) Upper B under b-one-i.",
+            "(ii) Roman two under b-one.",
+            "(2) Numeric two under b.",
+            "(c) Rule text for alpha c.",
+        ),
+        "(i) Italic roman one under b-one-i-A-one.",
+        "42 CFR 1.1(b)(i)",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_HIDDEN_LEVEL_CASES))
+def test_rulespec_proof_validator_rejects_roman_under_alpha_past_hidden_level(case):
+    source_text, excerpt, skipping_source = _HIDDEN_LEVEL_CASES[case]
+
+    result = _validate_scope(
+        source_text=source_text, excerpt=excerpt, rule_source=skipping_source
+    )
+
+    assert result.passed is False
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        for issue in result.issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt", "rule_source"),
+    [
+        (
+            # "(v)" after "(u)(iv)" may be Roman five under (u) or the next
+            # paragraph, so the direct list closes there unassigned.
+            "".join(
+                f"({letter}) Heading for paragraph {letter}.\n"
+                for letter in "abcdefghijklmnopqrst"
+            )
+            + "(u) Requirements for recipients.\n"
+            "(i) Verify information on the form.\n"
+            "(ii) Verify the identity of the applicant.\n"
+            "(iii) Verify the address of the applicant.\n"
+            "(iv) Verify the qualifications of the applicant.\n"
+            "(v) Appeals of the decision.\n"
+            "(A) First procedure for appeals.\n"
+            "(B) Second procedure for appeals.\n"
+            "(w) Notices sent to applicants.\n",
+            "(v) Appeals of the decision.",
+            "42 CFR 1.1(u)(v)",
+        ),
+        (
+            # An uppercase Roman item never continues a lowercase direct list.
+            "(a) General rule--\n"
+            "(i) First item under a.\n"
+            "(ii) Second item under a.\n"
+            "(III) Third item of another level.\n"
+            "(b) Other rules.\n",
+            "(III) Third item of another level.",
+            "42 CFR 1.1(a)(iii)",
+        ),
+        (
+            # A numeric paragraph after a direct list could sit under its last
+            # item or beside the list; neither reading is safe.
+            "(a) General rule--\n"
+            "(i) First item under a.\n"
+            "(ii) Second item under a.\n"
+            "(1) Numeric paragraph after the list.\n"
+            "(i) Roman item under the numeric paragraph.\n"
+            "(ii) Second Roman item under the numeric paragraph.\n"
+            "(b) Other rules.\n",
+            "(i) Roman item under the numeric paragraph.",
+            "42 CFR 1.1(a)(1)(i)",
+        ),
+    ],
+    ids=["next-alpha-sibling", "uppercase-roman", "numeric-after-list"],
+)
+def test_rulespec_proof_validator_closes_direct_alpha_roman_list(
+    source_text, excerpt, rule_source
+):
+    result = _validate_scope(
+        source_text=source_text, excerpt=excerpt, rule_source=rule_source
+    )
+
+    assert result.passed is False
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        for issue in result.issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt", "owner_source", "sibling_source"),
+    [
+        (
+            _HIDDEN_LEVEL_CASES["nested-italic-level"][0],
+            "(i) Direct roman one under a.",
+            "42 CFR 1.1(a)(i)",
+            "42 CFR 1.1(b)(i)",
+        ),
+        (
+            _HIDDEN_LEVEL_CASES["nested-italic-level"][0],
+            "(i) Roman one under b-one.",
+            "42 CFR 1.1(b)(1)(i)",
+            "42 CFR 1.1(b)(i)",
+        ),
+        (
+            "Sec. 1.1 Definitions.\n\n"
+            "(a) Scope. This section applies to applicants.\n"
+            "(b) For purposes of this section--\n"
+            "Covered individual means one of the following--\n"
+            "(i) A covered individual must apply.\n"
+            "(ii) A second filing applies.\n"
+            "(c) Other rules.\n",
+            "(i) A covered individual must apply.",
+            "42 CFR 1.1(b)(i)",
+            "42 CFR 1.1(a)(i)",
+        ),
+    ],
+    ids=["direct-list-under-a", "numeric-owner-under-b", "direct-list-under-b"],
+)
+def test_rulespec_proof_validator_keeps_direct_alpha_roman_list_beside_other_levels(
+    source_text, excerpt, owner_source, sibling_source
+):
+    # A direct list resolves under the first alpha paragraph with sub-items,
+    # beside later numeric, uppercase and italic levels.
+    owner_result = _validate_scope(
+        source_text=source_text, excerpt=excerpt, rule_source=owner_source
+    )
+    sibling_result = _validate_scope(
+        source_text=source_text, excerpt=excerpt, rule_source=sibling_source
+    )
+
+    assert owner_result.passed is True
+    assert owner_result.issues == []
+    assert sibling_result.passed is False
+
+
 def test_rulespec_proof_validator_does_not_drop_leading_numeric_owner():
     excerpt = "(i) Roman child under outer one alpha a numeric one."
     source_text = f"""(1) Outer numeric paragraph.

@@ -3079,14 +3079,33 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
             if baseline_indent is not None
             and len(header.group("indent").expandtabs(2)) == baseline_indent
         ]
+        # The bare alpha headers (a), (b), (c), ... that open the record at
+        # its baseline indent, each starting a sentence. A Roman list may
+        # open directly under one of them (see below), and only them.
+        header_position = {
+            header.start(): index for index, header in enumerate(headers)
+        }
+        alpha_prefix_length = 0
+        for header in headers:
+            if (
+                alpha_prefix_length >= 26
+                or header.group("bundle").strip()
+                != f"({chr(ord('a') + alpha_prefix_length)})"
+                or len(header.group("indent").expandtabs(2)) != baseline_indent
+                or not _flat_header_starts_sentence(record, header.start("bundle"))
+            ):
+                break
+            alpha_prefix_length += 1
         alpha_parent: str | None = None
+        alpha_header: re.Match[str] | None = None
         next_alpha = "a"
-        current_chain: tuple[str, str] | None = None
+        # A numeric chain is (alpha, numeric); a direct Roman list is (alpha,).
+        current_chain: tuple[str, ...] | None = None
         next_roman_value = 1
         roman_sequence_established = False
         alpha_sequence_started = False
         leading_numeric_owner_seen = False
-        suspended_chain: tuple[str, str] | None = None
+        suspended_chain: tuple[str, ...] | None = None
         suspended_next_roman_value = 1
         suspended_chain_tainted = False
         for header_index, header in enumerate(baseline_headers):
@@ -3146,6 +3165,7 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
             uppercase_roman_transition = (
                 token.isupper()
                 and current_chain is not None
+                and len(current_chain) > 1
                 and roman_value == next_roman_value
                 and (
                     len(token) > 1
@@ -3189,10 +3209,15 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
                     or successor_is_next_alpha_after_token
                 )
             )
+            direct_chain_open = current_chain is not None and len(current_chain) == 1
             roman_transition = (
                 current_chain is not None
                 and roman_value == next_roman_value
                 and not alpha_transition
+                # In a direct list, a Roman item spelled like the parent's
+                # next sibling ("(v)" after "(u)(iv)") may be either one, so
+                # the list closes there unassigned.
+                and not (direct_chain_open and token == next_alpha)
                 and (
                     token != next_alpha
                     or successor_roman_value == roman_value + 1
@@ -3211,6 +3236,7 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
             )
             if alpha_transition:
                 alpha_parent = token
+                alpha_header = header
                 suspended_chain = None
                 suspended_chain_tainted = False
                 alpha_sequence_started = True
@@ -3219,7 +3245,7 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
                 next_roman_value = 1
                 roman_sequence_established = False
                 continue
-            if token.isdigit():
+            if token.isdigit() and not direct_chain_open:
                 if alpha_parent is None and not alpha_sequence_started:
                     leading_numeric_owner_seen = True
                 current_chain = (
@@ -3239,15 +3265,98 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
                 next_roman_value = roman_value + 1
                 roman_sequence_established = True
                 continue
+            if (
+                alpha_parent is not None
+                and alpha_header is not None
+                and current_chain is None
+                and suspended_chain is None
+                and token == "i"
+                and successor_tokens == ["ii"]
+                and header_position[alpha_header.start()] < alpha_prefix_length
+                and header_position[header.start()]
+                == header_position[alpha_header.start()] + 1
+                and _flat_header_starts_sentence(record, header.start("bundle"))
+                and not _flat_text_has_marker_outside_alpha_prefix(
+                    record, headers, header_position[header.start()]
+                )
+            ):
+                # Some federal paragraphs list Roman items directly under the
+                # alpha paragraph, with no numeric level, as 42 CFR 435.554(a)
+                # does. Read that way only when no other level can own the
+                # items: the "(i)" directly follows its alpha header, every
+                # earlier header is a bare (a), (b), ... starting a sentence,
+                # and no other marker appears in the text before the "(i)",
+                # whether a numeric child run in ("(a) Rule--(1)", "(a) Rule
+                # (1)(A)"), a leading "(1)" before "(a)", or a compound header
+                # such as "(B)(1)". Otherwise the chain stays unresolved and
+                # the proof fails closed. next_alpha is kept so the later
+                # alpha siblings still parse.
+                current_chain = (alpha_parent,)
+                occurrences.append(
+                    (
+                        current_chain,
+                        _canonical_roman_marker(roman_value),
+                        record_offset + header.start("bundle"),
+                    )
+                )
+                next_roman_value = roman_value + 1
+                roman_sequence_established = True
+                continue
             alpha_parent = None
             current_chain = None
             suspended_chain = None
             suspended_chain_tainted = False
             roman_sequence_established = False
-            if ambiguous_single_letter:
+            if ambiguous_single_letter or direct_chain_open:
                 next_alpha = ""
         record_offset += len(record) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
     return occurrences
+
+
+# Any short parenthesized token: a structural marker or a citation to one.
+_FLAT_INLINE_MARKER = re.compile(r"\([^()\s]{1,8}\)")
+_FLAT_SENTENCE_END_CHARACTERS = ".:;-\u2013\u2014"
+_FLAT_CLOSING_QUOTE_CHARACTERS = "\"'\u2019\u201d"
+
+
+def _flat_header_starts_sentence(record: str, start: int) -> bool:
+    """Whether a line-leading marker at ``start`` opens a new paragraph.
+
+    It does when it begins the record, follows a blank line, or follows
+    sentence-final punctuation (a closing quote may intervene). A marker
+    after any other text may be a wrapped cross-reference such as
+    "paragraph\n(b) of this section".
+    """
+    index = start - 1
+    newlines = 0
+    while index >= 0 and record[index].isspace():
+        newlines += record[index] == "\n"
+        index -= 1
+    if index < 0 or newlines >= 2:
+        return True
+    while index >= 0 and record[index] in _FLAT_CLOSING_QUOTE_CHARACTERS:
+        index -= 1
+    return index >= 0 and record[index] in _FLAT_SENTENCE_END_CHARACTERS
+
+
+def _flat_text_has_marker_outside_alpha_prefix(
+    record: str, headers: list[re.Match[str]], roman_position: int
+) -> bool:
+    """Whether any marker precedes ``headers[roman_position]`` in its prose.
+
+    Only the line-leading bundles of the headers before it are exempt.
+    """
+    text_start = 0
+    for header in headers[:roman_position]:
+        if _FLAT_INLINE_MARKER.search(record, text_start, header.start("bundle")):
+            return True
+        text_start = header.end("bundle")
+    return (
+        _FLAT_INLINE_MARKER.search(
+            record, text_start, headers[roman_position].start("bundle")
+        )
+        is not None
+    )
 
 
 def _source_text_is_exact_evidence_scalar(
