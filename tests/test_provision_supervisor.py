@@ -34,6 +34,62 @@ sys.modules[_SPEC.name] = provisioner
 _SPEC.loader.exec_module(provisioner)
 
 
+def test_workflow_commit_requires_attested_encoder(tmp_path, monkeypatch):
+    monkeypatch.setattr(provisioner, "_signing_trust_roots_payload", lambda *args: {})
+    with pytest.raises(SystemExit, match="--workflow-commit requires"):
+        provisioner.provision(
+            tmp_path / "destination",
+            tmp_path / "supervisor",
+            tmp_path / "site",
+            "apply",
+            "eval",
+            "corpus",
+            Path("/usr/bin/git"),
+            workflow_commit="f" * 40,
+        )
+
+
+@pytest.mark.parametrize("workflow_commit", [None, "f" * 40])
+def test_reviewed_pr_admission_names_the_workflow_commit(
+    tmp_path, monkeypatch, workflow_commit
+):
+    # The live run's head_sha is H; the attested encoder may be an older C.
+    monkeypatch.setattr(provisioner, "_signing_trust_roots_payload", lambda *args: {})
+    monkeypatch.setattr(provisioner, "_resolve_trusted_git", lambda git: git)
+    monkeypatch.setattr(provisioner, "_assert_sane_source_prefix", lambda *args: None)
+    exported = {}
+
+    def export(*args, **kwargs):
+        exported["workflow_commit"] = kwargs.get("workflow_commit")
+        return "9.9.9", tmp_path
+
+    seen = []
+
+    def verify(package, selector, commit):
+        seen.append(commit)
+        raise SystemExit("stop after the admission")
+
+    monkeypatch.setattr(provisioner, "_verify_and_export_encoder_snapshot", export)
+    monkeypatch.setattr(provisioner, "_verify_reviewed_pr_selector", verify)
+    with pytest.raises(SystemExit, match="stop after the admission"):
+        provisioner.provision(
+            tmp_path / "destination",
+            tmp_path / "supervisor",
+            tmp_path / "site",
+            "apply",
+            "eval",
+            "corpus",
+            Path("/usr/bin/git"),
+            encoder_origin_repository="github.com/TheAxiomFoundation/axiom-encode",
+            encoder_commit="c" * 40,
+            encoder_git_root=tmp_path,
+            reviewed_pr_selector=tmp_path / "selector",
+            workflow_commit=workflow_commit,
+        )
+    assert exported["workflow_commit"] == workflow_commit
+    assert seen == [workflow_commit or "c" * 40]
+
+
 def test_reviewed_pr_selector_requires_attested_encoder(tmp_path, monkeypatch):
     monkeypatch.setattr(provisioner, "_signing_trust_roots_payload", lambda *args: {})
     with pytest.raises(SystemExit, match="requires an attested encoder snapshot"):
@@ -67,7 +123,7 @@ def test_reviewed_pr_uses_exported_verifier_and_binds_workflow_commit(
     selector = tmp_path / "selector.json"
     selector.write_text('{"pr":42}')
     if mismatch:
-        with pytest.raises(SystemExit, match="attested encoder commit"):
+        with pytest.raises(SystemExit, match="attested workflow commit"):
             provisioner._verify_reviewed_pr_selector(package, selector, "f" * 40)
     else:
         assert (
@@ -518,7 +574,7 @@ class TestReprovisionRuntime:
         monkeypatch.setattr(provisioner.sys, "base_prefix", str(source))
         monkeypatch.setattr(provisioner.sys, "executable", str(interpreter))
 
-        def export_snapshot(*args):
+        def export_snapshot(*args, **kwargs):
             # The real export also stages the reviewed RuleSpec records that
             # provisioning copies into the runtime prefix.
             (args[-1] / provisioner._REVIEWED_RULESPEC_REFS_EXPORT).mkdir()
@@ -643,7 +699,7 @@ class TestReprovisionRuntime:
         monkeypatch.setattr(provisioner.sys, "base_prefix", str(source))
         monkeypatch.setattr(provisioner.sys, "executable", str(interpreter))
 
-        def export_snapshot(*args):
+        def export_snapshot(*args, **kwargs):
             export = args[-1] / refs_name
             export.mkdir()
             (export / "fresh.json").write_text('{"fresh": true}\n')
@@ -2725,6 +2781,74 @@ class TestEncoderSnapshotProvisioning:
             .tzinfo
             is not None
         )
+
+    def test_attestation_records_a_distinct_workflow_commit(self, tmp_path):
+        runtime = tmp_path / "python"
+        runtime.mkdir()
+        out = provisioner._publish_runtime_attestation(
+            runtime,
+            self.OFFICIAL,
+            "a" * 40,
+            "9.9.9",
+            "b" * 64,
+            workflow_commit="f" * 40,
+        )
+        payload = json.loads(out.read_text())
+        assert payload["axiom_encode"]["commit"] == "a" * 40
+        assert payload["workflow_commit"] == "f" * 40
+
+    def test_attestation_without_a_workflow_commit_keeps_its_shape(self, tmp_path):
+        runtime = tmp_path / "python"
+        runtime.mkdir()
+        out = provisioner._publish_runtime_attestation(
+            runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64
+        )
+        assert "workflow_commit" not in json.loads(out.read_text())
+
+    def _merge_branch(self, repo: Path, branch: str, write) -> str:
+        self._git(repo, "checkout", "-q", "-b", branch)
+        write()
+        self._git(repo, "add", ".")
+        self._git(repo, "commit", "-q", "-m", f"{branch} change")
+        self._git(repo, "checkout", "-q", "-")
+        self._git(repo, "merge", "-q", "--no-ff", branch, "-m", f"Merge {branch}")
+        return self._git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    def test_export_with_a_workflow_commit_requires_the_newest_versioned(
+        self, tmp_path
+    ):
+        repo = tmp_path / "axiom-encode"
+        bump = self._init_encoder_repo(repo)
+        workflow = repo / ".github" / "workflows" / "targeted-signed-reencode.yml"
+
+        def add_workflow():
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text("name: signing\n")
+
+        versioned = self._merge_branch(repo, "workflow", add_workflow)
+        head = self._merge_branch(
+            repo,
+            "encoder",
+            lambda: (repo / "src" / "axiom_encode" / "cli.py").write_text(
+                "MARKER = 'new'\n"
+            ),
+        )
+        self._git(repo, "checkout", "-q", "--detach", versioned)
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        version, package = provisioner._verify_and_export_encoder_snapshot(
+            self.GIT, repo, versioned, self.OFFICIAL, staging, head
+        )
+        assert version == "9.9.9"
+        assert (package / "cli.py").read_text() == "MARKER = 'committed'\n"
+        # The bump is versioned too, but older than the newest versioned commit.
+        self._git(repo, "checkout", "-q", "--detach", bump)
+        older = tmp_path / "older"
+        older.mkdir()
+        with pytest.raises(SystemExit, match="encoder commit|newer versioned"):
+            provisioner._verify_and_export_encoder_snapshot(
+                self.GIT, repo, bump, self.OFFICIAL, older, head
+            )
 
     def test_publish_refuses_preplaced_inode(self, tmp_path):
         runtime = tmp_path / "python"

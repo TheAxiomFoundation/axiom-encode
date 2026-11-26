@@ -1218,6 +1218,25 @@ _ENCODER_VERSION_FILES = (
 )
 _ENCODER_VERSIONED_PREFIXES = ("src/axiom_encode/",)
 _ENCODER_VERSIONED_FILES = frozenset({"pyproject.toml", "uv.lock"})
+# Signing from the newest versioned main commit below an unversioned head.
+# The same values as version_provenance.SIGNING_*; a test keeps them equal.
+_SIGNING_WORKFLOW = ".github/workflows/targeted-signed-reencode.yml"
+_SIGNING_MAX_BEHIND = 5
+_SIGNING_MAX_AGE_SECONDS = 4 * 3600
+_SIGNING_INERT_PREFIXES = ("tests/", "docs/", "changelog.d/")
+_SIGNING_INERT_FILES = frozenset({"CHANGELOG.md", "README.md", "PROGRESS.md"})
+# Versioned paths that must be equal at the encoder and workflow commits: a
+# pending change to the signing lane itself closes signing until its bump.
+_SIGNING_LANE_PREFIXES = ("src/axiom_encode/notary/",)
+_SIGNING_LANE_FILES = frozenset(
+    {
+        "src/axiom_encode/version_provenance.py",
+        "src/axiom_encode/reviewed_pr_admission.py",
+        "src/axiom_encode/prepare_signed_backfill.py",
+        "src/axiom_encode/signing_broker.py",
+        "src/axiom_encode/_trusted_signing_bootstrap.py",
+    }
+)
 _GITHUB_REMOTE_PATTERNS = (
     r"https://github\.com/(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$",
     r"git@github\.com:(?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?$",
@@ -1295,6 +1314,10 @@ def _hardened_git_environment(home: Path) -> dict[str, str]:
     }
 
 
+class _HardenedGitFailure(SystemExit):
+    """A hardened git query failed: a refusal, never an answer to a question."""
+
+
 def _hardened_git(
     trusted_git: Path,
     git_dir: Path,
@@ -1331,7 +1354,7 @@ def _hardened_git(
             if isinstance(stderr, bytes)
             else str(exc)
         )
-        raise SystemExit(
+        raise _HardenedGitFailure(
             f"refusing to provision: hardened git {' '.join(args)} failed: "
             f"{detail or exc}"
         ) from exc
@@ -1395,12 +1418,16 @@ def _encoder_versions_at_ref(
     """Return {pyproject, package, lock} versions declared at one commit."""
 
     def show(path: str) -> str:
-        try:
-            return _hardened_git_text(
-                trusted_git, git_dir, home, "show", f"{ref}:{path}"
-            )
-        except SystemExit:
+        # Only a tree that was read and does not list the path is "absent".
+        # A git failure propagates as a refusal: an unreadable version file
+        # must never read as a missing one, which would make a versioned
+        # commit look unversioned and let an older commit sign.
+        listed = _hardened_git(
+            trusted_git, git_dir, home, "ls-tree", "-z", "--full-tree", ref, "--", path
+        )
+        if not listed:
             return ""
+        return _hardened_git_text(trusted_git, git_dir, home, "show", f"{ref}:{path}")
 
     return {
         "pyproject": _extract_pyproject_version(show("pyproject.toml")),
@@ -1547,6 +1574,170 @@ def _require_snapshot_version_bump(
             f"bump ({version_commit[:12]}) without a bump: {', '.join(unversioned)}"
         )
     return version_commit
+
+
+def _snapshot_is_versioned(
+    trusted_git: Path, git_dir: Path, home: Path, commit: str
+) -> bool:
+    """Whether ``commit`` declares one consistent version and passes the
+    version-bump rule (version_provenance.unversioned_changes is empty).
+
+    A git query that fails is not an answer: it must not make a newer commit
+    look unversioned, which would let an older one sign. It propagates.
+    """
+    try:
+        _snapshot_declared_version(trusted_git, git_dir, home, commit)
+        _require_snapshot_version_bump(trusted_git, git_dir, home, commit)
+    except _HardenedGitFailure:
+        raise
+    except SystemExit:
+        return False
+    return True
+
+
+def _require_newest_versioned_commit(
+    trusted_git: Path,
+    git_dir: Path,
+    home: Path,
+    workflow_commit: str,
+    encoder_commit: str,
+    now: float | None = None,
+) -> None:
+    """Refuse unless ``encoder_commit`` (C) is the commit that a signed run of
+    ``workflow_commit`` (H, the run's GITHUB_SHA) must execute.
+
+    The same rule as version_provenance.signing_commit, read again here from
+    the root-owned history: C is H when H is versioned. Otherwise C is the
+    newest versioned commit of H's first-parent history, at most
+    ``_SIGNING_MAX_BEHIND`` merges back; C and every first-parent commit after
+    it are two-parent merges; the oldest merge after C is at most
+    ``_SIGNING_MAX_AGE_SECONDS`` old; and H differs from C only in versioned
+    paths and inert paths, so every script, Go source, data file and workflow
+    that the run reads is H's own; and no signing-lane path differs.
+    """
+
+    if re.fullmatch(r"[0-9a-f]{40}", workflow_commit) is None:
+        raise SystemExit(
+            "refusing to provision: --workflow-commit is not a full 40-hex SHA: "
+            f"{workflow_commit}"
+        )
+
+    def git(*args: str) -> str:
+        return _hardened_git_text(trusted_git, git_dir, home, *args)
+
+    try:
+        resolved = git("rev-parse", "--verify", f"{workflow_commit}^{{commit}}")
+    except SystemExit as exc:
+        raise SystemExit(
+            f"refusing to provision: {workflow_commit} is not a commit object in "
+            "--encoder-git-root"
+        ) from exc
+    if resolved != workflow_commit:
+        raise SystemExit(
+            f"refusing to provision: {workflow_commit} is not a commit object in "
+            "--encoder-git-root"
+        )
+    if not _snapshot_is_versioned(trusted_git, git_dir, home, encoder_commit):
+        raise SystemExit(
+            f"refusing to provision: encoder commit {encoder_commit[:12]} is not "
+            "versioned"
+        )
+    if encoder_commit == workflow_commit:
+        return
+    chain = git(
+        "rev-list",
+        "--first-parent",
+        f"--max-count={_SIGNING_MAX_BEHIND + 1}",
+        workflow_commit,
+    ).split()
+    if encoder_commit not in chain:
+        raise SystemExit(
+            f"refusing to provision: encoder commit {encoder_commit[:12]} is not "
+            f"within {_SIGNING_MAX_BEHIND} first-parent merges of the workflow "
+            f"commit {workflow_commit[:12]}"
+        )
+    span = chain[: chain.index(encoder_commit) + 1]
+    for newer in span[:-1]:
+        if _snapshot_is_versioned(trusted_git, git_dir, home, newer):
+            raise SystemExit(
+                f"refusing to provision: {newer[:12]} is a newer versioned commit "
+                f"than the encoder commit {encoder_commit[:12]}"
+            )
+    for member in span:
+        if len(git("rev-list", "--parents", "-n", "1", member).split()) != 3:
+            raise SystemExit(
+                f"refusing to provision: {member[:12]} between the encoder and "
+                "workflow commits is not a two-parent merge"
+            )
+    oldest_after = span[-2]
+    committed = int(git("show", "-s", "--format=%ct", oldest_after))
+    current = datetime.now(timezone.utc).timestamp() if now is None else now
+    if current - committed < 0:
+        raise SystemExit(
+            f"refusing to provision: the first merge after the encoder commit "
+            f"({oldest_after[:12]}) is dated in the future"
+        )
+    if current - committed > _SIGNING_MAX_AGE_SECONDS:
+        raise SystemExit(
+            f"refusing to provision: the first merge after the encoder commit "
+            f"({oldest_after[:12]}) is older than "
+            f"{_SIGNING_MAX_AGE_SECONDS // 3600} h; the version bump looks stalled"
+        )
+    changed = _hardened_git(
+        trusted_git,
+        git_dir,
+        home,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "--ignore-submodules=none",
+        "--no-relative",
+        "-z",
+        encoder_commit,
+        workflow_commit,
+    ).decode("utf-8")
+    outside = sorted(
+        path
+        for path in changed.split("\0")
+        if path
+        and not _is_encoder_versioned_path(path)
+        and path not in _SIGNING_INERT_FILES
+        and not path.startswith(_SIGNING_INERT_PREFIXES)
+    )
+    if outside:
+        raise SystemExit(
+            "refusing to provision: non-versioned files changed between the "
+            f"encoder commit {encoder_commit[:12]} and the workflow commit "
+            f"{workflow_commit[:12]}: {', '.join(outside[:8])}"
+        )
+
+    lane = sorted(
+        path
+        for path in changed.split("\0")
+        if path
+        and (path in _SIGNING_LANE_FILES or path.startswith(_SIGNING_LANE_PREFIXES))
+    )
+    if lane:
+        raise SystemExit(
+            "refusing to provision: signing-lane files changed between the "
+            f"encoder commit {encoder_commit[:12]} and the workflow commit "
+            f"{workflow_commit[:12]}: {', '.join(lane[:8])}"
+        )
+
+    def workflow_blob(commit: str) -> str:
+        try:
+            return git("rev-parse", "--verify", f"{commit}:{_SIGNING_WORKFLOW}")
+        except SystemExit as exc:
+            raise SystemExit(
+                f"refusing to provision: {_SIGNING_WORKFLOW} is absent at {commit[:12]}"
+            ) from exc
+
+    if workflow_blob(encoder_commit) != workflow_blob(workflow_commit):
+        raise SystemExit(
+            f"refusing to provision: {_SIGNING_WORKFLOW} differs between the "
+            f"encoder commit {encoder_commit[:12]} and the workflow commit "
+            f"{workflow_commit[:12]}"
+        )
 
 
 def _first_parent_pyproject_versions(
@@ -1905,6 +2096,7 @@ def _publish_runtime_attestation(
     package_tree_sha256: str,
     codex_cli: dict[str, str] | None = None,
     reviewed_pr_admission: dict | None = None,
+    workflow_commit: str | None = None,
 ) -> Path:
     """Atomically publish the attestation into a root-owned prefix, fail-closed.
 
@@ -1943,6 +2135,11 @@ def _publish_runtime_attestation(
         }
     if reviewed_pr_admission is not None:
         attestation["reviewed_pr_admission"] = reviewed_pr_admission
+    if workflow_commit is not None:
+        # The run's GITHUB_SHA. It differs from axiom_encode.commit when the
+        # run signs from the newest versioned commit below an unversioned main
+        # head; a run-scoped admission names this commit.
+        attestation["workflow_commit"] = workflow_commit
     payload = json.dumps(attestation, indent=2, sort_keys=True) + "\n"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -1971,9 +2168,13 @@ def _verify_and_export_encoder_snapshot(
     encoder_commit: str,
     encoder_origin_repository: str,
     staging: Path,
+    workflow_commit: str | None = None,
 ) -> tuple[str, Path]:
     """Own the encoder git dir, verify the attested commit, and export its
-    tracked ``src/axiom_encode``. Returns (declared_version, package_path)."""
+    tracked ``src/axiom_encode``. Returns (declared_version, package_path).
+
+    With ``workflow_commit`` (the run's GITHUB_SHA), the attested commit must
+    also be the newest versioned commit of that run's main history."""
 
     if re.fullmatch(r"[0-9a-f]{40}", encoder_commit) is None:
         raise SystemExit(
@@ -2036,6 +2237,10 @@ def _verify_and_export_encoder_snapshot(
         trusted_git, git_dir, home, encoder_commit
     )
     _require_snapshot_version_bump(trusted_git, git_dir, home, encoder_commit)
+    if workflow_commit is not None:
+        _require_newest_versioned_commit(
+            trusted_git, git_dir, home, workflow_commit, encoder_commit
+        )
     package = _export_encoder_package(
         trusted_git, git_dir, home, encoder_commit, staging
     )
@@ -2121,7 +2326,7 @@ def _load_retired_apply_inventory(path: Path) -> dict[str, object]:
 
 
 def _verify_reviewed_pr_selector(
-    encoder_package: Path, selector_path: Path, encoder_commit: str
+    encoder_package: Path, selector_path: Path, workflow_commit: str
 ) -> dict:
     """Use only the exported encoder's verifier, never caller approval JSON."""
     import importlib.util
@@ -2141,8 +2346,11 @@ def _verify_reviewed_pr_selector(
         raise SystemExit("reviewed PR selector is oversized")
     selector = module.selector_from_payload(json.loads(raw_selector))
     admission = module.verify_reviewed_pr(selector)
-    if admission["workflow_commit"] != encoder_commit:
-        raise SystemExit("reviewed PR run does not use the attested encoder commit")
+    # The admission names the live run's head_sha. That is the attested
+    # encoder commit, or the run's workflow commit whose newest versioned
+    # commit the encoder commit was proven to be.
+    if admission["workflow_commit"] != workflow_commit:
+        raise SystemExit("reviewed PR run does not use the attested workflow commit")
     return admission
 
 
@@ -2166,6 +2374,7 @@ def provision(
     retired_apply_roots: tuple[str, ...] = (),
     retired_apply_inventory_path: Path | None = None,
     reviewed_pr_selector: Path | None = None,
+    workflow_commit: str | None = None,
 ) -> None:
     if any(not root.strip() for root in retired_corpus_release_roots):
         raise SystemExit(
@@ -2192,6 +2401,11 @@ def provision(
     provision_encoder = all(arg is not None for arg in encoder_attestation_args)
     if reviewed_pr_selector is not None and not provision_encoder:
         raise SystemExit("reviewed PR admission requires an attested encoder snapshot")
+    if workflow_commit is not None and not provision_encoder:
+        raise SystemExit(
+            "refusing to provision: --workflow-commit requires an attested encoder "
+            "snapshot"
+        )
     if (
         any(arg is not None for arg in encoder_attestation_args)
         and not provision_encoder
@@ -2223,6 +2437,7 @@ def provision(
             encoder_commit,
             encoder_origin_repository,
             encoder_staging,
+            workflow_commit=workflow_commit,
         )
     try:
         reviewed_pr_admission = None
@@ -2230,8 +2445,11 @@ def provision(
             # Only selectors cross from the caller; authority is freshly read by
             # code exported from the verified encoder commit, under root custody.
             assert encoder_package is not None
+            assert encoder_commit is not None
             reviewed_pr_admission = _verify_reviewed_pr_selector(
-                encoder_package, reviewed_pr_selector, encoder_commit
+                encoder_package,
+                reviewed_pr_selector,
+                workflow_commit if workflow_commit is not None else encoder_commit,
             )
         runtime = destination / "python"
         _stage_runtime_tree(source_runtime, runtime, site_packages)
@@ -2305,6 +2523,7 @@ def provision(
                 package_tree_sha256,
                 codex_cli,
                 reviewed_pr_admission,
+                workflow_commit,
             )
         shutil.copy2(supervisor, destination / "axiom-encode-signing-supervisor")
         (destination / "axiom-encode-signing-supervisor").chmod(0o755)
@@ -2405,6 +2624,14 @@ def _argument_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Run-scoped selector only; attested verifier must fetch live GitHub approval before admission.",
     )
+    parser.add_argument(
+        "--workflow-commit",
+        default=None,
+        help="The run's GITHUB_SHA. --encoder-commit must be the newest commit "
+        "on its first-parent history that passes the version-bump rule and "
+        "carries the same signing workflow. Recorded in runtime-attestation.json. "
+        "Requires --encoder-commit.",
+    )
     return parser
 
 
@@ -2432,4 +2659,5 @@ if __name__ == "__main__":
         tuple(args.retired_apply_root),
         args.retired_apply_inventory,
         args.reviewed_pr_selector,
+        args.workflow_commit,
     )

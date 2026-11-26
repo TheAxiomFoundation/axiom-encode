@@ -11401,9 +11401,11 @@ def cmd_promote_reviewed_candidate(args):
     live_admission = None
     if os.environ.get(_TRUSTED_RUNTIME_ENV) == "1":
         runtime = _load_trusted_runtime_attestation()
-        live_admission = json.loads(Path(runtime["path"]).read_text()).get(
-            "reviewed_pr_admission"
-        )
+        attestation = json.loads(Path(runtime["path"]).read_text())
+        live_admission = attestation.get("reviewed_pr_admission")
+        # The run's commit: the attested encoder commit, or the run head whose
+        # newest versioned commit the provisioner proved it to be.
+        workflow_commit = attestation.get("workflow_commit", runtime["commit"])
     # The units of this operation as (citation, path). A multi-unit admission
     # names its own; the arguments then name one of them.
     unit_targets: list[tuple[str, str]] = [
@@ -11421,7 +11423,7 @@ def cmd_promote_reviewed_candidate(args):
         selector = selector_from_payload(live_admission.get("selector"))
         batch = isinstance(selector, BatchPromotionSelector)
         if (
-            live_admission.get("workflow_commit") != runtime["commit"]
+            live_admission.get("workflow_commit") != workflow_commit
             or selector.country != country
             or selector.head != reviewed_ref
             or (
