@@ -45,10 +45,49 @@ def sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def scripted(output):
+    """A reviewer CLI double: one text for every call, or one text per call."""
+
+    if isinstance(output, list):
+        remaining = list(output)
+
+        def reviewer(prompt, **_kwargs):
+            reply = remaining.pop(0)
+            return reply if isinstance(reply, tuple) else (reply, 0)
+
+        return reviewer
+    return lambda prompt, **_kwargs: (output, 0)
+
+
+def reviewed(
+    tmp_path: Path,
+    *,
+    output=PASS,
+    rulespec_path: str = RULE_PATH,
+    rule: bytes = RULE,
+    companion: bytes = COMPANION,
+    source_text: str = "authoritative source text\n",
+):
+    """The v2 record and the reviewer result of one scripted review."""
+
+    relative = Path(rulespec_path)
+    companion_relative = relative.with_name(relative.stem + ".test.yaml")
+    with patch(
+        "axiom_encode.harness.validator_pipeline.run_claude_code",
+        side_effect=scripted(output),
+    ):
+        return cli._promotion_generalist_review(
+            source_text=source_text,
+            cwd=tmp_path,
+            applied={relative: rule, companion_relative: companion},
+            rulespec_relative=relative,
+        )
+
+
 def make_record(
     tmp_path: Path,
     *,
-    output: str = PASS,
+    output=PASS,
     citation: str = CITATION,
     rulespec_path: str = RULE_PATH,
     rule: bytes = RULE,
@@ -56,21 +95,18 @@ def make_record(
     attempt: int = 1,
     encoder_version: str | None = None,
     max_finding_chars: int = crr.DEFAULT_MAX_FINDING_CHARS,
+    source_text: str = "authoritative source text\n",
 ) -> dict:
     """A record as ``review-record create`` builds it, reviewer scripted."""
 
-    relative = Path(rulespec_path)
-    companion_relative = relative.with_name(relative.stem + ".test.yaml")
-    with patch(
-        "axiom_encode.harness.validator_pipeline.run_claude_code",
-        side_effect=lambda prompt, **_kwargs: (output, 0),
-    ):
-        review, issues = cli._promotion_generalist_review(
-            source_text="authoritative source text\n",
-            cwd=tmp_path,
-            applied={relative: rule, companion_relative: companion},
-            rulespec_relative=relative,
-        )
+    review, result = reviewed(
+        tmp_path,
+        output=output,
+        rulespec_path=rulespec_path,
+        rule=rule,
+        companion=companion,
+        source_text=source_text,
+    )
     return crr.build_candidate_review_record(
         citation=citation,
         rulespec_path=rulespec_path,
@@ -80,7 +116,14 @@ def make_record(
         encoder_version=encoder_version or cli.__version__,
         encoder_commit="e" * 40,
         generalist_review=review,
-        issues=issues,
+        issues=result.issues,
+        calls=crr.review_calls(
+            result.details,
+            passed=result.passed,
+            score=result.score,
+            prompt_sha256=result.prompt_sha256,
+        ),
+        raw_output=result.raw_output,
         run_id="local:run-7",
         attempt=attempt,
         max_finding_chars=max_finding_chars,
@@ -116,6 +159,9 @@ def test_a_passed_review_gives_a_complete_record(tmp_path):
         "reviewers",
         "findings",
         "findings_sha256",
+        "calls",
+        "error",
+        "raw_output_sha256",
         "generalist_review",
         "run",
         "created_at",
@@ -140,8 +186,14 @@ def test_a_passed_review_gives_a_complete_record(tmp_path):
             "severity": "non_blocking",
             "text": "The test names are terse.",
             "truncated": False,
+            "review_call": None,
         }
     ]
+    assert record["error"] is None
+    (call,) = record["calls"]
+    assert (call["index"], call["total"], call["status"]) == (1, 1, "passed")
+    assert call["prompt_sha256"] == reviewer["prompt_sha256"]
+    assert record["raw_output_sha256"] == sha(PASS.encode())
     assert admit(record) == []
 
 
@@ -368,7 +420,7 @@ def test_finding_text_cannot_form_a_marker_a_fence_or_markup(tmp_path):
             ),
             "inside another block",
         ),
-        (lambda b: b.replace('{"citation"', '{"citation'), "not valid JSON"),
+        (lambda b: b.replace('{"calls"', '{"calls'), "not valid JSON"),
         (
             lambda b: b.replace("```json\n{", "```json\n[{").replace(
                 "}\n```", "}]\n```"
@@ -386,7 +438,7 @@ def test_finding_text_cannot_form_a_marker_a_fence_or_markup(tmp_path):
             "not exactly one of the two marker lines",
         ),
         (
-            lambda b: b.replace('{"citation":', '{"citation":"x","citation":'),
+            lambda b: b.replace('{"calls":', '{"calls":[],"calls":'),
             "repeats the key",
         ),
     ],

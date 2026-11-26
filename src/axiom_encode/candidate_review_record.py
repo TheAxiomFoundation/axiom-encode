@@ -48,10 +48,16 @@ import re
 from datetime import datetime, timezone
 from typing import Iterable, Mapping, Sequence
 
+from axiom_encode.generalist_review_chunks import (
+    MAX_REVIEW_CALLS,
+    chunked_prompt_sha256,
+)
 from axiom_encode.generalist_review_record import (
     GENERALIST_REVIEW_FIELD,
     GENERALIST_REVIEW_SCHEMA,
     GENERALIST_REVIEWER_NAME,
+    STATUS_FAILED,
+    STATUS_PARTIAL,
     STATUS_PASSED,
     STATUSES,
     companion_test_manifest_path,
@@ -68,6 +74,22 @@ SEVERITY_BLOCKING = "blocking"
 SEVERITY_NON_BLOCKING = "non_blocking"
 _SEVERITIES = frozenset({SEVERITY_BLOCKING, SEVERITY_NON_BLOCKING})
 _NON_BLOCKING_PREFIX = "[non-blocking] "
+# The closed grammar of one issue text of the generalist reviewer, as
+# ``harness.validator_pipeline`` writes it: an optional call mark of a
+# chunked review, then an optional non-blocking mark, then the text. A text
+# without the non-blocking mark is blocking, also when it does not look like
+# a finding at all: an unknown form never becomes non-blocking.
+_ISSUE_TEXT = re.compile(
+    r"(?:\[review call (?P<index>[1-9][0-9]{0,2}) of (?P<total>[1-9][0-9]{0,2})\] )?"
+    r"(?P<non_blocking>\[non-blocking\] )?(?P<text>.*)",
+    re.DOTALL,
+)
+STATUS_ERROR = "error"
+CALL_PASSED = "passed"
+CALL_FAILED = "failed"
+CALL_ERROR = "error"
+_CALL_STATUSES = frozenset({CALL_PASSED, CALL_FAILED, CALL_ERROR})
+MAX_ERROR_CHARS = 2000
 
 DEFAULT_MAX_FINDING_CHARS = 1000
 MAX_FINDING_CHARS = 4000
@@ -87,6 +109,9 @@ _FIELDS = frozenset(
         "reviewers",
         "findings",
         "findings_sha256",
+        "calls",
+        "error",
+        "raw_output_sha256",
         GENERALIST_REVIEW_FIELD,
         "run",
         "created_at",
@@ -97,7 +122,11 @@ _ENCODER_FIELDS = frozenset({"version", "commit"})
 _REVIEWER_FIELDS = frozenset(
     {"name", "backend", "model", "prompt_sha256", "status", "score"}
 )
-_FINDING_FIELDS = frozenset({"reviewer", "severity", "text", "truncated"})
+_FINDING_FIELDS = frozenset(
+    {"reviewer", "severity", "text", "truncated", "review_call"}
+)
+_REVIEW_CALL_FIELDS = frozenset({"index", "total"})
+_CALL_FIELDS = frozenset({"index", "total", "status", "score", "prompt_sha256"})
 _RUN_FIELDS = frozenset({"id", "attempt"})
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _COMMIT = re.compile(r"[0-9a-f]{40}")
@@ -123,6 +152,32 @@ def _version_tuple(value: object) -> tuple[int, int, int] | None:
     return None if match is None else tuple(int(part) for part in match.groups())
 
 
+def parse_issue_text(issue: str) -> tuple[dict[str, int] | None, str, str]:
+    """Split one reviewer issue text into (review call, severity, text).
+
+    The call is ``{"index": N, "total": M}`` for an issue of a chunked
+    review, else ``None``. The severity is ``non_blocking`` only for the
+    exact mark of the pipeline; everything else is ``blocking``.
+    """
+
+    match = _ISSUE_TEXT.fullmatch(issue)
+    assert match is not None  # the grammar ends in ``.*``
+    call = None
+    if match.group("index") is not None:
+        index, total = int(match.group("index")), int(match.group("total"))
+        if 1 <= index <= total <= MAX_REVIEW_CALLS:
+            call = {"index": index, "total": total}
+        else:
+            # Not a call mark of a real plan: the whole text is the finding.
+            return None, SEVERITY_BLOCKING, issue
+    severity = (
+        SEVERITY_NON_BLOCKING
+        if match.group("non_blocking") is not None
+        else SEVERITY_BLOCKING
+    )
+    return call, severity, match.group("text")
+
+
 def findings_from_issues(
     issues: object,
     *,
@@ -131,11 +186,11 @@ def findings_from_issues(
 ) -> list[dict[str, object]]:
     """Turn the reviewer's issue list into findings, in the reviewer's order.
 
-    The generalist reviewer returns blocking and non-blocking issues; the
-    validator pipeline joins them into one list and marks a non-blocking one
-    with a ``[non-blocking] `` prefix. Every other entry is blocking. A text
-    above ``max_chars`` is cut and marked ``truncated``; a list above
-    ``MAX_FINDINGS`` is refused, so a record never silently drops a finding.
+    The pipeline gives issues as text only. ``parse_issue_text`` reads the
+    two marks it writes; the call of a chunked review becomes the field
+    ``review_call`` and is not part of the text. A text above ``max_chars``
+    is cut and marked ``truncated``; a list above ``MAX_FINDINGS`` is
+    refused, so a record never silently drops a finding.
     """
 
     if not 1 <= max_chars <= MAX_FINDING_CHARS:
@@ -151,11 +206,8 @@ def findings_from_issues(
         )
     findings: list[dict[str, object]] = []
     for issue in issues:
-        text = issue if isinstance(issue, str) else json.dumps(issue, sort_keys=True)
-        severity = SEVERITY_BLOCKING
-        if text.startswith(_NON_BLOCKING_PREFIX):
-            severity = SEVERITY_NON_BLOCKING
-            text = text[len(_NON_BLOCKING_PREFIX) :]
+        raw = issue if isinstance(issue, str) else json.dumps(issue, sort_keys=True)
+        call, severity, text = parse_issue_text(raw)
         text = "".join(
             character if character == "\n" or character.isprintable() else " "
             for character in text.replace("\r\n", "\n").replace("\r", "\n")
@@ -167,9 +219,68 @@ def findings_from_issues(
                 "severity": severity,
                 "text": text[:max_chars],
                 "truncated": truncated,
+                "review_call": call,
             }
         )
     return findings
+
+
+def review_calls(
+    details: object,
+    *,
+    passed: object,
+    score: object,
+    prompt_sha256: object,
+) -> list[dict[str, object]]:
+    """The calls of one review, in order, as a record keeps them.
+
+    A chunked review reports its calls itself (``details["review_calls"]``).
+    A review of one call reports none; its single call is the review.
+    ``prompt_sha256`` is the digest of the exact prompt of the call, so of
+    everything that call was shown.
+    """
+
+    def status(call_passed: object, call_score: object) -> str:
+        if call_score is None:
+            return CALL_ERROR
+        return CALL_PASSED if call_passed is True else CALL_FAILED
+
+    def digest(value: object) -> str | None:
+        return value if isinstance(value, str) and _SHA256.fullmatch(value) else None
+
+    def number(value: object) -> float | None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return float(value) if math.isfinite(value) else None
+
+    reported = details.get("review_calls") if isinstance(details, Mapping) else None
+    if isinstance(reported, list) and reported:
+        return [
+            {
+                "index": call.get("index"),
+                "total": call.get("total"),
+                "status": status(call.get("passed"), number(call.get("score"))),
+                "score": number(call.get("score")),
+                "prompt_sha256": digest(call.get("prompt_sha256")),
+            }
+            for call in reported
+            if isinstance(call, Mapping)
+        ]
+    return [
+        {
+            "index": 1,
+            "total": 1,
+            "status": status(passed, number(score)),
+            "score": number(score),
+            "prompt_sha256": digest(prompt_sha256),
+        }
+    ]
+
+
+def _raw_digest(raw_output: object) -> str | None:
+    if not isinstance(raw_output, str):
+        return None
+    return hashlib.sha256(raw_output.encode("utf-8")).hexdigest()
 
 
 def build_candidate_review_record(
@@ -185,6 +296,8 @@ def build_candidate_review_record(
     issues: object,
     run_id: str | None,
     attempt: int,
+    calls: Sequence[Mapping[str, object]] | None = None,
+    raw_output: object = None,
     max_finding_chars: int = DEFAULT_MAX_FINDING_CHARS,
     now: datetime | None = None,
 ) -> dict[str, object]:
@@ -194,6 +307,8 @@ def build_candidate_review_record(
     score are copied from ``generalist_review``; nothing here decides a
     verdict. The result is checked with ``record_issues`` before it is
     returned, so this function cannot emit a record that a reader refuses.
+    A review that cannot be recorded this way is kept by
+    ``build_error_record``.
     """
 
     reviewer = generalist_review.get("reviewer")
@@ -202,6 +317,13 @@ def build_candidate_review_record(
     verdict = verdict if isinstance(verdict, Mapping) else {}
     moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     findings = findings_from_issues(issues, max_chars=max_finding_chars)
+    if calls is None:
+        calls = review_calls(
+            None,
+            passed=verdict.get("passed"),
+            score=verdict.get("score"),
+            prompt_sha256=generalist_review.get("prompt_sha256"),
+        )
     record: dict[str, object] = {
         "schema": SCHEMA,
         "citation": citation,
@@ -225,6 +347,9 @@ def build_candidate_review_record(
         ],
         "findings": findings,
         "findings_sha256": findings_sha256(findings),
+        "calls": [dict(call) for call in calls],
+        "error": None,
+        "raw_output_sha256": _raw_digest(raw_output),
         # ``required`` says whether the run that made the v2 record would
         # have refused without a pass. Here the requirement belongs to the
         # signing run, so the published record always says False; a failed
@@ -239,6 +364,106 @@ def build_candidate_review_record(
             "the review cannot be recorded: " + "; ".join(issues_found)
         )
     return record
+
+
+def build_error_record(
+    *,
+    citation: str,
+    rulespec_path: str,
+    rulespec: bytes,
+    companion: bytes,
+    reviewed_commit: str | None,
+    encoder_version: str,
+    encoder_commit: str | None,
+    error: str,
+    run_id: str | None,
+    attempt: int,
+    generalist_review: Mapping[str, object] | None = None,
+    issues: object = None,
+    calls: Sequence[Mapping[str, object]] = (),
+    raw_output: object = None,
+    max_finding_chars: int = DEFAULT_MAX_FINDING_CHARS,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """The record of a review attempt that gave no usable record.
+
+    The status is ``error`` and ``error`` says why. It keeps what is known:
+    the two file digests, the findings that could be read, the calls, the v2
+    record when one was built, and the digest of the raw reviewer output. An
+    attempt therefore always leaves a record. It admits nothing.
+    """
+
+    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    try:
+        findings = findings_from_issues(issues, max_chars=max_finding_chars)
+    except ReviewRecordError as exc:
+        findings = []
+        error = f"{error}; {exc}"
+    flat = " ".join("".join(c if c.isprintable() else " " for c in str(error)).split())
+    record: dict[str, object] = {
+        "schema": SCHEMA,
+        "citation": citation,
+        "rulespec_path": rulespec_path,
+        "reviewed": {
+            "rulespec_sha256": hashlib.sha256(rulespec).hexdigest(),
+            "companion_sha256": hashlib.sha256(companion).hexdigest(),
+            "commit": reviewed_commit,
+        },
+        "encoder": {"version": encoder_version, "commit": encoder_commit},
+        "status": STATUS_ERROR,
+        "reviewers": [],
+        "findings": findings,
+        "findings_sha256": findings_sha256(findings),
+        "calls": [dict(call) for call in calls],
+        "error": flat[:MAX_ERROR_CHARS] or "unknown error",
+        "raw_output_sha256": _raw_digest(raw_output),
+        GENERALIST_REVIEW_FIELD: (
+            None if generalist_review is None else dict(generalist_review)
+        ),
+        "run": {"id": run_id, "attempt": attempt},
+        "created_at": moment.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    issues_found = record_issues(record)
+    if issues_found:
+        # Malformed calls or a v2 record that is not JSON data: keep less.
+        record["calls"] = []
+        record[GENERALIST_REVIEW_FIELD] = None
+        issues_found = record_issues(record)
+    if issues_found:
+        raise ReviewRecordError(
+            "the review error cannot be recorded: " + "; ".join(issues_found)
+        )
+    return record
+
+
+def _call_shape_ok(calls: object) -> bool:
+    return (
+        isinstance(calls, list)
+        and len(calls) <= MAX_REVIEW_CALLS
+        and all(
+            _exact(call, _CALL_FIELDS)
+            and type(call["index"]) is int
+            and type(call["total"]) is int
+            and 1 <= call["index"] <= call["total"] <= MAX_REVIEW_CALLS
+            and call["status"] in _CALL_STATUSES
+            and (
+                call["score"] is None
+                or (
+                    isinstance(call["score"], (int, float))
+                    and not isinstance(call["score"], bool)
+                    and math.isfinite(call["score"])
+                )
+            )
+            and (
+                call["prompt_sha256"] is None
+                or (
+                    isinstance(call["prompt_sha256"], str)
+                    and _SHA256.fullmatch(call["prompt_sha256"]) is not None
+                )
+            )
+            for call in calls
+        )
+    )
 
 
 def _exact(value: object, fields: frozenset[str]) -> bool:
@@ -304,8 +529,23 @@ def record_issues(record: object) -> list[str]:
     ):
         issues.append("the encoder identity is malformed")
     status = record["status"]
-    if not isinstance(status, str) or status not in STATUSES:
+    if not isinstance(status, str) or status not in STATUSES | {STATUS_ERROR}:
         issues.append("the status is not a known review status")
+    error = record["error"]
+    if (status == STATUS_ERROR) is not (
+        isinstance(error, str) and 0 < len(error) <= MAX_ERROR_CHARS
+    ) or not (error is None or isinstance(error, str)):
+        issues.append("an error text is required for the status error and for no other")
+    raw_digest = record["raw_output_sha256"]
+    if not (
+        raw_digest is None
+        or (isinstance(raw_digest, str) and _SHA256.fullmatch(raw_digest))
+    ):
+        issues.append("the raw output digest is malformed")
+    calls = record["calls"]
+    if not _call_shape_ok(calls):
+        issues.append("the reviewer calls are malformed")
+        calls = None
     run = record["run"]
     if (
         not _exact(run, _RUN_FIELDS)
@@ -337,6 +577,18 @@ def record_issues(record: object) -> list[str]:
             or not isinstance(finding["text"], str)
             or len(finding["text"]) > MAX_FINDING_CHARS
             or type(finding["truncated"]) is not bool
+            or not (
+                finding["review_call"] is None
+                or (
+                    _exact(finding["review_call"], _REVIEW_CALL_FIELDS)
+                    and type(finding["review_call"]["index"]) is int
+                    and type(finding["review_call"]["total"]) is int
+                    and 1
+                    <= finding["review_call"]["index"]
+                    <= finding["review_call"]["total"]
+                    <= MAX_REVIEW_CALLS
+                )
+            )
             for finding in findings
         )
     ):
@@ -349,6 +601,14 @@ def record_issues(record: object) -> list[str]:
         )
 
     embedded = record[GENERALIST_REVIEW_FIELD]
+    if status == STATUS_ERROR:
+        # An error record keeps what is known and is checked for shape only:
+        # it admits nothing, so nothing in it has to be consistent.
+        if not (embedded is None or isinstance(embedded, dict)):
+            issues.append("the embedded review record is not an object or null")
+        if record["reviewers"] != []:
+            issues.append("an error record names no reviewer")
+        return issues
     companion_path = companion_test_manifest_path(path)
     embedded_issues = generalist_review_record_issues(
         embedded,
@@ -396,7 +656,13 @@ def record_issues(record: object) -> list[str]:
         )
     if findings is not None:
         count = verdict.get("issue_count")
-        if type(count) is int and count != len(findings):
+        # An unavailable or skipped review has no scored verdict: its v2
+        # record counts no issue, and its findings say why no verdict exists.
+        if (
+            status in (STATUS_PASSED, STATUS_PARTIAL, STATUS_FAILED)
+            and type(count) is int
+            and count != len(findings)
+        ):
             issues.append(
                 "the number of findings differs from the issue count of the "
                 "embedded review record"
@@ -405,6 +671,46 @@ def record_issues(record: object) -> list[str]:
             finding["severity"] == SEVERITY_BLOCKING for finding in findings
         ):
             issues.append("a passed record carries a blocking finding")
+    if calls is not None and status == STATUS_PASSED:
+        # A pass needs every planned call: made, passed, in order, and with
+        # prompt digests that give the prompt digest of the review. The v2
+        # record separately requires that the calls showed every byte of
+        # both files (its ``coverage`` and ``files[].complete``).
+        coverage = embedded.get("coverage")
+        coverage = coverage if isinstance(coverage, dict) else {}
+        digests = tuple(call["prompt_sha256"] for call in calls)
+        total = len(calls)
+        if (
+            total == 0
+            or [call["index"] for call in calls] != list(range(1, total + 1))
+            or any(call["total"] != total for call in calls)
+            or any(call["status"] != CALL_PASSED for call in calls)
+            or coverage.get("calls_made") != total
+            or coverage.get("calls_planned") != total
+            or any(digest is None for digest in digests)
+            or embedded.get("prompt_sha256")
+            not in (
+                {digests[0], chunked_prompt_sha256(digests)}
+                if total == 1
+                else {chunked_prompt_sha256(digests)}
+            )
+        ):
+            issues.append(
+                "a passed record does not list every planned reviewer call "
+                "as made and passed, with the prompt digests of the review"
+            )
+    if calls is not None and findings is not None:
+        made = {call["index"] for call in calls}
+        totals = {call["total"] for call in calls}
+        if any(
+            finding["review_call"] is not None
+            and (
+                finding["review_call"]["index"] not in made
+                or {finding["review_call"]["total"]} != totals
+            )
+            for finding in findings
+        ):
+            issues.append("a finding names a reviewer call that the record lacks")
     return issues
 
 
@@ -440,7 +746,10 @@ def unit_record_issues(
             f"the record is for module {record['rulespec_path']}, not {rulespec_path}"
         )
     if record["status"] != STATUS_PASSED:
-        reason = record[GENERALIST_REVIEW_FIELD].get("reason")
+        embedded = record[GENERALIST_REVIEW_FIELD]
+        reason = record["error"] or (
+            embedded.get("reason") if isinstance(embedded, dict) else None
+        )
         issues.append(
             f"the review status is {record['status']}"
             + (f" ({reason})" if reason else "")
@@ -598,8 +907,26 @@ def render_block(record: object) -> str:
         )
     assert isinstance(record, dict)
     reviewed = record["reviewed"]
-    reviewer = record["reviewers"][0]
+    reviewer = (
+        record["reviewers"][0]
+        if record["reviewers"]
+        else {
+            "name": GENERALIST_REVIEWER_NAME,
+            "backend": None,
+            "model": None,
+            "prompt_sha256": None,
+            "score": None,
+        }
+    )
     score = reviewer["score"]
+    calls = record["calls"]
+    call_line = (
+        "- Reviewer calls: none recorded"
+        if not calls
+        else f"- Reviewer calls: {len(calls)} made of {calls[0]['total']} planned ("
+        + ", ".join(f"{call['index']} {call['status']}" for call in calls)
+        + ")"
+    )
     lines = [
         BEGIN_MARKER,
         f"### Review record: `{record['citation']}`",
@@ -612,6 +939,8 @@ def render_block(record: object) -> str:
         f"- Reviewer: {reviewer['name']}, backend {reviewer['backend'] or 'none'}, "
         f"model {reviewer['model'] or 'none'}, prompt sha256 "
         f"`{reviewer['prompt_sha256'] or 'none'}`",
+        call_line,
+        *([f"- Error: {_prose(record['error'])}"] if record["error"] else []),
         f"- Encoder: {record['encoder']['version']}"
         + (
             f" (`{record['encoder']['commit']}`)" if record["encoder"]["commit"] else ""
@@ -632,7 +961,14 @@ def render_block(record: object) -> str:
                 else "non-blocking"
             )
             lines.append(
-                f"{number}. **{mark}** ({finding['reviewer']}): "
+                f"{number}. **{mark}** ({finding['reviewer']}"
+                + (
+                    ""
+                    if finding["review_call"] is None
+                    else f", call {finding['review_call']['index']} of "
+                    f"{finding['review_call']['total']}"
+                )
+                + "): "
                 + _prose(finding["text"])
                 + (" [text cut]" if finding["truncated"] else "")
             )

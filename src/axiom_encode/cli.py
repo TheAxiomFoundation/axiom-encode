@@ -11078,7 +11078,7 @@ def _promotion_generalist_review_record(
 ) -> dict[str, object]:
     """Review one promoted unit and return its required review record."""
 
-    record, _issues = _promotion_generalist_review(
+    record, _review = _promotion_generalist_review(
         source_text=source_text,
         cwd=cwd,
         applied=applied,
@@ -11093,12 +11093,12 @@ def _promotion_generalist_review(
     cwd: Path,
     applied: Mapping[Path, bytes],
     rulespec_relative: Path,
-) -> tuple[dict[str, object], list[object]]:
-    """Review one unit; return its review record and the reviewer's issues.
+) -> tuple[dict[str, object], object]:
+    """Review one unit; return its review record and the reviewer's result.
 
-    The issues are the reviewer's own list (blocking, then non-blocking with
-    their mark). The record never holds them; ``review-record create`` keeps
-    them in the candidate review record.
+    The result carries the reviewer's own issue list, its raw output, its
+    error and the calls of a chunked review. The v2 record never holds
+    them; ``review-record create`` keeps them in the candidate review record.
 
     ``applied`` holds the exact bytes the promotion signs, by manifest path:
     the module at ``rulespec_relative`` and its companion test. The reviewer
@@ -11149,7 +11149,7 @@ def _promotion_generalist_review(
         ],
         reviewed_rulespec_path=rulespec_relative.as_posix(),
     )
-    return record, list(review.issues) if isinstance(review.issues, list) else []
+    return record, review
 
 
 def _promotion_required_review_records(args) -> dict | None:
@@ -14279,12 +14279,22 @@ def _review_record_encoder_commit() -> str | None:
 
 
 def _create_review_record(args) -> int:
-    """Review one candidate unit and write its record; 0 only when it passed."""
+    """Review one candidate unit and always leave a record; 0 only for a pass.
+
+    Once the two files of the unit are read, every outcome writes the record
+    file: a passed review, a review that did not pass, and an attempt that
+    gave no usable record (status ``error``, with the reason). The raw
+    reviewer output is written beside it as ``<record file>.raw.txt``.
+    Exit status 1 for every record that is not ``passed``.
+    """
 
     from .candidate_review_record import (
         DEFAULT_MAX_FINDING_CHARS,
+        ReviewRecordError,
         build_candidate_review_record,
+        build_error_record,
         canonical_json,
+        review_calls,
     )
 
     repo_path = _resolve_explicit_existing_directory(
@@ -14294,50 +14304,105 @@ def _create_review_record(args) -> int:
         args.corpus_path, label="Axiom Corpus"
     )
     out = Path(args.out)
-    if out.exists() or out.is_symlink():
-        raise ValueError("the record file already exists")
+    raw_out = out.with_name(out.name + ".raw.txt")
+    for target in (out, raw_out):
+        if target.exists() or target.is_symlink():
+            raise ValueError(f"the record file already exists: {target.name}")
     if not out.parent.is_dir():
         raise ValueError("the directory of the record file does not exist")
     resolved_out = out.parent.resolve() / out.name
     if repo_path.resolve() in resolved_out.parents:
         raise ValueError("the record file must be outside the RuleSpec checkout")
+    if type(args.attempt) is not int or not 1 <= args.attempt <= 999_999_999:
+        raise ValueError("--attempt must be a positive number")
+    run_id = None if args.run_id is None else str(args.run_id)
+    if (
+        run_id is not None
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,99}", run_id) is None
+    ):
+        raise ValueError(
+            "--run-id may hold letters, digits and . _ : - only (at most 100)"
+        )
+    max_chars = getattr(args, "max_finding_chars", None)
+    max_chars = DEFAULT_MAX_FINDING_CHARS if max_chars is None else max_chars
     citation, relative, rulespec, companion, head = _review_record_unit_bytes(
         repo_path, args.citation
     )
-    source_unit = resolve_corpus_source_unit(
-        citation, load_rulespec_local_corpus_release(repo_path, corpus_path)
-    )
-    # The source text as the promotion gives it to its reviewer.
-    normalized_source = source_unit.body.replace("\r\n", "\n").replace("\r", "\n")
-    review_record, issues = _promotion_generalist_review(
-        source_text=normalized_source,
-        cwd=repo_path / relative.parts[0],
-        applied={relative: rulespec, _rulespec_test_path(relative): companion},
-        rulespec_relative=relative,
-    )
-    max_chars = getattr(args, "max_finding_chars", None)
-    record = build_candidate_review_record(
-        citation=citation,
-        rulespec_path=relative.as_posix(),
-        rulespec=rulespec,
-        companion=companion,
-        reviewed_commit=head,
-        encoder_version=__version__,
-        encoder_commit=_review_record_encoder_commit(),
-        generalist_review=review_record,
-        issues=issues,
-        run_id=None if args.run_id is None else str(args.run_id),
-        attempt=args.attempt,
-        max_finding_chars=DEFAULT_MAX_FINDING_CHARS if max_chars is None else max_chars,
-    )
+    # From here on the unit is known, so the attempt leaves a record.
+    common = {
+        "citation": citation,
+        "rulespec_path": relative.as_posix(),
+        "rulespec": rulespec,
+        "companion": companion,
+        "reviewed_commit": head,
+        "encoder_version": __version__,
+        "encoder_commit": _review_record_encoder_commit(),
+        "run_id": run_id,
+        "attempt": args.attempt,
+    }
+    review_record: dict[str, object] | None = None
+    issues: object = None
+    calls: list[dict[str, object]] = []
+    raw_output: object = None
+    try:
+        source_unit = resolve_corpus_source_unit(
+            citation, load_rulespec_local_corpus_release(repo_path, corpus_path)
+        )
+        # The source text as the promotion gives it to its reviewer.
+        normalized_source = source_unit.body.replace("\r\n", "\n").replace("\r", "\n")
+        review_record, review = _promotion_generalist_review(
+            source_text=normalized_source,
+            cwd=repo_path / relative.parts[0],
+            applied={relative: rulespec, _rulespec_test_path(relative): companion},
+            rulespec_relative=relative,
+        )
+        issues = review.issues if isinstance(review.issues, list) else []
+        raw_output = review.raw_output
+        calls = review_calls(
+            review.details,
+            passed=review.passed,
+            score=review.score,
+            prompt_sha256=review.prompt_sha256,
+        )
+        record = build_candidate_review_record(
+            **common,
+            generalist_review=review_record,
+            issues=issues,
+            calls=calls,
+            raw_output=raw_output,
+            max_finding_chars=max_chars,
+        )
+    except Exception as exc:  # noqa: BLE001 - every failure is kept as a record
+        reason = (
+            str(exc)
+            if isinstance(exc, ReviewRecordError)
+            else f"{type(exc).__name__}: {exc}"
+        )
+        record = build_error_record(
+            **common,
+            error=reason,
+            generalist_review=review_record,
+            issues=issues,
+            calls=calls,
+            raw_output=raw_output,
+            max_finding_chars=max_chars,
+        )
+    if isinstance(raw_output, str):
+        with open(raw_out, "x", encoding="utf-8") as handle:
+            handle.write(raw_output)
     with open(out, "x", encoding="utf-8") as handle:
         handle.write(canonical_json(record) + "\n")
     print(f"citation={citation}")
     print(f"module={relative.as_posix()}")
     print(f"rulespec_sha256={record['reviewed']['rulespec_sha256']}")
     print(f"companion_sha256={record['reviewed']['companion_sha256']}")
+    print(f"reviewer_calls={len(record['calls'])}")
     print(f"findings={len(record['findings'])}")
     print(f"record_file={out}")
+    if isinstance(raw_output, str):
+        print(f"raw_output_file={raw_out}")
+    if record["error"]:
+        print(f"error={record['error']}")
     print(f"status={record['status']}")
     return 0 if record["status"] == "passed" else 1
 

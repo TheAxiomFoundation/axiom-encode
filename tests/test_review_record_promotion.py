@@ -602,7 +602,7 @@ def test_the_reader_refuses_a_body_of_another_head(tmp_path):
         (lambda b: "", "no review record"),
         (lambda b: "Reviewer verdict: passed 9/10", "no review record"),
         (lambda b: b.replace('"status":"passed"', '"status":"failed"'), "us/statute"),
-        (lambda b: b.replace('{"citation"', '{"citation'), "not valid JSON"),
+        (lambda b: b.replace('{"calls"', '{"calls'), "not valid JSON"),
         (lambda b: b + "\n" + b, "2 review records name"),
         (lambda b: b.replace(crr.END_MARKER, ""), "no end marker"),
     ],

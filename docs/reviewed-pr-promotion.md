@@ -705,9 +705,12 @@ version, not a different shape.
 | `reviewed.rulespec_sha256`, `reviewed.companion_sha256` | SHA-256 of the module and of the companion as reviewed |
 | `reviewed.commit` | The candidate commit that was reviewed (information; the hashes bind) |
 | `encoder.version`, `encoder.commit` | The encoder that ran the review |
-| `status` | `passed`, `partial`, `failed`, `unavailable` or `skipped` |
+| `status` | `passed`, `partial`, `failed`, `unavailable`, `skipped` (the status of the v2 record), or `error` |
+| `error` | Why an attempt gave no usable record; a text for the status `error`, else `null` |
+| `calls[]` | Every reviewer call that was made, in order: `index`, `total`, `status` (`passed`, `failed`, `error`), `score`, `prompt_sha256` (the digest of the exact prompt, so of everything that call was shown) |
+| `raw_output_sha256` | SHA-256 of the raw reviewer output, which `create` writes beside the record |
 | `reviewers[]` | `name`, `backend`, `model`, `prompt_sha256`, `status`, `score` |
-| `findings[]` | `reviewer`, `severity` (`blocking` or `non_blocking`), `text`, `truncated` |
+| `findings[]` | `reviewer`, `severity` (`blocking` or `non_blocking`), `text`, `truncated`, `review_call` (`index` and `total` of the call of a chunked review, else `null`) |
 | `findings_sha256` | SHA-256 of the canonical one-line JSON of `findings` |
 | `generalist_review` | The complete `axiom-encode/generalist-review/v2` record (#2229): verdict, digests, coverage of every reviewer call |
 | `run.id`, `run.attempt` | The local run, and which review of this unit this is |
@@ -718,6 +721,34 @@ embedded v2 record, and a reader refuses a record in which they differ. The v2
 record already existed; it holds no reviewer prose by design, because it can
 enter a signed manifest. The findings text is new here. This record is never
 placed in a signed manifest.
+
+**Severity.** The reviewer returns blocking and non-blocking issues, and the
+pipeline hands them on as text only, with two marks that it writes in one
+place (`non_blocking_issue_text`, `review_call_issue_text` in
+`harness/validator_pipeline.py`): an optional `[review call N of M] ` of a
+chunked review, then an optional `[non-blocking] `. The record reads exactly
+that grammar. The call becomes `review_call` and is not part of the text.
+Every text without the exact non-blocking mark is `blocking`, also a text in
+an unknown form: nothing unknown becomes non-blocking.
+
+**Chunked reviews.** A candidate that does not fit one call (module over
+6,000, companion over 3,000 or source over 4,000 characters) is reviewed in
+several calls. `calls` lists each one. Whether the calls showed every byte is
+the statement of the embedded v2 record (`coverage`, `files[].complete`),
+which is reused, not repeated: a review that did not show every byte of both
+files and of the source is `partial` there and so here, never `passed`. A
+`passed` record must also list every planned call as made and passed, in
+order, with prompt digests that give the prompt digest of the review.
+
+**An attempt always leaves a record.** Once `create` has read the two files
+of the unit, it writes the record file whatever happens: `passed`; a review
+that did not pass; and `error`, with the reason, when the source could not be
+resolved, the reviewer crashed, or the result could not be recorded (for
+example a passed review with a finding outside the grammar, which stays
+blocking). It writes the raw reviewer output to `<record file>.raw.txt`. The
+exit status is 0 only for `passed`. A record that is not `passed` is
+evidence and can be rendered and published like any other; the signing run
+admits only `passed`.
 
 A finding text is cut at 1,000 characters (`--max-finding-chars`, at most
 4,000) and marked `truncated`. A review with more than 64 findings is refused,
@@ -744,8 +775,8 @@ uv run axiom-encode review-record verify \
 working file that differs from them. It gives the reviewer the source text
 that the promotion gives its reviewer (the body of the cited source unit),
 through the same reviewer code and prompt as `--require-review`. It writes the
-record also when the review does not pass, and exits 1 then. It signs nothing
-and changes no file of the checkout. The three public keys are those of a
+record also when the review does not pass or the attempt fails, and exits 1
+then. It signs nothing and changes no file of the checkout. The three public keys are those of a
 verification-only local encode; without them the reviewer gets the scrubbed
 environment of a protected run, which is not made for a subscription CLI.
 
