@@ -3273,6 +3273,22 @@ def main():
             "record file so that a rerun of a refused review is visible"
         ),
     )
+    promote_reviewed_candidate_parser.add_argument(
+        "--require-review-record",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help=(
+            "Sign only when FILE (an absolute path; the "
+            "axiom-encode/candidate-review-record-read/v1 document that the "
+            "signing workflow wrote from the candidate pull request body) "
+            "holds, for every unit, exactly one review record with the "
+            "status passed whose citation, module path and SHA-256 of the "
+            "module and of the companion equal the bytes to be signed. No "
+            "reviewer runs. Off by default: without the flag no record is "
+            "read"
+        ),
+    )
     _add_required_corpus_path_argument(promote_reviewed_candidate_parser)
     _add_rulespec_dependency_root_argument(promote_reviewed_candidate_parser)
     promote_reviewed_candidate_parser.add_argument(
@@ -3343,6 +3359,143 @@ def main():
         "--eval-public-key",
         default=None,
         help="With --corpus-release-public-key, the eval-evidence public root",
+    )
+
+    review_record_parser = subparsers.add_parser(
+        "review-record",
+        help=(
+            "Create, render or verify the published review record of a "
+            "reviewed candidate unit (axiom-encode/candidate-review-record/v1)"
+        ),
+    )
+    review_record_commands = review_record_parser.add_subparsers(
+        dest="review_record_command", required=True
+    )
+    review_record_create = review_record_commands.add_parser(
+        "create",
+        help=(
+            "Run the generalist reviewer on one candidate unit of a checkout, "
+            "on the exact committed bytes, and write its review record with "
+            "every finding. Signs nothing and changes no file of the checkout"
+        ),
+    )
+    review_record_create.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="RuleSpec checkout of the candidate branch",
+    )
+    review_record_create.add_argument(
+        "--citation",
+        required=True,
+        help="Exact canonical corpus citation of the candidate unit",
+    )
+    _add_required_corpus_path_argument(review_record_create)
+    review_record_create.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        help="New JSON file for the record; it must not exist",
+    )
+    review_record_create.add_argument(
+        "--run-id",
+        default=None,
+        help="Identifier of the local run that this review belongs to",
+    )
+    review_record_create.add_argument(
+        "--attempt",
+        type=int,
+        default=1,
+        help=(
+            "Which review of this candidate this is, counted from 1. Give 2 "
+            "for the second review of the same unit, and so on"
+        ),
+    )
+    review_record_create.add_argument(
+        "--max-finding-chars",
+        type=int,
+        default=None,
+        help="Cut each finding text at this length (default 1000, at most 4000)",
+    )
+    review_record_create.add_argument(
+        "--corpus-release-public-key",
+        default=None,
+        help=(
+            "Verification-only local run: verify the pinned corpus release "
+            "with this public root, as encode --corpus-release-public-key does"
+        ),
+    )
+    review_record_create.add_argument(
+        "--corpus-release-retired-public-key",
+        action="append",
+        default=[],
+        help="With --corpus-release-public-key, a retired corpus release key",
+    )
+    review_record_create.add_argument(
+        "--apply-public-key",
+        default=None,
+        help="With --corpus-release-public-key, the apply-manifest public root",
+    )
+    review_record_create.add_argument(
+        "--eval-public-key",
+        default=None,
+        help="With --corpus-release-public-key, the eval-evidence public root",
+    )
+    review_record_render = review_record_commands.add_parser(
+        "render",
+        help=(
+            "Render record files as the fixed block for the body of the "
+            "candidate pull request"
+        ),
+    )
+    review_record_render.add_argument(
+        "--record-file",
+        type=Path,
+        action="append",
+        required=True,
+        help="A record file written by review-record create; repeat per unit",
+    )
+    review_record_render.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Write the block to this file instead of standard output",
+    )
+    review_record_verify = review_record_commands.add_parser(
+        "verify",
+        help=(
+            "Check, as the signing run does, that a pull request body or "
+            "record files hold one passed record for each named unit, bound "
+            "to the committed bytes of a checkout. Exit 1 when one does not"
+        ),
+    )
+    review_record_verify.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="RuleSpec checkout at the candidate head",
+    )
+    review_record_verify.add_argument(
+        "--citation",
+        action="append",
+        required=True,
+        help="Citation of a unit to check; repeat for every unit of a batch",
+    )
+    review_record_source = review_record_verify.add_mutually_exclusive_group(
+        required=True
+    )
+    review_record_source.add_argument(
+        "--body-file",
+        type=Path,
+        default=None,
+        help="A file with the text of the candidate pull request body",
+    )
+    review_record_source.add_argument(
+        "--record-file",
+        type=Path,
+        action="append",
+        default=None,
+        help="A record file written by review-record create; repeat per unit",
     )
 
     signed_import_parser = subparsers.add_parser(
@@ -4772,6 +4925,8 @@ def main():
         cmd_promote_reviewed_candidate(args)
     elif args.command == "bind-source-verification":
         sys.exit(cmd_bind_source_verification(args))
+    elif args.command == "review-record":
+        sys.exit(cmd_review_record(args))
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
     elif args.command == "checks":
@@ -10921,7 +11076,29 @@ def _promotion_generalist_review_record(
     applied: Mapping[Path, bytes],
     rulespec_relative: Path,
 ) -> dict[str, object]:
-    """Review one promoted unit and return its required review record.
+    """Review one promoted unit and return its required review record."""
+
+    record, _review = _promotion_generalist_review(
+        source_text=source_text,
+        cwd=cwd,
+        applied=applied,
+        rulespec_relative=rulespec_relative,
+    )
+    return record
+
+
+def _promotion_generalist_review(
+    *,
+    source_text: str,
+    cwd: Path,
+    applied: Mapping[Path, bytes],
+    rulespec_relative: Path,
+) -> tuple[dict[str, object], object]:
+    """Review one unit; return its review record and the reviewer's result.
+
+    The result carries the reviewer's own issue list, its raw output, its
+    error and the calls of a chunked review. The v2 record never holds
+    them; ``review-record create`` keeps them in the candidate review record.
 
     ``applied`` holds the exact bytes the promotion signs, by manifest path:
     the module at ``rulespec_relative`` and its companion test. The reviewer
@@ -10950,7 +11127,7 @@ def _promotion_generalist_review_record(
         )
     details = review.details if isinstance(review.details, dict) else {}
     companion_relative = _rulespec_test_path(rulespec_relative)
-    return build_generalist_review_record(
+    record = build_generalist_review_record(
         GeneralistReviewState(
             metrics_pass=review.passed,
             score=review.score,
@@ -10972,6 +11149,108 @@ def _promotion_generalist_review_record(
         ],
         reviewed_rulespec_path=rulespec_relative.as_posix(),
     )
+    return record, review
+
+
+def _promotion_required_review_records(args) -> dict | None:
+    """Load the review records this promotion must find, or None.
+
+    ``promote-reviewed-candidate --require-review-record <file>`` is the only
+    switch, read when the command runs. The file is the document that the
+    signing workflow wrote from one read of the candidate pull request body
+    (``axiom-encode/candidate-review-record-read/v1``). A file that cannot be
+    read as that document refuses before validation and any signature.
+    """
+
+    record_file = getattr(args, "require_review_record", None)
+    if record_file is None:
+        return None
+    from .candidate_review_record import ReviewRecordError, load_read_document
+
+    record_file = Path(record_file)
+    if not record_file.is_absolute() or ".." in record_file.parts:
+        raise ValueError("required review record file must be an absolute path")
+    try:
+        raw = read_bounded_regular_file(
+            record_file.parent,
+            record_file,
+            label="required review record file",
+            max_bytes=4 * 1024 * 1024,
+        )
+        return load_read_document(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, UnsafeCorpusPathError) as exc:
+        raise ValueError("required review record file cannot be read") from exc
+    except ReviewRecordError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def _require_promotion_review_records(
+    document: Mapping[str, object] | None,
+    units: Sequence[Mapping[str, object]],
+    *,
+    reviewed_ref: str,
+    announce: bool,
+) -> None:
+    """Refuse unless every unit has a passed record bound to its exact bytes.
+
+    The digests are computed here from ``unit["before"]``: the bytes read at
+    the reviewed HEAD, which the manifest of the unit signs. One unit without
+    an admitting record refuses every unit; nothing is signed.
+    """
+
+    if document is None:
+        return
+    from .candidate_review_record import (
+        ReviewRecordError,
+        record_sha256,
+        require_passed_unit_records,
+    )
+
+    if document["head_sha"] != reviewed_ref:
+        raise RuntimeError(
+            "the review records were read from another candidate head than "
+            "the one this promotion signs. Nothing was signed."
+        )
+    try:
+        admitted = require_passed_unit_records(
+            document["records"],
+            [
+                (
+                    str(unit["citation"]),
+                    unit["rulespec_relative"].as_posix(),
+                    hashlib.sha256(
+                        unit["before"][unit["rulespec_relative"]]
+                    ).hexdigest(),
+                    hashlib.sha256(
+                        unit["before"][unit["companion_relative"]]
+                    ).hexdigest(),
+                )
+                for unit in units
+            ],
+            encoder_version=__version__,
+        )
+    except ReviewRecordError as exc:
+        raise RuntimeError(
+            "reviewed candidate promotion requires a review record "
+            f"(--require-review-record): {exc}. Nothing was signed."
+        ) from exc
+    if announce:
+        for record in admitted:
+            print(
+                "reviewed candidate review record: "
+                + json.dumps(
+                    {
+                        "citation": record["citation"],
+                        "rulespec_path": record["rulespec_path"],
+                        "status": record["status"],
+                        "reviewed": record["reviewed"],
+                        "record_sha256": record_sha256(record),
+                        "record_attempt": record["run"]["attempt"],
+                        "body_sha256": document["body_sha256"],
+                    },
+                    sort_keys=True,
+                )
+            )
 
 
 @contextlib.contextmanager
@@ -11094,6 +11373,7 @@ def cmd_promote_reviewed_candidate(args):
     )
     reviewed_ref = str(args.reviewed_rulespec_ref)
     review_record_target = _promotion_review_record_target(args, repo_path)
+    required_review_records = _promotion_required_review_records(args)
     country_match = re.fullmatch(r"rulespec-([a-z]{2})", repo_path.name)
     if country_match is None:
         raise ValueError("reviewed candidate checkout name is not canonical")
@@ -11328,6 +11608,12 @@ def cmd_promote_reviewed_candidate(args):
         )
         if import_issue:
             raise ValueError(import_issue)
+    # Before the long validation: a unit without a passed review record bound
+    # to these exact bytes stops the run here. The same check runs again
+    # immediately before the signatures.
+    _require_promotion_review_records(
+        required_review_records, units, reviewed_ref=reviewed_ref, announce=False
+    )
     _recover_apply_transaction(repo_path)
     with _authoritative_rulespec_dependency_scope(dependency_roots):
         with _isolated_apply_manifest_signer(preflight=True) as signing_broker:
@@ -11460,6 +11746,12 @@ def cmd_promote_reviewed_candidate(args):
                 # Validation may take time. A dismissed approval, moved head,
                 # or changed main base must fail before any signature request.
                 revalidate_admission(live_admission)
+            _require_promotion_review_records(
+                required_review_records,
+                units,
+                reviewed_ref=reviewed_ref,
+                announce=True,
+            )
             # Every unit is signed before any manifest is written.
             for unit in units:
                 with unit_scope(unit["target"]):
@@ -13913,6 +14205,291 @@ def _bind_source_verification_in_checkout(args) -> int:
     _atomic_replace_bytes(module_file, binding.content, mode=mode)
     print("status=bound:" + ",".join(binding.edits))
     return 0
+
+
+def _review_record_unit_bytes(
+    repo_path: Path, citation: str
+) -> tuple[str, Path, bytes, bytes, str]:
+    """Return a unit's citation, module path, committed bytes and HEAD.
+
+    The bytes are the files as committed at HEAD, and the working files must
+    equal them: the record binds what the candidate branch holds, never an
+    uncommitted edit.
+    """
+
+    from .corpus_resolver import require_canonical_corpus_citation_path
+    from .prepare_signed_backfill import citation_rulespec_path
+
+    citation = require_canonical_corpus_citation_path(str(citation))
+    relative = Path(citation_rulespec_path(citation))
+    if relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        raise ValueError("citation does not name a canonical RuleSpec module path")
+    environment = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+    try:
+        head = subprocess.check_output(
+            ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+            text=True,
+            env=environment,
+        ).strip()
+        members = []
+        for member in (relative, _rulespec_test_path(relative)):
+            committed = subprocess.check_output(
+                ["git", "-C", str(repo_path), "show", f"HEAD:{member.as_posix()}"],
+                env=environment,
+                stderr=subprocess.DEVNULL,
+            )
+            working = read_bounded_regular_file(
+                repo_path,
+                repo_path / member,
+                label="candidate file",
+                max_bytes=10 * 1024 * 1024,
+            )
+            if working != committed:
+                raise ValueError(
+                    f"{member.as_posix()} differs from the commit at HEAD; "
+                    "commit the candidate first"
+                )
+            members.append(committed)
+    except (OSError, subprocess.CalledProcessError, UnsafeCorpusPathError) as exc:
+        raise ValueError(
+            "the module and its companion test must be regular files committed "
+            f"at HEAD: {relative.as_posix()}"
+        ) from exc
+    return citation, relative, members[0], members[1], head
+
+
+def _review_record_encoder_commit() -> str | None:
+    """The commit of the encoder source checkout that runs, when it has one."""
+
+    root = Path(__file__).resolve().parents[2]
+    if not (root / ".git").exists():
+        return None
+    try:
+        commit = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return commit if re.fullmatch(r"[0-9a-f]{40}", commit) else None
+
+
+def _create_review_record(args) -> int:
+    """Review one candidate unit and always leave a record; 0 only for a pass.
+
+    Once the two files of the unit are read, every outcome writes the record
+    file: a passed review, a review that did not pass, and an attempt that
+    gave no usable record (status ``error``, with the reason). The raw
+    reviewer output is written beside it as ``<record file>.raw.txt``.
+    Exit status 1 for every record that is not ``passed``.
+    """
+
+    from .candidate_review_record import (
+        DEFAULT_MAX_FINDING_CHARS,
+        ReviewRecordError,
+        build_candidate_review_record,
+        build_error_record,
+        canonical_json,
+        review_calls,
+    )
+
+    repo_path = _resolve_explicit_existing_directory(
+        args.repo, label="RuleSpec checkout"
+    )
+    corpus_path = _resolve_explicit_existing_directory(
+        args.corpus_path, label="Axiom Corpus"
+    )
+    out = Path(args.out)
+    raw_out = out.with_name(out.name + ".raw.txt")
+    for target in (out, raw_out):
+        if target.exists() or target.is_symlink():
+            raise ValueError(f"the record file already exists: {target.name}")
+    if not out.parent.is_dir():
+        raise ValueError("the directory of the record file does not exist")
+    resolved_out = out.parent.resolve() / out.name
+    if repo_path.resolve() in resolved_out.parents:
+        raise ValueError("the record file must be outside the RuleSpec checkout")
+    if type(args.attempt) is not int or not 1 <= args.attempt <= 999_999_999:
+        raise ValueError("--attempt must be a positive number")
+    run_id = None if args.run_id is None else str(args.run_id)
+    if (
+        run_id is not None
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,99}", run_id) is None
+    ):
+        raise ValueError(
+            "--run-id may hold letters, digits and . _ : - only (at most 100)"
+        )
+    max_chars = getattr(args, "max_finding_chars", None)
+    max_chars = DEFAULT_MAX_FINDING_CHARS if max_chars is None else max_chars
+    citation, relative, rulespec, companion, head = _review_record_unit_bytes(
+        repo_path, args.citation
+    )
+    # From here on the unit is known, so the attempt leaves a record.
+    common = {
+        "citation": citation,
+        "rulespec_path": relative.as_posix(),
+        "rulespec": rulespec,
+        "companion": companion,
+        "reviewed_commit": head,
+        "encoder_version": __version__,
+        "encoder_commit": _review_record_encoder_commit(),
+        "run_id": run_id,
+        "attempt": args.attempt,
+    }
+    review_record: dict[str, object] | None = None
+    issues: object = None
+    calls: list[dict[str, object]] = []
+    raw_output: object = None
+    try:
+        source_unit = resolve_corpus_source_unit(
+            citation, load_rulespec_local_corpus_release(repo_path, corpus_path)
+        )
+        # The source text as the promotion gives it to its reviewer.
+        normalized_source = source_unit.body.replace("\r\n", "\n").replace("\r", "\n")
+        review_record, review = _promotion_generalist_review(
+            source_text=normalized_source,
+            cwd=repo_path / relative.parts[0],
+            applied={relative: rulespec, _rulespec_test_path(relative): companion},
+            rulespec_relative=relative,
+        )
+        issues = review.issues if isinstance(review.issues, list) else []
+        raw_output = review.raw_output
+        calls = review_calls(
+            review.details,
+            passed=review.passed,
+            score=review.score,
+            prompt_sha256=review.prompt_sha256,
+        )
+        record = build_candidate_review_record(
+            **common,
+            generalist_review=review_record,
+            issues=issues,
+            calls=calls,
+            raw_output=raw_output,
+            max_finding_chars=max_chars,
+        )
+    except Exception as exc:  # noqa: BLE001 - every failure is kept as a record
+        reason = (
+            str(exc)
+            if isinstance(exc, ReviewRecordError)
+            else f"{type(exc).__name__}: {exc}"
+        )
+        record = build_error_record(
+            **common,
+            error=reason,
+            generalist_review=review_record,
+            issues=issues,
+            calls=calls,
+            raw_output=raw_output,
+            max_finding_chars=max_chars,
+        )
+    if isinstance(raw_output, str):
+        with open(raw_out, "x", encoding="utf-8") as handle:
+            handle.write(raw_output)
+    with open(out, "x", encoding="utf-8") as handle:
+        handle.write(canonical_json(record) + "\n")
+    print(f"citation={citation}")
+    print(f"module={relative.as_posix()}")
+    print(f"rulespec_sha256={record['reviewed']['rulespec_sha256']}")
+    print(f"companion_sha256={record['reviewed']['companion_sha256']}")
+    print(f"reviewer_calls={len(record['calls'])}")
+    print(f"findings={len(record['findings'])}")
+    print(f"record_file={out}")
+    if isinstance(raw_output, str):
+        print(f"raw_output_file={raw_out}")
+    if record["error"]:
+        print(f"error={record['error']}")
+    print(f"status={record['status']}")
+    return 0 if record["status"] == "passed" else 1
+
+
+def cmd_review_record(args) -> int:
+    """Create, render or verify a candidate review record.
+
+    Exit status: 0 for a passed review (create), a rendered block (render) or
+    an admitted set of units (verify); 1 when the review did not pass or a
+    unit is not admitted; 2 for an operator error.
+    """
+
+    from .candidate_review_record import (
+        ReviewRecordError,
+        extract_records,
+        load_record_file_text,
+        record_sha256,
+        render_blocks,
+        require_passed_unit_records,
+    )
+
+    try:
+        if args.review_record_command == "create":
+            local_roots = _local_verification_encode_roots(args)
+            if local_roots is None:
+                return _create_review_record(args)
+            with local_corpus_release_verification(
+                local_roots.corpus_release_public_key,
+                retired_public_keys=local_roots.retired_corpus_release_public_keys,
+                apply_public_key=local_roots.apply_public_key,
+                eval_public_key=local_roots.eval_public_key,
+            ):
+                return _create_review_record(args)
+        if args.review_record_command == "render":
+            text = render_blocks(
+                [
+                    load_record_file_text(Path(path).read_text(encoding="utf-8"))
+                    for path in args.record_file
+                ]
+            )
+            if args.out is None:
+                sys.stdout.write(text)
+            else:
+                with open(args.out, "x", encoding="utf-8") as handle:
+                    handle.write(text)
+            return 0
+        repo_path = _resolve_explicit_existing_directory(
+            args.repo, label="RuleSpec checkout"
+        )
+        if args.body_file is not None:
+            records = extract_records(Path(args.body_file).read_text(encoding="utf-8"))
+        else:
+            records = [
+                load_record_file_text(Path(path).read_text(encoding="utf-8"))
+                for path in args.record_file
+            ]
+        units = []
+        for requested in args.citation:
+            citation, relative, rulespec, companion, _head = _review_record_unit_bytes(
+                repo_path, requested
+            )
+            units.append(
+                (
+                    citation,
+                    relative.as_posix(),
+                    hashlib.sha256(rulespec).hexdigest(),
+                    hashlib.sha256(companion).hexdigest(),
+                )
+            )
+        try:
+            admitted = require_passed_unit_records(
+                records, units, encoder_version=__version__
+            )
+        except ReviewRecordError as exc:
+            print("status=refused")
+            print(f"error={exc}")
+            return 1
+        for record in admitted:
+            print(
+                f"admitted={record['citation']} record_sha256={record_sha256(record)}"
+            )
+        print("status=admitted")
+        return 0
+    except (ValueError, RuntimeError, OSError) as exc:
+        print("status=error")
+        print(f"error={exc}")
+        return 2
 
 
 def cmd_checks(args):

@@ -627,6 +627,25 @@ _LOCAL_REVIEWER_SYSTEM_PATH: tuple[str, ...] = (
 )
 _LOCAL_REVIEWER_CONFIG_DIR_NAMES: tuple[str, ...] = ("CODEX_HOME", "CLAUDE_CONFIG_DIR")
 _REVIEWER_UNAVAILABLE = "reviewer_unavailable"
+# The text forms of a generalist reviewer issue. The issue list of a review
+# is text only; these two functions are the one place that writes its marks,
+# and ``candidate_review_record.parse_issue_text`` reads exactly them back.
+NON_BLOCKING_ISSUE_PREFIX = "[non-blocking] "
+REVIEW_CALLS_DETAIL = "review_calls"
+
+
+def non_blocking_issue_text(issue: str) -> str:
+    """Mark one issue as non-blocking. A blocking issue carries no mark."""
+
+    return f"{NON_BLOCKING_ISSUE_PREFIX}{issue}"
+
+
+def review_call_issue_text(index: int, total: int, issue: str) -> str:
+    """Name the call of a chunked review that reported ``issue``."""
+
+    return f"[review call {index} of {total}] {issue}"
+
+
 # The reviewer CLI one thread last started, as (backend, model). A review
 # record names its reviewer from this; nothing reads it to decide a verdict.
 _REVIEWER_CLI_STARTED = threading.local()
@@ -44212,7 +44231,7 @@ Output ONLY valid JSON:
 
                 issues = list(blocking_issues)
                 issues.extend(
-                    f"[non-blocking] {issue}" for issue in non_blocking_issues
+                    non_blocking_issue_text(issue) for issue in non_blocking_issues
                 )
             else:
                 passed = bool(data.get("passed", score >= 7.0))
@@ -44327,9 +44346,25 @@ Output ONLY valid JSON:
         number = f"review call {calls_made} of {len(prompts)}"
         duration = int((time.time() - start) * 1000)
         issues = [
-            f"[review call {index} of {len(prompts)}] {issue}"
+            review_call_issue_text(index, len(prompts), issue)
             for index, result in enumerate(results, start=1)
             for issue in result.issues
+        ]
+        # One entry per call that was made, in order: what a review record
+        # keeps about each call. ``prompt_sha256`` is the digest of the exact
+        # prompt of that call, so of everything the call was shown.
+        review_calls = [
+            {
+                "index": index,
+                "total": len(prompts),
+                "passed": result.passed is True and result.score is not None,
+                "score": result.score,
+                "prompt_sha256": call_sha256,
+                "error": result.error,
+            }
+            for index, (result, call_sha256) in enumerate(
+                zip(results, prompt_sha256s), start=1
+            )
         ]
         if stopped is not None and stopped.score is None:
             # No readable verdict for one chunk: never a pass, and not a
@@ -44340,9 +44375,10 @@ Output ONLY valid JSON:
                 score=None,
                 issues=issues,
                 duration_ms=duration,
-                raw_output=stopped.raw_output,
+                raw_output="\n".join(result.raw_output or "" for result in results),
                 error=f"{number}: {stopped.error or 'no verdict'}",
                 prompt_sha256=prompt_sha256,
+                details={REVIEW_CALLS_DETAIL: review_calls},
             )
 
         whole = stopped is None and calls_made == len(prompts)
@@ -44368,7 +44404,10 @@ Output ONLY valid JSON:
             duration_ms=duration,
             raw_output="\n".join(result.raw_output or "" for result in results),
             prompt_sha256=prompt_sha256,
-            details={"review_evidence": review_evidence},
+            details={
+                "review_evidence": review_evidence,
+                REVIEW_CALLS_DETAIL: review_calls,
+            },
         )
 
     def _required_policyengine_runtime(self) -> PolicyEngineRuntime:

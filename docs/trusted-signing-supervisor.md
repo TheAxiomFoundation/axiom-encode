@@ -384,6 +384,20 @@ add a workflow input that defaults to `false`, and append `--require-review`,
 and `--run-attempt "$GITHUB_RUN_ATTEMPT"` to `promotion_args` when that input
 is `true`.
 
+The hosted workflow has a second, separate switch that runs no reviewer:
+`promote-reviewed-candidate --require-review-record <file>`. A promotion
+dispatch whose wrapper carries `"require_review_record": true` is signed only
+when the body of the candidate pull request holds, for every unit, one review
+record (`axiom-encode/candidate-review-record/v1`) with the status `passed`
+whose citation, module path and SHA-256 of the module and of the companion
+equal the bytes that the command signs. The workflow reads the body once, in a
+step without a token, and gives the supervised command the document it wrote.
+The record comes from `axiom-encode review-record create` on the machine that
+encoded the candidate. It is not signed: the gate proves that a hash-bound
+review record was published for exactly the signed bytes, not that a model
+produced it. `docs/reviewed-pr-promotion.md`, "Review record", has the
+record, the commands, every refusal and the limits.
+
 The Python environment is constructed from empty. It contains fixed locale,
 bytecode/isolation controls, a fixed path containing only the validated runtime
 tool directory, and the anonymous

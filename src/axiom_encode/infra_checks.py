@@ -310,6 +310,35 @@ _STEP_CHECKS: tuple[tuple[str, str, str, str, str], ...] = (
         "state), and dispatch again.",
     ),
     (
+        "Decide the review record switch",
+        "The review record switch of the dispatch could not be decided",
+        "The locked preflight runtime starts and the dispatch inputs are one "
+        "JSON object. The step then writes `Review record required: yes|no` "
+        "to the run summary; it reads no pull request and refuses no "
+        "request by itself.",
+        _REQUEST_WHY,
+        "Read the step's message. A failure here is a runtime or input "
+        "transport fault, not a refused review record: check that the "
+        "preflight runtime installed, and dispatch again.",
+    ),
+    (
+        "Read candidate review records",
+        "A unit of the promotion has no passed review record for its exact bytes",
+        'The dispatch asked for review records (`"require_review_record": '
+        "true`). The candidate pull request can be read at the dispatched "
+        "`rulespec_ref`, and its body holds, for every unit, exactly one "
+        "review record block in the rendered form whose status is `passed` "
+        "and whose citation, module path and SHA-256 of the module and of "
+        "the companion equal the committed files.",
+        _REQUEST_WHY,
+        "Read the step's message; it names the unit and the reason. Create "
+        "the record on the candidate head with `axiom-encode review-record "
+        "create`, put the output of `review-record render` in the pull "
+        "request body, check it with `review-record verify`, and dispatch "
+        "again. If the read itself failed, wait for the anonymous GitHub API "
+        "limit (60 requests an hour for one address) and dispatch again.",
+    ),
+    (
         "Parse RuleSpec-pinned axiom-compose reference",
         "The RuleSpec workflow toolchain pin cannot be read",
         "`.axiom/workflow-toolchain.toml` exists at `rulespec_ref`, and its "
