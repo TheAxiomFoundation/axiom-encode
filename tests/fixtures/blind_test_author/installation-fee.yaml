@@ -1,0 +1,29 @@
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-13
+  summary: |-
+    The initial utility installation fee is an allowable NA Utility Expense in the month the expense is billed when all of the following occur:
+# Boolean factual inputs are implicit, as supported by the pinned engine.
+rules:
+  - name: snap_initial_utility_installation_component_allowable
+    kind: derived
+    entity: UtilityExpenseComponent
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5, D NA Utility Expenses and Allowances, block 13
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us-az/manual/des/faa5/na-utility-expenses-and-allowances/block-13
+              excerpt: One-time deposits are not an allowable NA Utility Expense.
+    versions:
+      - effective_from: '2026-08-01'
+        formula: |-
+          component_is_initial_utility_installation_fee
+          and installation_performed_by_utility_provider
+          and component_billed_in_evaluated_month
+          and not component_is_one_time_deposit
