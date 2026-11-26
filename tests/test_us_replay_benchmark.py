@@ -60,6 +60,7 @@ from scripts.replay_us_failure_bundles import (
     main,
     read_snapshot_at,
     recorded_issue_rule,
+    referenced_context_keys,
     replay_case,
     replay_is_needed,
     run_gate,
@@ -1490,6 +1491,68 @@ def test_unprefixed_imports_without_a_policy_prefix_count_as_unresolved():
     )
 
     assert import_symbol_contents(case) == ([], ["statutes/26/1#tax_rate"])
+
+
+_FAKE_IMPORT_URI = "us:statutes/26/1#tax_rate"
+
+
+def _replay_case_with(candidate: str) -> ReplayCase:
+    return ReplayCase(
+        case_id="x",
+        run_id="1",
+        citation="us/statute/26/2",
+        module_path="statutes/26/2.yaml",
+        candidate=candidate,
+        tests=None,
+        source="The tax is 15 percent of income.",
+        source_metadata=None,
+        policy_prefix="us",
+        context={"us:statutes/26/1": "format: rulespec/v1\nrules: []\n"},
+    )
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    (
+        "format: rulespec/v1\nmodule:\n  summary: |\n    imports:\n"
+        f"      - {_FAKE_IMPORT_URI}\nrules: []\n",
+        f"format: rulespec/v1\nmodule:\n  imports:\n    - {_FAKE_IMPORT_URI}\n"
+        "rules: []\n",
+        "format: rulespec/v1\nrules:\n  - name: tax\n    description: |\n"
+        f"      imports:\n        - {_FAKE_IMPORT_URI}\n",
+        f'format: rulespec/v1\nimports:\n  - "{_FAKE_IMPORT_URI} "\nrules: []\n',
+        f"format: rulespec/v1\nimports:\n  - {_FAKE_IMPORT_URI}\nrules: [unclosed\n",
+    ),
+    ids=(
+        "summary_block_scalar",
+        "nested_under_module",
+        "rule_description_block_scalar",
+        "quoted_item_with_space",
+        "unparsable_yaml",
+    ),
+)
+def test_replay_binds_no_symbol_for_text_the_engine_does_not_import(candidate):
+    assert import_symbol_contents(_replay_case_with(candidate)) == ([], [])
+
+
+@pytest.mark.parametrize(
+    "imports_block",
+    (
+        f"imports:\n  - {_FAKE_IMPORT_URI}\n",
+        f"imports: [{_FAKE_IMPORT_URI}]\n",
+        f'"imports":\n  - "{_FAKE_IMPORT_URI}"\n',
+    ),
+    ids=("block_sequence", "flow_sequence", "quoted_key_and_item"),
+)
+def test_replay_binds_and_collects_context_for_a_top_level_import(imports_block):
+    candidate = "format: rulespec/v1\n" + imports_block + "rules: []\n"
+    case = _replay_case_with(candidate)
+
+    assert import_symbol_contents(case) == (
+        [("tax_rate", case.context["us:statutes/26/1"])],
+        [],
+    )
+    assert referenced_context_keys(candidate, "us") == ["us:statutes/26/1"]
 
 
 def test_symlinked_bundle_roots_are_load_errors(tmp_path):
