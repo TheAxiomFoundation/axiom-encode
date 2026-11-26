@@ -42,6 +42,10 @@ def main() -> int | None:
         from axiom_encode.core_export import run_export_core_build_spec
 
         return run_export_core_build_spec(argv[1:])
+    if argv and argv[0] == "compare-sources":
+        from axiom_encode.source_conflicts.cli import run as run_compare_sources
+
+        return run_compare_sources(argv[1:])
     from axiom_encode.cli import main as cli_main
 
     return cli_main()
