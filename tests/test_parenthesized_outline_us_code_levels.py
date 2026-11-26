@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -151,6 +152,80 @@ def test_aa_after_z_continues_the_lettered_list():
     assert _paths(text) == [*"abcdefghijklmnopqrstuvwxyz", "aa", "bb", "cc"]
 
 
+def test_colorado_double_letter_paragraph_has_distinct_roman_children():
+    # Reduced from C.R.S. 39-22-516.8(1)(ee).
+    text = (
+        "(1) Definitions:\n"
+        "(z) Light-duty truck.\n"
+        "(aa) Medium-duty electric truck.\n"
+        "(bb) Medium-duty truck.\n"
+        "(cc) Traditional fuel.\n"
+        "(dd) Trailer.\n"
+        "(ee) (I) Truck before 2017 is either:\n"
+        "(A) Titled and registered; or\n"
+        "(B) Registered and base plated.\n"
+        "(II) Truck from 2017 is either:\n"
+        "(A) Titled and registered; or\n"
+        "(B) Registered and base plated.\n"
+        "(2) Tax credit.\n"
+    )
+
+    assert _paths(text, "us-co/statute/39/39-22-516.8") == [
+        "1",
+        "1/z",
+        "1/aa",
+        "1/bb",
+        "1/cc",
+        "1/dd",
+        "1/ee",
+        "1/ee/i",
+        "1/ee/i/a",
+        "1/ee/i/b",
+        "1/ee/ii",
+        "1/ee/ii/a",
+        "1/ee/ii/b",
+        "2",
+    ]
+
+
+def test_duplicate_paths_use_the_legacy_parse_for_the_whole_body():
+    text = (
+        "(1) Rule.\n(z) Last single letter.\n(aa) First double letter.\n"
+        "(II)(A) First provision.\n(ii) Next.\n(II)(A) Second provision.\n(2) Next.\n"
+    )
+
+    assert _paths(text) == [
+        "1",
+        "1/z",
+        "1/z/ii",
+        "1/z/ii/a",
+        "1/ii",
+        "1/ii/ii",
+        "1/ii/ii/a",
+        "2",
+    ]
+
+
+def test_fewer_markers_use_the_legacy_parse_for_the_whole_body():
+    text = (
+        "(1) Rule.\n(A) Lead.\n(I)(A) First.\n(ii)(I) Second.\n"
+        "(II) (aa) Single item.\n(ii)(I) Third.\n(2) Next.\n"
+    )
+
+    assert _paths(text) == [
+        "1",
+        "1/a",
+        "1/i",
+        "1/i/a",
+        "1/i/i",
+        "1/i/a/ii",
+        "1/i/ii",
+        "1/i/i",
+        "1/i/ii/ii",
+        "2",
+    ]
+
+
 def test_ii_after_item_hh_is_a_clause_when_a_subclause_follows():
     # 42 U.S.C. 17231(k)(3)(D): items (aa) to (hh) end subclause (II), and
     # clause (ii) opens its own subclauses.
@@ -194,6 +269,48 @@ def test_ii_after_item_hh_is_an_item_when_clause_ii_follows():
         "1/a/ii",
         "1/a/ii/i",
         "1/a/ii/ii",
+        "1/b",
+        "2",
+    ]
+
+
+def test_ii_after_item_hh_is_an_item_when_clause_ii_follows_on_the_same_line():
+    # Reduced from 42 U.S.C. 13503(b)(3)(E) with the final item and clause joined.
+    text = (
+        "(1) Rule.\n(A) Lead—\n(i) One—\n(I) First.\n(II) Second—\n"
+        "(aa) a.\n(bb) b.\n(cc) c.\n(dd) d.\n(ee) e.\n(ff) f.\n(gg) g.\n(hh) h.\n"
+        "(ii) Item i. (ii) Activities—\n(I) First.\n(II) Second.\n"
+        "(B) Other.\n(2) Next.\n"
+    )
+
+    assert _paths(text, "us/statute/42/13503/b/3/E") == [
+        "1",
+        "1/a",
+        "1/a/i",
+        "1/a/i/i",
+        "1/a/i/ii",
+        *[f"1/a/i/ii/{letter * 2}" for letter in "abcdefghi"],
+        "1/a/ii",
+        "1/a/ii/i",
+        "1/a/ii/ii",
+        "1/b",
+        "2",
+    ]
+
+
+def test_unresolved_ii_after_item_hh_uses_the_legacy_parse():
+    text = _subclause_body(
+        "(I) First.\n(II) Second—\n", _items(*"abcdefgh"), "(ii) Item or clause.\n"
+    )
+
+    assert _paths(text) == [
+        "1",
+        "1/a",
+        "1/a/i",
+        "1/i",
+        "1/ii",
+        "1/ii/cc",
+        "1/ii/ii",
         "1/b",
         "2",
     ]
@@ -275,6 +392,19 @@ def test_inline_references_to_subclauses_and_items_stay_running_text():
     assert "items (aa) and (bb) of clause (ii): (aa) as such." in branches[4].text
 
 
+@pytest.mark.parametrize(("opening", "closing"), [("“", "”"), ('"', '"')])
+def test_multiline_quotation_keeps_its_legacy_paths(opening, closing):
+    text = (
+        "(1) Rule.\n(A) General rule.—\n"
+        f"(i) The notice must state {opening}the terms are—\n"
+        "(I) first—\n(aa) item;\n(bb) item;\n"
+        f"(II) second.{closing}\n"
+        "(ii) The notice shall identify the signer.\n(B) Exception.\n(2) Other rule.\n"
+    )
+
+    assert _paths(text) == ["1", "1/a", "1/a/i", "1/i", "1/ii", "1/ii/ii", "1/b", "2"]
+
+
 def test_later_subparagraph_clause_or_paragraph_closes_items():
     text = (
         "(1) Rule.\n(A) Lead—\n(i) one—\n(I) first—\n(aa) x;\n(bb) y.\n"
@@ -344,6 +474,26 @@ def test_attached_chains_open_subclauses_and_items():
     ]
 
 
+def test_spaced_attached_chain_opens_items_under_its_subclause():
+    text = (
+        "(1) Rule.\n(A) Lead—\n(i) one—\n(I) first;\n(II) (aa) x;\n"
+        "(bb) y.\n(ii) two.\n(B) b.\n(2) Next.\n"
+    )
+
+    assert _paths(text) == [
+        "1",
+        "1/a",
+        "1/a/i",
+        "1/a/i/i",
+        "1/a/i/ii",
+        "1/a/i/ii/aa",
+        "1/a/i/ii/bb",
+        "1/a/ii",
+        "1/b",
+        "2",
+    ]
+
+
 def test_subclause_without_ii_reads_as_before():
     # A lone (I) shows no subclause list, so it keeps the CFR-style reading:
     # the letter after (A), with (ii) under it.
@@ -353,7 +503,7 @@ def test_subclause_without_ii_reads_as_before():
 
 
 def test_item_without_bb_stays_running_text():
-    # 42 U.S.C. 1396a(a)(10)(A)(i)(II) holds one item, (aa), so no list shows.
+    # This synthetic text has a lone (aa) and supplies no evidence of an item list.
     text = _subclause_body("(I) first;\n(II)\n(aa) only item;\n(III) third.\n")
 
     branches = [

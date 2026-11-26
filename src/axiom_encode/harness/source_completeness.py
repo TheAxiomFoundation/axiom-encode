@@ -513,7 +513,7 @@ _INLINE_PARENTHESIZED_OUTLINE_MARKER = re.compile(
 )
 # _PARENTHESIZED_OUTLINE_MARKER widened to two-letter labels, so that a line can
 # open with a U.S. Code item (aa) or subitem (AA). Only the U.S. legal outline
-# reads it, and only at line starts the narrower regex leaves untaken.
+# reads it, when it finds a new line marker or extends a narrower match.
 _US_CODE_DOUBLE_LETTER_OUTLINE_MARKER = re.compile(
     r"(?m)^[ \t]*(?:[A-Z]\.)?"
     r"(?P<marker>\((?:\d+[a-z]?|[a-z]{1,2}|[ivxlcdm]{2,15})\)"
@@ -4410,9 +4410,78 @@ def _qualified_parenthesized_legal_outline_markers(
     token_index = {
         match.start("marker"): index for index, match in enumerate(token_matches)
     }
-    scan = _LabelBesideIScan(matches)
-    cue_scan = _LabelBesideIScan(cue_matches)
-    token_scan = _LabelBesideIScan(token_matches)
+    parse_args = (
+        _LabelBesideIScan(matches),
+        _LabelBesideIScan(cue_matches),
+        _LabelBesideIScan(token_matches),
+    )
+    parse_context = {
+        "cue_index": cue_index,
+        "token_index": token_index,
+        "flattened_root_starts": flattened_root_starts,
+        "inline_marker_starts": inline_marker_starts,
+    }
+    legacy = _parse_parenthesized_legal_outline_markers(*parse_args, **parse_context)
+    wider_matches = _us_code_double_letter_line_matches(source_text, line_matches)
+    if not wider_matches and not any(
+        "(I)" in match.group("marker") for match in line_matches
+    ):
+        return legacy
+
+    quote = iter(re.finditer(r'“[^”]*(?:”|$)|"[^"]*(?:"|$)', source_text))
+    quoted_span = next(quote, None)
+    us_code_matches: dict[int, re.Match[str]] = {}
+    quoted_starts: set[int] = set()
+    for match in heapq.merge(
+        wider_matches, matches, key=lambda match: match.start("marker")
+    ):
+        marker_start = match.start("marker")
+        while quoted_span is not None and quoted_span.end() <= marker_start:
+            quoted_span = next(quote, None)
+        if quoted_span is None or marker_start < quoted_span.start():
+            us_code_matches.setdefault(marker_start, match)
+        else:
+            quoted_starts.add(marker_start)
+
+    try:
+        enhanced = _parse_parenthesized_legal_outline_markers(
+            *parse_args,
+            **parse_context,
+            us_code_matches=tuple(us_code_matches.values()),
+            wider_matches=tuple(
+                match
+                for match in wider_matches
+                if match.start("marker") in us_code_matches
+            ),
+        )
+    except _AmbiguousUSCodeOutlineTie:
+        return legacy
+    if len(enhanced) < len(legacy) or len({marker.path for marker in enhanced}) < len(
+        enhanced
+    ):
+        return legacy
+    # An earlier enhancement can change the parents available inside a quote.
+    # Preserve the legacy result if that would change any quoted marker.
+    if quoted_starts and tuple(
+        marker for marker in enhanced if marker.start in quoted_starts
+    ) != tuple(marker for marker in legacy if marker.start in quoted_starts):
+        return legacy
+    return enhanced
+
+
+def _parse_parenthesized_legal_outline_markers(
+    scan: _LabelBesideIScan,
+    cue_scan: _LabelBesideIScan,
+    token_scan: _LabelBesideIScan,
+    *,
+    cue_index: dict[int, int],
+    token_index: dict[int, int],
+    flattened_root_starts: frozenset[int],
+    inline_marker_starts: set[int],
+    us_code_matches: Sequence[re.Match[str]] = (),
+    wider_matches: Sequence[re.Match[str]] = (),
+) -> tuple[_OutlineMarker, ...]:
+    matches = scan.matches
 
     first_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", matches[0].group("marker")))
     outline_levels = (
@@ -4422,38 +4491,23 @@ def _qualified_parenthesized_legal_outline_markers(
     )
     # The U.S. Code levels below a clause sit deeper than every level above.
     us_code_base_level = len(outline_levels)
-    double_letter_line_matches = _us_code_double_letter_line_matches(
-        source_text, line_matches
-    )
-    double_letter_line_starts = {
-        match.start("marker") for match in double_letter_line_matches
+    us_code_index = {
+        match.start("marker"): index for index, match in enumerate(us_code_matches)
     }
-    us_code_line_matches = tuple(
-        heapq.merge(
-            line_matches,
-            double_letter_line_matches,
-            key=lambda match: match.start("marker"),
-        )
-    )
-    us_code_line_index = {
-        match.start("marker"): index for index, match in enumerate(us_code_line_matches)
-    }
+    match_starts = [match.start("marker") for match in matches]
 
     markers: list[_OutlineMarker] = []
     emitted_paths: set[tuple[str, ...]] = set()
     active: list[tuple[int, str, str, str]] = []
-    # Indexes ``matches``, which holds no double-letter line marker, so after
-    # such a marker ``match_index + 1`` is the next marker the scans hold.
-    match_index = -1
+    accepted_start = -1
+    # Try the wider match first. If a label cannot be placed, restore the
+    # state and let the narrower match at the same start take its place.
     for match in heapq.merge(
-        matches,
-        double_letter_line_matches,
-        key=lambda match: match.start("marker"),
+        wider_matches, matches, key=lambda match: match.start("marker")
     ):
         marker_start = match.start("marker")
-        is_double_letter_line_marker = marker_start in double_letter_line_starts
-        if not is_double_letter_line_marker:
-            match_index += 1
+        if marker_start == accepted_start:
+            continue
         raw_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker")))
         if not raw_labels:
             continue
@@ -4475,8 +4529,9 @@ def _qualified_parenthesized_legal_outline_markers(
             # opens a marker, so no other label gets a deciding label.
             following_label: str | None = None
             if label_index == 0 and raw_label == "i":
-                following_label = _label_beside_i(scan, match_index + 1, raw_labels[1:])
-                if following_label == "ii" and is_double_letter_line_marker:
+                next_match = bisect.bisect_right(match_starts, marker_start)
+                following_label = _label_beside_i(scan, next_match, raw_labels[1:])
+                if following_label == "ii" and marker_start not in cue_index:
                     # Neither check below holds this marker, so withhold the
                     # roman reading.
                     following_label = None
@@ -4507,15 +4562,18 @@ def _qualified_parenthesized_legal_outline_markers(
                 _us_code_outline_level(
                     raw_label,
                     active=active,
+                    attached_parent_level=attached_parent_level,
                     base_level=us_code_base_level,
                     label_at_level=functools.partial(
                         _us_code_label_at_level,
                         labels_after=raw_labels[label_index + 1 :],
-                        line_matches=us_code_line_matches,
-                        start=us_code_line_index[marker_start] + 1,
+                        matches=us_code_matches,
+                        start=us_code_index[marker_start] + 1,
+                        inline_marker_starts=inline_marker_starts,
                     ),
                 )
-                if marker_start not in inline_marker_starts
+                if marker_start in us_code_index
+                and marker_start not in inline_marker_starts
                 else None
             )
             if us_code_level is not None:
@@ -4567,6 +4625,8 @@ def _qualified_parenthesized_legal_outline_markers(
                     added_paths.append(path)
                     emitted_paths.add(path)
             attached_parent_level = level
+        else:
+            accepted_start = marker_start
 
     root_category = outline_levels[0]
     root_labels = [marker.label[1:-1] for marker in markers if len(marker.path) == 1]
@@ -5012,18 +5072,13 @@ def _us_code_double_letter_line_matches(
     source_text: str,
     line_matches: Sequence[re.Match[str]],
 ) -> tuple[re.Match[str], ...]:
-    """Return the line markers that only a U.S. Code double-letter label makes.
+    """Return added or extended line markers that admit same-letter doubles."""
 
-    Each opens a line where ``_PARENTHESIZED_OUTLINE_MARKER`` takes nothing,
-    because its chain holds a label such as ``(aa)`` or ``(AA)``, and every
-    label in it is an outline label once same-letter doubles count.
-    """
-
-    line_starts = {match.start("marker") for match in line_matches}
+    line_ends = {match.start("marker"): match.end("marker") for match in line_matches}
     return tuple(
         match
         for match in _US_CODE_DOUBLE_LETTER_OUTLINE_MARKER.finditer(source_text)
-        if match.start("marker") not in line_starts
+        if match.end("marker") > line_ends.get(match.start("marker"), -1)
         and all(
             _is_us_code_outline_label(label)
             for label in re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker"))
@@ -5065,14 +5120,17 @@ def _us_code_label_at_level(
     label_here: str,
     *,
     labels_after: Sequence[str],
-    line_matches: Sequence[re.Match[str]],
+    matches: Sequence[re.Match[str]],
     start: int,
+    inline_marker_starts: set[int],
+    include_inline: bool = False,
+    skip_upper_alpha_children: bool = False,
 ) -> str | None:
     """Return the next label at the U.S. Code level of ``label_here``.
 
     The scan reads ``labels_after``, the labels after ``label_here`` in its own
-    marker, then the labels of each line marker in ``line_matches`` from
-    ``start`` on. It passes over the labels of the deeper U.S. Code levels:
+    marker, then the labels of later line markers. Tie lookahead also reads
+    qualified inline markers. The scan passes over deeper U.S. Code levels:
     items and subitems after a subclause such as ``(I)``, subitems after an
     item such as ``(aa)``, nothing after a subitem. A same-letter double is
     such a label unless it is a roman numeral that does not continue the
@@ -5083,13 +5141,32 @@ def _us_code_label_at_level(
 
     def labels() -> Iterator[str]:
         yield from labels_after
-        for index in range(start, len(line_matches)):
-            marker_labels = re.findall(
-                r"\(([A-Za-z0-9]+)\)", line_matches[index].group("marker")
-            )
+        for index in range(start, len(matches)):
+            match = matches[index]
+            if not include_inline and match.start("marker") in inline_marker_starts:
+                continue
+            marker_labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker"))
             if all(_is_us_code_outline_label(label) for label in marker_labels):
                 yield from marker_labels
 
+    remaining = labels()
+    following = _next_us_code_outline_label(
+        label_here, remaining, skip_upper_alpha_children=skip_upper_alpha_children
+    )
+    if include_inline and following == "I":
+        # A second subclause distinguishes a new clause from an isolated (I).
+        return (
+            following if _next_us_code_outline_label("I", remaining) == "II" else None
+        )
+    return following
+
+
+def _next_us_code_outline_label(
+    label_here: str,
+    labels: Iterator[str],
+    *,
+    skip_upper_alpha_children: bool = False,
+) -> str | None:
     if not _is_same_letter_double_label(label_here):
         skipped_cases = frozenset({"lower", "upper"})
     elif label_here.islower():
@@ -5098,7 +5175,20 @@ def _us_code_label_at_level(
         skipped_cases = frozenset()
     # The last item and the last subitem passed over, by case.
     previous_skipped: dict[str, str] = {}
-    for label in labels():
+    previous_upper_alpha = ""
+    for label in labels:
+        if (
+            skip_upper_alpha_children
+            and label.isupper()
+            and (
+                (not previous_upper_alpha and label == "A")
+                or _parenthesized_outline_label_follows(
+                    previous_upper_alpha, label, "upper-alpha"
+                )
+            )
+        ):
+            previous_upper_alpha = label
+            continue
         case = "lower" if label.islower() else "upper"
         if (
             case in skipped_cases
@@ -5117,12 +5207,17 @@ def _us_code_label_at_level(
     return None
 
 
+class _AmbiguousUSCodeOutlineTie(Exception):
+    """The available markers leave an item and a shallower reading open."""
+
+
 def _us_code_outline_level(
     raw_label: str,
     *,
     active: Sequence[tuple[int, str, str, str]],
+    attached_parent_level: int | None,
     base_level: int,
-    label_at_level: Callable[[str], str | None],
+    label_at_level: Callable[..., str | None],
 ) -> tuple[int, str] | None:
     """Place a U.S. Code subclause, item or subitem label, or return ``None``.
 
@@ -5149,9 +5244,8 @@ def _us_code_outline_level(
     ``(jj)``, or the next label of the shallower list or of a list between the
     two, such as clause ``(ii)`` or subclause ``(II)``. In 42 U.S.C.
     13503(b)(3)(E)(i)(V), item ``(ii)`` ends the items and clause ``(ii)``
-    follows. Otherwise the shallower list wins, as in 42 U.S.C.
-    17231(k)(3)(D), where clause ``(ii)`` and its subclause ``(I)`` follow
-    items ``(aa)`` to ``(hh)``.
+    follows. A new subclause ``(I)`` indicates the shallower reading, as in
+    42 U.S.C. 17231(k)(3)(D). Without either cue, the body uses the legacy parse.
 
     When the list a label continues is one the CFR-style levels hold, or no
     list fits, this returns ``None`` and the caller places the label as
@@ -5159,21 +5253,47 @@ def _us_code_outline_level(
     of the label it is given.
     """
 
+    # State-law outlines can attach an upper-roman list to a doubled letter
+    # and use upper-case letters beneath each Roman numeral.
+    if raw_label.isupper() and len(raw_label) == 1:
+        for index in range(len(active) - 1, 0, -1):
+            level, previous, _, category = active[index]
+            if category != "upper-roman":
+                continue
+            if active[index - 1][3] == "lower-alpha-double" and (
+                (index == len(active) - 1 and raw_label == "A")
+                or (
+                    index == len(active) - 2
+                    and active[-1][3] == "upper-alpha"
+                    and _parenthesized_outline_label_follows(
+                        active[-1][1], raw_label, "upper-alpha"
+                    )
+                    and not _us_code_label_follows(previous, raw_label, category)
+                )
+            ):
+                return level + 1, "upper-alpha"
+            break
+
     is_upper_roman = raw_label.isupper() and _is_roman_outline_label(raw_label)
     if not (is_upper_roman or _is_same_letter_double_label(raw_label)):
         return None
     opening = _US_CODE_OUTLINE_OPENINGS.get(raw_label)
     if opening is not None:
         parent_category, second_label, opened_category = opening
-        if (
-            active
-            and active[-1][3] == parent_category
-            and label_at_level(raw_label) == second_label
-        ):
-            return (
-                base_level + _US_CODE_OUTLINE_LEVEL_OFFSETS[opened_category],
-                opened_category,
+        if active:
+            attached_to_double = (
+                raw_label == "I"
+                and attached_parent_level == active[-1][0]
+                and active[-1][3] == "lower-alpha-double"
             )
+            if (active[-1][3] == parent_category or attached_to_double) and (
+                label_at_level(raw_label, skip_upper_alpha_children=attached_to_double)
+                == second_label
+            ):
+                return (
+                    base_level + _US_CODE_OUTLINE_LEVEL_OFFSETS[opened_category],
+                    opened_category,
+                )
     generic_categories = (
         _parenthesized_legal_outline_categories(raw_label)
         if _is_parenthesized_outline_label(raw_label)
@@ -5210,7 +5330,7 @@ def _us_code_outline_level(
     level, category = continued[-1]
     if len(continued) > 1 and category in {"item", "subitem"}:
         shallower_level = continued[-2][0]
-        following = label_at_level(raw_label)
+        following = label_at_level(raw_label, include_inline=True)
         shows_item_list = following is not None and (
             _us_code_label_follows(raw_label, following, category)
             or any(
@@ -5220,6 +5340,11 @@ def _us_code_outline_level(
             )
         )
         if not shows_item_list:
+            if following != "I" or not any(
+                entry_level == shallower_level and entry_category == "roman"
+                for entry_level, _, _, entry_category in active
+            ):
+                raise _AmbiguousUSCodeOutlineTie
             level, category = continued[-2]
     return None if category is None else (level, category)
 
