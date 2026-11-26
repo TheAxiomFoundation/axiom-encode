@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 6
+__version__ = 7
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -1450,6 +1450,18 @@ _NUMERIC_GROUNDING = """- If the source states a substitution, higher amount, in
   band selector predicate. Consumers should reference the named concept or an
   indexed table/grid value; only structural keys, sentinels, and algebraic
   identities should remain as formula literals.
+- If the source says someone is "aged 18 or over", "under 25", or similar,
+  model the legal age predicate as a Person rule that compares age with a named
+  threshold parameter (`person_age >= <threshold>`), not as a documentary age
+  input or an unnamed age constant.
+- Name every number that the source states as a rule's range or threshold
+  bound (both ends of a `9-17` row, the `18` of `18+`, the age in "60 or
+  older") as a scalar `kind: parameter` with a proof atom, or as an indexed
+  bound column for an interval table. Keep the source operator: `9-17` gives
+  `>= 9`; "more than 8" gives `> 8`. For "a member aged 60 or older" use
+  `count_where(member_of_household, <Person rule: age >= that parameter>) >= 1`,
+  not an input name, a household proxy age, or an unused parameter. Do not
+  name labels ("48 States"), dates, citations or page numbers as parameters.
 - If the same numeric value appears in separate numbered exceptions,
   subparagraphs, or otherwise materially different legal roles, give those roles
   distinct named scalars; reuse a named scalar only for the same legal role.
