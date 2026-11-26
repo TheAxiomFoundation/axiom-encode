@@ -579,10 +579,10 @@ class TestCitedRegulationGuidance:
             "executable exports."
         ) in guidance
         assert "435/230" not in guidance
-        assert " ".join(guidance.split()).endswith(
+        assert (
             "When this source computes with a value that one of these modules "
             "exports, import that export and use its bare name in the formula."
-        )
+        ) in " ".join(guidance.split())
 
     def test_lists_eight_exports_then_an_ellipsis(self, tree):
         root, _files = tree

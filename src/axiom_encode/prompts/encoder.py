@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 6
+__version__ = 7
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -1735,6 +1735,137 @@ def _assemble(*blocks: str) -> str:
 
 ENCODER_PROMPT = _assemble(*_PROMPT_BLOCKS)
 
+# The exception below is emitted only for federal units of the CFR parts in
+# `CFR_STATE_SET_AMOUNT_PARTS` (a positive allow-list: the parts where the
+# rule was measured). It is inserted directly after the cross-reference rule
+# that otherwise defers a branch whose cited context lacks the needed export.
+# Every other unit gets the prompt without it.
+CFR_STATE_SET_AMOUNT_PARTS = frozenset({("42", "435")})
+# Parts in which "the agency" is the State agency (42 CFR 435: the State
+# Medicaid agency). Elsewhere only "the State" or "the State agency" counts.
+CFR_PARTS_WHERE_AGENCY_IS_THE_STATE = frozenset({("42", "435")})
+CROSS_REFERENCE_DEFER_RULE_TAIL = """  or missing the needed export, do not preserve, rename, or recreate the local
+  cross-reference fact; import a real export, defer the affected executable
+  surface, or encode a source-grounded overriding branch that avoids it.
+"""
+CFR_STATE_SET_AMOUNT_RULE = """- Exception for State-set amounts (federal units of 42 CFR part 435 only):
+  it covers an amount that this source applies when no copied context module
+  exports that amount and this unit's own source text attributes the amount
+  to the State in one of exactly two forms:
+  (a) the text names the State, the State agency, or the agency (in 42 CFR
+  part 435 the agency is the State Medicaid agency) as the actor of one of
+  these verbs, with the amount as the thing acted on: "establishes", "sets",
+  "elects", "specifies", "selects", "chooses", or "determines ... in its
+  State plan" (for example household income "at or below the income standard
+  established by the agency in its State plan"); or
+  (b) the text names a level in effect on a stated calendar date under the
+  State's own plan: the State's AFDC payment standard or AFDC income
+  standard, or a level under the Medicaid State plan or a waiver of the
+  State plan (for example "the State's AFDC payment standard in effect as of
+  July 16, 1996").
+  No other wording qualifies. A phrase that only calls the amount the
+  State's, or that only says the amount is established under a cited section,
+  does not name the State as the actor that sets it.
+- Then encode the branch; do not defer it for that reason, also when the
+  cited module is deferred.
+- Each State-set input needs its own source phrase. In that phrase the
+  amount itself is the object of the verb in form (a), or is the level named
+  in form (b). The input's name contains the words of that amount's noun
+  phrase ("income standard" gives a name with `income_standard`); the name
+  may add qualifiers. One phrase supports one input; a phrase for one amount
+  does not support a second amount of the same rule.
+- When the phrase defines the amount from another quantity (a percentage of
+  a benefit amount or of the Federal poverty level, an adjustment by a price
+  index), only the parameter that the State chooses, such as the percentage
+  that the State elects, can be the input. The other quantity is imported,
+  encoded literally, or deferred.
+- This exception is narrow. For an amount that meets form (a) or (b), and for
+  no other value, these rules of this prompt do not apply, wherever they
+  appear, before or after this exception: the rule that a cited context file
+  that is deferred, unsupported, or empty gets no local cross-reference
+  input; the rule against local `section_...` or `subsection_...` inputs for
+  a cited source; the rule against a local cross-reference fact when the
+  context lacks the needed export; and the rule that defers when a cited
+  sibling file is deferred. Every other value stays under those rules.
+- An amount that the source text does not attribute to the State in form (a)
+  or (b) is not a State-set input. That holds for every amount that a federal
+  statute, a federal regulation, a federal agency, or a federal formula sets,
+  also when the amount differs by State and also when this unit states no
+  number.
+- When a branch depends on such a federally set amount that this unit does
+  not state (for example the SSI income standard or the Federal benefit
+  rate), do not make the amount an input and do not write a vague deferral.
+  First look for an import: when a copied context module for the provision
+  that the source cites exports the amount, import that export. Do not defer
+  a branch until a provision is encoded when a copied context module for that
+  provision has the needed export.
+- Otherwise defer that branch and write `reason` as the deferral-reason rules
+  of this prompt require: name the exact federal provision that the source
+  cites (the section of the Act or the CFR section, as the source writes it),
+  not a description of the amount. When the source cites no provision for the
+  amount, cite this unit's exact branch and name the federal amount as the
+  missing input, as those rules require for a branch of the current source.
+- Encode literally every number, percentage of the Federal poverty level, or
+  dollar amount that this source or a cited federal provision states; such a
+  value is never an input. A federally stated floor or ceiling, such as "at
+  least $30", stays a literal and is applied with max or min to the input.
+- Federal text that limits what the State may set (a floor or ceiling on the
+  State's own standard) is encoded as a rule about the State plan, not as an
+  input that replaces that limit.
+- Record the delegation: the federal text that lets the State set the amount
+  creates the delegated slot. Emit the `kind: source_relation` record with
+  `source_relation.type: delegates` that the source-relation rules of this
+  prompt require for it. Do not use `sets` or `implements` here; those belong
+  to the State authority that fills the slot.
+- Declare the State-set value in the document-root `inputs` list with
+  `entity`, `dtype`, `period`, `unit` for money, and a `description` that
+  names the provision under which the State or agency sets it. When the
+  source cites a section of this CFR part whose copied module lists the value
+  as a local input slot under a name that contains those words, use that
+  module's input identifier.
+- Give the rule that uses the State-set value one proof atom per State-set
+  input whose excerpt is, word for word, that input's phrase of this unit's
+  source text. Encode the branch's own comparisons, max/min, and conditions
+  on that value, and set the input in every companion test.
+"""
+
+
+def us_cfr_unit_section_key(citation: str) -> tuple[str, str, str] | None:
+    """Return (title, part, section) when the unit is a federal CFR provision."""
+    from axiom_encode import corpus_resolver
+
+    try:
+        citation_path = corpus_resolver.normalize_corpus_identifier(citation)
+    except (corpus_resolver.CorpusResolutionError, ValueError):
+        return None
+    parts = citation_path.split("/")
+    if len(parts) < 5 or parts[0] != "us" or parts[1] != "regulation":
+        return None
+    title, part, section = parts[2:5]
+    if not (title.isdigit() and part.isdigit() and section.isdigit()):
+        return None
+    return (title, part, section)
+
+
+def cfr_state_set_amount_rule_applies(citation: str) -> bool:
+    """True only for a federal unit of an allow-listed CFR part."""
+    key = us_cfr_unit_section_key(citation) if citation else None
+    return key is not None and key[:2] in CFR_STATE_SET_AMOUNT_PARTS
+
+
+def with_cfr_state_set_amount_rule(prompt: str, citation: str) -> str:
+    """Insert the State-set amount exception for an allow-listed CFR unit only."""
+    if not cfr_state_set_amount_rule_applies(citation):
+        return prompt
+    if CROSS_REFERENCE_DEFER_RULE_TAIL not in prompt:
+        raise ValueError("Encoder prompt lost its cross-reference defer rule")
+    # The rules follow any copied context, so the last occurrence is the rule.
+    end = prompt.rindex(CROSS_REFERENCE_DEFER_RULE_TAIL) + len(
+        CROSS_REFERENCE_DEFER_RULE_TAIL
+    )
+    return prompt[:end] + CFR_STATE_SET_AMOUNT_RULE + prompt[end:]
+
+
 _COMPLETE_SOURCE_UNIT_PROTOCOL = """
 Complete-source-unit mode is enabled for this request:
 - Treat the entire authoritative source unit as the completeness inventory.
@@ -1872,7 +2003,7 @@ affected executable surface.
 {_COMPLETE_SOURCE_UNIT_PROTOCOL.strip()}
 """
 
-    return f"""{ENCODER_PROMPT}
+    return f"""{with_cfr_state_set_amount_rule(ENCODER_PROMPT, corpus_citation_path or citation)}
 
 Target citation/source id: {citation}
 Expected output path: {output_path}
