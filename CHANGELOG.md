@@ -1,3 +1,7 @@
+## 0.2.2404
+
+- Let a promotion dispatch require a published, hash-bound review record of every unit (switched off, #2319) (#2362)
+
 ## 0.2.2403
 
 - Sign from the newest versioned main commit while a version bump is pending (#2333)
