@@ -1,34 +1,78 @@
 """Content-bound merge guard: evaluate one RuleSpec pull request.
 
-INACTIVE. Nothing in the encoder, a workflow or a RuleSpec repository calls
-this module, no check run is written, and the manifest schema it reads is not
-emitted by any writer. See ``docs/content-bound-merge-guard.md``.
+The ``merge-guard`` CLI command and ``merge_guard_runner`` (command
+``merge-guard-run``) call this evaluator. Both commands can run outside
+``.github/workflows/merge-guard-runner.yml``. The Python runner accepts a
+token-shaped ``MERGE_GUARD_TOKEN`` from its environment without checking the
+ref, runner switch or credential provisioning.
 
-The guard stands aside (``not_applicable``) in two cases only:
+The workflow's ``gate`` job requires ``refs/heads/main`` and
+``vars.MERGE_GUARD_RUNNER_ENABLED`` equal to ``true``. The ``vars`` context
+can supply organization values; the gate checks no repository-only origin.
+The ``run`` job repeats the ref and switch checks and the checks of the
+``country`` and ``pr`` inputs in its first step, then checks the App client ID
+and private key. Its writer publishes only neutral shadow checks. Keep those checks out of required checks. The write
+filter constrains its caller, not other code in the same job.
 
-* ``no_guarded_content``: every path of the complete tree delta is on a short
-  allowlist of unvalidated locations, and every added or modified leaf is a
-  regular file. Everything else is guarded: jurisdiction directories, ``programs/``,
-  ``.axiom/``, ``.github/``, root ledgers, tooling and any new top-level entry.
-* ``earlier_lane_v5``: the delta holds only RuleSpec module files and apply
-  manifests, every changed manifest carries an earlier schema label, every
-  module file is listed by one of them, and the required check is green on
-  the head from this pull request's own ``pull_request`` run. The guard does
-  NOT verify the v5 signature and trusts no label for this: the verdict rests
-  on that CI run. The lane's scope proves that THIS pull request did not
-  change the workflow files or the toolchain pin the run used. It proves
-  nothing about an earlier pull request: whatever changed them and reached
-  ``main`` is the base this run trusts. So this lane is only as strong as
-  the control over changes to those files (design section 3, "Proposed
-  three-class lane").
+The design's checklist step 1 remains a precondition before anyone stores
+the App key or changes the runner switch, shadow mode included. Options
+(a), (b) and (c), and any complement, remain unchosen. Max must choose one
+mechanism and any complement; maintainers must implement the choice, and a
+fresh independent review must
+verify the whole key-exposure boundary.
+That boundary includes every job in any workflow that can select the
+key-bearing environment, including new, replaced or modified workflows and
+dynamic selectors, and who can land those workflows. It also includes all
+pre-token steps and persistence, builds, installation, dependencies and their
+hooks, interpreter startup, ``__init__.py``, the console entry point,
+``signing_broker`` startup and the import closure. Options (a) and (b) need
+a separate control that prevents other workflows from selecting the
+key-bearing environment.
+Recording the precondition does not satisfy it; this code does not implement
+that boundary.
 
-A guarded delta that no lane claims whole gives ``fail``. When the delta is
-one signed ``applied-rulespec/v6`` promotion unit, the evaluator decides
-whether it also carries a live approval, from an enrolled owner who is
-independent of the candidate author, of the dispatcher and of every commit
-author, on a commit whose primary, companion and manifest blobs are the blobs
-at the current head. Every read is live and goes through one injected
-``fetch`` callable. Any error, truncation or disagreement gives ``fail``.
+A holder of a valid App private key can mint tokens for any installation of
+that App, within each installation's granted repositories and permissions,
+while the key remains valid. One token's requested scope, one-hour lifetime
+or revocation does not constrain independently minted tokens.
+
+The v6 reader in ``applied_manifest_v6`` stays off behind
+``V6_READER_ENABLED = False``. The production manifest writer emits v5, and
+the runner offers no enforcing mode. See
+``docs/content-bound-merge-guard.md`` for the design and activation holds.
+
+The evaluator returns ``not_applicable`` in two cases:
+
+* ``no_guarded_content``: every path in the complete tree delta appears on
+  the allowlist of unvalidated locations, and every added or modified leaf
+  has regular-file mode. The evaluator guards every other path, including
+  jurisdiction directories, ``programs/``, ``.axiom/``, ``.github/``, root
+  ledgers, tooling and new top-level entries.
+* ``earlier_lane_v5``: the delta contains only RuleSpec module files and
+  apply manifests with earlier schema labels. Each module file has a listing
+  in its own manifest, and the required check passes on the current head in
+  this PR's own ``pull_request`` run. The lane excludes changes to workflow
+  files and the toolchain pin. The evaluator relies on that CI run for v5
+  signature verification; it does not verify the signature itself or accept
+  a schema label alone.
+  The lane's scope proves that THIS pull request did not change the workflow
+  files or the toolchain pin the run used. It proves nothing about an
+  earlier pull request: whatever changed them and reached ``main`` is the
+  base this run trusts. So this lane is only as strong as the control over
+  changes to those files (design section 3, "Proposed three-class lane").
+
+The evaluator returns ``fail`` when no lane covers the whole guarded delta.
+For one ``applied-rulespec/v6`` promotion unit, it checks the complete scope,
+canonical paths, signing-run binding and live approval from an enrolled
+owner independent of the candidate author, dispatcher and every commit
+author and committer. The approval must cover the same promotion scope and
+primary, companion and manifest blobs as the current head, and the required
+CI must pass on that head in this PR's own ``pull_request`` run. The
+evaluator makes every read live through one injected ``fetch`` callable and
+returns ``fail`` on an error, truncation or disagreement. A ``fail`` that
+comes from a read the evaluator could not make whole carries
+``EVIDENCE_INCOMPLETE_READ`` in its evidence, so a caller can tell "refused"
+from "could not see" (``INCOMPLETE_READ_REASONS``, ``_Unread``).
 """
 
 from __future__ import annotations
@@ -48,20 +92,21 @@ from axiom_encode.reviewed_pr_admission import (
     TRUSTED_SIGNING_REVIEWERS,
     AdmissionError,
     PromotionSelector,
-    _leaf_entries,
-    _object,
-    _pages,
     _pr_identity,
     _require_immutable_delta,
     github_json,
 )
+from axiom_encode.reviewed_pr_admission import _leaf_entries as _shared_leaf_entries
+from axiom_encode.reviewed_pr_admission import _object as _shared_object
+from axiom_encode.reviewed_pr_admission import _pages as _shared_pages
 from axiom_encode.rulespec_citation_paths import (
     RULESPEC_ATOMIC_ROOTS,
     citation_rulespec_path,
 )
 
-# Schemas. The v6 manifest and its attestation scope do not exist yet; the
-# evaluator accepts exactly the shape below and nothing else.
+# Schemas. The design (section 5) proposes the v6 manifest and its attestation
+# scope, and no writer emits them yet. The evaluator accepts exactly the shape
+# below and nothing else.
 VERDICT_SCHEMA = "axiom-encode/content-bound-merge-guard-verdict/v1"
 MERGE_REQUIREMENT = "axiom-encode/content-bound-merge-guard/v1"
 MANIFEST_SCHEMA_V6 = "axiom-encode/applied-rulespec/v6"
@@ -243,6 +288,37 @@ R_CI = "ci_not_green"
 R_CHANGED = "changed_during_evaluation"
 R_MERGE_GROUP = "merge_group_not_implemented"
 
+# Reasons that always mean "a read was incomplete or unreadable", whatever
+# raised them: a truncated tree, a listing past its page bound, a blob that
+# cannot be read whole, two reads of one delta that disagree, a request that
+# failed, an error nobody foresaw, an evaluation that did not happen. The
+# verdict stays ``fail``. It is not a decision about the pull request: the
+# evaluator could not see all of it. ``evaluate`` marks every such verdict
+# with ``EVIDENCE_INCOMPLETE_READ`` in its evidence.
+#
+# Other reasons are mixed. ``ci_not_green`` is a decision when the required
+# check is red and an incomplete read when its listing does not add up. For
+# those the mark is set by what failed, not by the reason: a response that is
+# not the complete, well-formed object or list its read asked for raises
+# ``_Unread`` (see ``_refuse_as``).
+INCOMPLETE_READ_REASONS = frozenset(
+    {
+        R_READ_FAILED,
+        R_EVALUATION_ERROR,
+        R_INVALID_REQUEST,
+        R_DELTA_INCOMPLETE,
+        R_DELTA_DISAGREES,
+        R_BLOB_UNREADABLE,
+        R_REVIEWS,
+        R_COMMITS,
+        R_MERGE_GROUP,
+    }
+)
+# Evidence key of a verdict whose evaluation did not read everything it
+# needed. Present (``True``) only then. Such a verdict is never ``pass`` or
+# ``not_applicable``: only a ``_Refusal`` or an unforeseen error sets it.
+EVIDENCE_INCOMPLETE_READ = "incomplete_read"
+
 _SHA = re.compile(r"[0-9a-f]{40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _LOGIN = re.compile(r"[A-Za-z0-9-]{1,39}")
@@ -273,21 +349,102 @@ class Verdict:
 
 
 class _Refusal(AdmissionError):
-    def __init__(self, reason: str, detail: str = ""):
+    def __init__(self, reason: str, detail: str = "", *, unread: bool = False):
         super().__init__(detail or reason)
         self.reason = reason
         self.detail = detail
+        # True when the refusal comes from a read that was incomplete or
+        # unreadable, not from what a complete read showed.
+        self.unread = unread is True or reason in INCOMPLETE_READ_REASONS
+
+
+class _Unread(AdmissionError):
+    """A response is not the complete, well-formed answer to its read.
+
+    Not an object, not a list, a truncated tree, a listing past its page
+    bound, a count that does not add up, a field GitHub always sends that is
+    absent or ill-typed. The evaluator saw less than it asked for.
+    """
 
 
 @contextmanager
 def _refuse_as(reason: str):
-    """Give a reason code to a refusal raised by a shared admission helper."""
+    """Give a reason code to a refusal raised by a shared admission helper.
+
+    An ``_Unread`` keeps its meaning under every reason: the refusal carries
+    ``unread`` and the verdict the incomplete-read mark.
+    """
     try:
         yield
     except _Refusal:
         raise
     except AdmissionError as exc:
-        raise _Refusal(reason, str(exc)) from exc
+        raise _Refusal(reason, str(exc), unread=isinstance(exc, _Unread)) from exc
+
+
+def _shape_reader(helper):
+    """A shared response-shape helper whose refusal is an ``_Unread``.
+
+    ``_object``, ``_pages`` and ``_leaf_entries`` refuse only a response that
+    is not what its read asked for (no object, no list, more than a page, the
+    page bound, a truncated or malformed tree). None of them decides anything
+    about the pull request.
+    """
+
+    def wrapped(*args, **kwargs):
+        try:
+            return helper(*args, **kwargs)
+        except _Refusal:
+            raise
+        except AdmissionError as exc:
+            raise _Unread(str(exc)) from exc
+
+    wrapped.__name__ = helper.__name__
+    wrapped.__doc__ = helper.__doc__
+    return wrapped
+
+
+_object = _shape_reader(_shared_object)
+_pages = _shape_reader(_shared_pages)
+_leaf_entries = _shape_reader(_shared_leaf_entries)
+
+
+def _fields(value: object, label: str, *keys: str) -> dict:
+    """``value`` as an object that HAS every one of ``keys``.
+
+    The rule for every read: a key the evaluator needs that is absent from
+    the response is an incomplete read (``_Unread``), whatever the reason
+    code of the step. A key that is present with another value than the
+    guard requires is a decision. An empty object is therefore never a
+    decision: ``{}`` for a comparison, a workflow run or the pull request
+    itself says nothing about the pull request.
+    """
+    found = _object(value, label)
+    missing = [key for key in keys if key not in found]
+    if missing:
+        raise _Unread(f"GitHub {label} lacks {', '.join(sorted(missing))}")
+    return found
+
+
+_PR_FIELDS = ("number", "state", "merged", "draft", "head", "base", "user")
+
+
+def _pull_request(value: object, label: str) -> dict:
+    """A pull request object with every field the evaluator reads."""
+    pull = _fields(value, label, *_PR_FIELDS)
+    _fields(pull["head"], label + " head", "sha", "ref", "repo")
+    _fields(pull["base"], label + " base", "sha", "ref", "repo")
+    _fields(pull["user"], label + " author", "id")
+    return pull
+
+
+def _ancestry(read: Callable[[str], object], path: str) -> tuple[object, object]:
+    """One comparison: its ``status`` and the commit id of its merge base."""
+    comparison = _fields(read(path), "ancestry", "status", "merge_base_commit")
+    fork = _fields(comparison["merge_base_commit"], "merge base", "sha")["sha"]
+    if not isinstance(comparison["status"], str) or not isinstance(fork, str):
+        raise _Unread("GitHub ancestry names no status or no merge base")
+    return comparison["status"], fork
 
 
 @dataclass(frozen=True)
@@ -519,6 +676,8 @@ def _actor_ids(commit: dict) -> set[int]:
     """
     ids = set()
     for role in ("author", "committer"):
+        if role not in commit:
+            raise _Unread(f"commit entry lacks its {role}")
         account = commit.get(role)
         if account is None:
             raise _Refusal(
@@ -541,10 +700,10 @@ def _commit_shas(commits: list[dict]) -> list[str]:
 
 
 def _main_tip(read: Callable[[str], object], root: str) -> str:
-    main = _object(read(root + "/git/ref/heads/main"), "main ref")
-    sha = _object(main.get("object"), "main object").get("sha")
+    main = _fields(read(root + "/git/ref/heads/main"), "main ref", "object")
+    sha = _fields(main["object"], "main object", "sha")["sha"]
     if not isinstance(sha, str) or not _SHA.fullmatch(sha):
-        raise AdmissionError("main ref is not an exact commit")
+        raise _Unread("main ref is not an exact commit")
     return sha
 
 
@@ -554,21 +713,32 @@ def _is_ancestor(
     """Whether ``ancestor`` is ``descendant`` or one of its ancestors."""
     if ancestor == descendant:
         return True
-    comparison = _object(read(f"{root}/compare/{ancestor}...{descendant}"), "ancestry")
-    return (
-        comparison.get("status") == "ahead"
-        and _object(comparison.get("merge_base_commit"), "merge base").get("sha")
-        == ancestor
-    )
+    status, fork = _ancestry(read, f"{root}/compare/{ancestor}...{descendant}")
+    return status == "ahead" and fork == ancestor
 
 
 def _signing_run(
     read: Callable[[str], object], run_id: str
 ) -> tuple[int, int, str, str, int | None]:
     """Snapshot a successful encoder-main dispatch and its observed attempt."""
-    run = _object(read(f"{ENCODER_ROOT}/actions/runs/{run_id}"), "signing run")
-    actor = _object(run.get("actor"), "run actor")
-    trigger = _object(run.get("triggering_actor"), "triggering actor")
+    run = _fields(
+        read(f"{ENCODER_ROOT}/actions/runs/{run_id}"),
+        "signing run",
+        "id",
+        "repository",
+        "event",
+        "path",
+        "head_branch",
+        "head_sha",
+        "status",
+        "conclusion",
+        "actor",
+        "triggering_actor",
+        "run_attempt",
+    )
+    _fields(run["repository"], "run repository", "full_name")
+    actor = _fields(run["actor"], "run actor", "id")
+    trigger = _fields(run["triggering_actor"], "triggering actor", "id", "login")
     commit = run.get("head_sha")
     if (
         str(run.get("id")) != run_id
@@ -615,10 +785,14 @@ def _require_green_ci(
     runs = listing.get("check_runs")
     if (
         not isinstance(runs, list)
-        or not runs
-        or listing.get("total_count") != len(runs)
+        or type(listing.get("total_count")) is not int
+        or listing["total_count"] != len(runs)
     ):
-        raise AdmissionError("required check is absent or its listing is incomplete")
+        # More runs than one page, or a listing that is not a listing: the
+        # evaluator did not see every run with the required name.
+        raise _Unread("required check listing is incomplete")
+    if not runs:
+        raise AdmissionError("required check is absent")
     repository = root.removeprefix("/repos/")
     pattern = re.compile(
         re.escape(f"https://github.com/{repository}/actions/runs/")
@@ -626,7 +800,17 @@ def _require_green_ci(
     )
     identities = set()
     for run in runs:
-        run = _object(run, "check run")
+        run = _fields(
+            run,
+            "check run",
+            "name",
+            "app",
+            "head_sha",
+            "status",
+            "conclusion",
+            "details_url",
+        )
+        _fields(run["app"], "check app", "id")
         match = pattern.fullmatch(str(run.get("details_url", "")))
         if (
             run.get("name") != REQUIRED_CHECK_NAME
@@ -638,9 +822,21 @@ def _require_green_ci(
             or ("id" in run and not _strict_int(run["id"]))
         ):
             raise AdmissionError("required check is not green on the current head")
-        workflow = _object(
-            read(f"{root}/actions/runs/{match.group(1)}"), "check workflow run"
+        workflow = _fields(
+            read(f"{root}/actions/runs/{match.group(1)}"),
+            "check workflow run",
+            "id",
+            "event",
+            "path",
+            "head_sha",
+            "status",
+            "conclusion",
+            "repository",
+            "head_repository",
+            "pull_requests",
+            "run_attempt",
         )
+        _fields(workflow["repository"], "run repository", "full_name")
         pulls = workflow.get("pull_requests")
         if (
             str(workflow.get("id")) != match.group(1)
@@ -923,7 +1119,7 @@ def _control_plane_verdict(
     with _refuse_as(R_CI):
         ci_state = _require_green_ci(read, root, head, number)
     with _refuse_as(R_CHANGED):
-        after = _object(read(pr_path), "PR recheck")
+        after = _pull_request(read(pr_path), "PR recheck")
         if (
             _pr_identity(after, target) != identity
             or after.get("draft") is not False
@@ -1015,14 +1211,22 @@ def evaluate(
     try:
         return _evaluate(repository, pr, _reader(fetch), evidence)
     except _Refusal as refusal:
+        if refusal.unread:
+            evidence[EVIDENCE_INCOMPLETE_READ] = True
         return Verdict(FAIL, refusal.reason, refusal.detail, evidence)
     except Exception as exc:  # fail closed on anything unforeseen
+        evidence[EVIDENCE_INCOMPLETE_READ] = True
         return Verdict(FAIL, R_EVALUATION_ERROR, type(exc).__name__, evidence)
 
 
 def evaluate_merge_group(*_args, **_kwargs) -> Verdict:
     """STUB. Merge-group evaluation (design section 6) is not implemented."""
-    return Verdict(FAIL, R_MERGE_GROUP, "merge-group evaluation is not implemented")
+    return Verdict(
+        FAIL,
+        R_MERGE_GROUP,
+        "merge-group evaluation is not implemented",
+        {EVIDENCE_INCOMPLETE_READ: True},
+    )
 
 
 def _evaluate(name, number, read, evidence) -> Verdict:
@@ -1037,8 +1241,8 @@ def _evaluate(name, number, read, evidence) -> Verdict:
     # 1. PR identity: open, unmerged, same-repository head, base ``main``,
     # strictly ahead of the live ``main`` tip.
     with _refuse_as(R_PR_IDENTITY):
-        before = _object(read(pr_path), "PR")
-        pr_head = _object(before.get("head"), "PR head")
+        before = _pull_request(read(pr_path), "PR")
+        pr_head = before["head"]
         head, branch = pr_head.get("sha"), pr_head.get("ref")
         if (
             not isinstance(head, str)
@@ -1046,20 +1250,27 @@ def _evaluate(name, number, read, evidence) -> Verdict:
             or not isinstance(branch, str)
             or not branch
         ):
-            raise AdmissionError("PR head is not an exact commit on a branch")
+            raise _Unread("PR head is not an exact commit on a branch")
+        # (``head.repo`` is present and null when the fork was deleted: that
+        # is a decision. An absent ``repo`` key is an incomplete read.)
+        if not _strict_int(before["user"]["id"]):
+            raise _Unread("PR author lacks a numeric identity")
         target = _Target(number, head, branch, repository)
         identity = _pr_identity(before, target)
         author_id = identity[1]
-        if not _strict_int(author_id):
-            raise AdmissionError("PR author lacks a numeric identity")
     evidence["head"] = head
     with _refuse_as(R_BASE_NOT_CURRENT):
         base = _main_tip(read, root)
         evidence["base"] = base
-        comparison = _object(read(f"{root}/compare/{base}...{head}"), "ancestry")
+        comparison = _fields(
+            read(f"{root}/compare/{base}...{head}"),
+            "ancestry",
+            "status",
+            "merge_base_commit",
+        )
         if (
-            comparison.get("status") != "ahead"
-            or _object(comparison.get("merge_base_commit"), "merge base").get("sha")
+            comparison["status"] != "ahead"
+            or _fields(comparison["merge_base_commit"], "merge base", "sha")["sha"]
             != base
         ):
             raise AdmissionError("head must descend from the current main tip")
@@ -1174,7 +1385,7 @@ def _evaluate(name, number, read, evidence) -> Verdict:
         with _refuse_as(R_CI):
             ci_state = _require_green_ci(read, root, head, number)
         with _refuse_as(R_CHANGED):
-            after = _object(read(pr_path), "PR recheck")
+            after = _pull_request(read(pr_path), "PR recheck")
             if _pr_identity(after, target) != identity or _main_tip(read, root) != base:
                 raise AdmissionError("PR or main changed during evaluation")
             if _require_green_ci(read, root, head, number) != ci_state:
@@ -1398,7 +1609,7 @@ def _evaluate(name, number, read, evidence) -> Verdict:
 
     # 8. Re-read the mutable state; any movement refuses this evaluation.
     with _refuse_as(R_CHANGED):
-        after = _object(read(pr_path), "PR recheck")
+        after = _pull_request(read(pr_path), "PR recheck")
         if (
             _pr_identity(after, target) != identity
             or after.get("draft") is not False
