@@ -244,7 +244,7 @@ def test_one_parsed_value_gates_the_reader_step_and_the_promotion():
     output = "${{ steps.review_record_switch.outputs.required }}"
     for name in (
         "Encode, review, validate, and apply",
-        "Push lane branch and open draft pull request",
+        "Prepare reviewed lane pull request branch",
     ):
         assert step(name)["env"]["REVIEW_RECORD_REQUIRED"] == output
 
@@ -272,10 +272,9 @@ def test_no_other_step_changed_its_condition_for_the_switch():
 )
 def test_a_switch_mismatch_refuses_and_queues_no_command(payload, switch):
     completed = run_promotion_fragment(payload, switch)
+    # The step stops at the guard; no supervised command is queued.
     assert completed.returncode == 1
     assert completed.stdout == ""
-    assert "review record switch mismatch" in completed.stderr
-    assert "nothing is signed" in completed.stderr
 
 
 SPACED_WRAPPERS = [
@@ -348,32 +347,96 @@ def test_every_other_run_states_that_the_switch_is_off(source, tmp_path):
 
 
 def lane_body(tmp_path: Path, summary: str | None, switch: str | None = None):
-    script = fragment(
+    """Run the two fragments as the workflow does: prepare, then publish.
+
+    The first fragment is in the token-free step that prepares the branch;
+    the second is in the step that holds the repository token.
+    """
+
+    prepare = fragment(
+        step("Prepare reviewed lane pull request branch")["run"],
+        'lane_review_record="$RUNNER_TEMP/lane-review-record.md"',
+        "printf '%s\\n' 'Review record required: no' > \"$lane_review_record\"",
+    )
+    publish = fragment(
         step("Push lane branch and open draft pull request")["run"],
-        'review_records="$RUNNER_TEMP/promotion-review-records/',
-        "body=\"$(printf '%s\\n' \"$body\" '' 'Review record required: no')\"",
+        'review_record_section="$(jq -rRs',
+        'body="$(printf \'%s\\n\' "$body" \'\' "$review_record_section")"',
     )
     if summary is not None:
         directory = tmp_path / "promotion-review-records"
         directory.mkdir()
         (directory / "candidate-review-records.md").write_text(summary)
+    environment = {
+        **{k: v for k, v in os.environ.items() if k != "REVIEW_RECORD_REQUIRED"},
+        "RUNNER_TEMP": str(tmp_path),
+    }
+    prepared = subprocess.run(
+        ["bash", "-c", "set -euo pipefail\n" + prepare + "\nfi\n"],
+        capture_output=True,
+        text=True,
+        env={
+            **environment,
+            **({} if switch is None else {"REVIEW_RECORD_REQUIRED": switch}),
+        },
+    )
+    if prepared.returncode != 0:
+        return None
     completed = subprocess.run(
         [
             "bash",
             "-c",
             'set -euo pipefail\nbody="existing body"\n'
-            + script
-            + '\nfi\nprintf "%s" "$body"\n',
+            + publish
+            + '\nprintf "%s" "$body"\n',
         ],
         capture_output=True,
         text=True,
-        env={
-            **{k: v for k, v in os.environ.items() if k != "REVIEW_RECORD_REQUIRED"},
-            "RUNNER_TEMP": str(tmp_path),
-            **({} if switch is None else {"REVIEW_RECORD_REQUIRED": switch}),
-        },
+        env=environment,
     )
     return completed.stdout if completed.returncode == 0 else None
+
+
+@needs_shell
+def test_the_token_step_stops_when_the_prepared_text_is_missing(tmp_path):
+    publish = fragment(
+        step("Push lane branch and open draft pull request")["run"],
+        'review_record_section="$(jq -rRs',
+        'body="$(printf \'%s\\n\' "$body" \'\' "$review_record_section")"',
+    )
+    for content in (None, ""):
+        if content is not None:
+            (tmp_path / "lane-review-record.md").write_text(content)
+        completed = subprocess.run(
+            ["bash", "-c", 'set -euo pipefail\nbody="x"\n' + publish + "\necho done\n"],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        )
+        assert completed.returncode != 0 and "done" not in completed.stdout
+
+
+def test_the_token_step_takes_the_review_record_text_as_a_file_only():
+    token_step = step("Push lane branch and open draft pull request")
+    assert "REVIEW_RECORD_REQUIRED" not in token_step["env"]
+    assert "promotion-review-records" not in token_step["run"]
+    assert "cat " not in token_step["run"]
+    prepare = step("Prepare reviewed lane pull request branch")
+    assert "secrets." not in json.dumps(prepare.get("env", {}))
+    assert prepare["env"]["REVIEW_RECORD_REQUIRED"] == (
+        "${{ steps.review_record_switch.outputs.required }}"
+    )
+
+
+def test_the_new_steps_have_step_checks():
+    from axiom_encode import infra_checks
+
+    for name in (SWITCH_STEP, READ_STEP):
+        check_id = infra_checks.step_check_id(name)
+        assert any(
+            definition["id"] == check_id
+            for definition in infra_checks.STEP_CHECK_DEFINITIONS
+        )
 
 
 @needs_shell

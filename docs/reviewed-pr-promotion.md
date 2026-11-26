@@ -823,7 +823,9 @@ anonymous API budget. A body holds 65,536 characters; `render` refuses above
 3. **After signing**: the lane pull request body gets a `Review record`
    section (candidate pull request, head, body SHA-256, signing run and
    attempt, each record in full; status and hashes only when the records do
-   not fit). The run artifact gets `candidate-review-records.json` (what was
+   not fit). The text is written by the token-free step that prepares the
+   lane branch; the step that holds the repository token reads it as a file
+   and runs no command on it. The run artifact gets `candidate-review-records.json` (what was
    read), `candidate-review-records.md` and `candidate-pull-request-body.md`.
 
 A unit is admitted when exactly one record names it and that record:
@@ -865,8 +867,7 @@ signed.
 The switch is parsed once, by the step `Decide the review record switch`. The
 reader step runs when that value is `true`, and the step that builds the
 supervised command compares the value with its own parse of the wrapper. When
-they differ the run stops with `review record switch mismatch` before any
-command is queued. So spacing or an escape in the key cannot turn the check
+they differ the step stops at that comparison, before any command is queued. So spacing or an escape in the key cannot turn the check
 on in one place and off in the other.
 
 The read costs one anonymous API request for the run, not one for each unit.

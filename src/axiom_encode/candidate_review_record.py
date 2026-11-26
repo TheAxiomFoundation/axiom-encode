@@ -483,11 +483,11 @@ def record_issues(record: object) -> list[str]:
     assert isinstance(record, dict)
     if record["schema"] != SCHEMA:
         return [f"the record schema is not {SCHEMA}"]
-    issues: list[str] = []
+    reasons: list[str] = []
     citation = record["citation"]
     path = record["rulespec_path"]
     if not isinstance(citation, str) or _PATH.fullmatch(citation) is None:
-        issues.append("the citation is not a plain citation path")
+        reasons.append("the citation is not a plain citation path")
     if (
         not isinstance(path, str)
         or _PATH.fullmatch(path) is None
@@ -495,8 +495,8 @@ def record_issues(record: object) -> list[str]:
         or path.endswith(".test.yaml")
         or any(part in {"", ".", ".."} for part in path.split("/"))
     ):
-        issues.append("the module path is not a plain RuleSpec module path")
-        return issues
+        reasons.append("the module path is not a plain RuleSpec module path")
+        return reasons
     reviewed = record["reviewed"]
     if (
         not _exact(reviewed, _REVIEWED_FIELDS)
@@ -513,8 +513,8 @@ def record_issues(record: object) -> list[str]:
             )
         )
     ):
-        issues.append("the reviewed digests are malformed")
-        return issues
+        reasons.append("the reviewed digests are malformed")
+        return reasons
     encoder = record["encoder"]
     if (
         not _exact(encoder, _ENCODER_FIELDS)
@@ -527,24 +527,26 @@ def record_issues(record: object) -> list[str]:
             )
         )
     ):
-        issues.append("the encoder identity is malformed")
+        reasons.append("the encoder identity is malformed")
     status = record["status"]
     if not isinstance(status, str) or status not in STATUSES | {STATUS_ERROR}:
-        issues.append("the status is not a known review status")
+        reasons.append("the status is not a known review status")
     error = record["error"]
     if (status == STATUS_ERROR) is not (
         isinstance(error, str) and 0 < len(error) <= MAX_ERROR_CHARS
     ) or not (error is None or isinstance(error, str)):
-        issues.append("an error text is required for the status error and for no other")
+        reasons.append(
+            "an error text is required for the status error and for no other"
+        )
     raw_digest = record["raw_output_sha256"]
     if not (
         raw_digest is None
         or (isinstance(raw_digest, str) and _SHA256.fullmatch(raw_digest))
     ):
-        issues.append("the raw output digest is malformed")
+        reasons.append("the raw output digest is malformed")
     calls = record["calls"]
     if not _call_shape_ok(calls):
-        issues.append("the reviewer calls are malformed")
+        reasons.append("the reviewer calls are malformed")
         calls = None
     run = record["run"]
     if (
@@ -556,15 +558,15 @@ def record_issues(record: object) -> list[str]:
         or type(run["attempt"]) is not int
         or not 1 <= run["attempt"] <= 999_999_999
     ):
-        issues.append("the run id or the attempt number is malformed")
+        reasons.append("the run id or the attempt number is malformed")
     created = record["created_at"]
     if not isinstance(created, str) or _CREATED_AT.fullmatch(created) is None:
-        issues.append("the time is not in the form YYYY-MM-DDTHH:MM:SSZ")
+        reasons.append("the time is not in the form YYYY-MM-DDTHH:MM:SSZ")
     else:
         try:
             datetime.strptime(created, "%Y-%m-%dT%H:%M:%SZ")
         except ValueError:
-            issues.append("the time is not a calendar time")
+            reasons.append("the time is not a calendar time")
 
     findings = record["findings"]
     if (
@@ -592,10 +594,10 @@ def record_issues(record: object) -> list[str]:
             for finding in findings
         )
     ):
-        issues.append("the findings are malformed")
+        reasons.append("the findings are malformed")
         findings = None
     elif record["findings_sha256"] != findings_sha256(findings):
-        issues.append(
+        reasons.append(
             "the findings differ from their digest: a finding was edited, "
             "added or removed after the record was made"
         )
@@ -605,10 +607,10 @@ def record_issues(record: object) -> list[str]:
         # An error record keeps what is known and is checked for shape only:
         # it admits nothing, so nothing in it has to be consistent.
         if not (embedded is None or isinstance(embedded, dict)):
-            issues.append("the embedded review record is not an object or null")
+            reasons.append("the embedded review record is not an object or null")
         if record["reviewers"] != []:
-            issues.append("an error record names no reviewer")
-        return issues
+            reasons.append("an error record names no reviewer")
+        return reasons
     companion_path = companion_test_manifest_path(path)
     embedded_issues = generalist_review_record_issues(
         embedded,
@@ -618,15 +620,15 @@ def record_issues(record: object) -> list[str]:
         ],
     )
     if embedded_issues:
-        issues.append(
+        reasons.append(
             f"the embedded {GENERALIST_REVIEW_SCHEMA} record is not valid for "
             "the two reviewed files: "
             + "; ".join(str(issue) for issue in embedded_issues[:3])
         )
-        return issues
+        return reasons
     assert isinstance(embedded, dict)
     if embedded.get("status") != status:
-        issues.append("the status differs from the embedded review record")
+        reasons.append("the status differs from the embedded review record")
     reviewer = embedded.get("reviewer")
     reviewer = reviewer if isinstance(reviewer, dict) else {}
     verdict = embedded.get("verdict")
@@ -650,7 +652,7 @@ def record_issues(record: object) -> list[str]:
             and not math.isfinite(reviewers[0]["score"])
         )
     ):
-        issues.append(
+        reasons.append(
             "the reviewer list is not exactly the reviewer of the embedded "
             "review record"
         )
@@ -663,14 +665,14 @@ def record_issues(record: object) -> list[str]:
             and type(count) is int
             and count != len(findings)
         ):
-            issues.append(
+            reasons.append(
                 "the number of findings differs from the issue count of the "
                 "embedded review record"
             )
         if status == STATUS_PASSED and any(
             finding["severity"] == SEVERITY_BLOCKING for finding in findings
         ):
-            issues.append("a passed record carries a blocking finding")
+            reasons.append("a passed record carries a blocking finding")
     if calls is not None and status == STATUS_PASSED:
         # A pass needs every planned call: made, passed, in order, and with
         # prompt digests that give the prompt digest of the review. The v2
@@ -695,7 +697,7 @@ def record_issues(record: object) -> list[str]:
                 else {chunked_prompt_sha256(digests)}
             )
         ):
-            issues.append(
+            reasons.append(
                 "a passed record does not list every planned reviewer call "
                 "as made and passed, with the prompt digests of the review"
             )
@@ -710,8 +712,8 @@ def record_issues(record: object) -> list[str]:
             )
             for finding in findings
         ):
-            issues.append("a finding names a reviewer call that the record lacks")
-    return issues
+            reasons.append("a finding names a reviewer call that the record lacks")
+    return reasons
 
 
 def unit_record_issues(
@@ -733,16 +735,16 @@ def unit_record_issues(
     encoder that the signing encoder does not know.)
     """
 
-    issues = record_issues(record)
-    if issues:
-        return issues
+    reasons = record_issues(record)
+    if reasons:
+        return reasons
     assert isinstance(record, dict)
     if record["citation"] != citation:
-        issues.append(
+        reasons.append(
             f"the record is for citation {record['citation']}, not {citation}"
         )
     if record["rulespec_path"] != rulespec_path:
-        issues.append(
+        reasons.append(
             f"the record is for module {record['rulespec_path']}, not {rulespec_path}"
         )
     if record["status"] != STATUS_PASSED:
@@ -750,30 +752,30 @@ def unit_record_issues(
         reason = record["error"] or (
             embedded.get("reason") if isinstance(embedded, dict) else None
         )
-        issues.append(
+        reasons.append(
             f"the review status is {record['status']}"
             + (f" ({reason})" if reason else "")
             + ", not passed"
         )
     reviewed = record["reviewed"]
     if reviewed["rulespec_sha256"] != rulespec_sha256:
-        issues.append(
+        reasons.append(
             "the module changed after the review: reviewed sha256 "
             f"{reviewed['rulespec_sha256']}, candidate sha256 {rulespec_sha256}"
         )
     if reviewed["companion_sha256"] != companion_sha256:
-        issues.append(
+        reasons.append(
             "the companion test changed after the review: reviewed sha256 "
             f"{reviewed['companion_sha256']}, candidate sha256 {companion_sha256}"
         )
     signing = _version_tuple(encoder_version)
     recorded = _version_tuple(record["encoder"]["version"])
     if signing is None or recorded is None or recorded > signing:
-        issues.append(
+        reasons.append(
             f"the record names encoder version {record['encoder']['version']}, "
             f"which is newer than the signing encoder {encoder_version}"
         )
-    return issues
+    return reasons
 
 
 def select_unit_record(

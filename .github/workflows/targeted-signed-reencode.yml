@@ -3130,15 +3130,15 @@ jobs:
             fi
             # The wrapper key "require_review_record": true. The command
             # then signs only when the file holds, for every unit, one passed
-            # review record bound to the exact bytes it signs. The value of
-            # the switch step and this step's own parse must agree.
+            # review record bound to the exact bytes it signs. The switch is
+            # the one value of the step "Decide the review record switch".
+            # This step's own parse of the wrapper must give the same value:
+            # the test below stops the step, before any command is queued,
+            # when they differ.
             review_record_required="$(jq -r \
               '.promotion_review_record_required == true' \
               <<< "$atomic_source_payload")"
-            if [ "$review_record_required" != "${REVIEW_RECORD_REQUIRED:-false}" ]; then
-              echo "review record switch mismatch: the switch step says '${REVIEW_RECORD_REQUIRED:-false}' and the promotion wrapper says '$review_record_required'; nothing is signed" >&2
-              exit 1
-            fi
+            test "$review_record_required" = "${REVIEW_RECORD_REQUIRED:-false}"
             if [ "$review_record_required" = "true" ]; then
               promotion_args+=(--require-review-record \
                 "$RUNNER_TEMP/promotion-review-records/candidate-review-records.json")
@@ -5652,8 +5652,20 @@ jobs:
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          REVIEW_RECORD_REQUIRED: ${{ steps.review_record_switch.outputs.required }}
         run: |
           set -euo pipefail
+          # The review record text of the lane pull request body, written
+          # here without a token: the publication step holds the repository
+          # token and reads this file as data only.
+          lane_review_record="$RUNNER_TEMP/lane-review-record.md"
+          if [ "${REVIEW_RECORD_REQUIRED:-false}" = "true" ]; then
+            test -s "$RUNNER_TEMP/promotion-review-records/candidate-review-records.md"
+            cp "$RUNNER_TEMP/promotion-review-records/candidate-review-records.md" \
+              "$lane_review_record"
+          else
+            printf '%s\n' 'Review record required: no' > "$lane_review_record"
+          fi
           workflow_python=(/opt/axiom-verification/python/bin/python -I)
           if [ ! -x "${workflow_python[0]}" ]; then
             workflow_python=("${AXIOM_TEST_PYTHON:-python}")
@@ -5746,7 +5758,6 @@ jobs:
           PUBLICATION_BASE_SHA256: ${{ steps.reviewed_lane_pull_request_branch.outputs.publication_base_sha256 }}
           PROMOTION_UNITS: ${{ steps.reviewed_lane_pull_request_branch.outputs.promotion_units }}
           PROMOTION_UNIT_COUNT: ${{ steps.reviewed_lane_pull_request_branch.outputs.promotion_unit_count }}
-          REVIEW_RECORD_REQUIRED: ${{ steps.review_record_switch.outputs.required }}
         run: |
           set -euo pipefail
           test "$PRIOR_STATUS" = success
@@ -5791,16 +5802,14 @@ jobs:
             fi
             body="$(printf '%s\n' "$body" '' "Units (${PROMOTION_UNIT_COUNT}): \`${PROMOTION_UNITS}\`")"
           fi
-          # Every lane pull request states the review record switch. A run
-          # that required review records and admitted every unit adds the
-          # section: status, digests, findings, attempt, body digest.
-          review_records="$RUNNER_TEMP/promotion-review-records/candidate-review-records.md"
-          if [ "${REVIEW_RECORD_REQUIRED:-false}" = "true" ]; then
-            test -s "$review_records"
-            body="$(printf '%s\n' "$body" '' "$(cat "$review_records")")"
-          else
-            body="$(printf '%s\n' "$body" '' 'Review record required: no')"
-          fi
+          # Every lane pull request states the review record switch. The
+          # text was written by the token-free step that prepared the branch
+          # (one line for "no"; the section with status, digests, findings,
+          # attempt and body digest for "yes"). This step only reads it as
+          # data; a missing file stops the publication.
+          review_record_section="$(jq -rRs '.' "$RUNNER_TEMP/lane-review-record.md")"
+          test -n "$review_record_section"
+          body="$(printf '%s\n' "$body" '' "$review_record_section")"
           gh auth setup-git
           git -C "$RULESPEC_CHECKOUT" -c core.hooksPath=/dev/null push \
             "https://github.com/${repo}.git" "HEAD:refs/heads/${branch}"

@@ -458,6 +458,18 @@
       "why": "The step publishes verified changes. The encode itself finished; a failure here means no pull request or no signed artifact for this run."
     },
     {
+      "category": "infra:decide-the-review-record-switch",
+      "cause": "infra",
+      "fix": "Read the step's message. A failure here is a runtime or input transport fault, not a refused review record: check that the preflight runtime installed, and dispatch again.",
+      "gate": "workflow",
+      "id": "infra:decide-the-review-record-switch",
+      "requires": "The locked preflight runtime starts and the dispatch inputs are one JSON object. The step then writes `Review record required: yes|no` to the run summary; it reads no pull request and refuses no request by itself.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Decide the review record switch",
+      "title": "The review record switch of the dispatch could not be decided",
+      "why": "The step reads the dispatch inputs before the model runs and refuses a request that it cannot bind to one exact transaction. Nothing was encoded, so the encoder output is not at fault."
+    },
+    {
       "category": "infra:download-authenticated-corpus-export-archive",
       "cause": "infra",
       "fix": "Retry; if the artifact expired, run the corpus export again and dispatch with the new run id.",
@@ -744,6 +756,18 @@
       "site": ".github/workflows/targeted-signed-reencode.yml:Push retired source metadata migration branch and open draft pull request",
       "title": "The migration branch or its draft pull request cannot be published",
       "why": "The step publishes verified changes. The encode itself finished; a failure here means no pull request or no signed artifact for this run."
+    },
+    {
+      "category": "infra:read-candidate-review-records",
+      "cause": "infra",
+      "fix": "Read the step's message; it names the unit and the reason. Create the record on the candidate head with `axiom-encode review-record create`, put the output of `review-record render` in the pull request body, check it with `review-record verify`, and dispatch again. If the read itself failed, wait for the anonymous GitHub API limit (60 requests an hour for one address) and dispatch again.",
+      "gate": "workflow",
+      "id": "infra:read-candidate-review-records",
+      "requires": "The dispatch asked for review records (`\"require_review_record\": true`). The candidate pull request can be read at the dispatched `rulespec_ref`, and its body holds, for every unit, exactly one review record block in the rendered form whose status is `passed` and whose citation, module path and SHA-256 of the module and of the companion equal the committed files.",
+      "severity": "important",
+      "site": ".github/workflows/targeted-signed-reencode.yml:Read candidate review records",
+      "title": "A unit of the promotion has no passed review record for its exact bytes",
+      "why": "The step reads the dispatch inputs before the model runs and refuses a request that it cannot bind to one exact transaction. Nothing was encoded, so the encoder output is not at fault."
     },
     {
       "category": "infra:recheck-live-reviewed-pr-authorization-before-publication",
@@ -1274,6 +1298,6 @@
       "why": "A verifier switch may restate observed failures, but it cannot grant new waiver authority or change the policy bytes covered by that authority."
     }
   ],
-  "registry_sha256": "5ad9cf28d7c9e5e0ad75cfc226a76f532185a8559f3b4158cb9b9b611d6c3fa8",
+  "registry_sha256": "eca8c128714ed3271f14e8f525603ec8edcef44a706f5a059265a7714c97ae1b",
   "schema": "axiom-encode/check-registry/v1"
 }
