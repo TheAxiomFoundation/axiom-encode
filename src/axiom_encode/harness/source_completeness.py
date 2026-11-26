@@ -511,6 +511,16 @@ _INLINE_PARENTHESIZED_OUTLINE_MARKER = re.compile(
     r"(?=\s|bis\b)",
     flags=re.IGNORECASE,
 )
+# _PARENTHESIZED_OUTLINE_MARKER widened to two-letter labels, so that a line can
+# open with a U.S. Code item (aa) or subitem (AA). Only the U.S. legal outline
+# reads it, and only at line starts the narrower regex leaves untaken.
+_US_CODE_DOUBLE_LETTER_OUTLINE_MARKER = re.compile(
+    r"(?m)^[ \t]*(?:[A-Z]\.)?"
+    r"(?P<marker>\((?:\d+[a-z]?|[a-z]{1,2}|[ivxlcdm]{2,15})\)"
+    r"(?:[ \t]*\((?:\d+[a-z]?|[a-z]{1,2}|[ivxlcdm]{2,15})\))*)"
+    r"(?=\s|bis\b)",
+    flags=re.IGNORECASE,
+)
 _STANDALONE_ROMAN_ITEM_TOKEN = re.compile(
     r"(?<![A-Za-z0-9)\]])(?P<marker>\((?:i|ii)\))(?![ \t]*\()"
 )
@@ -4350,6 +4360,13 @@ def _qualified_parenthesized_legal_outline_markers(
     ``(a)(3)``, ``(a)(6)(ii)(G)(3)``, and ``(c)(3)``.  Use the conventional
     U.S. legal hierarchy only when sequential root subsections prove that the
     source is an outline; otherwise retain the legacy flat recognizer.
+
+    A line-leading marker can also hold a U.S. Code subclause ``(I)``, item
+    ``(aa)`` or subitem ``(AA)``, which :func:`_us_code_outline_level` places
+    only on evidence from the outline. A line that opens with a two-letter label
+    no other level takes, such as ``(aa)`` or ``(dd)``, counts only when every
+    such label in its marker gets a U.S. Code level; otherwise it stays running
+    text. Inline markers never get these levels.
     """
 
     line_matches = tuple(_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text))
@@ -4403,17 +4420,55 @@ def _qualified_parenthesized_legal_outline_markers(
         if first_labels and first_labels[0][0].isdigit()
         else _PARENTHESIZED_LEGAL_OUTLINE_LEVELS
     )
+    # The U.S. Code levels below a clause sit deeper than every level above.
+    us_code_base_level = len(outline_levels)
+    double_letter_line_matches = _us_code_double_letter_line_matches(
+        source_text, line_matches
+    )
+    double_letter_line_starts = {
+        match.start("marker") for match in double_letter_line_matches
+    }
+    us_code_line_matches = tuple(
+        heapq.merge(
+            line_matches,
+            double_letter_line_matches,
+            key=lambda match: match.start("marker"),
+        )
+    )
+    us_code_line_index = {
+        match.start("marker"): index for index, match in enumerate(us_code_line_matches)
+    }
 
     markers: list[_OutlineMarker] = []
     emitted_paths: set[tuple[str, ...]] = set()
     active: list[tuple[int, str, str, str]] = []
-    for match_index, match in enumerate(matches):
+    # Indexes ``matches``, which holds no double-letter line marker, so after
+    # such a marker ``match_index + 1`` is the next marker the scans hold.
+    match_index = -1
+    for match in heapq.merge(
+        matches,
+        double_letter_line_matches,
+        key=lambda match: match.start("marker"),
+    ):
+        marker_start = match.start("marker")
+        is_double_letter_line_marker = marker_start in double_letter_line_starts
+        if not is_double_letter_line_marker:
+            match_index += 1
         raw_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker")))
-        if not raw_labels or not all(
+        if not raw_labels:
+            continue
+        # A marker with a label only the U.S. Code levels take is skipped, as
+        # every such marker was before, unless each such label gets one.
+        needs_us_code_level = not all(
             _is_parenthesized_outline_label(label) for label in raw_labels
+        )
+        if needs_us_code_level and not all(
+            _is_us_code_outline_label(label) for label in raw_labels
         ):
             continue
-        marker_start = match.start("marker")
+        active_before = active
+        markers_before = len(markers)
+        added_paths: list[tuple[str, ...]] = []
         attached_parent_level: int | None = None
         for label_index, raw_label in enumerate(raw_labels):
             # The level function applies the roman rule only to an (i) that
@@ -4421,7 +4476,11 @@ def _qualified_parenthesized_legal_outline_markers(
             following_label: str | None = None
             if label_index == 0 and raw_label == "i":
                 following_label = _label_beside_i(scan, match_index + 1, raw_labels[1:])
-                if following_label == "ii":
+                if following_label == "ii" and is_double_letter_line_marker:
+                    # Neither check below holds this marker, so withhold the
+                    # roman reading.
+                    following_label = None
+                elif following_label == "ii":
                     # The reference filter can drop an inline (i) and keep the
                     # (ii) after it, so (ii) counts only when the unfiltered
                     # markers also put it next.
@@ -4444,13 +4503,37 @@ def _qualified_parenthesized_legal_outline_markers(
                         )
                         if token_label != "ii":
                             following_label = token_label
-            level, category = _parenthesized_legal_outline_level(
-                raw_label,
-                active=active,
-                attached_parent_level=attached_parent_level,
-                outline_levels=outline_levels,
-                following_label=following_label,
+            us_code_level = (
+                _us_code_outline_level(
+                    raw_label,
+                    active=active,
+                    base_level=us_code_base_level,
+                    label_at_level=functools.partial(
+                        _us_code_label_at_level,
+                        labels_after=raw_labels[label_index + 1 :],
+                        line_matches=us_code_line_matches,
+                        start=us_code_line_index[marker_start] + 1,
+                    ),
+                )
+                if marker_start not in inline_marker_starts
+                else None
             )
+            if us_code_level is not None:
+                level, category = us_code_level
+            elif not _is_parenthesized_outline_label(raw_label):
+                # Undo the labels before it and skip the marker.
+                active = active_before
+                del markers[markers_before:]
+                emitted_paths.difference_update(added_paths)
+                break
+            else:
+                level, category = _parenthesized_legal_outline_level(
+                    raw_label,
+                    active=active,
+                    attached_parent_level=attached_parent_level,
+                    outline_levels=outline_levels,
+                    following_label=following_label,
+                )
             if (
                 marker_start in inline_marker_starts
                 and marker_start not in flattened_root_starts
@@ -4480,7 +4563,9 @@ def _qualified_parenthesized_legal_outline_markers(
                         f"({raw_label})",
                     )
                 )
-                emitted_paths.add(path)
+                if path not in emitted_paths:
+                    added_paths.append(path)
+                    emitted_paths.add(path)
             attached_parent_level = level
 
     root_category = outline_levels[0]
@@ -4878,6 +4963,265 @@ def _outline_label_opens_roman_items(following_label: str | None) -> bool:
     """
 
     return following_label == "ii"
+
+
+# A U.S. Code level below a clause opens on its first label when the innermost
+# open marker has the category of the level above it and the next label at the
+# new level is the second label: (I) then (II) under a clause, (aa) then (bb)
+# under a subclause, (AA) then (BB) under an item. Each value holds the parent
+# category, the second label and the category the label opens.
+_US_CODE_OUTLINE_OPENINGS = {
+    "I": ("roman", "II", "upper-roman"),
+    "aa": ("upper-roman", "bb", "item"),
+    "AA": ("item", "BB", "subitem"),
+}
+_US_CODE_OUTLINE_LEVEL_OFFSETS = {"upper-roman": 0, "item": 1, "subitem": 2}
+# Lists that a U.S. Code label can continue: the three U.S. Code levels, a
+# lettered list at (z) or (Z), and the doubles that continue such a list past
+# it, (aa) or (AA) on. The CFR-style levels never see the last two categories.
+_US_CODE_ALPHA_DOUBLE_CATEGORIES = {
+    "lower-alpha": "lower-alpha-double",
+    "upper-alpha": "upper-alpha-double",
+}
+_US_CODE_CONTINUED_CATEGORIES = frozenset(
+    {
+        "upper-roman",
+        "item",
+        "subitem",
+        *_US_CODE_ALPHA_DOUBLE_CATEGORIES,
+        *_US_CODE_ALPHA_DOUBLE_CATEGORIES.values(),
+    }
+)
+
+
+def _is_same_letter_double_label(label: str) -> bool:
+    """Whether ``label`` repeats one ASCII letter in one case, as ``aa`` or ``II``."""
+
+    return (
+        len(label) == 2 and label[0] == label[1] and label.isascii() and label.isalpha()
+    )
+
+
+def _is_us_code_outline_label(label: str) -> bool:
+    """Whether ``label`` is an outline label once U.S. Code doubles count."""
+
+    return _is_parenthesized_outline_label(label) or _is_same_letter_double_label(label)
+
+
+def _us_code_double_letter_line_matches(
+    source_text: str,
+    line_matches: Sequence[re.Match[str]],
+) -> tuple[re.Match[str], ...]:
+    """Return the line markers that only a U.S. Code double-letter label makes.
+
+    Each opens a line where ``_PARENTHESIZED_OUTLINE_MARKER`` takes nothing,
+    because its chain holds a label such as ``(aa)`` or ``(AA)``, and every
+    label in it is an outline label once same-letter doubles count.
+    """
+
+    line_starts = {match.start("marker") for match in line_matches}
+    return tuple(
+        match
+        for match in _US_CODE_DOUBLE_LETTER_OUTLINE_MARKER.finditer(source_text)
+        if match.start("marker") not in line_starts
+        and all(
+            _is_us_code_outline_label(label)
+            for label in re.findall(r"\(([A-Za-z0-9]+)\)", match.group("marker"))
+        )
+    )
+
+
+def _us_code_label_follows(previous: str, current: str, category: str) -> bool:
+    """Whether ``current`` is the label after ``previous`` in a ``category`` list.
+
+    Subclauses count in upper-case roman numerals. Items, subitems and a
+    lettered list past ``(z)`` or ``(Z)`` run in same-letter doubles of one
+    case, as ``(z)``, ``(aa)``, ``(bb)``. A CFR-style lettered list continues
+    only from ``(z)`` or ``(Z)``: a double such as ``(cc)`` that the CFR-style
+    levels filed in it opens no run.
+    """
+
+    if category == "upper-roman":
+        previous_value = _roman_outline_value(previous)
+        return (
+            current.isupper()
+            and previous_value is not None
+            and _roman_outline_value(current) == previous_value + 1
+        )
+    if (
+        not _is_same_letter_double_label(current)
+        or previous.islower() != current.islower()
+    ):
+        return False
+    if category in _US_CODE_ALPHA_DOUBLE_CATEGORIES:
+        return previous.lower() == "z" and current.lower() == "aa"
+    return (
+        _is_same_letter_double_label(previous)
+        and ord(current[0].lower()) == ord(previous[0].lower()) + 1
+    )
+
+
+def _us_code_label_at_level(
+    label_here: str,
+    *,
+    labels_after: Sequence[str],
+    line_matches: Sequence[re.Match[str]],
+    start: int,
+) -> str | None:
+    """Return the next label at the U.S. Code level of ``label_here``.
+
+    The scan reads ``labels_after``, the labels after ``label_here`` in its own
+    marker, then the labels of each line marker in ``line_matches`` from
+    ``start`` on. It passes over the labels of the deeper U.S. Code levels:
+    items and subitems after a subclause such as ``(I)``, subitems after an
+    item such as ``(aa)``, nothing after a subitem. A same-letter double is
+    such a label unless it is a roman numeral that does not continue the
+    double before it, so ``(ii)`` after ``(hh)`` is an item while ``(II)``
+    after ``(I)`` is the next subclause. The scan returns the first other
+    label, so it reads only the children of ``label_here``.
+    """
+
+    def labels() -> Iterator[str]:
+        yield from labels_after
+        for index in range(start, len(line_matches)):
+            marker_labels = re.findall(
+                r"\(([A-Za-z0-9]+)\)", line_matches[index].group("marker")
+            )
+            if all(_is_us_code_outline_label(label) for label in marker_labels):
+                yield from marker_labels
+
+    if not _is_same_letter_double_label(label_here):
+        skipped_cases = frozenset({"lower", "upper"})
+    elif label_here.islower():
+        skipped_cases = frozenset({"upper"})
+    else:
+        skipped_cases = frozenset()
+    # The last item and the last subitem passed over, by case.
+    previous_skipped: dict[str, str] = {}
+    for label in labels():
+        case = "lower" if label.islower() else "upper"
+        if (
+            case in skipped_cases
+            and _is_same_letter_double_label(label)
+            and (
+                not _is_roman_outline_label(label)
+                or (
+                    case in previous_skipped
+                    and _us_code_label_follows(previous_skipped[case], label, "item")
+                )
+            )
+        ):
+            previous_skipped[case] = label
+            continue
+        return label
+    return None
+
+
+def _us_code_outline_level(
+    raw_label: str,
+    *,
+    active: Sequence[tuple[int, str, str, str]],
+    base_level: int,
+    label_at_level: Callable[[str], str | None],
+) -> tuple[int, str] | None:
+    """Place a U.S. Code subclause, item or subitem label, or return ``None``.
+
+    U.S. Code outlines run subsection ``(a)``, paragraph ``(1)``, subparagraph
+    ``(A)``, clause ``(i)``, subclause ``(I)``, item ``(aa)`` and subitem
+    ``(AA)``. The CFR-style levels hold none of the last three: they read
+    ``(I)`` as the letter after ``(H)``, ``(cc)`` as roman 200 and ``(aa)`` as
+    no label at all. The U.S. Code levels sit at ``base_level`` and below it,
+    deeper than every CFR-style level, so a later ``(B)``, ``(ii)`` or ``(2)``
+    closes them.
+
+    A level opens only on evidence from the outline, as
+    ``_US_CODE_OUTLINE_OPENINGS`` lists: ``(I)`` opens subclauses under a
+    clause only when ``(II)`` is the next label at its level, as ``(i)`` reads
+    as roman only before ``(ii)``. An opening wins over a shallower list the
+    label would continue, such as one at ``(H)`` or ``(z)``. Otherwise the
+    label continues the deepest open list whose next label it is: ``(cc)``
+    after item ``(bb)`` is an item, not roman 200, and ``(aa)`` after ``(z)``
+    continues the lettered list.
+
+    A label can continue both an item or subitem list and a shallower list, as
+    ``(ii)`` after item ``(hh)`` inside clause ``(i)``. It continues the item
+    list only when the next label at that level shows it: the next double,
+    ``(jj)``, or the next label of the shallower list or of a list between the
+    two, such as clause ``(ii)`` or subclause ``(II)``. In 42 U.S.C.
+    13503(b)(3)(E)(i)(V), item ``(ii)`` ends the items and clause ``(ii)``
+    follows. Otherwise the shallower list wins, as in 42 U.S.C.
+    17231(k)(3)(D), where clause ``(ii)`` and its subclause ``(I)`` follow
+    items ``(aa)`` to ``(hh)``.
+
+    When the list a label continues is one the CFR-style levels hold, or no
+    list fits, this returns ``None`` and the caller places the label as
+    before. ``label_at_level`` returns the next label at the U.S. Code level
+    of the label it is given.
+    """
+
+    is_upper_roman = raw_label.isupper() and _is_roman_outline_label(raw_label)
+    if not (is_upper_roman or _is_same_letter_double_label(raw_label)):
+        return None
+    opening = _US_CODE_OUTLINE_OPENINGS.get(raw_label)
+    if opening is not None:
+        parent_category, second_label, opened_category = opening
+        if (
+            active
+            and active[-1][3] == parent_category
+            and label_at_level(raw_label) == second_label
+        ):
+            return (
+                base_level + _US_CODE_OUTLINE_LEVEL_OFFSETS[opened_category],
+                opened_category,
+            )
+    generic_categories = (
+        _parenthesized_legal_outline_categories(raw_label)
+        if _is_parenthesized_outline_label(raw_label)
+        else ()
+    )
+
+    def continues(previous: str, label: str, category: str) -> bool:
+        if category in _US_CODE_CONTINUED_CATEGORIES and _us_code_label_follows(
+            previous, label, category
+        ):
+            return True
+        return category in (
+            _parenthesized_legal_outline_categories(label)
+            if _is_parenthesized_outline_label(label)
+            else ()
+        ) and _parenthesized_outline_label_follows(previous, label, category)
+
+    # ``active`` runs from the shallowest level to the deepest. A CFR-style
+    # list (category None) defers to the caller.
+    continued: list[tuple[int, str | None]] = []
+    for level, previous, _normalized, category in active:
+        if category in _US_CODE_CONTINUED_CATEGORIES and _us_code_label_follows(
+            previous, raw_label, category
+        ):
+            continued.append(
+                (level, _US_CODE_ALPHA_DOUBLE_CATEGORIES.get(category, category))
+            )
+        elif category in generic_categories and _parenthesized_outline_label_follows(
+            previous, raw_label, category
+        ):
+            continued.append((level, None))
+    if not continued:
+        return None
+    level, category = continued[-1]
+    if len(continued) > 1 and category in {"item", "subitem"}:
+        shallower_level = continued[-2][0]
+        following = label_at_level(raw_label)
+        shows_item_list = following is not None and (
+            _us_code_label_follows(raw_label, following, category)
+            or any(
+                shallower_level <= entry_level < level
+                and continues(entry_label, following, entry_category)
+                for entry_level, entry_label, _normalized, entry_category in active
+            )
+        )
+        if not shows_item_list:
+            level, category = continued[-2]
+    return None if category is None else (level, category)
 
 
 def _parenthesized_legal_outline_level(
