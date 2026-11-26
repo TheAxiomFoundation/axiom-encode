@@ -1,0 +1,112 @@
+(xx) Community Engagement Requirement for Applicable Individuals.—
+(1) In general.— Except as provided in paragraph (11), beginning not later than the first day of the first quarter that begins after December 31, 2026, or, at the option of the State under a waiver or demonstration project under section 1115 or the State plan, such earlier date as the State may specify, subject to the succeeding provisions of this subsection, a State shall provide, as a condition of eligibility for medical assistance for an applicable individual, that such individual is required to demonstrate community engagement under paragraph (2)—
+(A) in the case of an applicable individual who has filed an application for medical assistance under a State plan (or a waiver of such plan) under this title, for 1 or more but not more than 3 (as specified by the State) consecutive months immediately preceding the month during which such individual applies for such medical assistance; and
+(B) in the case of an applicable individual enrolled and receiving medical assistance under a State plan (or under a waiver of such plan) under this title, for 1 or more (as specified by the State) months, whether or not consecutive—
+(i) during the period between such individual’s most recent determination (or redetermination, as applicable) of eligibility and such individual’s next regularly scheduled redetermination of eligibility (as verified by the State as part of such regularly scheduled redetermination of eligibility); or
+(ii) in the case of a State that has elected under paragraph (4) to conduct more frequent verifications of compliance with the requirement to demonstrate community engagement, during the period between the most recent and next such verification with respect to such individual.
+(2) Community engagement compliance described.— Subject to paragraph (3), an applicable individual demonstrates community engagement under this paragraph for a month if such individual meets 1 or more of the following conditions with respect to such month, as determined in accordance with criteria established by the Secretary through regulation:
+(A) The individual works not less than 80 hours.
+(B) The individual completes not less than 80 hours of community service.
+(C) The individual participates in a work program for not less than 80 hours.
+(D) The individual is enrolled in an educational program at least half-time.
+(E) The individual engages in any combination of the activities described in subparagraphs (A) through (D), for a total of not less than 80 hours.
+(F) The individual has a monthly income that is not less than the applicable minimum wage requirement under section 6 of the Fair Labor Standards Act of 1938, multiplied by 80 hours.
+(G) The individual had an average monthly income over the preceding 6 months that is not less than the applicable minimum wage requirement under section 6 of the Fair Labor Standards Act of 1938 multiplied by 80 hours, and is a seasonal worker, as described in section 45R(d)(5)(B) of the Internal Revenue Code of 1986.
+(3) Exceptions.—
+(A) Mandatory exception for certain individuals.— The State shall deem an applicable individual to have demonstrated community engagement under paragraph (2) for a month, and may elect to not require an individual to verify information resulting in such deeming, if—
+(i) for part or all of such month, the individual—
+(I) was a specified excluded individual (as defined in paragraph (9)(A)(ii)); or
+(II) was—
+(aa) under the age of 19;
+(bb) entitled to, or enrolled for, benefits under part A of title XVIII, or enrolled for benefits under part B of title XVIII; or
+(cc) described in any of subclauses (I) through (VII) of subsection (a)(10)(A)(i); or
+(ii) at any point during the 3-month period ending on the first day of such month, the individual was an inmate of a public institution.
+(B) Optional exception for short-term hardship events.—
+(i) In general.— The State plan (or waiver of such plan) may provide, in the case of an applicable individual who experiences a short-term hardship event during a month, that the State shall, under procedures established by the State (in accordance with standards specified by the Secretary), in the case of a short-term hardship event described in clause (ii)(II) and, upon the request of such individual, a short-term hardship event described in subclause (I) or (III) of clause (ii), deem such individual to have demonstrated community engagement under paragraph (2) for such month.
+(ii) Short-term hardship event defined.— For purposes of this subparagraph, an applicable individual experiences a short-term hardship event during a month if, for part or all of such month—
+(I) such individual receives inpatient hospital services, nursing facility services, services in an intermediate care facility for individuals with intellectual disabilities, inpatient psychiatric hospital services, or such other services of similar acuity (including outpatient care relating to other services specified in this subclause) as the Secretary determines appropriate;
+(II) such individual resides in a county (or equivalent unit of local government)—
+(aa) in which there exists an emergency or disaster declared by the President pursuant to the National Emergencies Act or the Robert T. Stafford Disaster Relief and Emergency Assistance Act; or
+(bb) that, subject to a request from the State to the Secretary, made in such form, at such time, and containing such information as the Secretary may require, has an unemployment rate that is at or above the lesser of—
+(AA) 8 percent; or
+(BB) 1.5 times the national unemployment rate; or
+(III) such individual or their dependent must travel outside of their community for an extended period of time to receive medical services necessary to treat a serious or complex medical condition (as described in paragraph (9)(A)(ii)(V)(ee)) that are not available within their community of residence.
+(4) Option to conduct more frequent compliance verifications.— With respect to an applicable individual enrolled and receiving medical assistance under a State plan (or a waiver of such plan) under this title, the State shall verify (in accordance with procedures specified by the Secretary) that each such individual has met the requirement to demonstrate community engagement under paragraph (1) during each such individual’s regularly scheduled redetermination of eligibility, except that a State may provide for such verifications more frequently.
+(5) Ex parte verifications.— For purposes of verifying that an applicable individual has met the requirement to demonstrate community engagement under paragraph (1), or determining such individual to be deemed to have demonstrated community engagement under paragraph (3), or that an individual is a specified excluded individual under paragraph (9)(A)(ii), the State shall, in accordance with standards established by the Secretary, establish processes and use reliable information available to the State (such as payroll data or payments or encounter data under this title for individuals and data on payments to such individuals for the provision of services covered under this title) without requiring, where possible, the applicable individual to submit additional information.
+(6) Procedure in the case of noncompliance.—
+(A) In general.— If a State is unable to verify that an applicable individual has met the requirement to demonstrate community engagement under paragraph (1) (including, if applicable, by verifying that such individual was deemed to have demonstrated community engagement under paragraph (3)) the State shall (in accordance with standards specified by the Secretary)—
+(i) provide such individual with the notice of noncompliance described in subparagraph (B);
+(ii)
+(I) provide such individual with a period of 30 calendar days, beginning on the date on which such notice of noncompliance is received by the individual, to—
+(aa) make a satisfactory showing to the State of compliance with such requirement (including, if applicable, by showing that such individual was or should be deemed to have demonstrated community engagement under paragraph (3)); or
+(bb) make a satisfactory showing to the State that such requirement does not apply to such individual on the basis that such individual does not meet the definition of applicable individual under paragraph (9)(A); and
+(II) if such individual is enrolled under the State plan (or a waiver of such plan) under this title, continue to provide such individual with medical assistance during such 30-calendar-day period; and
+(iii) if no such satisfactory showing is made and the individual is not a specified excluded individual described in paragraph (9)(A)(ii), deny such individual’s application for medical assistance under the State plan (or waiver of such plan) or, as applicable, disenroll such individual from the plan (or waiver of such plan) not later than the end of the month following the month in which such 30-calendar-day period ends, provided that—
+(I) the State first determines whether, with respect to the individual, there is any other basis for eligibility for medical assistance under the State plan (or waiver of such plan) or for another insurance affordability program; and
+(II) the individual is provided written notice and granted an opportunity for a fair hearing in accordance with subsection (a)(3).
+(B) Notice.— The notice of noncompliance provided to an applicable individual under subparagraph (A)(i) shall include information (in accordance with standards specified by the Secretary) on—
+(i) how such individual may make a satisfactory showing of compliance with such requirement (as described in subparagraph (A)(ii)) or make a satisfactory showing that such requirement does not apply to such individual on the basis that such individual does not meet the definition of applicable individual under paragraph (9)(A); and
+(ii) how such individual may reapply for medical assistance under the State plan (or a waiver of such plan) under this title in the case that such individuals’ application is denied or, as applicable, in the case that such individual is disenrolled from the plan (or waiver).
+(7) Treatment of noncompliant individuals in relation to certain other provisions.—
+(A) Certain fmap increases.— A State shall not be treated as not providing medical assistance to all individuals described in section 1902(a)(10)(A)(i)(VIII), or as not expending amounts for all such individuals under the State plan (or waiver of such plan), solely because such an individual is determined ineligible for medical assistance under the State plan (or waiver) on the basis of a failure to meet the requirement to demonstrate community engagement under paragraph (1).
+(B) Other provisions.— For purposes of section 36B(c)(2)(B) of the Internal Revenue Code of 1986, an individual shall be deemed to be eligible for minimum essential coverage described in section 5000A(f)(1)(A)(ii) of such Code for a month if such individual would have been eligible for medical assistance under a State plan (or a waiver of such plan) under this title but for a failure to meet the requirement to demonstrate community engagement under paragraph (1).
+(8) Outreach.—
+(A) In general.— In accordance with standards specified by the Secretary, beginning not later than the date that precedes December 31, 2026 (or, if the State elects under paragraph (1) to specify an earlier date, such earlier date) by the number of months specified by the State under paragraph (1)(A) plus 3 months, and periodically thereafter, the State shall notify applicable individuals enrolled under a State plan (or waiver) under this title of the requirement to demonstrate community engagement under this subsection. Such notice shall include information on—
+(i) how to comply with such requirement, including an explanation of the exceptions to such requirement under paragraph (3) and the definition of the term ‘ applicable individual ’ under paragraph (9)(A);
+(ii) the consequences of noncompliance with such requirement; and
+(iii) how to report to the State any change in the individual’s status that could result in—
+(I) the applicability of an exception under paragraph (3) (or the end of the applicability of such an exception); or
+(II) the individual qualifying as a specified excluded individual under paragraph (9)(A)(ii).
+(B) Form of outreach notice.— A notice required under subparagraph (A) shall be delivered—
+(i) by regular mail (or, if elected by the individual, in an electronic format); and
+(ii) in 1 or more additional forms, which may include telephone, text message, an internet website, other commonly available electronic means, and such other forms as the Secretary determines appropriate.
+(9) Definitions.— In this subsection:
+(A) Applicable individual.—
+(i) In general.— The term ‘ applicable individual ’ means an individual (other than a specified excluded individual (as defined in clause (ii)))—
+(I) who is eligible to enroll (or is enrolled) under the State plan under subsection (a)(10)(A)(i)(VIII); or
+(II) who—
+(aa) is otherwise eligible to enroll (or is enrolled) under a waiver of such plan that provides coverage that is equivalent to minimum essential coverage (as described in section 5000A(f)(1)(A) of the Internal Revenue Code of 1986 and as determined in accordance with standards prescribed by the Secretary in regulations); and
+(bb) has attained the age of 19 and is under 65 years of age, is not pregnant, is not entitled to, or enrolled for, benefits under part A of title XVIII, or enrolled for benefits under part B of title XVIII, and is not otherwise eligible to enroll under such plan.
+(ii) Specified excluded individual.— For purposes of clause (i), the term ‘ specified excluded individual ’ means an individual, as determined by the State (in accordance with standards specified by the Secretary)—
+(I) who is described in subsection (a)(10)(A)(i)(IX);
+(II) who—
+(aa) is an Indian or an Urban Indian (as such terms are defined in paragraphs (13) and (28) of section 4 of the Indian Health Care Improvement Act);
+(bb) is a California Indian described in section 809(a) of such Act; or
+(cc) has otherwise been determined eligible as an Indian for the Indian Health Service under regulations promulgated by the Secretary;
+(III) who is the parent, guardian, caretaker relative, or family caregiver (as defined in section 2 of the RAISE Family Caregivers Act) of a dependent child 13 years of age and under or a disabled individual;
+(IV) who is a veteran with a disability rated as total under section 1155 of title 38, United States Code;
+(V) who is medically frail or otherwise has special medical needs (as defined by the Secretary), including an individual—
+(aa) who is blind or disabled (as defined in section 1614);
+(bb) with a substance use disorder;
+(cc) with a disabling mental disorder;
+(dd) with a physical, intellectual or developmental disability that significantly impairs their ability to perform 1 or more activities of daily living; or
+(ee) with a serious or complex medical condition;
+(VI) who—
+(aa) is in compliance with any requirements imposed by the State pursuant to section 407; or
+(bb) is a member of a household that receives supplemental nutrition assistance program benefits under the Food and Nutrition Act of 2008 and is not exempt from a work requirement under such Act;
+(VII) who is participating in a drug addiction or alcoholic treatment and rehabilitation program (as defined in section 3(h) of the Food and Nutrition Act of 2008);
+(VIII) who is an inmate of a public institution; or
+(IX) who is pregnant or entitled to postpartum medical assistance under paragraph (5) or (16) of subsection (e).
+(B) Educational program.— The term ‘ educational program ’ includes—
+(i) an institution of higher education (as defined in section 101 of the Higher Education Act of 1965); and
+(ii) a program of career and technical education (as defined in section 3 of the Carl D. Perkins Career and Technical Education Act of 2006).
+(C) State.— The term ‘ State ’ means 1 of the 50 States or the District of Columbia.
+(D) Work program.— The term ‘ work program ’ has the meaning given such term in section 6(o)(1) of the Food and Nutrition Act of 2008.
+(10) Prohibiting waiver of community engagement requirements.— Notwithstanding section 1115(a), the provisions of this subsection may not be waived.
+(11) Special implementation rule.—
+(A) In general.— Subject to subparagraph (C), the Secretary may exempt a State from compliance with the requirements of this subsection if—
+(i) the State submits to the Secretary a request for such exemption, made in such form and at such time as the Secretary may require, and including the information specified in subparagraph (B); and
+(ii) the Secretary determines that based on such request, the State is demonstrating a good faith effort to comply with the requirements of this subsection.
+(B) Good faith effort determination.— In determining whether a State is demonstrating a good faith effort for purposes of subparagraph (A)(ii), the Secretary shall consider—
+(i) any actions taken by the State toward compliance with the requirements of this subsection;
+(ii) any significant barriers to or challenges in meeting such requirements, including related to funding, design, development, procurement, or installation of necessary systems or resources;
+(iii) the State’s detailed plan and timeline for achieving full compliance with such requirements, including any milestones of such plan (as defined by the Secretary); and
+(iv) any other criteria determined appropriate by the Secretary.
+(C) Duration of exemption.—
+(i) In general.— An exemption granted under subparagraph (A) shall expire not later than December 31, 2028, and may not be renewed beyond such date.
+(ii) Early termination.— The Secretary may terminate an exemption granted under subparagraph (A) prior to the expiration date of such exemption if the Secretary determined that the State has—
+(I) failed to comply with the reporting requirements described in subparagraph (D); or
+(II) based on the information provided pursuant to subparagraph (D), failed to make continued good faith efforts toward compliance with the requirements of this subsection.
+(D) Reporting requirements.— A State granted an exemption under subparagraph (A) shall submit to the Secretary—
+(i) quarterly progress reports on the State’s status in achieving the milestones toward full compliance described in subparagraph (B)(iii); and
+(ii) information on specific risks or newly identified barriers or challenges to full compliance, including the State’s plan to mitigate such risks, barriers, or challenges.”
