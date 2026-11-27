@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import hashlib
 import re
 import unicodedata
 from array import array
 from dataclasses import dataclass, field
 from datetime import date
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
@@ -3079,14 +3081,47 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
             if baseline_indent is not None
             and len(header.group("indent").expandtabs(2)) == baseline_indent
         ]
+        # The direct Roman list runs only on a listed record. Every other
+        # record leaves direct_list_record False, so the pass below assigns
+        # the same owners as it does without the direct list.
+        header_position: dict[int, int] = {}
+        alpha_prefix_length = 0
+        direct_list_record = False
+        if _flat_direct_roman_list_record_is_listed(record):
+            header_position = {
+                header.start(): index for index, header in enumerate(headers)
+            }
+            # Only the bare, sequential alpha headers at the start of a
+            # record can introduce a direct Roman list.
+            for header in headers:
+                if (
+                    alpha_prefix_length >= 26
+                    or header.group("bundle").strip()
+                    != f"({chr(ord('a') + alpha_prefix_length)})"
+                    or len(header.group("indent").expandtabs(2)) != baseline_indent
+                    or not _flat_header_starts_sentence(record, header.start("bundle"))
+                ):
+                    break
+                alpha_prefix_length += 1
+            direct_list_record = (
+                alpha_prefix_length > 0
+                and _flat_direct_list_allows_record_prefix(record[: headers[0].start()])
+                and all(
+                    _flat_header_has_sentence_text(record, header)
+                    for header in baseline_headers
+                )
+            )
         alpha_parent: str | None = None
+        alpha_header: re.Match[str] | None = None
         next_alpha = "a"
-        current_chain: tuple[str, str] | None = None
+        current_chain: tuple[str, ...] | None = None
+        direct_list_start: int | None = None
+        direct_list_opened = False
         next_roman_value = 1
         roman_sequence_established = False
         alpha_sequence_started = False
         leading_numeric_owner_seen = False
-        suspended_chain: tuple[str, str] | None = None
+        suspended_chain: tuple[str, ...] | None = None
         suspended_next_roman_value = 1
         suspended_chain_tainted = False
         for header_index, header in enumerate(baseline_headers):
@@ -3094,28 +3129,55 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
                 match.group("value")
                 for match in coordinate_pattern.finditer(header.group("bundle"))
             ]
-            if len(tokens) != 1:
+            token = tokens[0] if len(tokens) == 1 else ""
+            roman_value = (
+                _canonical_roman_value(token)
+                if re.fullmatch(r"[ivxlcdmIVXLCDM]+", token) is not None
+                else None
+            )
+            if direct_list_start is not None and (
+                header_position[header.start()]
+                != header_position[baseline_headers[header_index - 1].start()] + 1
+                or _FLAT_POSSIBLE_OUTLINE_HEADER.search(
+                    record,
+                    baseline_headers[header_index - 1].end("bundle"),
+                    header.start(),
+                )
+                is not None
+                or not _flat_direct_list_accepts_header(
+                    record, header, token, roman_value, next_alpha, next_roman_value
+                )
+            ):
+                # Discard tentative owners and prevent later alpha transitions.
+                # An unexpected header can mean the entire list was embedded.
+                del occurrences[direct_list_start:]
+                direct_list_start = None
+                alpha_parent = None
+                next_alpha = ""
+                current_chain = None
+                suspended_chain = None
+                suspended_chain_tainted = False
+                roman_sequence_established = False
+                continue
+            if not token:
                 if suspended_chain is not None:
                     suspended_chain_tainted = True
                 alpha_parent = None
                 current_chain = None
                 roman_sequence_established = False
                 continue
-            token = tokens[0]
+            successor = (
+                baseline_headers[header_index + 1]
+                if header_index + 1 < len(baseline_headers)
+                else None
+            )
             successor_tokens = (
                 [
                     match.group("value")
-                    for match in coordinate_pattern.finditer(
-                        baseline_headers[header_index + 1].group("bundle")
-                    )
+                    for match in coordinate_pattern.finditer(successor.group("bundle"))
                 ]
-                if header_index + 1 < len(baseline_headers)
+                if successor is not None
                 else []
-            )
-            roman_value = (
-                _canonical_roman_value(token)
-                if re.fullmatch(r"[ivxlcdmIVXLCDM]+", token) is not None
-                else None
             )
             successor_roman_value = (
                 _canonical_roman_value(successor_tokens[0])
@@ -3211,10 +3273,19 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
             )
             if alpha_transition:
                 alpha_parent = token
+                alpha_header = header
+                next_alpha = chr(ord(token) + 1)
+                if direct_list_opened and not _flat_direct_list_header_starts_sentence(
+                    record, header
+                ):
+                    # A wrapped reference can begin with uppercase text. A
+                    # direct list must not make it reachable as an alpha owner.
+                    alpha_parent = None
+                    next_alpha = ""
+                direct_list_start = None
                 suspended_chain = None
                 suspended_chain_tainted = False
                 alpha_sequence_started = True
-                next_alpha = chr(ord(token) + 1)
                 current_chain = None
                 next_roman_value = 1
                 roman_sequence_established = False
@@ -3239,6 +3310,43 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
                 next_roman_value = roman_value + 1
                 roman_sequence_established = True
                 continue
+            if (
+                direct_list_record
+                and alpha_parent is not None
+                and alpha_header is not None
+                and current_chain is None
+                and suspended_chain is None
+                and token == "i"
+                and successor is not None
+                and successor_tokens == ["ii"]
+                and header_position[successor.start()]
+                == header_position[header.start()] + 1
+                and _flat_direct_list_header_starts_sentence(record, successor)
+                and header_position[alpha_header.start()] < alpha_prefix_length
+                and header_position[header.start()]
+                == header_position[alpha_header.start()] + 1
+                and _flat_direct_list_has_introducer(
+                    record, headers[0], alpha_header, header
+                )
+                and not _flat_text_has_marker_outside_alpha_prefix(
+                    record, headers, header_position[header.start()]
+                )
+            ):
+                # 42 CFR 435.554(a) lists Roman items directly under (a).
+                # Keep their owners tentative until the list ends cleanly.
+                current_chain = (alpha_parent,)
+                direct_list_start = len(occurrences)
+                direct_list_opened = True
+                occurrences.append(
+                    (
+                        current_chain,
+                        _canonical_roman_marker(roman_value),
+                        record_offset + header.start("bundle"),
+                    )
+                )
+                next_roman_value = roman_value + 1
+                roman_sequence_established = True
+                continue
             alpha_parent = None
             current_chain = None
             suspended_chain = None
@@ -3246,8 +3354,171 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
             roman_sequence_established = False
             if ambiguous_single_letter:
                 next_alpha = ""
+        if direct_list_start is not None and _FLAT_POSSIBLE_OUTLINE_HEADER.search(
+            record, baseline_headers[-1].end("bundle")
+        ):
+            del occurrences[direct_list_start:]
         record_offset += len(record) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
     return occurrences
+
+
+# Flat regulation records whose Roman items sit directly under an alpha
+# paragraph, as 42 CFR 435.554(a) lists (i)-(iv) under its "Caretaker
+# relative" definition. Each entry maps the SHA-256 of the exact UTF-8 record
+# the validator receives to its length in characters. Only these records can
+# open a direct Roman list; a record with any other bytes, including one
+# character changed, gets the owners the pass assigns without it.
+# tests/test_flat_direct_roman_list_gate.py pins the listed record's owners to
+# eCFR's paragraph hierarchy. If a second source needs this path, revisit the
+# design rather than lengthen this list (axiom-encode#2365).
+_FLAT_DIRECT_ROMAN_LIST_RECORDS: Mapping[str, int] = MappingProxyType(
+    {
+        # us/regulation/42/435/554 in axiom-corpus version
+        # 2026-06-29-cms-2454-ifc-42-cfr-435-community-engagement-corrected-
+        # r2026-07-24-self-contained-r2026-11-26-fr-page-markers, signed and
+        # locked in TheAxiomFoundation/axiom-corpus#1018.
+        "1edf90a97135cdf21fb051c3cf55fbebff88b892480e70e0e601243e658e5751": 8649,
+    }
+)
+_FLAT_DIRECT_ROMAN_LIST_RECORD_LENGTHS = frozenset(
+    _FLAT_DIRECT_ROMAN_LIST_RECORDS.values()
+)
+
+
+def _flat_direct_roman_list_record_is_listed(record: str) -> bool:
+    """Whether ``record`` is exactly one of the listed records."""
+    if len(record) not in _FLAT_DIRECT_ROMAN_LIST_RECORD_LENGTHS:
+        return False
+    # surrogatepass keeps the hash from raising on text main accepts.
+    digest = hashlib.sha256(record.encode("utf-8", "surrogatepass")).hexdigest()
+    return _FLAT_DIRECT_ROMAN_LIST_RECORDS.get(digest) == len(record)
+
+
+# Any short parenthesized token: a structural marker or a citation to one.
+_FLAT_INLINE_MARKER = re.compile(r"\([ \t]*[^()\s]{1,8}[ \t]*\)")
+_FLAT_SENTENCE_END_CHARACTERS = ".:;-\u2013\u2014"
+_FLAT_CLOSING_QUOTE_CHARACTERS = "\"'\u2019\u201d"
+_FLAT_OPENING_QUOTE_CHARACTERS = "\"'\u2018\u201c"
+_FLAT_CURLY_DOUBLE_QUOTE = re.compile("[“”]")
+_FLAT_LIST_INTRODUCER_ENDINGS = (":", "—", "-")
+# Dotted and spaced coordinates can mark an intervening outline level even
+# though the flat parser cannot assign owners to them.
+_FLAT_POSSIBLE_OUTLINE_HEADER = re.compile(
+    rf"(?m)^[ \t]*(?:(?:{_STRUCTURAL_COORDINATE_TOKEN}|[A-Z])[.)](?=[ \t]|$)"
+    rf"|\([ \t]*(?:{_STRUCTURAL_COORDINATE_TOKEN}|[A-Z])[ \t]*\))"
+)
+
+
+def _flat_header_starts_sentence(
+    record: str, start: int, *, blank_line_starts_sentence: bool = True
+) -> bool:
+    """Whether a line-leading marker at ``start`` opens a new paragraph.
+
+    It does when it begins the record, follows a blank line, or follows
+    sentence-final punctuation (a closing quote may intervene). A marker
+    after any other text may be a wrapped cross-reference such as
+    "paragraph\n(b) of this section".
+    """
+    index = start - 1
+    newlines = 0
+    while index >= 0 and record[index].isspace():
+        newlines += record[index] == "\n"
+        index -= 1
+    if index < 0 or (blank_line_starts_sentence and newlines >= 2):
+        return True
+    while index >= 0 and record[index] in _FLAT_CLOSING_QUOTE_CHARACTERS:
+        index -= 1
+    return index >= 0 and record[index] in _FLAT_SENTENCE_END_CHARACTERS
+
+
+def _flat_header_has_sentence_text(record: str, header: re.Match[str]) -> bool:
+    first = record[header.end("bundle") : header.end("bundle") + 1]
+    return bool(first) and (
+        first.isupper() or first.isdigit() or first in _FLAT_OPENING_QUOTE_CHARACTERS
+    )
+
+
+def _flat_direct_list_allows_record_prefix(prefix: str) -> bool:
+    lines = prefix.strip().splitlines()
+    return not lines or (len(lines) == 1 and lines[0].startswith(("Sec.", "§")))
+
+
+def _flat_direct_list_has_introducer(
+    record: str, first_header: re.Match[str], alpha: re.Match[str], roman: re.Match[str]
+) -> bool:
+    if _FLAT_POSSIBLE_OUTLINE_HEADER.search(record, alpha.end("bundle"), roman.start()):
+        return False
+    lines = record[alpha.end("bundle") : roman.start()].splitlines()
+    if not lines:
+        return False
+    if any(not line.strip() for line in lines):
+        # The headed eCFR paragraph-per-block shape inserts a blank between
+        # every line in the record. Require each block of the introduction to
+        # lead into the next one, as the definitions in 435.554(a) do.
+        blocks = record.strip().splitlines()
+        if (
+            not record[: first_header.start()].strip()
+            or not all(line.strip() for line in blocks[::2])
+            or any(blocks[1::2])
+            or not all(
+                line.rstrip().endswith(_FLAT_LIST_INTRODUCER_ENDINGS)
+                for line in lines[::2]
+            )
+        ):
+            return False
+    elif not lines[-1].rstrip().endswith(_FLAT_LIST_INTRODUCER_ENDINGS):
+        return False
+    curly_depth = 0
+    for quote in _FLAT_CURLY_DOUBLE_QUOTE.finditer(record, 0, roman.start()):
+        curly_depth = curly_depth + 1 if quote[0] == "“" else max(0, curly_depth - 1)
+    return curly_depth == 0 and record.count('"', 0, roman.start()) % 2 == 0
+
+
+def _flat_direct_list_header_starts_sentence(
+    record: str, header: re.Match[str]
+) -> bool:
+    return _flat_header_has_sentence_text(
+        record, header
+    ) and _flat_header_starts_sentence(
+        record, header.start("bundle"), blank_line_starts_sentence=False
+    )
+
+
+def _flat_direct_list_accepts_header(
+    record: str,
+    header: re.Match[str],
+    token: str,
+    roman_value: int | None,
+    next_alpha: str,
+    next_roman: int,
+) -> bool:
+    if not token.islower() or not _flat_direct_list_header_starts_sentence(
+        record, header
+    ):
+        return False
+    # A marker that could be either the next Roman item or the next alpha
+    # sibling, such as (v) under (u), leaves both possibilities unresolved.
+    return (token == next_alpha) != (roman_value == next_roman)
+
+
+def _flat_text_has_marker_outside_alpha_prefix(
+    record: str, headers: list[re.Match[str]], roman_position: int
+) -> bool:
+    """Whether any marker precedes ``headers[roman_position]`` in its prose.
+
+    Only the line-leading bundles of the headers before it are exempt.
+    """
+    text_start = 0
+    for header in headers[:roman_position]:
+        if _FLAT_INLINE_MARKER.search(record, text_start, header.start("bundle")):
+            return True
+        text_start = header.end("bundle")
+    return (
+        _FLAT_INLINE_MARKER.search(
+            record, text_start, headers[roman_position].start("bundle")
+        )
+        is not None
+    )
 
 
 def _source_text_is_exact_evidence_scalar(
