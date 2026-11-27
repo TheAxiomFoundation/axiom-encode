@@ -22,12 +22,11 @@ published or installed.
 Install the production binary, one self-contained Python runtime, the complete
 `axiom_encode` package, its explicit import roots, and the trust-root config as
 root-owned paths that the service account cannot change through modes or ACLs.
-The runtime must contain only regular files/directories and no symlinks, special
-files, `.pth`, `.egg-link`, `sitecustomize.py`, `usercustomize.py`,
-`pyvenv.cfg`, or `__editable__*` injection. Set-ID/sticky bits,
-group/other-write access, Linux `security.capability` xattrs, and caller-writable
-paths are rejected. The caller must be unprivileged with matching identities;
-Linux permitted, effective, and ambient capabilities must all be zero.
+The runtime must contain only regular files/directories and no symlinks or
+special files. Set-ID/sticky bits, group/other-write access, Linux
+`security.capability` xattrs, and caller-writable paths are rejected. The caller
+must be unprivileged with matching identities; Linux permitted, effective, and
+ambient capabilities must all be zero.
 
 Python is executed directly as:
 
@@ -41,6 +40,44 @@ the exact runtime/package/import roots, isolated/no-site flags, every initial
 `sys.path` root, compiled and virtual-environment prefixes, `sysconfig` paths,
 the interpreter path, and the exact `axiom_encode.__file__` and package path.
 Only then does it authenticate and attach the anonymous broker socket.
+
+### Python startup carriers
+
+The supervisor also refuses the names and positions below, which CPython
+acts on before the bootstrap runs or in a site-enabled start of the same
+interpreter. Names match in any case, because the default macOS file system
+ignores case and CPython's path configuration opens these paths through it.
+
+- Anywhere in the runtime, package, or import trees, as a file or a directory:
+  `pyvenv.cfg`, `pybuilddir.txt`, any name ending in `.pth`, `._pth`, or
+  `.egg-link`, any name starting with `__editable__`, and `sitecustomize` or
+  `usercustomize` with or without an extension (`.py`, `.pyc`, an extension
+  module, a package directory). Path configuration reads `._pth`,
+  `pybuilddir.txt`, and `pyvenv.cfg` even under `-I -S`; `site` reads the rest
+  in any site-enabled start, such as the launcher's `-I` shebang.
+- Directly in `lib/` or `lib64/` of the interpreter's directory or of any
+  ancestor of it inside the runtime: any `python3*.zip` entry, file or
+  directory. `sys.path` lists `<prefix>/lib/python3XY[t].zip` first even when
+  it is absent, and CPython imports from a zip file or a directory of that
+  name under `-I -S`. The same name elsewhere is an ordinary data file.
+- In the interpreter's own directory: anything but a regular file. Path
+  configuration searches for the standard library starting there, so a
+  `bin/lib/python3.X` tree moves `sys.prefix`, and `bin/Modules/Setup.local`
+  marks a build tree whose standard library is `bin/Lib`.
+
+`scripts/provision_verification_supervisor.py` purges these forms, in any
+case, from the runtime it builds, and refuses an interpreter that sits at the
+prefix root.
+
+These rules see names and positions only. They cannot see a changed byte in a
+standard-library module, such as `encodings/__init__.py`, or an extension
+module placed beside a standard-library source, such as
+`encodings/__init__.cpython-313-darwin.so`, which the import system tries
+before the source. Either one runs at interpreter start, before the bootstrap.
+Planting one needs write access to the root-owned runtime or to the source
+prefix it was copied from, which already allows any other change. A pinned
+digest of the whole runtime tree, names and bytes, checked before exec would
+close both; the supervisor does not check one yet.
 
 ## Protected trust roots
 
