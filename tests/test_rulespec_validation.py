@@ -14,7 +14,7 @@ import time
 import tomllib
 from decimal import Decimal
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import MappingProxyType, ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -36,7 +36,7 @@ from axiom_encode.engine_binding import (
     EngineBindingError,
     write_engine_binding_receipt,
 )
-from axiom_encode.harness import validator_pipeline
+from axiom_encode.harness import proof_validator, validator_pipeline
 from axiom_encode.harness.evals import _rulespec_validation_target
 from axiom_encode.harness.policyengine_runtime import (
     PolicyEngineRuntime,
@@ -29337,18 +29337,57 @@ _435_554_OWNER_IDS = ["c3i", "c3-and-c3i", "c3ii", "c5i", "ai", "aii"]
 _UNWRAPPED_FEDERAL_SHAPES = ["ecfr", "normalized_federal_register"]
 
 
-def _validate_435_554_roman_excerpt(*, shape: str, excerpt: str, rule_source: str):
-    return validate_rulespec_proofs(
-        _proof_scope_fixture(
+def _listed_flat_direct_roman_records(source_text: str):
+    """List each record of ``source_text`` for the flat direct Roman list.
+
+    Production lists only the signed 42 CFR 435.554 body
+    (tests/test_flat_direct_roman_list_gate.py). Listing a synthetic record
+    here exercises the list's own outline rules on it; unlisted, the same
+    record gets the owners the flat pass assigns without the list.
+    """
+    records = {
+        hashlib.sha256(record.encode("utf-8", "surrogatepass")).hexdigest(): len(record)
+        for record in source_text.split(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
+    }
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(
+        proof_validator,
+        "_FLAT_DIRECT_ROMAN_LIST_RECORDS",
+        MappingProxyType(records),
+    )
+    patcher.setattr(
+        proof_validator,
+        "_FLAT_DIRECT_ROMAN_LIST_RECORD_LENGTHS",
+        frozenset(records.values()),
+    )
+    return patcher
+
+
+def _validate_proof_scope(
+    *, source_text: str, content: str, citation_path: str, listed: bool
+):
+    patcher = _listed_flat_direct_roman_records(source_text) if listed else None
+    try:
+        return validate_rulespec_proofs(
+            content, source_texts={citation_path: source_text}
+        )
+    finally:
+        if patcher is not None:
+            patcher.undo()
+
+
+def _validate_435_554_roman_excerpt(
+    *, shape: str, excerpt: str, rule_source: str, listed: bool = False
+):
+    return _validate_proof_scope(
+        source_text=_FEDERAL_REGISTER_SOURCE_SHAPES[shape](_FR_42_CFR_435_554_SOURCE),
+        content=_proof_scope_fixture(
             rule_source=rule_source,
             excerpt=excerpt,
             citation_path="us/regulation/42/435/554",
         ),
-        source_texts={
-            "us/regulation/42/435/554": _FEDERAL_REGISTER_SOURCE_SHAPES[shape](
-                _FR_42_CFR_435_554_SOURCE
-            )
-        },
+        citation_path="us/regulation/42/435/554",
+        listed=listed,
     )
 
 
@@ -29360,23 +29399,32 @@ def test_rulespec_proof_validator_allows_uniform_indent_federal_roman_excerpt(
     shape, excerpt, rule_source
 ):
     # 435.554(a) lists (i)-(iv) directly under (a), with no numeric level.
-    # Read as an orphan Roman run, that list used to end the flat pass, so
-    # every later (c)(3)(i)-style owner was rejected too.
-    result = _validate_435_554_roman_excerpt(
-        shape=shape,
-        excerpt=excerpt,
-        rule_source=rule_source,
+    # Read as an orphan Roman run, that list ends the flat pass, so every
+    # later (c)(3)(i)-style owner is rejected too. Listed, the direct list
+    # resolves this trimmed text in both unwrapped shapes; unlisted, it keeps
+    # that rejection. Only the signed 435.554 body is listed in production.
+    listed = _validate_435_554_roman_excerpt(
+        shape=shape, excerpt=excerpt, rule_source=rule_source, listed=True
+    )
+    unlisted = _validate_435_554_roman_excerpt(
+        shape=shape, excerpt=excerpt, rule_source=rule_source
     )
 
-    assert result.passed is True
-    assert result.issues == []
+    assert listed.passed is True
+    assert listed.issues == []
+    assert unlisted.passed is False
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        for issue in unlisted.issues
+    )
 
 
+@pytest.mark.parametrize("listed", [False, True], ids=["unlisted", "listed"])
 @pytest.mark.parametrize(
     ("excerpt", "rule_source"), _435_554_OWNER_CASES, ids=_435_554_OWNER_IDS
 )
 def test_rulespec_proof_validator_leaves_wrapped_federal_register_roman_unresolved(
-    excerpt, rule_source
+    excerpt, rule_source, listed
 ):
     # Raw GPO text wraps cross-references such as "(c)(1)(i)(A) through (C)"
     # to column 0, where they read as headers and set the flat baseline. The
@@ -29386,6 +29434,7 @@ def test_rulespec_proof_validator_leaves_wrapped_federal_register_roman_unresolv
         shape="federal_register",
         excerpt=excerpt,
         rule_source=rule_source,
+        listed=listed,
     )
 
     assert result.passed is False
@@ -29454,13 +29503,14 @@ def test_rulespec_proof_validator_leaves_wrapped_federal_register_roman_unresolv
 def test_rulespec_proof_validator_rejects_uniform_indent_federal_roman_sibling(
     shape, excerpt, owner_source, sibling_source
 ):
-    # The owner check keeps the rejection from passing only because the
-    # source's Roman ancestry is unreadable.
+    # Listed, so the direct list runs. The owner check keeps the rejection
+    # from passing only because the source's Roman ancestry is unreadable.
     assert (
         _validate_435_554_roman_excerpt(
             shape=shape,
             excerpt=excerpt,
             rule_source=owner_source,
+            listed=True,
         ).passed
         is True
     )
@@ -29469,6 +29519,7 @@ def test_rulespec_proof_validator_rejects_uniform_indent_federal_roman_sibling(
         shape=shape,
         excerpt=excerpt,
         rule_source=sibling_source,
+        listed=True,
     )
 
     assert result.passed is False
@@ -29547,12 +29598,15 @@ def _validate_scope(
     excerpt: str,
     rule_source: str,
     citation_path: str = "us-nj/statute/54a:4-7",
+    listed: bool = False,
 ):
-    return validate_rulespec_proofs(
-        _proof_scope_fixture(
+    return _validate_proof_scope(
+        source_text=source_text,
+        content=_proof_scope_fixture(
             rule_source=rule_source, excerpt=excerpt, citation_path=citation_path
         ),
-        source_texts={citation_path: source_text},
+        citation_path=citation_path,
+        listed=listed,
     )
 
 
@@ -29718,12 +29772,18 @@ _HIDDEN_LEVEL_CASES = {
 }
 
 
+@pytest.mark.parametrize("listed", [False, True], ids=["unlisted", "listed"])
 @pytest.mark.parametrize("case", sorted(_HIDDEN_LEVEL_CASES))
-def test_rulespec_proof_validator_rejects_roman_under_alpha_past_hidden_level(case):
+def test_rulespec_proof_validator_rejects_roman_under_alpha_past_hidden_level(
+    case, listed
+):
     source_text, excerpt, skipping_source = _HIDDEN_LEVEL_CASES[case]
 
     result = _validate_scope(
-        source_text=source_text, excerpt=excerpt, rule_source=skipping_source
+        source_text=source_text,
+        excerpt=excerpt,
+        rule_source=skipping_source,
+        listed=listed,
     )
 
     assert result.passed is False
@@ -29781,11 +29841,15 @@ def test_rulespec_proof_validator_rejects_roman_under_alpha_past_hidden_level(ca
     ],
     ids=["next-alpha-sibling", "uppercase-roman", "numeric-after-list"],
 )
+@pytest.mark.parametrize("listed", [False, True], ids=["unlisted", "listed"])
 def test_rulespec_proof_validator_closes_direct_alpha_roman_list(
-    source_text, excerpt, rule_source
+    source_text, excerpt, rule_source, listed
 ):
     result = _validate_scope(
-        source_text=source_text, excerpt=excerpt, rule_source=rule_source
+        source_text=source_text,
+        excerpt=excerpt,
+        rule_source=rule_source,
+        listed=listed,
     )
 
     assert result.passed is False
@@ -30062,14 +30126,16 @@ _NESTED_VERIFICATION = (
         ),
     ],
 )
+@pytest.mark.parametrize("listed", [False, True], ids=["unlisted", "listed"])
 def test_rulespec_proof_validator_rejects_direct_roman_outside_trusted_outline(
-    source_text, excerpt, rule_source
+    source_text, excerpt, rule_source, listed
 ):
     result = _validate_scope(
         source_text=source_text,
         excerpt=excerpt,
         rule_source=rule_source,
         citation_path="us/regulation/42/1/1",
+        listed=listed,
     )
 
     assert result.passed is False
@@ -30086,8 +30152,9 @@ def test_rulespec_proof_validator_rejects_direct_roman_outside_trusted_outline(
         pytest.param(":", "(b)", id="recognized-sibling"),
     ],
 )
+@pytest.mark.parametrize("listed", [False, True], ids=["unlisted", "listed"])
 def test_rulespec_proof_validator_rejects_direct_roman_under_dotted_outer_owner(
-    introducer_end, next_heading
+    introducer_end, next_heading, listed
 ):
     result = _validate_scope(
         source_text=(
@@ -30100,6 +30167,7 @@ def test_rulespec_proof_validator_rejects_direct_roman_under_dotted_outer_owner(
         excerpt="(i) The first definition.",
         rule_source="La. R.S. 47:1855(a)(i)",
         citation_path="us-la/statute/47/47:1855",
+        listed=listed,
     )
 
     assert result.passed is False
@@ -30142,18 +30210,29 @@ def test_rulespec_proof_validator_rejects_direct_roman_under_dotted_outer_owner(
 def test_rulespec_proof_validator_keeps_direct_alpha_roman_list_beside_other_levels(
     source_text, excerpt, owner_source, sibling_source
 ):
-    # A direct list resolves under the first alpha paragraph with sub-items,
-    # beside later numeric, uppercase and italic levels.
+    # Listed, a direct list resolves under the first alpha paragraph with
+    # sub-items, beside later numeric, uppercase and italic levels. Unlisted,
+    # the unowned direct list ends the flat pass, so the owner is rejected.
     owner_result = _validate_scope(
-        source_text=source_text, excerpt=excerpt, rule_source=owner_source
+        source_text=source_text,
+        excerpt=excerpt,
+        rule_source=owner_source,
+        listed=True,
     )
     sibling_result = _validate_scope(
-        source_text=source_text, excerpt=excerpt, rule_source=sibling_source
+        source_text=source_text,
+        excerpt=excerpt,
+        rule_source=sibling_source,
+        listed=True,
+    )
+    unlisted_result = _validate_scope(
+        source_text=source_text, excerpt=excerpt, rule_source=owner_source
     )
 
     assert owner_result.passed is True
     assert owner_result.issues == []
     assert sibling_result.passed is False
+    assert unlisted_result.passed is False
 
 
 def test_rulespec_proof_validator_does_not_drop_leading_numeric_owner():

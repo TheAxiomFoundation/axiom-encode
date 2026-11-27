@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import hashlib
 import re
 import unicodedata
 from array import array
 from dataclasses import dataclass, field
 from datetime import date
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
@@ -3079,30 +3081,36 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
             if baseline_indent is not None
             and len(header.group("indent").expandtabs(2)) == baseline_indent
         ]
-        # Only the bare, sequential alpha headers at the start of a record
-        # can introduce a direct Roman list.
-        header_position = {
-            header.start(): index for index, header in enumerate(headers)
-        }
+        # The direct Roman list runs only on a listed record. Every other
+        # record leaves direct_list_record False, so the pass below assigns
+        # the same owners as it does without the direct list.
+        header_position: dict[int, int] = {}
         alpha_prefix_length = 0
-        for header in headers:
-            if (
-                alpha_prefix_length >= 26
-                or header.group("bundle").strip()
-                != f"({chr(ord('a') + alpha_prefix_length)})"
-                or len(header.group("indent").expandtabs(2)) != baseline_indent
-                or not _flat_header_starts_sentence(record, header.start("bundle"))
-            ):
-                break
-            alpha_prefix_length += 1
-        direct_list_record = (
-            alpha_prefix_length > 0
-            and _flat_direct_list_allows_record_prefix(record[: headers[0].start()])
-            and all(
-                _flat_header_has_sentence_text(record, header)
-                for header in baseline_headers
+        direct_list_record = False
+        if _flat_direct_roman_list_record_is_listed(record):
+            header_position = {
+                header.start(): index for index, header in enumerate(headers)
+            }
+            # Only the bare, sequential alpha headers at the start of a
+            # record can introduce a direct Roman list.
+            for header in headers:
+                if (
+                    alpha_prefix_length >= 26
+                    or header.group("bundle").strip()
+                    != f"({chr(ord('a') + alpha_prefix_length)})"
+                    or len(header.group("indent").expandtabs(2)) != baseline_indent
+                    or not _flat_header_starts_sentence(record, header.start("bundle"))
+                ):
+                    break
+                alpha_prefix_length += 1
+            direct_list_record = (
+                alpha_prefix_length > 0
+                and _flat_direct_list_allows_record_prefix(record[: headers[0].start()])
+                and all(
+                    _flat_header_has_sentence_text(record, header)
+                    for header in baseline_headers
+                )
             )
-        )
         alpha_parent: str | None = None
         alpha_header: re.Match[str] | None = None
         next_alpha = "a"
@@ -3352,6 +3360,38 @@ def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
             del occurrences[direct_list_start:]
         record_offset += len(record) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
     return occurrences
+
+
+# Flat regulation records whose Roman items sit directly under an alpha
+# paragraph, as 42 CFR 435.554(a) lists (i)-(iv) under its "Caretaker
+# relative" definition. Each entry maps the SHA-256 of the exact UTF-8 record
+# the validator receives to its length in characters. Only these records can
+# open a direct Roman list; a record with any other bytes, including one
+# character changed, gets the owners the pass assigns without it.
+# tests/test_flat_direct_roman_list_gate.py pins the listed record's owners to
+# eCFR's paragraph hierarchy. If a second source needs this path, revisit the
+# design rather than lengthen this list (axiom-encode#2365).
+_FLAT_DIRECT_ROMAN_LIST_RECORDS: Mapping[str, int] = MappingProxyType(
+    {
+        # us/regulation/42/435/554 in axiom-corpus version
+        # 2026-06-29-cms-2454-ifc-42-cfr-435-community-engagement-corrected-
+        # r2026-07-24-self-contained-r2026-11-26-fr-page-markers, signed and
+        # locked in TheAxiomFoundation/axiom-corpus#1018.
+        "1edf90a97135cdf21fb051c3cf55fbebff88b892480e70e0e601243e658e5751": 8649,
+    }
+)
+_FLAT_DIRECT_ROMAN_LIST_RECORD_LENGTHS = frozenset(
+    _FLAT_DIRECT_ROMAN_LIST_RECORDS.values()
+)
+
+
+def _flat_direct_roman_list_record_is_listed(record: str) -> bool:
+    """Whether ``record`` is exactly one of the listed records."""
+    if len(record) not in _FLAT_DIRECT_ROMAN_LIST_RECORD_LENGTHS:
+        return False
+    # surrogatepass keeps the hash from raising on text main accepts.
+    digest = hashlib.sha256(record.encode("utf-8", "surrogatepass")).hexdigest()
+    return _FLAT_DIRECT_ROMAN_LIST_RECORDS.get(digest) == len(record)
 
 
 # Any short parenthesized token: a structural marker or a citation to one.
