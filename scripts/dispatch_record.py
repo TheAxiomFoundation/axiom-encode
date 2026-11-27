@@ -148,6 +148,32 @@ def _promotion(bundle_text: str) -> tuple[bool | None, bool | None]:
     return live_reviewed_pr, promoted
 
 
+def _review_record_required(bundle_text: str) -> bool | None:
+    """Whether the dispatch asks for review records (the wrapper key).
+
+    ``True`` only for a reviewed-PR promotion wrapper whose
+    ``require_review_record`` is exactly ``true``; ``False`` when the key is
+    absent or the bundle is not that wrapper; ``None`` when the bundle cannot
+    be read or the key has another value (the workflow refuses such a run).
+    """
+    text = bundle_text.strip()
+    if not text or text == "[]":
+        return False
+    if len(text.encode("utf-8", "replace")) > MAX_BUNDLE_BYTES:
+        return None
+    try:
+        payload = json.loads(text)
+    except (ValueError, RecursionError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema") != REVIEWED_PR_PROMOTION_SCHEMA
+        or "require_review_record" not in payload
+    ):
+        return False
+    return True if payload["require_review_record"] is True else None
+
+
 def trigger_kind(*, is_promotion: bool | None, is_repair: bool, is_queue: bool) -> str:
     """One label per run. The three flags stay in the record beside it.
 
@@ -226,6 +252,9 @@ def build_record(
             "is_promotion": is_promotion,
             "live_reviewed_pr": live_reviewed_pr,
             "reviewed_candidate_promotion": promoted,
+            "review_record_required": _review_record_required(
+                _text(inputs.get("source_bundle_json"))
+            ),
             "open_pr": open_pr,
             **values,
             "inputs_present": {

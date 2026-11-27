@@ -1375,10 +1375,29 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         except ImportError:  # run outside the package: the key stays unknown
             batch_on = False
         batch_keys = {"units"} if batch_on else set()
-        if set(payload) - batch_keys != {"schema", "transaction", "rulespec_pr"}:
+        # ``require_review_record`` is optional and may only be exactly
+        # ``true``: the signing run then refuses a unit without a passed
+        # review record, bound to its exact bytes, in the candidate pull
+        # request body (docs/reviewed-pr-promotion.md, "Review record").
+        # Without the key nothing is read and the result has no new key.
+        optional_keys = batch_keys | {"require_review_record"}
+        if set(payload) - optional_keys != {"schema", "transaction", "rulespec_pr"}:
             raise ValueError(
                 "reviewed PR promotion requires exactly transaction and rulespec_pr"
             )
+        if (
+            "require_review_record" in payload
+            and payload["require_review_record"] is not True
+        ):
+            raise ValueError(
+                "reviewed PR promotion require_review_record must be exactly "
+                "true when present"
+            )
+        review_record = (
+            {"promotion_review_record_required": True}
+            if "require_review_record" in payload
+            else {}
+        )
         units = payload.get("units")
         if "units" in payload and (
             not isinstance(units, list)
@@ -1405,8 +1424,13 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         if normalized.get("reviewed_candidate_promotion") is not True:
             raise ValueError("reviewed PR promotion requires promotion mode")
         if units is not None:
-            return {**normalized, "rulespec_pr": number, "promotion_units": units}
-        return {**normalized, "rulespec_pr": number}
+            return {
+                **normalized,
+                "rulespec_pr": number,
+                "promotion_units": units,
+                **review_record,
+            }
+        return {**normalized, "rulespec_pr": number, **review_record}
     if isinstance(payload, dict) and payload.get("schema") == (
         "axiom-encode/corpus-artifact-transport/v1"
     ):
