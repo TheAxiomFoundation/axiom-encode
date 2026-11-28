@@ -1,0 +1,1 @@
+Retry one reviewed-PR admission GitHub read, with bounded attempts and wait, when GitHub answers with a short rate limit (429, or a marked 403) or a transient 5xx, and log the rate-limit headers of each such answer. The hourly anonymous limit is not waited for.

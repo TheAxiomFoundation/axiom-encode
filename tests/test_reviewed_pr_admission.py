@@ -1435,3 +1435,135 @@ def test_a_refusal_carries_its_detail_and_says_plain_block_form():
     assert caught.value.detail.startswith("the module has a byte order mark")
     assert "must be in the plain block form" in str(caught.value)
     assert "rewrite the block by hand" in str(caught.value)
+
+
+# --- a revalidation whose reads waited is read once more -------------------
+
+
+def _waiting_fetch(api, monkeypatch, waits):
+    """A fetch whose n-th read adds ``waits[n]`` seconds of retry sleep."""
+    monkeypatch.setattr(admission_module, "_process_waited", 0.0)
+    requested = []
+
+    def fetch(path):
+        waited = waits.get(len(requested), 0.0)
+        requested.append(path)
+        admission_module._process_waited += waited
+        return api[path]
+
+    return fetch, requested
+
+
+def test_a_revalidation_that_waited_is_read_again_from_the_start(
+    api, monkeypatch, capsys
+):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    fetch, requested = _waiting_fetch(api, monkeypatch, {1: 30.0})
+    assert revalidate_admission(admission, fetch=fetch) == admission
+    assert len(requested) == 8 and requested[:4] == requested[4:]
+    assert "reads waited 30s; reading all of it again" in capsys.readouterr().err
+
+
+def test_a_revalidation_restarts_at_most_once(api, monkeypatch):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    # The second pass waited too: no third pass, and no result.
+    fetch, requested = _waiting_fetch(api, monkeypatch, {1: 30.0, 6: 30.0, 9: 0.0})
+    with pytest.raises(AdmissionError, match="could not be taken at one moment"):
+        revalidate_admission(admission, fetch=fetch)
+    assert len(requested) == 8
+
+
+def test_a_short_wait_in_the_second_revalidation_is_accepted(api, monkeypatch):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    fetch, requested = _waiting_fetch(api, monkeypatch, {1: 30.0, 6: 5.0})
+    assert revalidate_admission(admission, fetch=fetch) == admission
+    assert len(requested) == 8
+
+
+class _LimitedOnce:
+    """The real ``github_json`` over the fixture: chosen reads answer 429 once."""
+
+    def __init__(self, api, monkeypatch, limited_reads, retry_after="30"):
+        self.api, self.limited, self.retry_after = api, set(limited_reads), retry_after
+        self.requests, self.sleeps = [], []
+        module = admission_module
+        monkeypatch.setattr(module.urllib.request, "build_opener", lambda *h: self)
+        monkeypatch.setattr(module.time, "sleep", self.sleeps.append)
+        monkeypatch.setattr(module, "_jitter_seconds", lambda: 0.0)
+        monkeypatch.setattr(module, "_process_waited", 0.0)
+
+    def open(self, request, timeout):
+        import email.message
+        import io
+        import json
+        import urllib.error
+
+        index = len(self.requests)
+        self.requests.append(request.full_url)
+        if index in self.limited:
+            headers = email.message.Message()
+            headers["Retry-After"] = self.retry_after
+            raise urllib.error.HTTPError(
+                request.full_url, 429, "Too Many Requests", headers, io.BytesIO(b"{}")
+            )
+        path = request.full_url.removeprefix("https://api.github.com")
+        raw = json.dumps(self.api[path]).encode()
+
+        class Answer(io.BytesIO):
+            status = 200
+
+        return Answer(raw)
+
+
+def test_a_rate_limited_read_restarts_the_real_revalidation(api, monkeypatch, capsys):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    world = _LimitedOnce(api, monkeypatch, {2})
+    # No ``fetch``: the reads go through ``github_json`` and its own accounting.
+    assert revalidate_admission(admission) == admission
+    assert world.sleeps == [30.0] and admission_module._process_waited == 30.0
+    # Pass 1: four reads, one of them twice. Pass 2: the same four reads.
+    assert len(world.requests) == 9
+    assert world.requests[2] == world.requests[3]
+    assert world.requests[:2] + world.requests[3:5] == world.requests[5:]
+    err = capsys.readouterr().err.splitlines()
+    assert len(err) == 2 and "HTTP 429" in err[0] and "retry in 30s" in err[0]
+    assert err[1].endswith("reads waited 30s; reading all of it again")
+
+
+def test_a_short_real_wait_does_not_restart_the_revalidation(api, monkeypatch):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    world = _LimitedOnce(api, monkeypatch, {0, 3}, retry_after="2")
+    assert revalidate_admission(admission) == admission
+    assert world.sleeps == [2.0, 2.0] and len(world.requests) == 6
+
+
+def test_rate_limits_in_both_real_passes_refuse_the_revalidation(api, monkeypatch):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    world = _LimitedOnce(api, monkeypatch, {1, 7})
+    with pytest.raises(AdmissionError, match="could not be taken at one moment"):
+        revalidate_admission(admission)
+    assert world.sleeps == [30.0, 30.0] and len(world.requests) == 10
+
+
+def test_a_short_wait_does_not_restart_a_revalidation(api, monkeypatch, capsys):
+    assert admission_module._REVALIDATION_RESTART_WAIT_SECONDS == 5.0
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    fetch, requested = _waiting_fetch(api, monkeypatch, {0: 2.0, 3: 3.0})
+    assert revalidate_admission(admission, fetch=fetch) == admission
+    assert len(requested) == 4 and capsys.readouterr().err == ""
+
+
+def test_the_second_revalidation_decides_after_a_wait(api, monkeypatch):
+    """A change that lands during the wait is seen by the second pass."""
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    fetch, requested = _waiting_fetch(api, monkeypatch, {3: 30.0})
+
+    def changing(path):
+        answer = fetch(path)
+        if len(requested) == 4:
+            api[RUN] = {**api[RUN], "status": "completed"}
+        return answer
+
+    with pytest.raises(AdmissionError, match="protected run changed"):
+        revalidate_admission(admission, fetch=changing)
+    assert len(requested) == 5
