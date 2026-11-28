@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import email.message
 import email.utils
+import http.client
 import io
 import json
 import urllib.error
+import urllib.request
 
 import pytest
 
@@ -174,7 +176,14 @@ def test_other_answers_are_raised_at_once(monkeypatch, capsys, case):
     assert caught.value.filename == URL
     assert dict(caught.value.headers) == headers
     assert caught.value.read() == body
-    assert capsys.readouterr().err == ""
+    err = capsys.readouterr().err
+    if code == 403:
+        # Every 403 leaves one line, so a failed run shows what the server said.
+        (line,) = err.splitlines()
+        assert f"HTTP 403 for {PATH}; attempt 1 of 4; " in line
+        assert "; not a rate limit, not retried; x-ratelimit-limit=" in line
+    else:
+        assert err == ""
 
 
 @pytest.mark.parametrize(
@@ -388,3 +397,126 @@ def test_a_retry_does_not_relax_the_checks_of_the_answer(monkeypatch):
     with pytest.raises(admission.AdmissionError, match="invalid admission API path"):
         admission.github_json("/repos/other/x")
     assert world.requests == []
+
+
+def test_header_text_cannot_form_a_workflow_command(monkeypatch, capsys):
+    hostile = {
+        "X-GitHub-Request-Id": "##[add-mask]secret",
+        "X-RateLimit-Limit": "::error::stop",
+        "X-RateLimit-Used": "%0A::set-output name=a::b",
+        "Date": "[group]<x>;$(id)`id`|&'\"\\/",
+    }
+    World(monkeypatch, [http_error(403, "Forbidden", hostile, POLICY_BODY)])
+    with pytest.raises(urllib.error.HTTPError):
+        admission.github_json(PATH)
+    (line,) = capsys.readouterr().err.splitlines()
+    fields = line.split("; ")[-1]
+    assert "x-github-request-id=___add-mask_secret" in fields
+    assert "x-ratelimit-limit=::error::stop " in fields
+    assert "x-ratelimit-used=_0A::set-output_name_a::b " in fields
+    assert "date=_group__x____id__id_______ " in fields
+    assert set(fields) <= set(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789,:._-= "
+    )
+    assert "#" not in line and "[" not in line and "]" not in line
+
+
+# --- the same path over real ``http.client`` responses, without a network ---
+
+
+class _Wire:
+    """A socket stand-in that hands ``http.client`` the bytes of one answer."""
+
+    def __init__(self, raw):
+        self.raw = raw
+
+    def makefile(self, *args, **kwargs):
+        return io.BytesIO(self.raw)
+
+
+class _ScriptedHTTPS(urllib.request.HTTPSHandler):
+    def __init__(self, answers):
+        super().__init__()
+        self.answers = list(answers)
+        self.responses = []
+
+    def https_open(self, request):
+        response = http.client.HTTPResponse(_Wire(self.answers.pop(0)), method="GET")
+        response.begin()
+        response.url = request.full_url
+        response.msg = response.reason
+        self.responses.append(response)
+        return response
+
+
+def real_world(monkeypatch, answers):
+    """The real opener of ``github_json`` with only the transport replaced."""
+    transport = _ScriptedHTTPS(answers)
+    build = urllib.request.build_opener
+    monkeypatch.setattr(
+        admission.urllib.request,
+        "build_opener",
+        lambda *handlers: build(*handlers, transport),
+    )
+    sleeps = []
+    monkeypatch.setattr(admission.time, "sleep", sleeps.append)
+    monkeypatch.setattr(admission, "_jitter_seconds", lambda: 0.0)
+    monkeypatch.setattr(admission, "_process_waited", 0.0)
+    return transport, sleeps
+
+
+def wire(status, headers, body):
+    lines = [f"HTTP/1.1 {status}", *[f"{k}: {v}" for k, v in headers.items()]]
+    return "\r\n".join(lines).encode() + b"\r\n\r\n" + body
+
+
+def with_length(status, headers, body):
+    return wire(status, {**headers, "Content-Length": len(body)}, body)
+
+
+def test_a_real_403_response_is_read_closed_and_raised_with_its_body(monkeypatch):
+    transport, sleeps = real_world(
+        monkeypatch,
+        [with_length("403 Forbidden", {"X-RateLimit-Remaining": "41"}, POLICY_BODY)],
+    )
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        admission.github_json(PATH)
+    assert caught.value.code == 403 and caught.value.reason == "Forbidden"
+    assert caught.value.headers["X-RateLimit-Remaining"] == "41"
+    assert caught.value.read() == POLICY_BODY
+    # The response of the wire was read and closed; nothing was read again.
+    (response,) = transport.responses
+    assert response.closed and sleeps == []
+
+
+def test_a_real_rate_limit_response_then_success(monkeypatch, capsys):
+    limited = with_length(
+        "403 rate limit exceeded",
+        {"X-RateLimit-Remaining": "0", "Retry-After": "9"},
+        LIMIT_BODY,
+    )
+    transport, sleeps = real_world(
+        monkeypatch, [limited, with_length("200 OK", {}, b'{"n": 3}')]
+    )
+    assert admission.github_json(PATH) == {"n": 3}
+    assert sleeps == [9.0] and all(r.closed for r in transport.responses)
+    assert "; retry in 9s; " in capsys.readouterr().err
+
+
+def test_a_truncated_403_body_still_raises_the_403(monkeypatch, capsys):
+    # Chunked body cut inside its first chunk: the read raises IncompleteRead.
+    cut = wire("403 Forbidden", {"Transfer-Encoding": "chunked"}, b'40\r\n{"mess')
+    transport, sleeps = real_world(monkeypatch, [cut])
+    with pytest.raises(http.client.IncompleteRead):
+        _read_all(cut)
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        admission.github_json(PATH)
+    assert caught.value.code == 403 and caught.value.read() == b""
+    assert transport.responses[0].closed and sleeps == []
+    assert "not a rate limit, not retried" in capsys.readouterr().err
+
+
+def _read_all(raw):
+    response = http.client.HTTPResponse(_Wire(raw), method="GET")
+    response.begin()
+    return response.read(admission._RETRY_ERROR_BODY_BYTES)

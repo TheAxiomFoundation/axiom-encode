@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import email.utils
 import hashlib
+import http.client
 import io
 import json
 import random
@@ -130,7 +131,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 # the same request and only a 200 answer is ever used: no check is skipped
 # and no earlier answer is kept.
 #
-# Every rate-limit or 5xx answer writes one line to stderr with the decision
+# Every rate-limit or 5xx answer, and every 403 that is raised at once, writes
+# one line to stderr with the decision
 # and the rate-limit headers, so a failed run shows how far the reset was.
 _RETRY_MAX_ATTEMPTS: Final = 4
 _RETRY_MAX_TOTAL_WAIT_SECONDS: Final = 300.0
@@ -194,7 +196,8 @@ def _with_kept_body(
         return error, b""
     try:
         body = error.read(_RETRY_ERROR_BODY_BYTES) or b""
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, http.client.HTTPException):
+        # A body that is cut short does not change what the answer is.
         body = b""
     kept = urllib.error.HTTPError(
         error.filename, error.code, error.reason, error.headers, io.BytesIO(body)
@@ -243,7 +246,9 @@ def _log_retry_decision(
     fields = []
     for name in _RETRY_LOGGED_HEADERS:
         value = _header_text(error, name)
-        shown = re.sub(r"[^\x21-\x7e]", "_", value)[:64] if value else "-"
+        # Letters, digits and ``,:._-`` only: no text of a header can form a
+        # workflow command or break the line.
+        shown = re.sub(r"[^A-Za-z0-9,:._-]", "_", value)[:64] if value else "-"
         fields.append(f"{name.lower()}={shown}")
     print(
         f"GitHub admission read: HTTP {error.code} for {path.split('?', 1)[0]}; "
@@ -286,7 +291,9 @@ def github_json(path: str) -> object:
             error, body = _with_kept_body(answer)
             wait = _retry_wait_seconds(error, body, attempt)
             if wait is None:
-                decision = None
+                decision = (
+                    "not a rate limit, not retried" if error.code == 403 else None
+                )
             elif attempt >= _RETRY_MAX_ATTEMPTS:
                 decision = "attempts used up, not retried"
             elif waited + wait > _RETRY_MAX_TOTAL_WAIT_SECONDS:
@@ -954,18 +961,23 @@ def revalidate_admission(
 
     The reads of one revalidation must describe one moment. When the retry
     of a read slept longer than ``_REVALIDATION_RESTART_WAIT_SECONDS`` in
-    total, the whole revalidation is run once more from the start and that
-    second result is the one returned. One restart at most.
+    total, the whole revalidation is run once more from the start. One
+    restart at most: when the second pass slept that long too, no pass
+    describes one moment and the revalidation is refused.
     """
     waited_before = _process_waited
     payload = _revalidate_admission_once(expected, fetch)
+    if _process_waited - waited_before <= _REVALIDATION_RESTART_WAIT_SECONDS:
+        return payload
+    print(
+        "GitHub admission revalidation: reads waited "
+        f"{_process_waited - waited_before:.0f}s; reading all of it again",
+        file=sys.stderr,
+    )
+    waited_before = _process_waited
+    payload = _revalidate_admission_once(expected, fetch)
     if _process_waited - waited_before > _REVALIDATION_RESTART_WAIT_SECONDS:
-        print(
-            "GitHub admission revalidation: reads waited "
-            f"{_process_waited - waited_before:.0f}s; reading all of it again",
-            file=sys.stderr,
-        )
-        payload = _revalidate_admission_once(expected, fetch)
+        raise AdmissionError("revalidation reads could not be taken at one moment")
     return payload
 
 

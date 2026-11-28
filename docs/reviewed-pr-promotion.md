@@ -277,9 +277,10 @@ of waiting for all reads of one process. The wait is `Retry-After`, else the
 distance from the answer's `Date` to `X-RateLimit-Reset` plus a 3-second
 margin, else a backoff; each wait has up to 1 second of jitter. This does not
 wait out the hourly anonymous limit: a reset beyond the bound fails at once.
-Each such answer writes one stderr line with the status, the decision and the
-rate-limit headers. A revalidation whose reads waited more than 5 seconds in
-total is read once more from the start, and the second result decides.
+Each such answer, and every 403 that is raised at once, writes one stderr line
+with the status, the decision and the rate-limit headers. A revalidation whose
+reads waited more than 5 seconds in total is read once more from the start;
+when the second pass waited that long too, the revalidation is refused.
 The byte-bound immutable content is fully fetched at preflight/provisioning;
 later checks reread mutable head/base/reviews rather than downloading it again.
 
