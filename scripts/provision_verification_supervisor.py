@@ -22,9 +22,14 @@ The static passes below make that outcome reachable and durable:
   ``sitecustomize``/``usercustomize`` form (module, package dir, ``.pyc``,
   extension module). Any ``python3*.zip`` entry, file or directory, directly
   in the runtime's ``lib/``, ``lib64/`` or ``PLATLIBDIR`` directory is purged
-  too: that is the stdlib zip slot ``sys.path`` lists first. The provisioned
-  interpreter's own directory then keeps only regular files: a directory
-  beside the interpreter (``bin/lib``, ``bin/Lib``, ``bin/Modules``) moves the
+  too: that is the stdlib zip slot ``sys.path`` lists first. The purge also
+  removes any ``Modules`` entry, in any case, in the prefix root or a library
+  directory, and any ``lib`` or ``lib64`` entry inside a library directory:
+  some builds take the prefix root as the interpreter's directory, where
+  ``Modules/Setup.local`` marks a build tree, and CPython 3.14.0 starts its
+  prefix search in ``lib/``. The provisioned interpreter's own directory then
+  keeps only regular files, none named ``Modules``: a directory beside the
+  interpreter (``bin/lib``, ``bin/Lib``) or a ``bin/Modules`` entry moves the
   stdlib that path configuration finds, and an interpreter at the prefix root
   is refused. Neither the launcher's ``-I`` (site-enabled) start nor the
   supervisor's ``-I -S`` start therefore meets any of these forms, and the
