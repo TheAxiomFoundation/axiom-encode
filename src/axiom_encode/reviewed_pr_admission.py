@@ -11,6 +11,9 @@ import base64
 import hashlib
 import json
 import re
+import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -96,6 +99,82 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         raise AdmissionError("GitHub admission requests must not redirect")
 
 
+# --- Bounded retry of one read ------------------------------------------------
+#
+# Many signing runs in parallel share the anonymous API budget of their
+# address, and one read is sometimes answered "403 rate limit exceeded". Such an
+# answer says nothing about the candidate. One read is repeated only for:
+#   - 429, or 403 that the server marks as a rate limit (a ``Retry-After``
+#     header, ``X-RateLimit-Remaining: 0``, or "rate limit" in the reason or
+#     the error body);
+#   - 500, 502, 503 and 504.
+# Every other answer, a 403 without a rate-limit mark included, is raised at
+# once as before. The wait is the server's ``Retry-After``, else the time to
+# ``X-RateLimit-Reset``, else an exponential backoff. A read is tried at most
+# ``_RETRY_MAX_ATTEMPTS`` times and sleeps at most
+# ``_RETRY_MAX_TOTAL_WAIT_SECONDS`` in total; a wait that does not fit the
+# rest of that bound is not started. After the last attempt the original HTTP
+# error is raised unchanged, so the read still fails closed. A retry repeats
+# the same request and only a 200 answer is ever used: no check is skipped
+# and no earlier answer is kept.
+_RETRY_MAX_ATTEMPTS: Final = 4
+_RETRY_MAX_TOTAL_WAIT_SECONDS: Final = 300.0
+_RETRY_BASE_BACKOFF_SECONDS: Final = 2.0
+_RETRY_SERVER_STATUSES: Final = frozenset({500, 502, 503, 504})
+_RETRY_ERROR_BODY_BYTES: Final = 4096
+
+
+def _header_seconds(error: urllib.error.HTTPError, name: str) -> int | None:
+    """A header that is a short run of ASCII digits, or nothing."""
+    value = error.headers.get(name) if error.headers is not None else None
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not re.fullmatch(r"[0-9]{1,12}", value):
+        return None
+    return int(value)
+
+
+def _is_rate_limit_response(error: urllib.error.HTTPError) -> bool:
+    if error.code == 429:
+        return True
+    if error.code != 403:
+        return False
+    if _header_seconds(error, "Retry-After") is not None:
+        return True
+    if _header_seconds(error, "X-RateLimit-Remaining") == 0:
+        return True
+    if "rate limit" in str(error.reason or "").lower():
+        return True
+    try:
+        body = error.read(_RETRY_ERROR_BODY_BYTES)
+    except (OSError, ValueError, AttributeError):
+        return False
+    return b"rate limit" in (body or b"").lower()
+
+
+def _retry_wait_seconds(error: urllib.error.HTTPError, attempt: int) -> float | None:
+    """Seconds to wait before the next attempt, or None when not retryable."""
+    rate_limited = _is_rate_limit_response(error)
+    if not rate_limited and error.code not in _RETRY_SERVER_STATUSES:
+        return None
+    retry_after = _header_seconds(error, "Retry-After")
+    if retry_after is not None:
+        return float(max(1, retry_after))
+    if rate_limited:
+        reset = _header_seconds(error, "X-RateLimit-Reset")
+        if reset is not None:
+            return max(1.0, reset - time.time() + 1.0)
+    return _RETRY_BASE_BACKOFF_SECONDS * 2 ** (attempt - 1)
+
+
+def _read_bounded(opener: urllib.request.OpenerDirector, request) -> bytes:
+    with opener.open(request, timeout=30) as response:
+        if response.status != 200:
+            raise AdmissionError("GitHub admission query did not succeed")
+        return response.read(MAX_RESPONSE_BYTES + 1)
+
+
 def github_json(path: str) -> object:
     """Read a bounded response only from the fixed GitHub API origin."""
     if not path.startswith("/repos/TheAxiomFoundation/") or "#" in path:
@@ -109,12 +188,36 @@ def github_json(path: str) -> object:
         },
     )
     # Ignore environment proxies: the API origin, TLS trust and redirects are
-    # not dispatch inputs. HTTP errors/rate limits fail closed.
+    # not dispatch inputs. HTTP errors/rate limits fail closed, after the
+    # bounded retry of a rate-limit or transient server answer (above).
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
-    with opener.open(request, timeout=30) as response:
-        if response.status != 200:
-            raise AdmissionError("GitHub admission query did not succeed")
-        raw = response.read(MAX_RESPONSE_BYTES + 1)
+    waited = 0.0
+    attempt = 1
+    while True:
+        try:
+            raw = _read_bounded(opener, request)
+            break
+        except urllib.error.HTTPError as error:
+            wait = _retry_wait_seconds(error, attempt)
+            if wait is None or attempt >= _RETRY_MAX_ATTEMPTS:
+                raise
+            if waited + wait > _RETRY_MAX_TOTAL_WAIT_SECONDS:
+                print(
+                    f"GitHub admission read: HTTP {error.code}; the next attempt "
+                    f"needs a wait of {wait:.0f}s, beyond the retry bound; "
+                    "not retried",
+                    file=sys.stderr,
+                )
+                raise
+            print(
+                f"GitHub admission read: HTTP {error.code}; attempt {attempt} of "
+                f"{_RETRY_MAX_ATTEMPTS}; next attempt in {wait:.0f}s",
+                file=sys.stderr,
+            )
+            error.close()
+        time.sleep(wait)
+        waited += wait
+        attempt += 1
     if len(raw) > MAX_RESPONSE_BYTES:
         raise AdmissionError("GitHub admission response exceeds its bound")
     return json.loads(raw)

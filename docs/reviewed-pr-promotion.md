@@ -268,6 +268,12 @@ GitHub reads use the fixed TLS API endpoint, no redirects or ambient proxy,
 bounded pages/responses, and no credentials in the signing runtime. API failures
 and rate limits fail closed; they never admit cached evidence. Public GitHub
 anonymous limits apply, so repeated dispatch/polling is not a retry strategy.
+One read that GitHub answers with a rate-limit response (429, or 403 with a
+rate-limit header or message) or with 500/502/503/504 is repeated: at most 4
+attempts and at most 300 seconds of waiting for that read, with the wait taken
+from `Retry-After` or `X-RateLimit-Reset` when GitHub sends one. A 403 without
+a rate-limit mark is not repeated. When the attempts or the wait bound are
+used up, the read fails as before.
 The byte-bound immutable content is fully fetched at preflight/provisioning;
 later checks reread mutable head/base/reviews rather than downloading it again.
 
