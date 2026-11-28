@@ -14,12 +14,27 @@ The static passes below make that outcome reachable and durable:
 * Source prefix: a system/FHS prefix, a prefix outside ``--require-prefix-under``,
   one exceeding the file cap, or one whose tree escapes itself via a symlink is
   refused BEFORE any copy.
-* Startup code: every ``.pth``/``._pth``/``.egg-link``/``pyvenv.cfg``/
-  ``pybuilddir.txt``/``__editable__*`` path-configuration carrier, the canonical
-  stdlib ``pythonXY[t].zip``, and every importable ``sitecustomize``/
-  ``usercustomize`` form (module, package dir, ``.pyc``, extension module) is
-  purged AFTER the staged site-packages swap, so the launcher's ``-I``
-  (site-enabled) start executes none of them.
+* Startup code: AFTER the staged site-packages swap, every entry, file or
+  directory, named like a startup carrier is purged anywhere in the tree, with
+  names matched in any case (the default macOS file system ignores case, so
+  ``PYTHON3.13._PTH`` is honored there): ``.pth``/``._pth``/``.egg-link``/
+  ``pyvenv.cfg``/``pybuilddir.txt``/``__editable__*`` and every importable
+  ``sitecustomize``/``usercustomize`` form (module, package dir, ``.pyc``,
+  extension module). Any ``python3*.zip`` entry, file or directory, directly
+  in the runtime's ``lib/``, ``lib64/`` or ``PLATLIBDIR`` directory is purged
+  too: that is the stdlib zip slot ``sys.path`` lists first. The purge also
+  removes any ``Modules`` entry, in any case, in the prefix root or a library
+  directory, and any ``lib`` or ``lib64`` entry inside a library directory:
+  some builds take the prefix root as the interpreter's directory, where
+  ``Modules/Setup.local`` marks a build tree, and CPython 3.14.0 starts its
+  prefix search in ``lib/``. The provisioned interpreter's own directory then
+  keeps only regular files, none named ``Modules``: a directory beside the
+  interpreter (``bin/lib``, ``bin/Lib``) or a ``bin/Modules`` directory moves the
+  stdlib that path configuration finds, and an interpreter at the prefix root
+  is refused. Neither the launcher's ``-I`` (site-enabled) start nor the
+  supervisor's ``-I -S`` start therefore meets any of these forms, and the
+  supervisor refuses them again in the finished tree (in ``lib/`` and
+  ``lib64/`` for the zip slot).
 * Run paths: every copied ELF whose ``DT_RPATH``/``DT_RUNPATH`` (read via
   ``patchelf --print-rpath``) escapes the runtime after per-object ``$ORIGIN``
   expansion — requiring both lexical and symlink-resolved containment — is
@@ -205,16 +220,77 @@ def _stage_runtime_tree(
     )
     shutil.rmtree(target_site_packages)
     shutil.copytree(site_packages.resolve(strict=True), target_site_packages)
-    # CPython puts the canonical stdlib zip on sys.path unconditionally (even
-    # when absent), and -I still lets `site` import modules — including
-    # sitecustomize — from it. Its name/dir vary with PLATLIBDIR (lib vs lib64)
-    # and the free-threaded ABI ("t" suffix, e.g. python313t.zip), so match the
-    # version-prefixed zip anywhere in the copied tree; the full lib/ tree we
-    # copied makes it redundant.
-    zip_glob = f"python{sys.version_info.major}{sys.version_info.minor}*.zip"
-    for stdlib_zip in runtime.rglob(zip_glob):
-        if stdlib_zip.is_file():
-            stdlib_zip.unlink()
+    _purge_stdlib_zip_slots(runtime)
+    _purge_startup_carriers(runtime)
+    _purge_path_configuration_markers(runtime)
+
+
+def _remove_entry(path: Path) -> None:
+    if path.is_symlink() or not path.is_dir():
+        path.unlink()
+    else:
+        shutil.rmtree(path)
+
+
+def _purge_stdlib_zip_slots(runtime: Path) -> None:
+    """Remove whatever fills the stdlib zip slot of each library directory.
+
+    CPython puts ``<prefix>/<PLATLIBDIR>/python3XY[t].zip`` on sys.path
+    unconditionally (even when absent), during path configuration, so it is
+    searched under ``-I -S`` too and before any trusted code runs. Both
+    zipimport (a zip file) and the path finder (a plain directory of that
+    name) import from it. The name varies with the free-threaded ABI (``t``)
+    and the directory with PLATLIBDIR (lib vs lib64), so remove every
+    ``python3*.zip`` entry, file or directory, in any case, directly in each
+    candidate library directory. The full lib/ tree we copied makes a stdlib
+    zip redundant; the same name elsewhere is a plain data file.
+    """
+    for library_name in sorted({"lib", "lib64", sys.platlibdir}):
+        library = runtime / library_name
+        if library.is_symlink() or not library.is_dir():
+            continue
+        for entry in sorted(library.iterdir()):
+            name = entry.name.lower()
+            if name.startswith("python3") and name.endswith(".zip"):
+                _remove_entry(entry)
+
+
+def _purge_path_configuration_markers(runtime: Path) -> None:
+    """Remove the build-tree and nested library entries path configuration reads.
+
+    Path configuration takes ``<directory>/Modules/Setup.local`` as the mark of
+    a build tree in the directory it treats as the interpreter's, and then
+    moves sys.prefix to the build's configured prefix. macOS
+    builds that derive that directory from libpython's location (CPython
+    3.13.13 and 3.14.4, for example) take the prefix root, and some builds
+    (3.14.0) start their prefix search in libpython's own directory, where a
+    nested ``lib/lib/python3XY.zip`` or ``lib/lib/python3.X/os.py`` moves
+    sys.prefix to ``lib/``. Remove every ``Modules`` entry, in any case, from
+    the prefix root and from each library directory, and every ``lib`` or
+    ``lib64`` entry from each library directory. The real ``Setup.local``
+    under ``lib/python3.X/config-*/`` stays.
+    """
+    library_names = sorted({"lib", "lib64", sys.platlibdir})
+    nested_names = {"modules", *(name.lower() for name in library_names)}
+    for directory, forbidden in [
+        (runtime, {"modules"}),
+        *((runtime / name, nested_names) for name in library_names),
+    ]:
+        if directory.is_symlink() or not directory.is_dir():
+            continue
+        for entry in sorted(directory.iterdir()):
+            if entry.name.lower() in forbidden:
+                _remove_entry(entry)
+
+
+def _purge_startup_carriers(root: Path) -> None:
+    """Remove every startup carrier under ``root``, file or directory.
+
+    Patterns match in any case: a wildcard glob is case-sensitive by default
+    on POSIX, so ``EVIL.PTH`` and ``PYTHON3.13._PTH`` would survive it, and path
+    configuration's open of ``bin/python3.13._pth`` finds the latter on the
+    default macOS file system, which ignores case.
+    """
     # Materialize every match BEFORE deleting: rglob is a lazy walker, and
     # rmtree-ing a directory it has yielded but not yet descended into would
     # make the walk fail. Collect first, then delete, guarding against a path
@@ -223,7 +299,7 @@ def _stage_runtime_tree(
         {
             match
             for pattern in _FORBIDDEN_STARTUP_GLOBS
-            for match in runtime.rglob(pattern)
+            for match in root.rglob(pattern, case_sensitive=False)
         }
     )
     for forbidden in doomed:
@@ -232,6 +308,29 @@ def _stage_runtime_tree(
         elif forbidden.is_dir():
             # `sitecustomize/` as a package directory is importable too.
             shutil.rmtree(forbidden)
+
+
+def _purge_interpreter_directory(runtime: Path, interpreter: Path) -> None:
+    """Keep only regular files, none named ``Modules``, beside the interpreter.
+
+    On Linux and on some macOS builds (CPython 3.13.9 and 3.14.0, for example),
+    path configuration searches for the stdlib landmark starting at the
+    interpreter's own directory, so a ``bin/lib/python3.X`` tree moves
+    sys.prefix to bin/, and it takes ``bin/Modules/Setup.local`` as the mark of
+    a build tree. Both act under ``-I -S``. A POSIX install keeps only
+    executables and scripts in bin/, and the supervisor refuses any other
+    entry there. An interpreter at the prefix root has lib/ beside it, so
+    refuse that layout rather than purge the runtime's own directories.
+    """
+    interpreter_directory = interpreter.parent
+    if interpreter_directory == runtime:
+        raise SystemExit(
+            f"refusing to provision: the interpreter {interpreter} sits at the "
+            "prefix root; it must sit in a directory of its own, such as bin/"
+        )
+    for entry in sorted(interpreter_directory.iterdir()):
+        if entry.is_symlink() or not entry.is_file() or entry.name.lower() == "modules":
+            _remove_entry(entry)
 
 
 # gABI: $ORIGIN / ${ORIGIN}; a bare $ORIGIN token ends at a non-identifier
@@ -2073,18 +2172,7 @@ def _overlay_encoder_package(runtime: Path, package: Path) -> Path:
     shutil.copytree(package, target, symlinks=True)
     # The attested tree carries no startup hooks, but re-run the purge over it so
     # the same guarantee the staged tree got also covers the overlaid package.
-    doomed = sorted(
-        {
-            match
-            for pattern in _FORBIDDEN_STARTUP_GLOBS
-            for match in target.rglob(pattern)
-        }
-    )
-    for forbidden in doomed:
-        if forbidden.is_symlink() or forbidden.is_file():
-            forbidden.unlink()
-        elif forbidden.is_dir():
-            shutil.rmtree(forbidden)
+    _purge_startup_carriers(target)
     return target
 
 
@@ -2454,6 +2542,7 @@ def provision(
         runtime = destination / "python"
         _stage_runtime_tree(source_runtime, runtime, site_packages)
         interpreter = runtime / source_interpreter.relative_to(source_runtime)
+        _purge_interpreter_directory(runtime, interpreter)
         # copytree created a fresh prefix. A previously provisioned source can
         # carry a broker with its old interpreter path, an old attestation and
         # the old encoder's reviewed RuleSpec records; none of them belongs to

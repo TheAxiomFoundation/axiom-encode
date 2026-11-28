@@ -11,10 +11,12 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+import scripts.provision_verification_supervisor as provisioner
 from scripts.provision_verification_supervisor import (
     _argument_parser,
     _load_retired_apply_inventory,
     _signing_trust_roots_payload,
+    _stage_runtime_tree,
 )
 
 
@@ -299,3 +301,227 @@ def test_inventory_loader_reads_only_valid_owner_frozen_bytes(
     )
     with pytest.raises(SystemExit, match="duplicate JSON key"):
         _load_retired_apply_inventory(inventory)
+
+
+def _fake_source_prefix(root: Path, interpreter: str = "bin/python3") -> Path:
+    """A synthetic CPython prefix whose interpreter bytes are never executed."""
+    version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    source = root / "source"
+    (source / "lib" / version / "site-packages").mkdir(parents=True)
+    (source / "lib" / version / "os.py").write_text("\n")
+    (source / interpreter).parent.mkdir(parents=True, exist_ok=True)
+    (source / interpreter).write_text("fake interpreter\n")
+    return source
+
+
+def _plant(root: Path, relative: str) -> None:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n")
+
+
+def _listed(path: Path) -> bool:
+    """Whether ``path`` exists under exactly its own spelling.
+
+    A case-insensitive file system answers ``exists()`` for any spelling, so
+    read the parent's listing instead.
+    """
+    return path.parent.is_dir() and path.name in os.listdir(path.parent)
+
+
+def test_stage_runtime_tree_purges_startup_carriers_in_any_case(
+    tmp_path: Path,
+) -> None:
+    """A wildcard glob is case-sensitive by default on POSIX, while the default
+    macOS file system is not: path configuration opens bin/python3.13._pth
+    and finds bin/PYTHON3.13._PTH. Every carrier goes whatever its case."""
+    source = _fake_source_prefix(tmp_path)
+    for relative in ("bin/PYTHON3.13._PTH", "bin/PyBuildDir.TXT", "PyVenv.CFG"):
+        _plant(source, relative)
+    staged = tmp_path / "staged"
+    for relative in (
+        "EVIL.PTH",
+        "X.EGG-LINK",
+        "__EDITABLE___x_finder.py",
+        "SITECUSTOMIZE/__init__.py",
+        "SiteCustomize.cpython-313-darwin.so",
+        "UserCustomize.PYC",
+        "sitecustomize_helper.py",
+        "pkg/data.pth.txt",
+    ):
+        _plant(staged, relative)
+    runtime = tmp_path / "dest" / "python"
+    runtime.parent.mkdir()
+
+    _stage_runtime_tree(source, runtime, staged)
+
+    site = (
+        runtime
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+    survivors = [
+        str(path.relative_to(runtime))
+        for path in (
+            runtime / "bin/PYTHON3.13._PTH",
+            runtime / "bin/PyBuildDir.TXT",
+            runtime / "PyVenv.CFG",
+            site / "EVIL.PTH",
+            site / "X.EGG-LINK",
+            site / "__EDITABLE___x_finder.py",
+            site / "SITECUSTOMIZE",
+            site / "SiteCustomize.cpython-313-darwin.so",
+            site / "UserCustomize.PYC",
+        )
+        if _listed(path)
+    ]
+    assert survivors == []
+    assert (site / "sitecustomize_helper.py").is_file()
+    assert (site / "pkg" / "data.pth.txt").is_file()
+
+
+def test_stage_runtime_tree_purges_stdlib_zip_slot_in_any_form(
+    tmp_path: Path,
+) -> None:
+    """sys.path lists <prefix>/lib/python3XY[t].zip first even when absent, and
+    the path finder imports from a directory of that name as readily as
+    zipimport does from a file. Only the library directories hold that slot;
+    the same name elsewhere is a dependency's data file and stays."""
+    source = _fake_source_prefix(tmp_path)
+    _plant(source, "lib/python313.zip/encodings/__init__.py")
+    _plant(source, "lib64/PYTHON313T.ZIP")
+    staged = tmp_path / "staged"
+    _plant(staged, "pkg/python313.zip")
+    runtime = tmp_path / "dest" / "python"
+    runtime.parent.mkdir()
+
+    _stage_runtime_tree(source, runtime, staged)
+
+    assert not _listed(runtime / "lib" / "python313.zip")
+    assert not _listed(runtime / "lib64" / "PYTHON313T.ZIP")
+    site = (
+        runtime
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
+    assert (site / "pkg" / "python313.zip").is_file()
+
+
+def test_stage_runtime_tree_purges_path_configuration_markers(
+    tmp_path: Path,
+) -> None:
+    """macOS builds such as CPython 3.13.13 take the prefix root as the
+    interpreter's directory and read Modules/Setup.local there as a build
+    tree; 3.14.0 starts its prefix search in lib/, where lib/lib moves
+    sys.prefix. The real Setup.local under config-*/ stays."""
+    version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    source = _fake_source_prefix(tmp_path)
+    for relative in (
+        "MODULES/SETUP.LOCAL",
+        "lib/Modules/Setup.local",
+        "lib/LIB/python313.zip",
+        f"lib64/lib/{version}/os.py",
+        f"lib/{version}/config-{version[6:]}-darwin/Setup.local",
+    ):
+        _plant(source, relative)
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    runtime = tmp_path / "dest" / "python"
+    runtime.parent.mkdir()
+
+    _stage_runtime_tree(source, runtime, staged)
+
+    survivors = [
+        str(path.relative_to(runtime))
+        for path in (
+            runtime / "MODULES",
+            runtime / "lib" / "Modules",
+            runtime / "lib" / "LIB",
+            runtime / "lib64" / "lib",
+        )
+        if _listed(path)
+    ]
+    assert survivors == []
+    assert (
+        runtime / "lib" / version / f"config-{version[6:]}-darwin" / "Setup.local"
+    ).is_file()
+    assert (runtime / "lib" / version / "os.py").is_file()
+
+
+def _provision_from_fake_source(
+    tmp_path: Path, monkeypatch, source: Path, interpreter: Path
+) -> Path:
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    supervisor = tmp_path / "supervisor"
+    supervisor.write_text("synthetic supervisor; never executed\n")
+    monkeypatch.setattr(sys, "base_prefix", str(source))
+    monkeypatch.setattr(sys, "executable", str(interpreter))
+    # The fake interpreter is never executed.
+    monkeypatch.setattr(provisioner, "_assert_self_contained", lambda *args: None)
+    destination = tmp_path / "provisioned"
+    provisioner.provision(
+        destination,
+        supervisor,
+        staged,
+        "test-apply",
+        "test-eval",
+        "test-corpus",
+        Path("/usr/bin/git"),
+        patchelf="unused-for-non-ELF-test-files",
+    )
+    return destination / "python"
+
+
+def test_provision_keeps_only_regular_files_beside_interpreter(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Path configuration searches for the stdlib from the interpreter's own
+    directory, so bin/lib moves sys.prefix to bin/ and bin/Modules/Setup.local
+    marks a build tree, under -I -S as well."""
+    source = _fake_source_prefix(tmp_path)
+    for relative in (
+        "bin/Modules/Setup.local",
+        f"bin/lib/python{sys.version_info.major}.{sys.version_info.minor}/os.py",
+        "bin/keep-tool",
+    ):
+        _plant(source, relative)
+
+    runtime = _provision_from_fake_source(
+        tmp_path, monkeypatch, source, source / "bin" / "python3"
+    )
+
+    entries = sorted((runtime / "bin").iterdir())
+    assert [entry.name for entry in entries] == ["git", "keep-tool", "python3"]
+    assert all(entry.is_file() and not entry.is_symlink() for entry in entries)
+
+
+def test_provision_removes_modules_file_beside_interpreter(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A regular file named Modules beside the interpreter holds no
+    Setup.local, but the supervisor refuses the name in any form, so the
+    provisioner removes it in any case."""
+    source = _fake_source_prefix(tmp_path)
+    _plant(source, "bin/MODULES")
+
+    runtime = _provision_from_fake_source(
+        tmp_path, monkeypatch, source, source / "bin" / "python3"
+    )
+
+    assert sorted(entry.name for entry in (runtime / "bin").iterdir()) == [
+        "git",
+        "python3",
+    ]
+
+
+def test_provision_refuses_interpreter_at_prefix_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An interpreter at the prefix root has lib/ beside it: refuse the layout
+    rather than purge the runtime's own directories."""
+    source = _fake_source_prefix(tmp_path, interpreter="python3")
+    with pytest.raises(SystemExit, match="prefix root"):
+        _provision_from_fake_source(tmp_path, monkeypatch, source, source / "python3")

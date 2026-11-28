@@ -22,12 +22,11 @@ published or installed.
 Install the production binary, one self-contained Python runtime, the complete
 `axiom_encode` package, its explicit import roots, and the trust-root config as
 root-owned paths that the service account cannot change through modes or ACLs.
-The runtime must contain only regular files/directories and no symlinks, special
-files, `.pth`, `.egg-link`, `sitecustomize.py`, `usercustomize.py`,
-`pyvenv.cfg`, or `__editable__*` injection. Set-ID/sticky bits,
-group/other-write access, Linux `security.capability` xattrs, and caller-writable
-paths are rejected. The caller must be unprivileged with matching identities;
-Linux permitted, effective, and ambient capabilities must all be zero.
+The runtime must contain only regular files/directories and no symlinks or
+special files. Set-ID/sticky bits, group/other-write access, Linux
+`security.capability` xattrs, and caller-writable paths are rejected. The caller
+must be unprivileged with matching identities; Linux permitted, effective, and
+ambient capabilities must all be zero.
 
 Python is executed directly as:
 
@@ -41,6 +40,84 @@ the exact runtime/package/import roots, isolated/no-site flags, every initial
 `sys.path` root, compiled and virtual-environment prefixes, `sysconfig` paths,
 the interpreter path, and the exact `axiom_encode.__file__` and package path.
 Only then does it authenticate and attach the anonymous broker socket.
+
+### Python startup carriers
+
+The supervisor also refuses the names and positions below, which CPython
+acts on before the bootstrap runs or in a site-enabled start of the same
+interpreter. Names match in any case, because the default macOS file system
+ignores case and CPython's path configuration opens these paths through it.
+
+- Anywhere in the runtime, package, or import trees, as a file or a directory:
+  `pyvenv.cfg`, `pybuilddir.txt`, any name ending in `.pth`, `._pth`, or
+  `.egg-link`, any name starting with `__editable__`, and `sitecustomize` or
+  `usercustomize` with or without an extension (`.py`, `.pyc`, an extension
+  module, a package directory). Path configuration reads `._pth`,
+  `pybuilddir.txt`, and `pyvenv.cfg` even under `-I -S`. `site` reads the
+  `.pth` files (`__editable__*.pth` among them) and `sitecustomize` in any
+  site-enabled start, such as the launcher's `-I` shebang, and `usercustomize`
+  in a start that enables the user site. The supervisor also refuses
+  `.egg-link` and the other `__editable__*` names as guards.
+- Directly in `lib/` or `lib64/` of the interpreter's directory or of any
+  ancestor of it, up to `/`: any `python3*.zip` entry, file or directory.
+  Path configuration searches upward for `lib/python3XY.zip` before it looks
+  for the standard library, from `bin/` or the runtime root depending on the
+  build (see below), and that search does not stop at the runtime root: the
+  ancestor that holds a zip file found above the root becomes `sys.prefix`.
+  `sys.path` lists `<prefix>/lib/python3XY[t].zip` first even when it does
+  not exist, and CPython imports from a zip file or a directory of that
+  name under `-I -S`.
+  Above the runtime root, a directory of that name leaves `sys.prefix` alone,
+  because the search looks for a file; the supervisor refuses it as a guard.
+  The same name deeper in the tree is an ordinary data file.
+- Every `lib/` or `lib64/` that exists above the runtime root must resolve to
+  a directory that meets the owner and mode rules of the runtime itself, with
+  trusted ancestors, so the caller cannot add a stdlib zip to it after the
+  check. A symlink by either name above the root must resolve.
+- The interpreter must sit directly in the runtime's `bin/`, and every entry
+  in `bin/` must be a regular file. On Linux and on some macOS builds, such as
+  CPython 3.13.9 and 3.14.0, path configuration searches for the standard
+  library from the interpreter's directory upward, so a `bin/lib/python3.X`
+  tree moves `sys.prefix`. With the interpreter in `bin/`, no directory sits
+  between it and the runtime root where such a tree could hide.
+- No entry named `Modules`, in any case, file or directory, may sit directly
+  in the runtime root, `bin/`, `lib/`, or `lib64/`. Path configuration takes
+  `Modules/Setup.local` as the mark of a build tree in the directory it treats
+  as the interpreter's. On Linux and on the macOS 3.13.9 and 3.14.0 builds,
+  it uses `bin/`. macOS builds that derive the directory from libpython's
+  location, such as 3.13.13 and 3.14.4, use the runtime root. The marker
+  moves `sys.prefix` to the build's configured prefix and puts that prefix's
+  `lib/python3XY.zip` first on `sys.path`. CPython 3.14.7 no longer reads it.
+- No entry named `lib` or `lib64`, in any case, may sit directly in the
+  runtime's `lib/` or `lib64/`. CPython 3.14.0 starts its prefix search in
+  libpython's own directory, `lib/`, so `lib/lib/python314.zip` or
+  `lib/lib/python3.14/os.py` moves `sys.prefix` to `lib/`.
+
+`scripts/provision_verification_supervisor.py` purges these forms, in any
+case, from the runtime it builds, and refuses an interpreter that sits at the
+prefix root.
+
+Rules on names and positions cannot see four forms that change what the
+interpreter runs:
+
+- a changed byte in a standard-library module, such as
+  `encodings/__init__.py`;
+- an extension module beside a standard-library source, such as
+  `encodings/__init__.cpython-313-darwin.so`, which the import system tries
+  before the source;
+- cached bytecode that the import system runs in place of an unchanged
+  source, such as a hash-based `.pyc` in `__pycache__` whose header asks for
+  no source check;
+- a new module in an earlier `sys.path` entry that shadows one in a later
+  entry, such as `lib/python3.13/_dbm.py` ahead of
+  `lib/python3.13/lib-dynload/_dbm.cpython-313-darwin.so`.
+
+Each of these can run before the broker attaches, at interpreter start or
+when the bootstrap imports the module. Planting one needs write access to the
+root-owned runtime or to the source prefix the provisioner copied it from,
+which already allows any other change. A pinned digest of the whole runtime
+tree, names and bytes, checked before exec would close all four; the
+supervisor does not check one yet.
 
 ## Protected trust roots
 
