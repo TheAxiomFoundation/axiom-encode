@@ -1435,3 +1435,61 @@ def test_a_refusal_carries_its_detail_and_says_plain_block_form():
     assert caught.value.detail.startswith("the module has a byte order mark")
     assert "must be in the plain block form" in str(caught.value)
     assert "rewrite the block by hand" in str(caught.value)
+
+
+# --- a revalidation whose reads waited is read once more -------------------
+
+
+def _waiting_fetch(api, monkeypatch, waits):
+    """A fetch whose n-th read adds ``waits[n]`` seconds of retry sleep."""
+    monkeypatch.setattr(admission_module, "_process_waited", 0.0)
+    requested = []
+
+    def fetch(path):
+        waited = waits.get(len(requested), 0.0)
+        requested.append(path)
+        admission_module._process_waited += waited
+        return api[path]
+
+    return fetch, requested
+
+
+def test_a_revalidation_that_waited_is_read_again_from_the_start(
+    api, monkeypatch, capsys
+):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    fetch, requested = _waiting_fetch(api, monkeypatch, {1: 30.0})
+    assert revalidate_admission(admission, fetch=fetch) == admission
+    assert len(requested) == 8 and requested[:4] == requested[4:]
+    assert "reads waited 30s; reading all of it again" in capsys.readouterr().err
+
+
+def test_a_revalidation_restarts_at_most_once(api, monkeypatch):
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    fetch, requested = _waiting_fetch(api, monkeypatch, {1: 30.0, 6: 30.0})
+    assert revalidate_admission(admission, fetch=fetch) == admission
+    assert len(requested) == 8
+
+
+def test_a_short_wait_does_not_restart_a_revalidation(api, monkeypatch, capsys):
+    assert admission_module._REVALIDATION_RESTART_WAIT_SECONDS == 5.0
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    fetch, requested = _waiting_fetch(api, monkeypatch, {0: 2.0, 3: 3.0})
+    assert revalidate_admission(admission, fetch=fetch) == admission
+    assert len(requested) == 4 and capsys.readouterr().err == ""
+
+
+def test_the_second_revalidation_decides_after_a_wait(api, monkeypatch):
+    """A change that lands during the wait is seen by the second pass."""
+    admission = verify_reviewed_pr(SELECTOR, fetch=api.__getitem__)
+    fetch, requested = _waiting_fetch(api, monkeypatch, {3: 30.0})
+
+    def changing(path):
+        answer = fetch(path)
+        if len(requested) == 4:
+            api[RUN] = {**api[RUN], "status": "completed"}
+        return answer
+
+    with pytest.raises(AdmissionError, match="protected run changed"):
+        revalidate_admission(admission, fetch=changing)
+    assert len(requested) == 5

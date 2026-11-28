@@ -8,8 +8,11 @@ need no credential, so no repository token enters the signing runtime.
 from __future__ import annotations
 
 import base64
+import email.utils
 import hashlib
+import io
 import json
+import random
 import re
 import sys
 import time
@@ -101,71 +104,152 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 # --- Bounded retry of one read ------------------------------------------------
 #
-# Many signing runs in parallel share the anonymous API budget of their
-# address, and one read is sometimes answered "403 rate limit exceeded". Such an
-# answer says nothing about the candidate. One read is repeated only for:
-#   - 429, or 403 that the server marks as a rate limit (a ``Retry-After``
-#     header, ``X-RateLimit-Remaining: 0``, or "rate limit" in the reason or
-#     the error body);
+# One read is repeated only for a short rate limit or a transient server
+# answer. Such an answer says nothing about the candidate.
+#   - 429;
+#   - 403 with a ``Retry-After`` header of ASCII digits, or with
+#     ``X-RateLimit-Remaining: 0`` TOGETHER with "rate limit" in the reason or
+#     the error body. ``Remaining: 0`` alone, or the words alone, is not a
+#     rate limit here: that 403 is raised at once, as every policy 403;
 #   - 500, 502, 503 and 504.
-# Every other answer, a 403 without a rate-limit mark included, is raised at
-# once as before. The wait is the server's ``Retry-After``, else the time to
-# ``X-RateLimit-Reset``, else an exponential backoff. A read is tried at most
-# ``_RETRY_MAX_ATTEMPTS`` times and sleeps at most
-# ``_RETRY_MAX_TOTAL_WAIT_SECONDS`` in total; a wait that does not fit the
-# rest of that bound is not started. After the last attempt the original HTTP
-# error is raised unchanged, so the read still fails closed. A retry repeats
+# Every other answer and every non-HTTP failure (timeout, connection error,
+# redirect refusal) is raised at once as before.
+#
+# The wait is ``Retry-After``; else the distance from the answer's ``Date``
+# (the local clock when it is absent) to ``X-RateLimit-Reset`` plus
+# ``_RETRY_RESET_MARGIN_SECONDS``; else an exponential backoff. A small random
+# jitter is added so parallel runs do not all return at one instant.
+#
+# Bounds: ``_RETRY_MAX_ATTEMPTS`` attempts and ``_RETRY_MAX_TOTAL_WAIT_SECONDS``
+# of sleep for one read, and ``_RETRY_MAX_PROCESS_WAIT_SECONDS`` of sleep for
+# all reads of one process (far below the 240-minute job limit). A wait that
+# does not fit a bound is not started. This does NOT wait out the anonymous
+# hourly limit: when its reset is further away than the bound the read fails
+# at once, as before. After the last attempt the HTTP error is raised with its
+# status, headers and body, so the read still fails closed. A retry repeats
 # the same request and only a 200 answer is ever used: no check is skipped
 # and no earlier answer is kept.
+#
+# Every rate-limit or 5xx answer writes one line to stderr with the decision
+# and the rate-limit headers, so a failed run shows how far the reset was.
 _RETRY_MAX_ATTEMPTS: Final = 4
 _RETRY_MAX_TOTAL_WAIT_SECONDS: Final = 300.0
+_RETRY_MAX_PROCESS_WAIT_SECONDS: Final = 900.0
 _RETRY_BASE_BACKOFF_SECONDS: Final = 2.0
+_RETRY_RESET_MARGIN_SECONDS: Final = 3.0
+_RETRY_MAX_JITTER_SECONDS: Final = 1.0
 _RETRY_SERVER_STATUSES: Final = frozenset({500, 502, 503, 504})
-_RETRY_ERROR_BODY_BYTES: Final = 4096
+_RETRY_ERROR_BODY_BYTES: Final = 64 * 1024
+_RETRY_LOGGED_HEADERS: Final = (
+    "X-RateLimit-Limit",
+    "X-RateLimit-Remaining",
+    "X-RateLimit-Reset",
+    "X-RateLimit-Used",
+    "Retry-After",
+    "Date",
+    "X-GitHub-Request-Id",
+)
+# A revalidation whose reads slept longer than this in total is run once more
+# from the start, so its reads describe one moment (``revalidate_admission``).
+_REVALIDATION_RESTART_WAIT_SECONDS: Final = 5.0
+# Seconds this process has slept between attempts, over all reads.
+_process_waited = 0.0
+
+
+def _jitter_seconds() -> float:
+    return random.uniform(0.0, _RETRY_MAX_JITTER_SECONDS)
+
+
+def _header_text(error: urllib.error.HTTPError, name: str) -> str | None:
+    value = error.headers.get(name) if error.headers is not None else None
+    return value.strip() if isinstance(value, str) else None
 
 
 def _header_seconds(error: urllib.error.HTTPError, name: str) -> int | None:
     """A header that is a short run of ASCII digits, or nothing."""
-    value = error.headers.get(name) if error.headers is not None else None
-    if not isinstance(value, str):
-        return None
-    value = value.strip()
-    if not re.fullmatch(r"[0-9]{1,12}", value):
+    value = _header_text(error, name)
+    if value is None or not re.fullmatch(r"[0-9]{1,12}", value):
         return None
     return int(value)
 
 
-def _is_rate_limit_response(error: urllib.error.HTTPError) -> bool:
+def _answer_time(error: urllib.error.HTTPError) -> float:
+    """The server's ``Date`` as epoch seconds, else the local clock."""
+    value = _header_text(error, "Date")
+    if value:
+        try:
+            parsed = email.utils.parsedate_to_datetime(value)
+            if parsed.tzinfo is not None:
+                return parsed.timestamp()
+        except (TypeError, ValueError, OverflowError):
+            pass
+    return time.time()
+
+
+def _with_kept_body(
+    error: urllib.error.HTTPError,
+) -> tuple[urllib.error.HTTPError, bytes]:
+    """Read a 403 body once and return an equal error that still holds it."""
+    if error.code != 403:
+        return error, b""
+    try:
+        body = error.read(_RETRY_ERROR_BODY_BYTES) or b""
+    except (OSError, ValueError, AttributeError):
+        body = b""
+    kept = urllib.error.HTTPError(
+        error.filename, error.code, error.reason, error.headers, io.BytesIO(body)
+    )
+    error.close()
+    return kept.with_traceback(error.__traceback__), body
+
+
+def _is_rate_limit_response(error: urllib.error.HTTPError, body: bytes) -> bool:
     if error.code == 429:
         return True
     if error.code != 403:
         return False
     if _header_seconds(error, "Retry-After") is not None:
         return True
-    if _header_seconds(error, "X-RateLimit-Remaining") == 0:
-        return True
-    if "rate limit" in str(error.reason or "").lower():
-        return True
-    try:
-        body = error.read(_RETRY_ERROR_BODY_BYTES)
-    except (OSError, ValueError, AttributeError):
+    if _header_seconds(error, "X-RateLimit-Remaining") != 0:
         return False
-    return b"rate limit" in (body or b"").lower()
+    return (
+        "rate limit" in str(error.reason or "").lower() or b"rate limit" in body.lower()
+    )
 
 
-def _retry_wait_seconds(error: urllib.error.HTTPError, attempt: int) -> float | None:
+def _retry_wait_seconds(
+    error: urllib.error.HTTPError, body: bytes, attempt: int
+) -> float | None:
     """Seconds to wait before the next attempt, or None when not retryable."""
-    rate_limited = _is_rate_limit_response(error)
+    rate_limited = _is_rate_limit_response(error, body)
     if not rate_limited and error.code not in _RETRY_SERVER_STATUSES:
         return None
+    jitter = _jitter_seconds()
     retry_after = _header_seconds(error, "Retry-After")
     if retry_after is not None:
-        return float(max(1, retry_after))
+        return max(1, retry_after) + jitter
     if rate_limited:
         reset = _header_seconds(error, "X-RateLimit-Reset")
         if reset is not None:
-            return max(1.0, reset - time.time() + 1.0)
-    return _RETRY_BASE_BACKOFF_SECONDS * 2 ** (attempt - 1)
+            distance = max(0.0, reset - _answer_time(error))
+            return distance + _RETRY_RESET_MARGIN_SECONDS + jitter
+    return _RETRY_BASE_BACKOFF_SECONDS * 2 ** (attempt - 1) + jitter
+
+
+def _log_retry_decision(
+    error: urllib.error.HTTPError, path: str, attempt: int, decision: str
+) -> None:
+    """One stderr line: status, decision and the rate-limit headers only."""
+    fields = []
+    for name in _RETRY_LOGGED_HEADERS:
+        value = _header_text(error, name)
+        shown = re.sub(r"[^\x21-\x7e]", "_", value)[:64] if value else "-"
+        fields.append(f"{name.lower()}={shown}")
+    print(
+        f"GitHub admission read: HTTP {error.code} for {path.split('?', 1)[0]}; "
+        f"attempt {attempt} of {_RETRY_MAX_ATTEMPTS}; {decision}; " + " ".join(fields),
+        file=sys.stderr,
+    )
 
 
 def _read_bounded(opener: urllib.request.OpenerDirector, request) -> bytes:
@@ -191,32 +275,43 @@ def github_json(path: str) -> object:
     # not dispatch inputs. HTTP errors/rate limits fail closed, after the
     # bounded retry of a rate-limit or transient server answer (above).
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+    global _process_waited
     waited = 0.0
     attempt = 1
     while True:
         try:
             raw = _read_bounded(opener, request)
             break
-        except urllib.error.HTTPError as error:
-            wait = _retry_wait_seconds(error, attempt)
-            if wait is None or attempt >= _RETRY_MAX_ATTEMPTS:
-                raise
-            if waited + wait > _RETRY_MAX_TOTAL_WAIT_SECONDS:
-                print(
-                    f"GitHub admission read: HTTP {error.code}; the next attempt "
-                    f"needs a wait of {wait:.0f}s, beyond the retry bound; "
-                    "not retried",
-                    file=sys.stderr,
+        except urllib.error.HTTPError as answer:
+            error, body = _with_kept_body(answer)
+            wait = _retry_wait_seconds(error, body, attempt)
+            if wait is None:
+                decision = None
+            elif attempt >= _RETRY_MAX_ATTEMPTS:
+                decision = "attempts used up, not retried"
+            elif waited + wait > _RETRY_MAX_TOTAL_WAIT_SECONDS:
+                decision = (
+                    f"a wait of {wait:.0f}s is beyond the bound of one read, "
+                    "not retried"
                 )
-                raise
-            print(
-                f"GitHub admission read: HTTP {error.code}; attempt {attempt} of "
-                f"{_RETRY_MAX_ATTEMPTS}; next attempt in {wait:.0f}s",
-                file=sys.stderr,
-            )
-            error.close()
+            elif _process_waited + wait > _RETRY_MAX_PROCESS_WAIT_SECONDS:
+                decision = (
+                    f"a wait of {wait:.0f}s is beyond the bound of this process, "
+                    "not retried"
+                )
+            else:
+                _log_retry_decision(error, path, attempt, f"retry in {wait:.0f}s")
+                error.close()
+                error = None
+            if error is not None:
+                if decision is not None:
+                    _log_retry_decision(error, path, attempt, decision)
+                if error is answer:
+                    raise
+                raise error from None
         time.sleep(wait)
         waited += wait
+        _process_waited += wait
         attempt += 1
     if len(raw) > MAX_RESPONSE_BYTES:
         raise AdmissionError("GitHub admission response exceeds its bound")
@@ -854,6 +949,28 @@ def _enrolled_dispatcher(run: dict, selector: PromotionSelector) -> dict:
 
 def revalidate_admission(
     expected: object, *, fetch: Callable[[str], object] = github_json
+) -> dict:
+    """Recheck the mutable authorization of a provisioned admission.
+
+    The reads of one revalidation must describe one moment. When the retry
+    of a read slept longer than ``_REVALIDATION_RESTART_WAIT_SECONDS`` in
+    total, the whole revalidation is run once more from the start and that
+    second result is the one returned. One restart at most.
+    """
+    waited_before = _process_waited
+    payload = _revalidate_admission_once(expected, fetch)
+    if _process_waited - waited_before > _REVALIDATION_RESTART_WAIT_SECONDS:
+        print(
+            "GitHub admission revalidation: reads waited "
+            f"{_process_waited - waited_before:.0f}s; reading all of it again",
+            file=sys.stderr,
+        )
+        payload = _revalidate_admission_once(expected, fetch)
+    return payload
+
+
+def _revalidate_admission_once(
+    expected: object, fetch: Callable[[str], object]
 ) -> dict:
     payload = _object(expected, "provisioned admission")
     basis = payload.get("admission_basis")
