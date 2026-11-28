@@ -408,8 +408,9 @@ func validateTrustedTree(root string) (string, error) {
 //     also refuses *.egg-link and other __editable__* names as guards.
 //
 // The stdlib zip, the build-tree marker and the interpreter directory are
-// positional rules; see validateTrustedRuntimeLayout. Matching ignores case because the default
-// macOS file system does, and getpath opens these paths through it.
+// positional rules; see validateTrustedRuntimeLayout. Matching ignores case
+// because the default macOS file system does, and getpath opens these paths
+// through it.
 func isPythonStartupCarrierName(name string) bool {
 	name = strings.ToLower(name)
 	switch name {

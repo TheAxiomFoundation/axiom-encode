@@ -252,32 +252,35 @@ func TestTrustedRuntimeLayoutRefusesUnreadableLibraryAboveRoot(t *testing.T) {
 	}
 }
 
-// A lib/ above the runtime root that the caller can write could gain
-// python3XY.zip after validation, and getpath would then take its parent as
-// sys.prefix. The production policy also refuses these directories because
-// the current user, not root, owns them.
+// A lib/ above the runtime root that the caller can write, or that resolves
+// into a directory the caller can write, could gain python3XY.zip after
+// validation, and getpath would then take its parent as sys.prefix. The
+// production policy also refuses these directories because the current
+// user, not root, owns them.
 func TestTrustedRuntimeLayoutRefusesUntrustedLibraryAboveRoot(t *testing.T) {
 	for _, layout := range []struct {
-		name    string
-		symlink bool
+		name     string
+		target   string
+		writable string
 	}{
-		{"writable directory", false},
-		{"symlink to a writable directory", true},
+		{"writable directory", "", "lib"},
+		{"symlink to a writable directory", "elsewhere", "elsewhere"},
+		{"symlink into a writable directory", "shared/lib", "shared"},
 	} {
 		t.Run(layout.name, func(t *testing.T) {
 			root, interpreter := newLayoutRuntime(t, "bin/python3.13")
 			parent := filepath.Dir(root)
-			writable := filepath.Join(parent, "lib")
-			if layout.symlink {
-				writable = filepath.Join(parent, "elsewhere")
-				if err := os.Symlink("elsewhere", filepath.Join(parent, "lib")); err != nil {
+			library := filepath.Join(parent, "lib")
+			if layout.target != "" {
+				library = filepath.Join(parent, layout.target)
+				if err := os.Symlink(layout.target, filepath.Join(parent, "lib")); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if err := os.Mkdir(writable, 0o700); err != nil {
+			if err := os.MkdirAll(library, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Chmod(writable, 0o777); err != nil {
+			if err := os.Chmod(filepath.Join(parent, layout.writable), 0o777); err != nil {
 				t.Fatal(err)
 			}
 			err := validateTrustedRuntimeLayout(root, interpreter)
@@ -285,6 +288,21 @@ func TestTrustedRuntimeLayoutRefusesUntrustedLibraryAboveRoot(t *testing.T) {
 				t.Fatalf("expected a writable library directory above the root to refuse the runtime, got %v", err)
 			}
 		})
+	}
+}
+
+func TestTrustedRuntimeLayoutRefusesUnreadableRuntimeRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any directory")
+	}
+	root, interpreter := newLayoutRuntime(t, "bin/python3.13")
+	if err := os.Chmod(root, 0o311); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
+	err := validateTrustedRuntimeLayout(root, interpreter)
+	if err == nil || !strings.Contains(err.Error(), "could not inspect trusted Python runtime directory") {
+		t.Fatalf("expected an unreadable runtime root to refuse the runtime, got %v", err)
 	}
 }
 
