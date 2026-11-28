@@ -172,7 +172,17 @@ func validateTrustedExecutionChain(
 			"Python interpreter must be contained by a declared trusted runtime root",
 		)
 	}
-	if err := validateTrustedRuntimeLayout(canonicalRuntimeRoots[0], terminalInterpreter); err != nil {
+	// getpath searches for the stdlib landmark from the interpreter's directory
+	// upward, so a lib/python3.X tree in any directory between a deeper
+	// interpreter and the runtime root would move sys.prefix. Keeping the
+	// interpreter in <runtime>/bin, which holds only regular files, leaves no
+	// such directory.
+	if filepath.Dir(terminalInterpreter) != filepath.Join(canonicalRuntimeRoots[0], "bin") {
+		return trustedExecutionChain{}, errors.New(
+			"Python interpreter must sit directly in the trusted runtime's bin directory",
+		)
+	}
+	if err := validateTrustedRuntimeLayout(terminalInterpreter); err != nil {
 		return trustedExecutionChain{}, fmt.Errorf("untrusted Python runtime: %w", err)
 	}
 	if !containedByAny(canonicalPackageRoot, canonicalRuntimeRoots) {
@@ -428,21 +438,25 @@ func isStdlibZipName(name string) bool {
 // on where an entry sits rather than on its name alone. Both target CPython's
 // path configuration (getpath), which runs under the supervisor's -I -S start
 // before the trusted bootstrap can check anything:
-//   - The interpreter's own directory holds only regular files. getpath
+//   - The interpreter's own directory, which validateTrustedExecutionChain
+//     requires to be <runtime>/bin, holds only regular files. getpath
 //     searches for the stdlib landmark starting at that directory, so a
 //     bin/lib/python3.X tree moves sys.prefix to bin/, and it treats
 //     bin/Modules/Setup.local as a build tree whose stdlib is bin/Lib. A POSIX
 //     install keeps only executables and scripts in bin/.
 //   - No entry, file or directory, named python3*.zip sits directly in lib/
-//     or lib64/ of the interpreter directory or of any of its ancestors inside
-//     the runtime, the prefixes that upward search can settle on. sys.path
-//     lists <prefix>/<platlibdir>/python3XY[t].zip first even when it is
-//     absent, and both zipimport and the path finder import from it. The same
-//     name elsewhere in the tree is a plain data file.
+//     or lib64/ of the interpreter directory or of any of its ancestors up to
+//     /. getpath searches up from the interpreter's directory for
+//     <ancestor>/lib/python3XY.zip before it looks for the stdlib landmark,
+//     and that search does not stop at the runtime root: one found above the
+//     root becomes sys.prefix. sys.path lists
+//     <prefix>/<platlibdir>/python3XY[t].zip first even when it is absent,
+//     and both zipimport and the path finder import from it. The same name
+//     elsewhere in the tree is a plain data file.
 //
 // os.ReadDir reads each directory under the file system's own case rule,
 // which is the rule getpath meets; entry names then match in any case.
-func validateTrustedRuntimeLayout(runtimeRoot, interpreter string) error {
+func validateTrustedRuntimeLayout(interpreter string) error {
 	interpreterDirectory := filepath.Dir(interpreter)
 	entries, err := os.ReadDir(interpreterDirectory)
 	if err != nil {
@@ -460,7 +474,7 @@ func validateTrustedRuntimeLayout(runtimeRoot, interpreter string) error {
 			)
 		}
 	}
-	for prefix := interpreterDirectory; pathContains(runtimeRoot, prefix); prefix = filepath.Dir(prefix) {
+	for prefix := interpreterDirectory; ; prefix = filepath.Dir(prefix) {
 		for _, libraryName := range []string{"lib", "lib64"} {
 			library := filepath.Join(prefix, libraryName)
 			entries, err := os.ReadDir(library)
@@ -483,7 +497,7 @@ func validateTrustedRuntimeLayout(runtimeRoot, interpreter string) error {
 				}
 			}
 		}
-		if prefix == runtimeRoot {
+		if filepath.Dir(prefix) == prefix {
 			break
 		}
 	}

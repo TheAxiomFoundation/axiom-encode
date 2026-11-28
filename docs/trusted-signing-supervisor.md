@@ -56,14 +56,20 @@ ignores case and CPython's path configuration opens these paths through it.
   `pybuilddir.txt`, and `pyvenv.cfg` even under `-I -S`; `site` reads the rest
   in any site-enabled start, such as the launcher's `-I` shebang.
 - Directly in `lib/` or `lib64/` of the interpreter's directory or of any
-  ancestor of it inside the runtime: any `python3*.zip` entry, file or
-  directory. `sys.path` lists `<prefix>/lib/python3XY[t].zip` first even when
-  it is absent, and CPython imports from a zip file or a directory of that
-  name under `-I -S`. The same name elsewhere is an ordinary data file.
-- In the interpreter's own directory: anything but a regular file. Path
-  configuration searches for the standard library starting there, so a
-  `bin/lib/python3.X` tree moves `sys.prefix`, and `bin/Modules/Setup.local`
-  marks a build tree whose standard library is `bin/Lib`.
+  ancestor of it, up to `/`: any `python3*.zip` entry, file or directory.
+  Path configuration searches up from the interpreter's directory for
+  `lib/python3XY.zip` before it looks for the standard library, and that
+  search does not stop at the runtime root: a zip found above the root
+  becomes `sys.prefix`. `sys.path` lists `<prefix>/lib/python3XY[t].zip`
+  first even when it is absent, and CPython imports from a zip file or a
+  directory of that name under `-I -S`. The same name elsewhere is an
+  ordinary data file.
+- The interpreter must sit directly in the runtime's `bin/`, and `bin/` may
+  hold only regular files. Path configuration searches for the standard
+  library starting there and walking up, so a `bin/lib/python3.X` tree moves
+  `sys.prefix`, and `bin/Modules/Setup.local` marks a build tree whose
+  standard library is `bin/Lib`. With the interpreter in `bin/`, no directory
+  sits between it and the runtime root where such a tree could hide.
 
 `scripts/provision_verification_supervisor.py` purges these forms, in any
 case, from the runtime it builds, and refuses an interpreter that sits at the

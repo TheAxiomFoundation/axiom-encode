@@ -131,11 +131,11 @@ func TestTrustedRuntimeLayoutRefusesNonRegularEntryBesideInterpreter(t *testing.
 	} {
 		t.Run(planted, func(t *testing.T) {
 			root, interpreter := newLayoutRuntime(t, "bin/python3.13")
-			if err := validateTrustedRuntimeLayout(root, interpreter); err != nil {
+			if err := validateTrustedRuntimeLayout(interpreter); err != nil {
 				t.Fatalf("clean layout must pass before planting: %v", err)
 			}
 			plantLayoutPath(t, root, planted, true)
-			err := validateTrustedRuntimeLayout(root, interpreter)
+			err := validateTrustedRuntimeLayout(interpreter)
 			if err == nil || !strings.Contains(err.Error(), "must hold only regular files") {
 				t.Fatalf("expected interpreter-directory refusal for %s, got %v", planted, err)
 			}
@@ -154,18 +154,22 @@ func TestTrustedRuntimeLayoutRefusesStdlibZipSlot(t *testing.T) {
 		{"bin/python3.13", "lib/python313t.zip", false},
 		{"bin/python3.13", "lib/python313.zip", true},
 		{"bin/python3.13", "lib64/python313.zip", false},
-		// An interpreter deeper in the runtime: getpath's upward search can
-		// settle on any ancestor of its directory, so each one's lib/ counts.
+		// getpath's search for the stdlib zip runs up from the interpreter's
+		// directory and does not stop at the runtime root, so lib/ of every
+		// ancestor up to / counts. Paths starting with ../ land beside the
+		// runtime root, still inside the test's temporary directory.
 		{"opt/bin/python3.13", "opt/lib/python313.zip", false},
 		{"opt/bin/python3.13", "lib/python313.zip", false},
+		{"bin/python3.13", "../lib/python313.zip", false},
+		{"opt/bin/python3.13", "../lib64/PYTHON313.ZIP", false},
 	} {
 		t.Run(carrier.interpreter+" "+carrier.path, func(t *testing.T) {
 			root, interpreter := newLayoutRuntime(t, carrier.interpreter)
-			if err := validateTrustedRuntimeLayout(root, interpreter); err != nil {
+			if err := validateTrustedRuntimeLayout(interpreter); err != nil {
 				t.Fatalf("clean layout must pass before planting: %v", err)
 			}
 			plantLayoutPath(t, root, carrier.path, carrier.directory)
-			err := validateTrustedRuntimeLayout(root, interpreter)
+			err := validateTrustedRuntimeLayout(interpreter)
 			if err == nil || !strings.Contains(err.Error(), "forbidden startup") {
 				t.Fatalf("expected stdlib zip refusal for %s, got %v", carrier.path, err)
 			}

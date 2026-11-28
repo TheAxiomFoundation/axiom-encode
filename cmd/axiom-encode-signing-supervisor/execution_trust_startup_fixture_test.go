@@ -198,3 +198,39 @@ func TestFixtureTrustedChainRefusesDirectoryBesideInterpreter(t *testing.T) {
 		})
 	}
 }
+
+// getpath's stdlib landmark search starts at the interpreter's directory and
+// walks up, so an interpreter deeper in the runtime would leave directories
+// between it and the runtime root where a lib/python3.X tree could move
+// sys.prefix. The chain keeps the interpreter directly in <runtime>/bin, the
+// directory the layout rule limits to regular files.
+func TestFixtureTrustedChainRequiresInterpreterInRuntimeBin(t *testing.T) {
+	for _, relocated := range []string{
+		"python3.13",
+		"opt/bin/python3.13",
+		"libexec/python3.13",
+		"bin/sub/python3.13",
+	} {
+		t.Run(relocated, func(t *testing.T) {
+			fixture := newFixturePythonChain(t)
+			if err := validateFixtureChain(fixture); err != nil {
+				t.Fatalf("an interpreter in <runtime>/bin must be accepted: %v", err)
+			}
+			interpreter := filepath.Join(fixture.runtimeRoot, filepath.FromSlash(relocated))
+			if err := os.MkdirAll(filepath.Dir(interpreter), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(interpreter, []byte{0x7f, 'E', 'L', 'F'}, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			launcher := []byte("#!" + interpreter + " -I\n")
+			if err := os.WriteFile(fixture.executable, launcher, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			err := validateFixtureChain(fixture)
+			if err == nil || !strings.Contains(err.Error(), "directly in the trusted runtime's bin directory") {
+				t.Fatalf("expected interpreter-placement refusal for %s, got %v", relocated, err)
+			}
+		})
+	}
+}

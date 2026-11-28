@@ -77,6 +77,13 @@ jobs:
           mkdir "$RUNNER_TEMP/staged/sitecustomize"
           printf 'import os; os.close(os.open(%s, os.O_CREAT | os.O_WRONLY))\n' "'$marker'" \
             > "$RUNNER_TEMP/staged/sitecustomize/__init__.py"
+          # Case variants: the provisioner purges carriers in any case, since
+          # a case-insensitive file system (default macOS) honors them.
+          echo "import os; open('$marker', 'w').close()" > "$RUNNER_TEMP/staged/EVIL.PTH"
+          echo "import site" > "$RUNNER_TEMP/staged/python._PTH"
+          mkdir "$RUNNER_TEMP/staged/SITECUSTOMIZE"
+          printf 'import os; os.close(os.open(%s, os.O_CREAT | os.O_WRONLY))\n' "'$marker'" \
+            > "$RUNNER_TEMP/staged/SITECUSTOMIZE/__init__.py"
           install -m 755 /bin/true "$RUNNER_TEMP/fake-supervisor"
           # The RPATH-relocation claims below are only meaningful against a
           # shared-libpython build; fail loudly if the toolcache goes static.
@@ -365,12 +372,19 @@ jobs:
           assert Path(yaml.__file__).resolve().is_relative_to(dest), yaml.__file__
           print('launcher containment OK:', len(maps), 'mappings, libpython =', sorted(set(libpython)))
           "
-          # Every planted startup carrier must be gone AND must not have
-          # executed during the -I probe above (the marker file is untouched).
-          # The canonical stdlib zip (on sys.path even absent) must also be gone.
-          test -z "$(find "$dest/python" \( -name '*.pth' -o -name '*._pth' \
-            -o -name 'pybuilddir.txt' -o -name 'sitecustomize*' \
-            -o -name 'usercustomize*' -o -name 'python3*.zip' \) -print -quit)"
+          # Every planted startup carrier, in any case, must be gone AND must
+          # not have executed during the -I probe above (the marker file is
+          # untouched). The stdlib zip slot (on sys.path even absent) directly
+          # in lib/ or lib64/ must also be empty; the same name elsewhere is
+          # data the provisioner keeps.
+          test -z "$(find "$dest/python" \( -iname '*.pth' -o -iname '*._pth' \
+            -o -iname 'pybuilddir.txt' -o -iname 'sitecustomize*' \
+            -o -iname 'usercustomize*' \) -print -quit)"
+          for library in "$dest/python/lib" "$dest/python/lib64"; do
+            if [ -d "$library" ]; then
+              test -z "$(find "$library" -maxdepth 1 -iname 'python3*.zip' -print -quit)"
+            fi
+          done
           test ! -e "$RUNNER_TEMP/pth-executed"
           # A hostile LD_LIBRARY_PATH pointing at the source toolcache must NOT
           # win: the relocation pass pins RPATH (which outranks it), so libpython
