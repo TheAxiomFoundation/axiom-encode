@@ -400,10 +400,11 @@ func validateTrustedTree(root string) (string, error) {
 //     -I -S start, before the trusted bootstrap: <executable>._pth,
 //     pybuilddir.txt and pyvenv.cfg;
 //   - site, which -S skips but any site-enabled start of the same
-//     interpreter runs (the launcher's -I shebang, -I children): *.pth,
-//     *.egg-link, __editable__*, and sitecustomize and usercustomize in every
-//     importable form (source, sourceless .pyc, extension module, package
-//     directory).
+//     interpreter runs (the launcher's -I shebang, -I children): *.pth
+//     (including __editable__*.pth) and sitecustomize in every importable
+//     form (source, sourceless .pyc, extension module, package directory),
+//     and usercustomize in a start that enables the user site. The rule
+//     also refuses *.egg-link and other __editable__* names as guards.
 //
 // The stdlib zip and the interpreter directory are positional rules; see
 // validateTrustedRuntimeLayout. Matching ignores case because the default

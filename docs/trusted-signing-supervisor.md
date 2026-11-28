@@ -53,8 +53,11 @@ ignores case and CPython's path configuration opens these paths through it.
   `.egg-link`, any name starting with `__editable__`, and `sitecustomize` or
   `usercustomize` with or without an extension (`.py`, `.pyc`, an extension
   module, a package directory). Path configuration reads `._pth`,
-  `pybuilddir.txt`, and `pyvenv.cfg` even under `-I -S`; `site` reads the rest
-  in any site-enabled start, such as the launcher's `-I` shebang.
+  `pybuilddir.txt`, and `pyvenv.cfg` even under `-I -S`. `site` reads the
+  `.pth` files (`__editable__*.pth` among them) and `sitecustomize` in any
+  site-enabled start, such as the launcher's `-I` shebang, and `usercustomize`
+  in a start that enables the user site. The supervisor also refuses
+  `.egg-link` and the other `__editable__*` names as guards.
 - Directly in `lib/` or `lib64/` of the interpreter's directory or of any
   ancestor of it, up to `/`: any `python3*.zip` entry, file or directory.
   Path configuration searches up from the interpreter's directory for

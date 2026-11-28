@@ -77,8 +77,11 @@ jobs:
           mkdir "$RUNNER_TEMP/staged/sitecustomize"
           printf 'import os; os.close(os.open(%s, os.O_CREAT | os.O_WRONLY))\n' "'$marker'" \
             > "$RUNNER_TEMP/staged/sitecustomize/__init__.py"
-          # Case variants: the provisioner purges carriers in any case, since
-          # a case-insensitive file system (default macOS) honors them.
+          # Case variants: the provisioner purges carriers in any case. getpath
+          # honors upper-case ._pth, pybuilddir.txt and stdlib zip names on a
+          # case-insensitive file system (default macOS); site and the import
+          # system match these site-packages names case-sensitively, so these
+          # plants are guards.
           echo "import os; open('$marker', 'w').close()" > "$RUNNER_TEMP/staged/EVIL.PTH"
           echo "import site" > "$RUNNER_TEMP/staged/python._PTH"
           mkdir "$RUNNER_TEMP/staged/SITECUSTOMIZE"
