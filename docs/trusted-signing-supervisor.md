@@ -60,33 +60,63 @@ ignores case and CPython's path configuration opens these paths through it.
   `.egg-link` and the other `__editable__*` names as guards.
 - Directly in `lib/` or `lib64/` of the interpreter's directory or of any
   ancestor of it, up to `/`: any `python3*.zip` entry, file or directory.
-  Path configuration searches up from the interpreter's directory for
-  `lib/python3XY.zip` before it looks for the standard library, and that
-  search does not stop at the runtime root: a zip found above the root
-  becomes `sys.prefix`. `sys.path` lists `<prefix>/lib/python3XY[t].zip`
-  first even when it is absent, and CPython imports from a zip file or a
-  directory of that name under `-I -S`. The same name elsewhere is an
-  ordinary data file.
-- The interpreter must sit directly in the runtime's `bin/`, and `bin/` may
-  hold only regular files. Path configuration searches for the standard
-  library starting there and walking up, so a `bin/lib/python3.X` tree moves
-  `sys.prefix`, and `bin/Modules/Setup.local` marks a build tree whose
-  standard library is `bin/Lib`. With the interpreter in `bin/`, no directory
-  sits between it and the runtime root where such a tree could hide.
+  Path configuration searches upward for `lib/python3XY.zip` before it looks
+  for the standard library, from `bin/` or the runtime root depending on the
+  build (see below), and that search does not stop at the runtime root: a
+  zip file found above the root becomes `sys.prefix`. `sys.path` lists
+  `<prefix>/lib/python3XY[t].zip` first even when it does not exist, and
+  CPython imports from a zip file or a directory of that name under `-I -S`.
+  Above the runtime root, a directory of that name leaves `sys.prefix` alone,
+  because the search looks for a file; the supervisor refuses it as a guard.
+  The same name deeper in the tree is an ordinary data file.
+- Every `lib/` or `lib64/` that exists above the runtime root must resolve to
+  a directory that meets the owner and mode rules of the runtime itself, with
+  trusted ancestors, so the caller cannot add a stdlib zip to it after the
+  check. A symlink by either name above the root must resolve.
+- The interpreter must sit directly in the runtime's `bin/`, and every entry
+  in `bin/` must be a regular file. On Linux and on some macOS builds, such as
+  CPython 3.13.9 and 3.14.0, path configuration searches for the standard
+  library from the interpreter's directory upward, so a `bin/lib/python3.X`
+  tree moves `sys.prefix`. With the interpreter in `bin/`, no directory sits
+  between it and the runtime root where such a tree could hide.
+- No entry named `Modules`, in any case, file or directory, may sit directly
+  in the runtime root, `bin/`, `lib/`, or `lib64/`. Path configuration takes
+  `Modules/Setup.local` as the mark of a build tree in the directory it treats
+  as the interpreter's. On Linux and on the macOS 3.13.9 and 3.14.0 builds,
+  it uses `bin/`. macOS builds that derive the directory from libpython's
+  location, such as 3.13.13 and 3.14.4, use the runtime root. The marker
+  moves `sys.prefix` to the build's configured prefix and puts that prefix's
+  `lib/python3XY.zip` first on `sys.path`. CPython 3.14.7 no longer reads it.
+- No entry named `lib` or `lib64`, in any case, may sit directly in the
+  runtime's `lib/` or `lib64/`. CPython 3.14.0 starts its prefix search in
+  libpython's own directory, `lib/`, so `lib/lib/python314.zip` or
+  `lib/lib/python3.14/os.py` moves `sys.prefix` to `lib/`.
 
 `scripts/provision_verification_supervisor.py` purges these forms, in any
 case, from the runtime it builds, and refuses an interpreter that sits at the
 prefix root.
 
-These rules see names and positions only. They cannot see a changed byte in a
-standard-library module, such as `encodings/__init__.py`, or an extension
-module placed beside a standard-library source, such as
-`encodings/__init__.cpython-313-darwin.so`, which the import system tries
-before the source. Either one runs at interpreter start, before the bootstrap.
-Planting one needs write access to the root-owned runtime or to the source
-prefix it was copied from, which already allows any other change. A pinned
-digest of the whole runtime tree, names and bytes, checked before exec would
-close both; the supervisor does not check one yet.
+Rules on names and positions cannot see four forms that change what the
+interpreter runs:
+
+- a changed byte in a standard-library module, such as
+  `encodings/__init__.py`;
+- an extension module beside a standard-library source, such as
+  `encodings/__init__.cpython-313-darwin.so`, which the import system tries
+  before the source;
+- cached bytecode that the import system runs in place of an unchanged
+  source, such as a hash-based `.pyc` in `__pycache__` whose header asks for
+  no source check;
+- a new module in an earlier `sys.path` entry that shadows one in a later
+  entry, such as `lib/python3.13/_dbm.py` ahead of
+  `lib/python3.13/lib-dynload/_dbm.cpython-313-darwin.so`.
+
+Each of these can run before the broker attaches, at interpreter start or
+when the bootstrap imports the module. Planting one needs write access to the
+root-owned runtime or to the source prefix the provisioner copied it from,
+which already allows any other change. A pinned digest of the whole runtime
+tree, names and bytes, checked before exec would close all four; the
+supervisor does not check one yet.
 
 ## Protected trust roots
 
