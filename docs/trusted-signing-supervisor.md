@@ -62,10 +62,11 @@ ignores case and CPython's path configuration opens these paths through it.
   ancestor of it, up to `/`: any `python3*.zip` entry, file or directory.
   Path configuration searches upward for `lib/python3XY.zip` before it looks
   for the standard library, from `bin/` or the runtime root depending on the
-  build (see below), and that search does not stop at the runtime root: a
-  zip file found above the root becomes `sys.prefix`. `sys.path` lists
-  `<prefix>/lib/python3XY[t].zip` first even when it does not exist, and
-  CPython imports from a zip file or a directory of that name under `-I -S`.
+  build (see below), and that search does not stop at the runtime root: the
+  ancestor that holds a zip file found above the root becomes `sys.prefix`.
+  `sys.path` lists `<prefix>/lib/python3XY[t].zip` first even when it does
+  not exist, and CPython imports from a zip file or a directory of that
+  name under `-I -S`.
   Above the runtime root, a directory of that name leaves `sys.prefix` alone,
   because the search looks for a file; the supervisor refuses it as a guard.
   The same name deeper in the tree is an ordinary data file.

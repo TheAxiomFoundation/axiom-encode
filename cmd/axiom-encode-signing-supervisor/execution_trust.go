@@ -467,10 +467,11 @@ func isStdlibZipName(name string) bool {
 //     or lib64/ of the interpreter directory or of any of its ancestors up to
 //     /. getpath searches up for <ancestor>/lib/python3XY.zip before it looks
 //     for the stdlib landmark, and that search does not stop at the runtime
-//     root: a zip file found above the root becomes sys.prefix. sys.path
-//     lists <prefix>/<platlibdir>/python3XY[t].zip first even when it does
-//     not exist, and both zipimport and the path finder import from it. The
-//     same name elsewhere in the tree is a plain data file.
+//     root: the ancestor that holds a zip file found above the root becomes
+//     sys.prefix. sys.path lists <prefix>/<platlibdir>/python3XY[t].zip
+//     first even when it does not exist, and both zipimport and the path
+//     finder import from it. The same name elsewhere in the tree is a plain
+//     data file.
 //   - Every lib/ or lib64/ above the runtime root resolves to a directory
 //     that meets the trusted-tree rules, under trusted ancestors, so the
 //     caller cannot add a stdlib zip to it after validation.

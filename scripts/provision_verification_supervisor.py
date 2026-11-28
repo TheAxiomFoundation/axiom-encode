@@ -29,7 +29,7 @@ The static passes below make that outcome reachable and durable:
   ``Modules/Setup.local`` marks a build tree, and CPython 3.14.0 starts its
   prefix search in ``lib/``. The provisioned interpreter's own directory then
   keeps only regular files, none named ``Modules``: a directory beside the
-  interpreter (``bin/lib``, ``bin/Lib``) or a ``bin/Modules`` entry moves the
+  interpreter (``bin/lib``, ``bin/Lib``) or a ``bin/Modules`` directory moves the
   stdlib that path configuration finds, and an interpreter at the prefix root
   is refused. Neither the launcher's ``-I`` (site-enabled) start nor the
   supervisor's ``-I -S`` start therefore meets any of these forms, and the

@@ -182,9 +182,10 @@ func TestTrustedRuntimeLayoutRefusesStdlibZipSlot(t *testing.T) {
 // getpath treats <directory>/Modules/Setup.local as a build tree in the
 // directory it takes as the interpreter's: bin/ on Linux and on some macOS
 // builds, the runtime root on macOS builds that derive it from libpython's
-// location. CPython 3.14.0 starts its prefix search in lib/, so a lib or
-// lib64 entry there moves sys.prefix. The real Setup.local under
-// lib/python3.X/config-*/ stays accepted.
+// location. CPython 3.14.0 starts its prefix search in lib/, so a lib
+// entry there moves sys.prefix; the rule also refuses lib64 there as a
+// guard. The real Setup.local under lib/python3.X/config-*/ stays
+// accepted.
 func TestTrustedRuntimeLayoutRefusesBuildTreeAndNestedLibraryMarkers(t *testing.T) {
 	for _, planted := range []struct {
 		path      string
