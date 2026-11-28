@@ -217,6 +217,7 @@ def _stage_runtime_tree(
     shutil.copytree(site_packages.resolve(strict=True), target_site_packages)
     _purge_stdlib_zip_slots(runtime)
     _purge_startup_carriers(runtime)
+    _purge_path_configuration_markers(runtime)
 
 
 def _remove_entry(path: Path) -> None:
@@ -249,6 +250,34 @@ def _purge_stdlib_zip_slots(runtime: Path) -> None:
                 _remove_entry(entry)
 
 
+def _purge_path_configuration_markers(runtime: Path) -> None:
+    """Remove the build-tree and nested library entries path configuration reads.
+
+    Path configuration takes ``<directory>/Modules/Setup.local`` as the mark of
+    a build tree in the directory it treats as the interpreter's, and then
+    moves sys.prefix to the build's configured prefix. macOS
+    builds that derive that directory from libpython's location (CPython
+    3.13.13 and 3.14.4, for example) take the prefix root, and some builds
+    (3.14.0) start their prefix search in libpython's own directory, where a
+    nested ``lib/lib/python3XY.zip`` or ``lib/lib/python3.X/os.py`` moves
+    sys.prefix to ``lib/``. Remove every ``Modules`` entry, in any case, from
+    the prefix root and from each library directory, and every ``lib`` or
+    ``lib64`` entry from each library directory. The real ``Setup.local``
+    under ``lib/python3.X/config-*/`` stays.
+    """
+    library_names = sorted({"lib", "lib64", sys.platlibdir})
+    nested_names = {"modules", *(name.lower() for name in library_names)}
+    for directory, forbidden in [
+        (runtime, {"modules"}),
+        *((runtime / name, nested_names) for name in library_names),
+    ]:
+        if directory.is_symlink() or not directory.is_dir():
+            continue
+        for entry in sorted(directory.iterdir()):
+            if entry.name.lower() in forbidden:
+                _remove_entry(entry)
+
+
 def _purge_startup_carriers(root: Path) -> None:
     """Remove every startup carrier under ``root``, file or directory.
 
@@ -277,14 +306,15 @@ def _purge_startup_carriers(root: Path) -> None:
 
 
 def _purge_interpreter_directory(runtime: Path, interpreter: Path) -> None:
-    """Keep only regular files beside the provisioned interpreter.
+    """Keep only regular files, none named ``Modules``, beside the interpreter.
 
-    Path configuration searches for the stdlib landmark starting at the
+    On Linux and on some macOS builds (CPython 3.13.9 and 3.14.0, for example),
+    path configuration searches for the stdlib landmark starting at the
     interpreter's own directory, so a ``bin/lib/python3.X`` tree moves
-    sys.prefix to bin/, and it treats ``bin/Modules/Setup.local`` as a build
-    tree whose stdlib is ``bin/Lib``. Both act under ``-I -S``. A POSIX install
-    keeps only executables and scripts in bin/, and the supervisor refuses any
-    other entry there. An interpreter at the prefix root has lib/ beside it, so
+    sys.prefix to bin/, and it takes ``bin/Modules/Setup.local`` as the mark of
+    a build tree. Both act under ``-I -S``. A POSIX install keeps only
+    executables and scripts in bin/, and the supervisor refuses any other
+    entry there. An interpreter at the prefix root has lib/ beside it, so
     refuse that layout rather than purge the runtime's own directories.
     """
     interpreter_directory = interpreter.parent
@@ -294,7 +324,7 @@ def _purge_interpreter_directory(runtime: Path, interpreter: Path) -> None:
             "prefix root; it must sit in a directory of its own, such as bin/"
         )
     for entry in sorted(interpreter_directory.iterdir()):
-        if entry.is_symlink() or not entry.is_file():
+        if entry.is_symlink() or not entry.is_file() or entry.name.lower() == "modules":
             _remove_entry(entry)
 
 

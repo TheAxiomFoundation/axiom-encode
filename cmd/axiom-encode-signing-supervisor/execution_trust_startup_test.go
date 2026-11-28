@@ -78,8 +78,9 @@ func TestStdlibZipNames(t *testing.T) {
 
 // newLayoutRuntime builds <temp>/runtime with the interpreter at the given
 // slash-separated path and a stdlib under lib/. validateTrustedRuntimeLayout
-// reads names and entry types only, so the tree needs no particular owner and
-// this test runs under the production and fixture trust policies alike.
+// checks owners and modes only for a lib/ or lib64/ above the runtime root,
+// and the tree has none of its own, so these tests run under the production
+// and fixture trust policies alike.
 func newLayoutRuntime(t *testing.T, interpreterPath string) (string, string) {
 	t.Helper()
 	temporary, err := filepath.EvalSymlinks(t.TempDir())
@@ -93,6 +94,7 @@ func newLayoutRuntime(t *testing.T, interpreterPath string) (string, string) {
 		filepath.Join(filepath.Dir(interpreter), "python3.13-config"),
 		filepath.Join(root, "lib", "libpython3.13.dylib"),
 		filepath.Join(root, "lib", "python3.13", "os.py"),
+		filepath.Join(root, "lib", "python3.13", "config-3.13-darwin", "Setup.local"),
 		filepath.Join(root, "lib", "python3.13", "site-packages", "pkg", "python313.zip"),
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -131,11 +133,11 @@ func TestTrustedRuntimeLayoutRefusesNonRegularEntryBesideInterpreter(t *testing.
 	} {
 		t.Run(planted, func(t *testing.T) {
 			root, interpreter := newLayoutRuntime(t, "bin/python3.13")
-			if err := validateTrustedRuntimeLayout(interpreter); err != nil {
+			if err := validateTrustedRuntimeLayout(root, interpreter); err != nil {
 				t.Fatalf("clean layout must pass before planting: %v", err)
 			}
 			plantLayoutPath(t, root, planted, true)
-			err := validateTrustedRuntimeLayout(interpreter)
+			err := validateTrustedRuntimeLayout(root, interpreter)
 			if err == nil || !strings.Contains(err.Error(), "must hold only regular files") {
 				t.Fatalf("expected interpreter-directory refusal for %s, got %v", planted, err)
 			}
@@ -165,14 +167,134 @@ func TestTrustedRuntimeLayoutRefusesStdlibZipSlot(t *testing.T) {
 	} {
 		t.Run(carrier.interpreter+" "+carrier.path, func(t *testing.T) {
 			root, interpreter := newLayoutRuntime(t, carrier.interpreter)
-			if err := validateTrustedRuntimeLayout(interpreter); err != nil {
+			if err := validateTrustedRuntimeLayout(root, interpreter); err != nil {
 				t.Fatalf("clean layout must pass before planting: %v", err)
 			}
 			plantLayoutPath(t, root, carrier.path, carrier.directory)
-			err := validateTrustedRuntimeLayout(interpreter)
+			err := validateTrustedRuntimeLayout(root, interpreter)
 			if err == nil || !strings.Contains(err.Error(), "forbidden startup") {
 				t.Fatalf("expected stdlib zip refusal for %s, got %v", carrier.path, err)
 			}
 		})
+	}
+}
+
+// getpath treats <directory>/Modules/Setup.local as a build tree in the
+// directory it takes as the interpreter's: bin/ on Linux and on some macOS
+// builds, the runtime root on macOS builds that derive it from libpython's
+// location. CPython 3.14.0 starts its prefix search in lib/, so a lib or
+// lib64 entry there moves sys.prefix. The real Setup.local under
+// lib/python3.X/config-*/ stays accepted.
+func TestTrustedRuntimeLayoutRefusesBuildTreeAndNestedLibraryMarkers(t *testing.T) {
+	for _, planted := range []struct {
+		path      string
+		directory bool
+	}{
+		{"Modules/Setup.local", false},
+		{"MODULES/SETUP.LOCAL", false},
+		{"modules", false},
+		{"Modules", true},
+		{"bin/Modules", false},
+		{"bin/MODULES", false},
+		{"lib/Modules/Setup.local", false},
+		{"lib64/modules", true},
+		{"lib/lib/python313.zip", false},
+		{"lib/LIB64/python3.13/os.py", false},
+		{"lib64/lib", true},
+	} {
+		t.Run(planted.path, func(t *testing.T) {
+			root, interpreter := newLayoutRuntime(t, "bin/python3.13")
+			if err := validateTrustedRuntimeLayout(root, interpreter); err != nil {
+				t.Fatalf("clean layout must pass before planting: %v", err)
+			}
+			plantLayoutPath(t, root, planted.path, planted.directory)
+			err := validateTrustedRuntimeLayout(root, interpreter)
+			if err == nil || !strings.Contains(err.Error(), "forbidden startup") {
+				t.Fatalf("expected build-tree marker refusal for %s, got %v", planted.path, err)
+			}
+		})
+	}
+}
+
+func TestTrustedRuntimeLayoutRefusesSymlinkBesideInterpreter(t *testing.T) {
+	for _, target := range []string{"python3.13", "../lib"} {
+		t.Run(target, func(t *testing.T) {
+			root, interpreter := newLayoutRuntime(t, "bin/python3.13")
+			if err := os.Symlink(target, filepath.Join(root, "bin", "link")); err != nil {
+				t.Fatal(err)
+			}
+			err := validateTrustedRuntimeLayout(root, interpreter)
+			if err == nil || !strings.Contains(err.Error(), "must hold only regular files") {
+				t.Fatalf("expected interpreter-directory refusal for a symlink to %s, got %v", target, err)
+			}
+		})
+	}
+}
+
+// getpath needs only search permission on lib/ to open lib/python3XY.zip, so
+// a lib/ the supervisor cannot list could hide one.
+func TestTrustedRuntimeLayoutRefusesUnreadableLibraryAboveRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a directory whatever its mode")
+	}
+	root, interpreter := newLayoutRuntime(t, "bin/python3.13")
+	library := filepath.Join(filepath.Dir(root), "lib")
+	if err := os.Mkdir(library, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(library, 0o311); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(library, 0o700) })
+	err := validateTrustedRuntimeLayout(root, interpreter)
+	if err == nil || !strings.Contains(err.Error(), "could not inspect trusted Python library directory") {
+		t.Fatalf("expected an unreadable library directory to refuse the runtime, got %v", err)
+	}
+}
+
+// A lib/ above the runtime root that the caller can write could gain
+// python3XY.zip after validation, and getpath would then take its parent as
+// sys.prefix. The production policy also refuses these directories because
+// the current user, not root, owns them.
+func TestTrustedRuntimeLayoutRefusesUntrustedLibraryAboveRoot(t *testing.T) {
+	for _, layout := range []struct {
+		name    string
+		symlink bool
+	}{
+		{"writable directory", false},
+		{"symlink to a writable directory", true},
+	} {
+		t.Run(layout.name, func(t *testing.T) {
+			root, interpreter := newLayoutRuntime(t, "bin/python3.13")
+			parent := filepath.Dir(root)
+			writable := filepath.Join(parent, "lib")
+			if layout.symlink {
+				writable = filepath.Join(parent, "elsewhere")
+				if err := os.Symlink("elsewhere", filepath.Join(parent, "lib")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Mkdir(writable, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(writable, 0o777); err != nil {
+				t.Fatal(err)
+			}
+			err := validateTrustedRuntimeLayout(root, interpreter)
+			if err == nil || !strings.Contains(err.Error(), "untrusted Python library directory above the runtime") {
+				t.Fatalf("expected a writable library directory above the root to refuse the runtime, got %v", err)
+			}
+		})
+	}
+}
+
+func TestTrustedRuntimeLayoutRefusesDanglingLibrarySymlinkAboveRoot(t *testing.T) {
+	root, interpreter := newLayoutRuntime(t, "bin/python3.13")
+	if err := os.Symlink("missing", filepath.Join(filepath.Dir(root), "lib64")); err != nil {
+		t.Fatal(err)
+	}
+	err := validateTrustedRuntimeLayout(root, interpreter)
+	if err == nil || !strings.Contains(err.Error(), "must resolve to a directory") {
+		t.Fatalf("expected a dangling library symlink above the root to refuse the runtime, got %v", err)
 	}
 }

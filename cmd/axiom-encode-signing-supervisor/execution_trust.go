@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 )
@@ -172,17 +173,17 @@ func validateTrustedExecutionChain(
 			"Python interpreter must be contained by a declared trusted runtime root",
 		)
 	}
-	// getpath searches for the stdlib landmark from the interpreter's directory
-	// upward, so a lib/python3.X tree in any directory between a deeper
-	// interpreter and the runtime root would move sys.prefix. Keeping the
-	// interpreter in <runtime>/bin, which holds only regular files, leaves no
-	// such directory.
+	// On Linux and on some macOS builds, getpath searches for the stdlib
+	// landmark from the interpreter's directory upward, so a lib/python3.X
+	// tree in any directory between a deeper interpreter and the runtime root
+	// would move sys.prefix. Keeping the interpreter in <runtime>/bin, which
+	// holds only regular files, leaves no such directory.
 	if filepath.Dir(terminalInterpreter) != filepath.Join(canonicalRuntimeRoots[0], "bin") {
 		return trustedExecutionChain{}, errors.New(
 			"Python interpreter must sit directly in the trusted runtime's bin directory",
 		)
 	}
-	if err := validateTrustedRuntimeLayout(terminalInterpreter); err != nil {
+	if err := validateTrustedRuntimeLayout(canonicalRuntimeRoots[0], terminalInterpreter); err != nil {
 		return trustedExecutionChain{}, fmt.Errorf("untrusted Python runtime: %w", err)
 	}
 	if !containedByAny(canonicalPackageRoot, canonicalRuntimeRoots) {
@@ -406,8 +407,8 @@ func validateTrustedTree(root string) (string, error) {
 //     and usercustomize in a start that enables the user site. The rule
 //     also refuses *.egg-link and other __editable__* names as guards.
 //
-// The stdlib zip and the interpreter directory are positional rules; see
-// validateTrustedRuntimeLayout. Matching ignores case because the default
+// The stdlib zip, the build-tree marker and the interpreter directory are
+// positional rules; see validateTrustedRuntimeLayout. Matching ignores case because the default
 // macOS file system does, and getpath opens these paths through it.
 func isPythonStartupCarrierName(name string) bool {
 	name = strings.ToLower(name)
@@ -436,28 +437,46 @@ func isStdlibZipName(name string) bool {
 }
 
 // validateTrustedRuntimeLayout applies the trusted-runtime rules that depend
-// on where an entry sits rather than on its name alone. Both target CPython's
-// path configuration (getpath), which runs under the supervisor's -I -S start
-// before the trusted bootstrap can check anything:
+// on where an entry sits rather than on its name alone. All of them target
+// CPython's path configuration (getpath), which runs under the supervisor's
+// -I -S start before the trusted bootstrap can check anything.
+//
+// getpath reads pybuilddir.txt and Modules/Setup.local in the directory it
+// takes as the interpreter's, and searches upward from there for the stdlib.
+// On Linux, and on macOS builds such as CPython 3.13.9 and 3.14.0, it takes
+// the interpreter's own directory. macOS builds such as 3.13.13 and 3.14.4
+// derive the directory from libpython's location instead and take the
+// runtime root. Builds that locate libpython also start their prefix search
+// beside it: 3.14.0 starts in lib/ itself, 3.13.13 and 3.14.4 in the runtime
+// root. So:
 //   - The interpreter's own directory, which validateTrustedExecutionChain
-//     requires to be <runtime>/bin, holds only regular files. getpath
-//     searches for the stdlib landmark starting at that directory, so a
-//     bin/lib/python3.X tree moves sys.prefix to bin/, and it treats
-//     bin/Modules/Setup.local as a build tree whose stdlib is bin/Lib. A POSIX
-//     install keeps only executables and scripts in bin/.
+//     requires to be <runtime>/bin, holds only regular files, which keeps a
+//     bin/lib/python3.X tree from moving sys.prefix to bin/.
+//   - No entry named Modules, in any case, file or directory, sits directly
+//     in the runtime root, bin/, lib/ or lib64/. getpath takes
+//     <directory>/Modules/Setup.local as the mark of a build tree, moves
+//     sys.prefix to the build's configured prefix, and puts that prefix's
+//     stdlib zip first on sys.path. It reads lib/ that way only beside a
+//     nested lib entry, which the next rule refuses, and CPython 3.14.7 no
+//     longer reads the marker at all.
+//   - No entry named lib or lib64, in any case, sits directly in lib/ or
+//     lib64/ of the runtime root. On 3.14.0, lib/lib/python3XY.zip or
+//     lib/lib/python3.X/os.py moves sys.prefix to lib/.
 //   - No entry, file or directory, named python3*.zip sits directly in lib/
 //     or lib64/ of the interpreter directory or of any of its ancestors up to
-//     /. getpath searches up from the interpreter's directory for
-//     <ancestor>/lib/python3XY.zip before it looks for the stdlib landmark,
-//     and that search does not stop at the runtime root: one found above the
-//     root becomes sys.prefix. sys.path lists
-//     <prefix>/<platlibdir>/python3XY[t].zip first even when it is absent,
-//     and both zipimport and the path finder import from it. The same name
-//     elsewhere in the tree is a plain data file.
+//     /. getpath searches up for <ancestor>/lib/python3XY.zip before it looks
+//     for the stdlib landmark, and that search does not stop at the runtime
+//     root: a zip file found above the root becomes sys.prefix. sys.path
+//     lists <prefix>/<platlibdir>/python3XY[t].zip first even when it does
+//     not exist, and both zipimport and the path finder import from it. The
+//     same name elsewhere in the tree is a plain data file.
+//   - Every lib/ or lib64/ above the runtime root resolves to a directory
+//     that meets the trusted-tree rules, under trusted ancestors, so the
+//     caller cannot add a stdlib zip to it after validation.
 //
 // os.ReadDir reads each directory under the file system's own case rule,
 // which is the rule getpath meets; entry names then match in any case.
-func validateTrustedRuntimeLayout(interpreter string) error {
+func validateTrustedRuntimeLayout(runtimeRoot, interpreter string) error {
 	interpreterDirectory := filepath.Dir(interpreter)
 	entries, err := os.ReadDir(interpreterDirectory)
 	if err != nil {
@@ -475,11 +494,51 @@ func validateTrustedRuntimeLayout(interpreter string) error {
 			)
 		}
 	}
+	nestedLibraryNames := []string{"modules", "lib", "lib64"}
+	for _, position := range []struct {
+		directory string
+		names     []string
+	}{
+		{runtimeRoot, []string{"modules"}},
+		{interpreterDirectory, []string{"modules"}},
+		{filepath.Join(runtimeRoot, "lib"), nestedLibraryNames},
+		{filepath.Join(runtimeRoot, "lib64"), nestedLibraryNames},
+	} {
+		entries, err := os.ReadDir(position.directory)
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf(
+				"could not inspect trusted Python runtime directory %s: %w",
+				position.directory,
+				err,
+			)
+		}
+		for _, entry := range entries {
+			if slices.Contains(position.names, strings.ToLower(entry.Name())) {
+				return fmt.Errorf(
+					"trusted Python tree contains forbidden startup or editable injection: %s",
+					filepath.Join(position.directory, entry.Name()),
+				)
+			}
+		}
+	}
 	for prefix := interpreterDirectory; ; prefix = filepath.Dir(prefix) {
 		for _, libraryName := range []string{"lib", "lib64"} {
 			library := filepath.Join(prefix, libraryName)
+			aboveRuntime := !pathContains(runtimeRoot, library)
 			entries, err := os.ReadDir(library)
 			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+				// A symlink above the root that resolves to nothing names a
+				// directory someone could create later.
+				if info, lstatErr := os.Lstat(library); aboveRuntime &&
+					lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+					return fmt.Errorf(
+						"Python library directory above the trusted runtime must resolve to a directory: %s",
+						library,
+					)
+				}
 				continue
 			}
 			if err != nil {
@@ -497,12 +556,42 @@ func validateTrustedRuntimeLayout(interpreter string) error {
 					)
 				}
 			}
+			if aboveRuntime {
+				if err := validateTrustedDirectoryOutsideTree(library); err != nil {
+					return fmt.Errorf(
+						"untrusted Python library directory above the runtime %s: %w",
+						library,
+						err,
+					)
+				}
+			}
 		}
 		if filepath.Dir(prefix) == prefix {
 			break
 		}
 	}
 	return nil
+}
+
+// validateTrustedDirectoryOutsideTree applies the trusted-tree rules to one
+// existing directory outside every trusted tree, after resolving symlinks,
+// and the trusted-ancestor rules to every directory above it.
+func validateTrustedDirectoryOutsideTree(path string) error {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("could not resolve %s: %w", path, err)
+	}
+	if err := validateTrustedAncestors(filepath.Dir(resolved)); err != nil {
+		return err
+	}
+	info, err := os.Lstat(resolved)
+	if err != nil {
+		return fmt.Errorf("could not inspect %s: %w", resolved, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("trusted path must be a real directory: %s", resolved)
+	}
+	return validateTrustedMetadata(resolved, info, false)
 }
 
 func validateTrustedAncestors(directory string) error {

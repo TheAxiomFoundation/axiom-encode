@@ -75,11 +75,12 @@ func plantFixturePath(t *testing.T, root, relative string, directory bool) {
 
 // The getpath forms run under the supervisor's own -I -S start, before the
 // trusted bootstrap; the site forms run in any site-enabled start of the same
-// interpreter (the -I launcher shebang, -I children). The entries marked
-// "guard" did not run on the CPython 3.13.9 build tested (site and the import
-// system compare names case-sensitively, and that build reads no ._pth beside
-// libpython); the rule refuses them because it is name-based, not because
-// they run. Directory entries are planted as a directory holding __init__.py.
+// interpreter (the -I launcher shebang, -I children). getpath appends ._pth to
+// the full file names of the interpreter and of libpython. The entries marked
+// "guard" do not run, because site and the import system compare these names
+// case-sensitively; the rule refuses them because it matches names in any
+// case. The test plants each directory entry as a directory holding
+// __init__.py.
 func TestFixtureTrustedTreeRefusesPythonStartupCarriers(t *testing.T) {
 	refused := []struct {
 		name      string
@@ -104,7 +105,8 @@ func TestFixtureTrustedTreeRefusesPythonStartupCarriers(t *testing.T) {
 		{"usercustomize extension", "lib/python3.13/site-packages/usercustomize.so", false},
 		{"underscore pth beside interpreter", "bin/python3.13._pth", false},
 		{"underscore pth upper case", "bin/PYTHON3.13._PTH", false},
-		{"underscore pth beside library (guard)", "lib/libpython3.13._pth", false},
+		{"underscore pth beside library", "lib/libpython3.13.dylib._pth", false},
+		{"underscore pth beside library upper case", "lib/LIBPYTHON3.13.DYLIB._PTH", false},
 		{"pybuilddir beside interpreter", "bin/pybuilddir.txt", false},
 		{"pybuilddir upper case", "bin/PYBUILDDIR.TXT", false},
 	}
@@ -168,11 +170,12 @@ func TestFixtureTrustedChainRefusesStdlibZipInLibraryDirectory(t *testing.T) {
 	}
 }
 
-// getpath searches for the stdlib landmark from the interpreter's own
-// directory upward and treats <dir>/Modules/Setup.local as a build tree whose
-// stdlib is <dir>/Lib, under -I -S as well, so any directory beside the
-// interpreter can move sys.prefix. A real Setup.local sits under
-// lib/python3.X/config-*/, which newFixtureRuntimeTree keeps accepted.
+// On Linux and on some macOS builds, getpath searches for the stdlib
+// landmark from the interpreter's own directory upward and treats
+// <dir>/Modules/Setup.local as a build tree, under -I -S as well, so a
+// directory beside the interpreter can move sys.prefix. A real Setup.local
+// sits under lib/python3.X/config-*/, which newFixtureRuntimeTree keeps
+// accepted.
 func TestFixtureTrustedChainRefusesDirectoryBesideInterpreter(t *testing.T) {
 	for _, planted := range []string{
 		"bin/Modules/Setup.local",
@@ -199,11 +202,12 @@ func TestFixtureTrustedChainRefusesDirectoryBesideInterpreter(t *testing.T) {
 	}
 }
 
-// getpath's stdlib landmark search starts at the interpreter's directory and
-// walks up, so an interpreter deeper in the runtime would leave directories
-// between it and the runtime root where a lib/python3.X tree could move
-// sys.prefix. The chain keeps the interpreter directly in <runtime>/bin, the
-// directory the layout rule limits to regular files.
+// On Linux and on some macOS builds, getpath's stdlib landmark search starts
+// at the interpreter's directory and walks up, so an interpreter deeper in the
+// runtime would leave directories between it and the runtime root where a
+// lib/python3.X tree could move sys.prefix. The chain keeps the interpreter
+// directly in <runtime>/bin, the directory the layout rule limits to regular
+// files.
 func TestFixtureTrustedChainRequiresInterpreterInRuntimeBin(t *testing.T) {
 	for _, relocated := range []string{
 		"python3.13",
@@ -232,5 +236,60 @@ func TestFixtureTrustedChainRequiresInterpreterInRuntimeBin(t *testing.T) {
 				t.Fatalf("expected interpreter-placement refusal for %s, got %v", relocated, err)
 			}
 		})
+	}
+}
+
+// macOS builds that derive getpath's interpreter directory from libpython's
+// location, such as CPython 3.13.13 and 3.14.4, take the runtime root, so a
+// root-level Modules/Setup.local marks a build tree there: sys.prefix moves to
+// the build's configured prefix, and that prefix's stdlib zip comes first on
+// sys.path. CPython 3.14.0 starts its prefix search in lib/, where
+// lib/lib/python3XY.zip moves sys.prefix to lib/.
+func TestFixtureTrustedChainRefusesBuildTreeMarkerInRuntimeRoot(t *testing.T) {
+	for _, planted := range []string{
+		"Modules/Setup.local",
+		"MODULES/SETUP.LOCAL",
+		"lib/Modules/Setup.local",
+		"lib/lib/python313.zip",
+		"lib/LIB/python3.13/os.py",
+	} {
+		t.Run(planted, func(t *testing.T) {
+			fixture := newFixturePythonChain(t)
+			plantFixturePath(
+				t,
+				fixture.runtimeRoot,
+				"lib/python3.13/config-3.13-darwin/Setup.local",
+				false,
+			)
+			if err := validateFixtureChain(fixture); err != nil {
+				t.Fatalf("the real Setup.local under config-*/ must stay accepted: %v", err)
+			}
+			plantFixturePath(t, fixture.runtimeRoot, planted, false)
+			err := validateFixtureChain(fixture)
+			if err == nil || !strings.Contains(err.Error(), "forbidden startup") {
+				t.Fatalf("expected build-tree marker refusal for %s, got %v", planted, err)
+			}
+		})
+	}
+}
+
+// The fixture policy accepts a current-user-owned lib/ above the runtime root
+// that only its owner can write, as the production policy accepts a
+// root-owned /usr/lib; it still refuses one that others can write.
+func TestFixtureTrustedChainChecksLibraryDirectoryAboveRoot(t *testing.T) {
+	fixture := newFixturePythonChain(t)
+	library := filepath.Join(filepath.Dir(fixture.runtimeRoot), "lib")
+	if err := os.Mkdir(library, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateFixtureChain(fixture); err != nil {
+		t.Fatalf("the chain must accept a trusted library directory above the root: %v", err)
+	}
+	if err := os.Chmod(library, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	err := validateFixtureChain(fixture)
+	if err == nil || !strings.Contains(err.Error(), "untrusted Python library directory above the runtime") {
+		t.Fatalf("expected a writable library directory above the root to refuse the runtime, got %v", err)
 	}
 }

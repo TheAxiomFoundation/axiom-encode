@@ -409,6 +409,47 @@ def test_stage_runtime_tree_purges_stdlib_zip_slot_in_any_form(
     assert (site / "pkg" / "python313.zip").is_file()
 
 
+def test_stage_runtime_tree_purges_path_configuration_markers(
+    tmp_path: Path,
+) -> None:
+    """macOS builds such as CPython 3.13.13 take the prefix root as the
+    interpreter's directory and read Modules/Setup.local there as a build
+    tree; 3.14.0 starts its prefix search in lib/, where lib/lib moves
+    sys.prefix. The real Setup.local under config-*/ stays."""
+    version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    source = _fake_source_prefix(tmp_path)
+    for relative in (
+        "MODULES/SETUP.LOCAL",
+        "lib/Modules/Setup.local",
+        "lib/LIB/python313.zip",
+        f"lib64/lib/{version}/os.py",
+        f"lib/{version}/config-{version[6:]}-darwin/Setup.local",
+    ):
+        _plant(source, relative)
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    runtime = tmp_path / "dest" / "python"
+    runtime.parent.mkdir()
+
+    _stage_runtime_tree(source, runtime, staged)
+
+    survivors = [
+        str(path.relative_to(runtime))
+        for path in (
+            runtime / "MODULES",
+            runtime / "lib" / "Modules",
+            runtime / "lib" / "LIB",
+            runtime / "lib64" / "lib",
+        )
+        if _listed(path)
+    ]
+    assert survivors == []
+    assert (
+        runtime / "lib" / version / f"config-{version[6:]}-darwin" / "Setup.local"
+    ).is_file()
+    assert (runtime / "lib" / version / "os.py").is_file()
+
+
 def _provision_from_fake_source(
     tmp_path: Path, monkeypatch, source: Path, interpreter: Path
 ) -> Path:
@@ -455,6 +496,25 @@ def test_provision_keeps_only_regular_files_beside_interpreter(
     entries = sorted((runtime / "bin").iterdir())
     assert [entry.name for entry in entries] == ["git", "keep-tool", "python3"]
     assert all(entry.is_file() and not entry.is_symlink() for entry in entries)
+
+
+def test_provision_removes_modules_file_beside_interpreter(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A regular file named Modules beside the interpreter holds no
+    Setup.local, but the supervisor refuses the name in any form, so the
+    provisioner removes it in any case."""
+    source = _fake_source_prefix(tmp_path)
+    _plant(source, "bin/MODULES")
+
+    runtime = _provision_from_fake_source(
+        tmp_path, monkeypatch, source, source / "bin" / "python3"
+    )
+
+    assert sorted(entry.name for entry in (runtime / "bin").iterdir()) == [
+        "git",
+        "python3",
+    ]
 
 
 def test_provision_refuses_interpreter_at_prefix_root(
